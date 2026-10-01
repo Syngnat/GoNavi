@@ -1,15 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ApiOutlined,
   CaretRightOutlined,
-  CheckCircleFilled,
+  CheckOutlined,
   ClockCircleOutlined,
   CloseCircleFilled,
-  LoadingOutlined,
-  RobotOutlined,
-  SafetyCertificateOutlined,
   StopFilled,
-  SyncOutlined,
 } from '@ant-design/icons';
 
 import type { AIChatRunActivity } from '../../../types';
@@ -17,6 +12,7 @@ import { t as catalogTranslate } from '../../../i18n/catalog';
 import { useOptionalI18n } from '../../../i18n/provider';
 import type { I18nParams } from '../../../i18n/types';
 import type { OverlayWorkbenchTheme } from '../../../utils/overlayWorkbenchTheme';
+import { formatProcessingDuration } from '../aiMessageTimeFormat';
 
 interface AIActivityTimelineProps {
   activities: AIChatRunActivity[];
@@ -24,42 +20,42 @@ interface AIActivityTimelineProps {
   overlayTheme: OverlayWorkbenchTheme;
 }
 
+type ActivityStatus = AIChatRunActivity['status'];
+
+const STATUS_COLORS: Record<ActivityStatus, string> = {
+  active: '#1677ff',
+  waiting: '#d97706',
+  completed: '#10b981',
+  failed: '#dc2626',
+  canceled: '#6b7280',
+};
+
 const isInProgress = (activity: AIChatRunActivity): boolean => (
   activity.status === 'active' || activity.status === 'waiting'
 );
 
-const activityColor = (status: AIChatRunActivity['status']): string => {
+const StatusIcon: React.FC<{ status: ActivityStatus }> = ({ status }) => {
   switch (status) {
-    case 'active': return '#1677ff';
-    case 'waiting': return '#d97706';
-    case 'completed': return '#10b981';
-    case 'failed': return '#dc2626';
-    case 'canceled': return '#6b7280';
+    case 'active': return <span className="ai-spinning-ring ai-run-spinner" />;
+    case 'waiting': return <ClockCircleOutlined />;
+    case 'completed': return <CheckOutlined />;
+    case 'failed': return <CloseCircleFilled />;
+    case 'canceled': return <StopFilled />;
   }
 };
 
-const ActivityStatusIcon: React.FC<{ status: AIChatRunActivity['status'] }> = ({ status }) => {
-  const style = { color: activityColor(status), fontSize: 13 };
-  switch (status) {
-    case 'active': return <LoadingOutlined spin style={style} />;
-    case 'waiting': return <ClockCircleOutlined style={style} />;
-    case 'completed': return <CheckCircleFilled style={style} />;
-    case 'failed': return <CloseCircleFilled style={style} />;
-    case 'canceled': return <StopFilled style={style} />;
-  }
-};
-
-const ActivityKindIcon: React.FC<{ kind: AIChatRunActivity['kind'] }> = ({ kind }) => {
-  const style = { fontSize: 12 };
-  switch (kind) {
-    case 'model': return <RobotOutlined style={style} />;
-    case 'tool': return <ApiOutlined style={style} />;
-    case 'approval': return <SafetyCertificateOutlined style={style} />;
-    case 'retry': return <SyncOutlined style={style} />;
-    case 'workspace': return <ClockCircleOutlined style={style} />;
-    case 'run': return <CheckCircleFilled style={style} />;
-  }
-};
+/**
+ * How long a finished step took: from its first appearance to the next step's.
+ * The last step has no successor, so it shows nothing rather than a guess.
+ */
+const stepDurationMs = (
+  activity: AIChatRunActivity,
+  next: AIChatRunActivity | undefined,
+): number => (
+  activity.status === 'completed' && next && next.timestamp > activity.timestamp
+    ? next.timestamp - activity.timestamp
+    : 0
+);
 
 export const AIActivityTimeline: React.FC<AIActivityTimelineProps> = ({
   activities,
@@ -96,10 +92,6 @@ export const AIActivityTimeline: React.FC<AIActivityTimelineProps> = ({
     return copy('ai_chat.message.activity.kind.tool', { name: translatedToolName });
   };
 
-  const activityLabel = (activity: AIChatRunActivity): string => (
-    `${activityKindLabel(activity)} · ${copy(`ai_chat.message.activity.status.${activity.status}`)}`
-  );
-
   const summary = activeActivity
     ? copy(`ai_chat.message.activity.status.${activeActivity.status}`)
     : hasFailure
@@ -109,72 +101,69 @@ export const AIActivityTimeline: React.FC<AIActivityTimelineProps> = ({
         : copy('ai_chat.message.activity.summary.completed', {
           count: activities.filter((activity) => activity.kind !== 'run').length,
         });
+  const headerStatus: ActivityStatus = activeActivity
+    ? activeActivity.status
+    : hasFailure ? 'failed' : wasCanceled ? 'canceled' : 'completed';
+  const language = i18n?.language ?? 'en-US';
+
+  const themeVars = {
+    '--ai-run-title': overlayTheme.titleText,
+    '--ai-run-muted': overlayTheme.mutedText,
+    '--ai-run-border': darkMode ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.08)',
+    '--ai-run-rail': darkMode ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)',
+    '--ai-run-surface': darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)',
+    '--ai-run-hover': darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.035)',
+  } as React.CSSProperties;
 
   return (
     <section
+      className="ai-run"
       data-testid="ai-activity-timeline"
       aria-label={copy('ai_chat.message.activity.title')}
-      style={{
-        marginTop: 10,
-        paddingTop: 9,
-        borderTop: `1px solid ${darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}`,
-      }}
+      style={themeVars}
     >
       <button
         type="button"
+        className="ai-run-header"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        style={{
-          width: '100%',
-          minHeight: 24,
-          padding: 0,
-          border: 0,
-          background: 'transparent',
-          color: overlayTheme.mutedText,
-          cursor: 'pointer',
-          display: 'grid',
-          gridTemplateColumns: '16px minmax(0, 1fr) 14px',
-          alignItems: 'center',
-          columnGap: 7,
-          textAlign: 'left',
-          fontSize: 12,
-        }}
       >
-        {activeActivity ? <ActivityStatusIcon status={activeActivity.status} /> : <ActivityKindIcon kind="run" />}
-        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          <span style={{ color: overlayTheme.titleText, marginRight: 7 }}>{copy('ai_chat.message.activity.title')}</span>
-          <span>{summary}</span>
+        <span className="ai-run-icon" style={{ color: STATUS_COLORS[headerStatus] }}>
+          <StatusIcon status={headerStatus} />
         </span>
-        <CaretRightOutlined style={{ fontSize: 10, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }} />
+        <span className="ai-run-header-text">
+          <span className="ai-run-header-title">{copy('ai_chat.message.activity.title')}</span>
+          <span className="ai-run-header-summary">{summary}</span>
+        </span>
+        <CaretRightOutlined className="ai-run-caret" style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }} />
       </button>
-
       {expanded && (
-        <div style={{ position: 'relative', margin: '8px 0 1px 7px', paddingLeft: 17 }}>
-          <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 1, background: darkMode ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.13)' }} />
-          {visibleActivities.map((activity) => (
-            <div
-              key={activity.id}
-              data-activity-kind={activity.kind}
-              data-activity-status={activity.status}
-              style={{
-                position: 'relative',
-                minHeight: 24,
-                display: 'grid',
-                gridTemplateColumns: '15px minmax(0, 1fr)',
-                alignItems: 'center',
-                columnGap: 7,
-                color: activity.status === 'active' ? overlayTheme.titleText : overlayTheme.mutedText,
-                fontSize: 12,
-              }}
-            >
-              <span style={{ position: 'absolute', left: -24, top: 5, width: 14, height: 14, background: darkMode ? '#1b1f24' : '#ffffff', display: 'grid', placeItems: 'center' }}>
-                <ActivityStatusIcon status={activity.status} />
-              </span>
-              <ActivityKindIcon kind={activity.kind} />
-              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activityLabel(activity)}</span>
-            </div>
-          ))}
-        </div>
+        <ol className="ai-run-steps">
+          {visibleActivities.map((activity, index) => {
+            const label = activityKindLabel(activity);
+            const durationMs = stepDurationMs(activity, visibleActivities[index + 1]);
+            const trailing = activity.status === 'completed'
+              ? formatProcessingDuration(durationMs, language)
+              : copy(`ai_chat.message.activity.status.${activity.status}`);
+            return (
+              <li
+                key={activity.id}
+                className="ai-run-step"
+                data-activity-kind={activity.kind}
+                data-activity-status={activity.status}
+                aria-label={`${label} · ${copy(`ai_chat.message.activity.status.${activity.status}`)}`}
+              >
+                <span className="ai-run-icon" style={{ color: STATUS_COLORS[activity.status] }}>
+                  <StatusIcon status={activity.status} />
+                </span>
+                <span className="ai-run-step-label">{label}</span>
+                <span className="ai-run-step-trailing" style={activity.status === 'completed' ? undefined : { color: STATUS_COLORS[activity.status] }}>
+                  {trailing}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </section>
   );

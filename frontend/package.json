@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && node scripts/zip-dist.mjs",
+    "build": "node scripts/build-frontend.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "postinstall": "patch-package --error-on-fail",

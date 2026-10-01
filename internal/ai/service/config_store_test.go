@@ -183,6 +183,43 @@ func TestProviderConfigStoreSaveDropsRemovedProviderFields(t *testing.T) {
 	}
 }
 
+func TestProviderConfigStoreKeepsSelectedContextWindowForTheModel(t *testing.T) {
+	configStore := newProviderConfigStore(t.TempDir(), failOnUseSecretStore{})
+	save := func(model string, window int) ai.ProviderConfig {
+		t.Helper()
+		err := configStore.Save(ProviderConfigStoreSnapshot{
+			Providers: []ai.ProviderConfig{{
+				ID: "openai-main", Type: "openai", Name: "OpenAI", BaseURL: "https://api.openai.com/v1",
+				Model: model, ContextWindow: window,
+			}},
+			ActiveProvider: "openai-main",
+			SafetyLevel:    ai.PermissionReadOnly,
+			ContextLevel:   ai.ContextSchemaOnly,
+		})
+		if err != nil {
+			t.Fatalf("Save returned error: %v", err)
+		}
+		snapshot, err := configStore.Load()
+		if err != nil || len(snapshot.Providers) != 1 {
+			t.Fatalf("Load returned %v, providers=%#v", err, snapshot.Providers)
+		}
+		return snapshot.Providers[0]
+	}
+
+	if got := save("gpt-5", 500_000).ContextWindow; got != 500_000 {
+		t.Fatalf("a selectable tier must survive a save/load round trip, got %d", got)
+	}
+	if got := save("gpt-5", 1_000_000).ContextWindow; got != 0 {
+		t.Fatalf("the default tier is stored as follow-the-model (0), got %d", got)
+	}
+	if got := save("gpt-5", 300_000).ContextWindow; got != 0 {
+		t.Fatalf("a tier outside the model options must be dropped, got %d", got)
+	}
+	if got := save("gpt-4o", 500_000).ContextWindow; got != 0 {
+		t.Fatalf("switching to a fixed-window model must drop the previous tier, got %d", got)
+	}
+}
+
 func TestProviderConfigStoreLoadMigratesRemovedProviderFields(t *testing.T) {
 	configStore := newProviderConfigStore(t.TempDir(), failOnUseSecretStore{})
 	legacy := `{"schemaVersion":5,"providers":[{"id":"openai-main","type":"openai","name":"OpenAI","apiKey":"","baseUrl":"https://api.openai.com/v1","model":"gpt-5","models":["legacy-favorite"],"maxTokens":8192,"contextWindow":128000,"temperature":0.7}],"activeProvider":"openai-main","safetyLevel":"readonly","contextLevel":"schema_only","mcpHTTPServer":{}}`

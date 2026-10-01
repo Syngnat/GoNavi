@@ -4,8 +4,12 @@ import {
   filterSlowQueryRecords,
   getSlowQueryPreview,
   getSlowQuerySql,
+  getSlowQueryDiagnosisBlocker,
+  getSlowQueryDurationRatio,
   getVisibleSlowQueryRecords,
   isSlowQueryRecordDiagnosable,
+  resolveSlowQueryRecency,
+  resolveSlowQuerySeverity,
 } from './slowQueryModel'
 
 describe('slowQueryModel', () => {
@@ -74,5 +78,35 @@ describe('slowQueryModel', () => {
     expect(isSlowQueryRecordDiagnosable({ sqlText: 'SELECT 1', statementCount: 1, diagnosable: true })).toBe(true)
     expect(isSlowQueryRecordDiagnosable({ sqlText: 'UPDATE users SET active = 1', statementCount: 1, diagnosable: false })).toBe(false)
     expect(isSlowQueryRecordDiagnosable({ sqlText: 'SELECT 1; SELECT 2', statementCount: 2, diagnosable: false })).toBe(false)
+  })
+
+  it('classifies severity by duration', () => {
+    expect(resolveSlowQuerySeverity(999)).toBe('normal')
+    expect(resolveSlowQuerySeverity(1_000)).toBe('warning')
+    expect(resolveSlowQuerySeverity(5_000)).toBe('critical')
+  })
+
+  it('explains why a record cannot be loaded into diagnosis, most specific reason first', () => {
+    expect(getSlowQueryDiagnosisBlocker({ sqlText: 'select 1' }, true)).toBeNull()
+    expect(getSlowQueryDiagnosisBlocker({ sqlText: 'select 1', sqlTruncated: true }, false)).toBe('truncated')
+    expect(getSlowQueryDiagnosisBlocker({ sqlText: 'select 1' }, false)).toBe('unsupported')
+    expect(getSlowQueryDiagnosisBlocker({ sqlText: 'update t set a=1', statementCount: 1, diagnosable: false }, true)).toBe('not_diagnosable')
+    expect(getSlowQueryDiagnosisBlocker({ sqlText: 'select 1; select 2', statementCount: 2 }, true)).toBe('not_diagnosable')
+  })
+
+  it('buckets relative time and ignores unparsable timestamps', () => {
+    const now = Date.parse('2026-09-30T12:00:00Z')
+    expect(resolveSlowQueryRecency('2026-09-30T11:59:30Z', now)).toEqual({ kind: 'just_now' })
+    expect(resolveSlowQueryRecency('2026-09-30T11:15:00Z', now)).toEqual({ kind: 'minutes', count: 45 })
+    expect(resolveSlowQueryRecency('2026-09-30T07:00:00Z', now)).toEqual({ kind: 'hours', count: 5 })
+    expect(resolveSlowQueryRecency('2026-09-27T12:00:00Z', now)).toEqual({ kind: 'days', count: 3 })
+    expect(resolveSlowQueryRecency('nope', now)).toBeNull()
+    expect(resolveSlowQueryRecency(undefined, now)).toBeNull()
+  })
+
+  it('keeps the duration ratio within 0..1', () => {
+    expect(getSlowQueryDurationRatio(500, 1000)).toBe(0.5)
+    expect(getSlowQueryDurationRatio(2000, 1000)).toBe(1)
+    expect(getSlowQueryDurationRatio(10, 0)).toBe(0)
   })
 })

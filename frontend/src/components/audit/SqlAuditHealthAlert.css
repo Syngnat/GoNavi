@@ -1,0 +1,36 @@
+/* 审计写入健康度提示条。放在组件自己的样式里，审计中心和执行历史页都会加载到。 */
+.gn-sql-audit-health-alert {
+  flex: 0 0 auto;
+}
+
+.gn-sql-audit-health-summary {
+  margin-bottom: 6px;
+}
+
+.gn-sql-audit-health-details {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--sql-audit-muted, var(--gn-fg-4, inherit));
+  font-size: 12px;
+}
+
+.gn-sql-audit-health-details code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/*
+ * 「写入正常」是状态指示，必须始终是语义绿色，不能跟着主题强调色走：
+ * 全局 v2 规则把 .ant-alert-success 染成 --gn-accent-soft（淡紫主题下是紫色），这里压回状态绿。
+ */
+body[data-ui-version="v2"] .gn-sql-audit-health-alert.ant-alert-success {
+  --gn-health-ok: var(--gn-status-connected, #157d3c);
+  border-color: color-mix(in srgb, var(--gn-health-ok) 32%, transparent) !important;
+  background: color-mix(in srgb, var(--gn-health-ok) 12%, var(--gn-bg-panel, #ffffff)) !important;
+}
+
+body[data-ui-version="v2"] .gn-sql-audit-health-alert.ant-alert-success .ant-alert-icon {
+  color: var(--gn-health-ok);
+}

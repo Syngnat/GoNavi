@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Tooltip } from 'antd';
-import { FullscreenExitOutlined, FullscreenOutlined } from '@ant-design/icons';
+import { GnFullscreenExitIcon, GnFullscreenIcon } from '../icons/gnIcons';
 
 import { t as defaultTranslate } from '../../i18n';
 import { useOptionalI18n } from '../../i18n/provider';
@@ -44,7 +44,7 @@ export const QueryEditorToolbarFullscreenAction: React.FC<QueryEditorToolbarFull
         aria-pressed={active}
         className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-fullscreen-action"
         type={active ? 'primary' : 'default'}
-        icon={active ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+        icon={active ? <GnFullscreenExitIcon /> : <GnFullscreenIcon />}
         onClick={onToggle}
       />
     </Tooltip>

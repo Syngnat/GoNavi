@@ -10,6 +10,7 @@ import type {
 } from '../../types';
 import type { AIInspectionTranslator } from './aiInspectionI18n';
 import { translateInspectionCopy } from './aiInspectionI18n';
+import { isAIEditorSelectionContext, isAITableSchemaContext } from './aiEditorSelectionContext';
 
 type ContextRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
@@ -131,8 +132,11 @@ export const buildAIContextBudgetSnapshot = ({
   const contextEntries = Object.entries(aiContexts).flatMap(([contextKey, items]) => (
     (items || []).map((item) => ({ contextKey, item }))
   ));
-  const ddlChars = contextEntries.reduce((sum, entry) => sum + charCount(entry.item.ddl), 0);
-  const largestTables = contextEntries
+  const tableEntries = contextEntries.filter((entry) => isAITableSchemaContext(entry.item));
+  const selectionEntries = contextEntries.filter((entry) => isAIEditorSelectionContext(entry.item));
+  const ddlChars = tableEntries.reduce((sum, entry) => sum + charCount(entry.item.ddl), 0);
+  const selectionChars = selectionEntries.reduce((sum, entry) => sum + charCount(entry.item.content || entry.item.ddl), 0);
+  const largestTables = tableEntries
     .map((entry) => ({
       contextKey: entry.contextKey,
       dbName: entry.item.dbName,
@@ -168,7 +172,7 @@ export const buildAIContextBudgetSnapshot = ({
       + charCount(userPromptSettings.jvmDiagnostic)
     : 0;
 
-  const estimatedInputChars = messagePayloadChars + ddlChars + mcpSchemaChars + skillPromptChars + userPromptChars;
+  const estimatedInputChars = messagePayloadChars + ddlChars + selectionChars + mcpSchemaChars + skillPromptChars + userPromptChars;
   const riskLevel = classifyRisk(estimatedInputChars);
   const warnings: string[] = [];
   const nextActions: string[] = [];
@@ -310,9 +314,11 @@ export const buildAIContextBudgetSnapshot = ({
     },
     schemaContext: {
       contextCount: Object.keys(aiContexts).length,
-      tableCount: contextEntries.length,
+      tableCount: tableEntries.length,
+      selectionCount: selectionEntries.length,
       ddlChars,
-      estimatedTokens: estimateTokens(ddlChars),
+      selectionChars,
+      estimatedTokens: estimateTokens(ddlChars + selectionChars),
       largestTables,
     },
     toolCatalog: {

@@ -1,3 +1,5 @@
+import { isTargetTableCreationAllowed } from './dataSyncTableCreation';
+
 export type SourceDatasetMode = 'table' | 'query';
 
 type SyncContent = 'data' | 'schema' | 'both';
@@ -9,10 +11,13 @@ export const resolveDataSyncTargetTableStrategy = (
   sourceDatasetMode: SourceDatasetMode,
   supportsAutoCreate: boolean,
   strategyExplicitlySelected = false,
+  syncContent: SyncContent = 'data',
 ): DataSyncTargetTableStrategy => {
+  const creationAllowed = isTargetTableCreationAllowed(workflowType, syncContent, sourceDatasetMode);
+  // 数据同步入口在「仅同步数据」下不能建表：即使状态里残留了建表策略，也按已有目标表处理。
+  if (workflowType === 'sync' && !creationAllowed) return 'existing_only';
   if (
-    workflowType === 'migration' &&
-    sourceDatasetMode === 'table' &&
+    creationAllowed &&
     supportsAutoCreate &&
     strategy === 'existing_only' &&
     !strategyExplicitlySelected

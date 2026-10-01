@@ -4,6 +4,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSidebarTreeLoaders } from './useSidebarTreeLoaders';
+import { buildSidebarDatabasePinKey } from '../../store';
 
 const mocks = vi.hoisted(() => ({
   replaceTreeNodeChildren: vi.fn(),
@@ -278,6 +279,7 @@ describe('useSidebarTreeLoaders Nacos namespace discovery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.storeState.connections = [];
+    mocks.storeState.pinnedSidebarDatabases = [];
     mocks.replaceTreeNodeChildren.mockImplementation((_key, children) => children || []);
   });
 
@@ -500,6 +502,25 @@ describe('useSidebarTreeLoaders Nacos namespace discovery', () => {
     expect(rootDataRef.nacosNamespaceDiscoveryMode).toBe('listed');
     expect(harness.connectionStates['nacos-1']).toBe('success');
     expect(message.warning).not.toHaveBeenCalled();
+  });
+
+  it('keeps a pinned namespace first when the namespace list reloads', async () => {
+    mocks.storeState.pinnedSidebarDatabases = [buildSidebarDatabasePinKey('nacos-1', 'dev')];
+    vi.stubGlobal('window', { go: { app: { App: {
+      NacosListNamespaces: vi.fn().mockResolvedValue({ success: true, data: [
+        { id: '', showName: 'public' }, { id: 'dev', showName: 'Development' },
+      ] }),
+    } } } });
+    const harness = renderNamespaceLoader();
+    await act(async () => {
+      await harness.loaders.loadDatabases(buildNode());
+    });
+    const [, nodes] = mocks.replaceTreeNodeChildren.mock.calls[0];
+    expect(nodes.map((node: any) => node.type)).toEqual([
+      'v2-database-section', 'nacos-namespace', 'v2-database-section', 'nacos-namespace',
+    ]);
+    expect(nodes[1]).toMatchObject({ title: 'Development', dataRef: { pinnedSidebarDatabase: true } });
+    expect(nodes[3]).toMatchObject({ title: 'public' });
   });
 
   it('falls back to the explicitly configured namespace only for the stable forbidden code', async () => {

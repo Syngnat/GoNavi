@@ -271,7 +271,19 @@ export type DataSyncValidationIssue = {
   message?: string;
   detail?: {
     unmigratedIndex?: DataSyncUnmigratedIndex;
+    preflightProgress?: DataSyncPreflightProgress;
   };
+};
+
+/**
+ * 预检被中止时的映射校验进度。后端在超时问题里回传，用于说明「已检查几张、
+ * 卡在哪一张」；mappingKey 与前端 mappingKeyFor 算出的是同一个值。
+ */
+export type DataSyncPreflightProgress = {
+  checked: number;
+  total: number;
+  mappingKey?: string;
+  mappingLabel?: string;
 };
 
 export type DataSyncPreflightStatus =

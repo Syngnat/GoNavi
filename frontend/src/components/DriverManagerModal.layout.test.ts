@@ -12,6 +12,10 @@ const driverManagerWorkbenchCss = readFileSync(
   fileURLToPath(new globalThis.URL('./DriverManagerWorkbench.css', import.meta.url)),
   'utf8',
 );
+const downloadSourceSelectCss = readFileSync(
+  fileURLToPath(new globalThis.URL('./DownloadSourceSelect.css', import.meta.url)),
+  'utf8',
+);
 const downloadSourceCatalogs = ['de-DE', 'en-US', 'ja-JP', 'ru-RU', 'zh-CN', 'zh-TW'].map((locale) => ({
   locale,
   messages: JSON.parse(readFileSync(
@@ -105,9 +109,20 @@ describe('DriverManagerModal embedded layout', () => {
     expect(appCss).toMatch(/\.driver-manager-detail-controls\s*\{/);
     // Bulk operations live on a slim bar above the panes.
     expect(appCss).toMatch(/\.driver-manager-bulkbar\s*\{[^}]*display:\s*flex/s);
-    expect(appCss).toMatch(
-      /\.driver-manager-bulkbar-dir\s*\{[^}]*margin-left:\s*auto/s,
-    );
+    // 目录类操作紧跟主按钮组：不推到最右，否则按钮独占一行时中间留大片空白。
+    const bulkbarDirBlock = appCss.match(/\.driver-manager-bulkbar-dir\s*\{([^}]*)\}/)?.[1];
+    expect(bulkbarDirBlock).toBeTruthy();
+    expect(bulkbarDirBlock).toMatch(/margin-left:\s*0/);
+    expect(bulkbarDirBlock).not.toMatch(/margin-left:\s*auto/);
+    // 导入驱动目录是 antd 的 Dropdown.Button，内部 Space.Compact 带 -block 类，
+    // antd 给该类写死 width: 100%；工具条按内容定宽时这个 100% 会被解析成整条
+    // 工具条的宽度，把同排后面的「导出/导入驱动包」顶出可视区。必须改回按内容定宽。
+    const importDropdownBlock = appCss.match(
+      /\.driver-manager-bulkbar-dir\s+\.driver-manager-import-directory-dropdown\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(importDropdownBlock).toBeTruthy();
+    expect(importDropdownBlock).toMatch(/width:\s*auto/);
+    expect(importDropdownBlock).not.toMatch(/width:\s*100%/);
     // Footer: ambient network status left, action buttons right.
     expect(appCss).toMatch(
       /\.driver-manager-footer-actions\s*\{[^}]*justify-content:\s*space-between/s,
@@ -131,23 +146,18 @@ describe('DriverManagerModal embedded layout', () => {
     expect(appCss).toMatch(
       /\.driver-manager-mirror-chip-copy\s*\{[^}]*display:\s*flex[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto/s,
     );
-    expect(appCss).toMatch(
-      /\.driver-manager-mirror-chip-source\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
+    // The mirror dropdown's selected label truncates instead of reserving a fixed slot.
+    expect(downloadSourceSelectCss).toMatch(
+      /\.gn-download-source-value-name\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
     );
-    expect(appCss).not.toMatch(
-      /\.driver-manager-mirror-chip-source\s*\{[^}]*(?:width|max-width|flex):\s*[^;}]*11ch/s,
+    expect(downloadSourceSelectCss).not.toMatch(
+      /\.gn-download-source-value-name\s*\{[^}]*(?:width|max-width|flex):\s*[^;}]*11ch/s,
     );
-    expect(appCss).toMatch(
-      /\.driver-manager-mirror-chip-switch\.ant-btn\s*\{[^}]*flex-shrink:\s*0/s,
-    );
-    expect(driverManagerWorkbenchCss).toMatch(
-      /\.preview-settings-source-name\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
-    );
-    expect(driverManagerWorkbenchCss).not.toMatch(
-      /\.preview-settings-source-name\s*\{[^}]*(?:width|max-width|flex):\s*[^;}]*11ch/s,
+    expect(downloadSourceSelectCss).toMatch(
+      /\.gn-download-source-dot\s*\{[^}]*width:\s*8px[^}]*height:\s*8px[^}]*flex:\s*0 0 auto/s,
     );
     expect(driverManagerWorkbenchCss).toMatch(
-      /\.preview-settings-source-action\s*\{[^}]*flex:\s*0 0 auto/s,
+      /\.preview-settings-source-select\.ant-select\s*\{[^}]*min-width:\s*140px[^}]*flex:\s*0 0 auto/s,
     );
     expect(appCss).toMatch(
       /\.gonavi-about-download-source\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%/s,
@@ -166,7 +176,7 @@ describe('DriverManagerModal embedded layout', () => {
       /body \.gonavi-about-field-control \.ant-switch\s*\{[^}]*width:\s*44px !important/s,
     );
     expect(appCss).toMatch(
-      /\.driver-manager-mirror-chip\.is-compact\s*>\s*\.ant-btn,\s*\.gonavi-about-download-source\s*>\s*\.ant-btn\s*\{[^}]*margin-left:\s*auto/s,
+      /\.driver-manager-mirror-chip\.is-compact\s*>\s*\.ant-select,\s*\.gonavi-about-download-source\s*>\s*\.ant-select\s*\{[^}]*margin-left:\s*auto/s,
     );
     expect(appCss).toMatch(/\.driver-manager-filterbar\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/s);
     expect(appCss).toMatch(/\.driver-manager-filter-chip\s*\{[^}]*padding:\s*6px 8px/s);
@@ -179,6 +189,25 @@ describe('DriverManagerModal embedded layout', () => {
     expect(appCss).toMatch(
       /\.driver-manager-progress\.ant-progress-line\s*\{[^}]*width:\s*100%[^}]*min-width:\s*0/s,
     );
+  });
+
+  it('keeps the two-pane side-by-side layout on narrow containers', () => {
+    // 小屏只收窄左栏，不折叠成上下两段：容器查询里必须仍是两列，
+    // 左栏用 clamp 同时保住可读下限与断点处的连续过渡。
+    const narrowContainerBlock = appCss.match(
+      /@container \(max-width:\s*960px\)\s*\{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(narrowContainerBlock).toBeTruthy();
+    expect(narrowContainerBlock).toMatch(
+      /\.driver-manager-columns\s*\{[^}]*grid-template-columns:\s*clamp\([^)]+\)\s*minmax\(0, 1fr\)/s,
+    );
+    // 旧行为（单列堆叠）不得回归。
+    expect(narrowContainerBlock).not.toMatch(
+      /\.driver-manager-columns\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s*;/s,
+    );
+    // 列表栏的分隔线与内边距在窄屏下继续保留（左右分栏的视觉前提）。
+    expect(narrowContainerBlock).not.toMatch(/\.driver-manager-list-pane\s*\{/);
+    expect(narrowContainerBlock).not.toMatch(/\.driver-manager-detail\s*\{[^}]*padding-left:\s*0\s*;/s);
   });
 
   it('uses the settings body font for driver detail actions, paths, and logs', () => {

@@ -796,6 +796,8 @@ func buildCrossDialectAutoCreatePlan(sourceType, targetType string, config SyncC
 	pkCols := make([]string, 0, 2)
 
 	plannedColumnTypes := make(map[string]string, len(sourceCols))
+	// 目标按字节计字符列长度（openGauss 系）时放宽 varchar/char 长度，见 migration_byte_length_target.go。
+	byteLengthWidener := newByteLengthWidener(sourceType, targetType)
 
 	// 先把所有列归一，再决定 SQLite 的内联自增 —— 顺序不能反。
 	// 各方言表达自增的方式不同（Oracle 的 Extra="IDENTITY"、PG 的类型 serial），
@@ -825,6 +827,7 @@ func buildCrossDialectAutoCreatePlan(sourceType, targetType string, config SyncC
 		}
 		intermediate, keyWarnings := applyKeyColumnTypeSafety(targetType, intermediate)
 		warnings = append(warnings, keyWarnings...)
+		intermediate = byteLengthWidener.Adapt(intermediate)
 		def, colWarnings := buildColumnDefinitionForTargetType(targetType, intermediate)
 		warnings = append(warnings, colWarnings...)
 		plannedColumnTypes[strings.ToLower(strings.TrimSpace(col.Name))] = def
@@ -837,6 +840,7 @@ func buildCrossDialectAutoCreatePlan(sourceType, targetType string, config SyncC
 	if len(pkCols) > 0 {
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(pkCols, ", ")))
 	}
+	warnings = append(warnings, byteLengthWidener.Warnings()...)
 	createSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(columnDefs, ",\n  "))
 
 	// 列注释按目标方言处理：Oracle/达梦 生成 COMMENT ON COLUMN（注释在源列

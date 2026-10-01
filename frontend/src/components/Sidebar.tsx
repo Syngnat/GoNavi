@@ -1,15 +1,18 @@
 import SidebarConnectionRail from './sidebar/SidebarConnectionRail';
 import Modal from './common/ResizableDraggableModal';
 import { type TitleBarQuickAction } from './TitleBarQuickActions';
+import { TitlebarGraphIcon, TitlebarSqlToolIcon } from './titlebar/gonaviTitlebarIcons';
+import { buildTitlebarTrailingActions } from './sidebar/titlebarTrailingActions';
+import { renderSidebarObjectIcon } from './sidebar/sidebarObjectIcons';
+import { GnDatabaseIcon, GnFieldsIcon, GnFolderIcon, GnFolderOpenIcon, GnIndexIcon, GnLinkIcon, GnSqlDocIcon } from './icons/gnIcons';
 import TitleBarQuickActionsHost from './TitleBarQuickActionsHost';
 import { type DataSyncEntryModeAlias } from './dataSyncEntryMode';
 import type { DatabaseCharsetOption, DatabaseCollationOption } from '../utils/databaseCharset';
-import SidebarSearchPanel, {
-  type SidebarSearchPanelProps,
-  type V2CommandSearchCopyAction,
-  type V2CommandSearchCopyOption,
-} from './sidebar/SidebarSearchPanel';
+import SidebarSearchPanel, { type SidebarSearchPanelProps } from './sidebar/SidebarSearchPanel';
 import { buildSidebarNodeMenuItems } from './sidebar/sidebarNodeMenu';
+import { useSidebarCommandSearchCopy } from './sidebar/useSidebarCommandSearchCopy';
+import { useCommandSearchDestinations } from './sidebar/useCommandSearchDestinations';
+import type { SettingsCenterNavigationTarget } from './settings/settingsCenterMenuCatalog';
 import {
   getMetadataDialect,
   loadSchemas,
@@ -106,25 +109,19 @@ import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLi
 	  EyeOutlined,
 	  GlobalOutlined,
 	  HistoryOutlined,
+	  LoadingOutlined,
 	  TableOutlined,
 	  SwitcherOutlined,
 	  UploadOutlined,
 	  ConsoleSqlOutlined,
   HddOutlined,
-  FolderOutlined,
-  FolderOpenOutlined,
-  FileTextOutlined,
   CopyOutlined,
   ExportOutlined,
   FolderAddOutlined,
   SaveOutlined,
   EditOutlined,
   SearchOutlined,
-  KeyOutlined,
-  ThunderboltOutlined,
-  UnorderedListOutlined,
   FunctionOutlined,
-  LinkOutlined,
   FileAddOutlined,
   ImportOutlined,
   ReloadOutlined,
@@ -135,14 +132,10 @@ import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLi
   FilterOutlined,
   DashboardOutlined,
   WarningOutlined,
-  AimOutlined,
-  MoreOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  VerticalAlignTopOutlined,
   SafetyCertificateOutlined,
   SkinOutlined,
 	} from '@ant-design/icons';
+import { V2ExplorerSearchAction, V2ExplorerToolbarActions, V2RailExplorerActions } from './sidebar/SidebarExplorerToolbar';
 import { useStore } from '../store';
 import { buildOverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import {
@@ -159,9 +152,7 @@ import { useAutoFetchVisibility } from '../utils/autoFetchVisibility';
 import { useWorkbenchTabs } from '../hooks/useWorkbenchTabs';
 import FindInDatabaseModal from './FindInDatabaseModal';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
-import { buildSqlAnalysisWorkbenchTab } from '../utils/sqlAnalysisTab';
-import { buildSqlAuditWorkbenchTab } from '../utils/sqlAuditTab';
-import { buildDMLSnapshotWorkbenchTab } from '../utils/dmlSnapshotTab';
+import { useSidebarWorkbenchLaunchers } from './sidebar/useSidebarWorkbenchLaunchers';
 import {
     normalizeSidebarDatabaseListRefreshRequest,
     normalizeSidebarDatabaseRefreshRequest,
@@ -330,54 +321,17 @@ export {
 } from './sidebarV2Utils';
 export type { SidebarDropDomHit, SidebarTreeDropPlacement, V2CommandSearchItem, V2RailConnectionGroup } from './sidebarV2Utils';
 
-type SidebarTreeSwitcherNodeLike = {
-  key?: React.Key;
-  data?: TreeNode;
-  isLeaf?: boolean;
-  loading?: boolean;
-};
-
-export const resolveSidebarSwitcherLoadKey = (node: SidebarTreeSwitcherNodeLike | null | undefined): string | null => {
-  const treeNode = node?.data;
-  const dataRef = treeNode?.dataRef;
-  if (!treeNode) {
-    return null;
-  }
-
-  if (treeNode.type === 'connection') {
-    const connectionId = String(dataRef?.id || treeNode.key || node?.key || '').trim();
-    return connectionId ? `dbs-${connectionId}` : null;
-  }
-
-  if (treeNode.type === 'database' || treeNode.type === 'message-namespace') {
-    const connectionId = String(dataRef?.id || '').trim();
-    const dbName = String(dataRef?.dbName || '').trim();
-    return connectionId && dbName ? `tables-${connectionId}-${dbName}` : null;
-  }
-
-  if (treeNode.type === 'jvm-mode' || treeNode.type === 'jvm-resource') {
-    const connectionId = String(dataRef?.id || '').trim();
-    const providerMode = String(dataRef?.providerMode || '').trim().toLowerCase();
-    const parentPath = treeNode.type === 'jvm-resource' ? String(dataRef?.resourcePath || '').trim() : '';
-    return connectionId && providerMode ? `jvm-resources-${connectionId}-${providerMode}-${parentPath}` : null;
-  }
-
-  return null;
-};
-
-export const shouldKeepSidebarSwitcherCollapsedWhileLoading = (
-  node: SidebarTreeSwitcherNodeLike | null | undefined,
-  loadingKeys: ReadonlySet<string>,
-): boolean => {
-  if (!node || node.isLeaf) {
-    return false;
-  }
-  if (node.loading) {
-    return true;
-  }
-  const loadKey = resolveSidebarSwitcherLoadKey(node);
-  return !!loadKey && loadingKeys.has(loadKey);
-};
+// 懒加载节点的 key 映射与加载态判定统一放在 ./sidebar/sidebarSwitcherState，
+// 这里只保留转出以维持既有引用（含 Sidebar.locate-toolbar.test.tsx）。
+export {
+  resolveSidebarSwitcherLoadKey,
+  shouldKeepSidebarSwitcherCollapsedWhileLoading,
+  type SidebarTreeSwitcherNodeLike,
+} from './sidebar/sidebarSwitcherState';
+import {
+  isSidebarSwitcherLoading,
+  type SidebarTreeSwitcherNodeLike,
+} from './sidebar/sidebarSwitcherState';
 
 const { Search } = Input;
 const SIDEBAR_CACHED_DATABASE_TREE_LIMIT = 12;
@@ -480,7 +434,7 @@ export const buildAllSavedQueriesTreeNode = (
   const createQueryNode = (query: SavedQuery): TreeNode => ({
       title: query.name || t('sidebar.tree.untitled_query'),
       key: `all-saved-query-${query.id}`,
-      icon: <FileTextOutlined />,
+      icon: <GnSqlDocIcon />,
       type: 'saved-query',
       dataRef: query,
       isLeaf: true,
@@ -494,7 +448,7 @@ export const buildAllSavedQueriesTreeNode = (
       return Array.from(groupedByDatabase.entries()).map(([dbName, items]) => ({
           title: dbName,
           key: `${keyPrefix}-db-${encodeURIComponent(dbName)}`,
-          icon: <DatabaseOutlined />,
+          icon: <GnDatabaseIcon />,
           type: 'saved-query-group',
           selectable: false,
           isLeaf: false,
@@ -551,7 +505,7 @@ export const buildAllSavedQueriesTreeNode = (
               children: Array.from(groupedByOriginalConnection.entries()).map(([connectionLabel, items]) => ({
                   title: connectionLabel,
                   key: `all-saved-queries-unmatched-${encodeURIComponent(connectionLabel)}`,
-                  icon: <FolderOpenOutlined />,
+                  icon: <GnFolderOpenIcon />,
                   type: 'saved-query-group',
                   selectable: false,
                   isLeaf: false,
@@ -584,7 +538,7 @@ export const buildAllSavedQueriesTreeNode = (
       return {
           title: group.name || t('sidebar.saved_query_group.untitled'),
           key: `saved-query-manual-group-${group.id}`,
-          icon: <FolderOutlined />,
+          icon: <GnFolderIcon />,
           type: 'saved-query-manual-group',
           dataRef: group,
           selectable: false,
@@ -606,7 +560,7 @@ export const buildAllSavedQueriesTreeNode = (
       children.push({
           title: t('sidebar.tree.ungrouped_saved_queries'),
           key: 'all-saved-queries-ungrouped',
-          icon: <FolderOpenOutlined />,
+          icon: <GnFolderOpenIcon />,
           type: 'saved-query-group',
           selectable: false,
           isLeaf: false,
@@ -619,7 +573,7 @@ export const buildAllSavedQueriesTreeNode = (
       key: 'all-saved-queries',
       icon: (
         <span className="gn-v2-tree-folder-icon" data-sidebar-tree-folder-icon="true">
-          <FolderOpenOutlined />
+          <GnFolderOpenIcon />
         </span>
       ),
       type: 'all-saved-queries',
@@ -699,115 +653,11 @@ export const V2ExplorerContextSummary: React.FC<{ context: V2ExplorerContext }> 
   </Tooltip>
 );
 
-export type V2ExplorerToolbarActionLabels = {
-  objectActions: string;
-  locateCurrentTable: string;
-  locateCurrentTableUnavailable: string;
-  scrollToTop: string;
-  connectionActions: string;
-};
-
-export type V2ExplorerToolbarToggleAction = {
-  label: string;
-  onClick: () => void;
-  buttonRef?: React.Ref<HTMLButtonElement>;
-  placement: 'explorer-toolbar' | 'collapsed-titlebar';
-  expanded: boolean;
-};
-
-export const V2ExplorerToolbarActions: React.FC<{
-  labels: V2ExplorerToolbarActionLabels;
-  canLocateActiveTab: boolean;
-  hasActiveConnection: boolean;
-  onLocateCurrentTable: () => void;
-  onScrollToTop: () => void;
-  onOpenConnectionActions: (event: React.MouseEvent<HTMLElement>) => void;
-  toggleAction?: V2ExplorerToolbarToggleAction;
-}> = ({
-  labels,
-  canLocateActiveTab,
-  hasActiveConnection,
-  onLocateCurrentTable,
-  onScrollToTop,
-  onOpenConnectionActions,
-  toggleAction,
-}) => (
-  <>
-    <div className="gn-v2-explorer-action-group is-navigation" role="group" aria-label={labels.objectActions}>
-      <Tooltip
-        title={canLocateActiveTab ? labels.locateCurrentTable : labels.locateCurrentTableUnavailable}
-        placement="bottom"
-        mouseEnterDelay={0.35}
-      >
-        <span
-          className="gn-v2-explorer-action-wrap"
-          tabIndex={canLocateActiveTab ? undefined : 0}
-          aria-label={canLocateActiveTab ? undefined : labels.locateCurrentTableUnavailable}
-        >
-          <Button
-            size="small"
-            type="text"
-            className="gn-v2-explorer-tool"
-            icon={<AimOutlined />}
-            aria-label={labels.locateCurrentTable}
-            data-sidebar-locate-current-tab-action="true"
-            disabled={!canLocateActiveTab}
-            onClick={onLocateCurrentTable}
-          />
-        </span>
-      </Tooltip>
-      <Tooltip title={labels.scrollToTop} placement="bottom" mouseEnterDelay={0.35}>
-        <Button
-          size="small"
-          type="text"
-          className="gn-v2-explorer-tool"
-          icon={<VerticalAlignTopOutlined />}
-          aria-label={labels.scrollToTop}
-          data-sidebar-scroll-to-top-action="true"
-          onClick={onScrollToTop}
-        />
-      </Tooltip>
-    </div>
-    <div className="gn-v2-explorer-action-group is-connection" role="group" aria-label={labels.connectionActions}>
-      <Tooltip title={labels.connectionActions} placement="bottom" mouseEnterDelay={0.35}>
-        <span
-          className="gn-v2-explorer-action-wrap"
-          tabIndex={hasActiveConnection ? undefined : 0}
-          aria-label={hasActiveConnection ? undefined : labels.connectionActions}
-        >
-          <Button
-            size="small"
-            type="text"
-            className="gn-v2-explorer-tool"
-            icon={<MoreOutlined />}
-            aria-label={labels.connectionActions}
-            aria-haspopup="menu"
-            data-sidebar-active-connection-actions="true"
-            disabled={!hasActiveConnection}
-            onClick={onOpenConnectionActions}
-          />
-        </span>
-      </Tooltip>
-    </div>
-    {toggleAction && (
-      <Tooltip title={toggleAction.label} placement="bottom" mouseEnterDelay={0.35}>
-        <Button
-          ref={toggleAction.buttonRef}
-          size="small"
-          type="text"
-          className="gonavi-sidebar-collapse-trigger gn-v2-explorer-tool"
-          data-sidebar-collapse-trigger="true"
-          data-sidebar-toggle-placement={toggleAction.placement}
-          aria-label={toggleAction.label}
-          aria-controls="gonavi-sidebar-tree-panel"
-          aria-expanded={toggleAction.expanded}
-          icon={toggleAction.expanded ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
-          onClick={toggleAction.onClick}
-        />
-      </Tooltip>
-    )}
-  </>
-);
+export { V2ExplorerToolbarActions } from './sidebar/SidebarExplorerToolbar';
+export type {
+  V2ExplorerToolbarActionLabels,
+  V2ExplorerToolbarToggleAction,
+} from './sidebar/SidebarExplorerToolbar';
 
 const Sidebar: React.FC<{
   onCreateConnection?: () => void;
@@ -818,17 +668,18 @@ const Sidebar: React.FC<{
    * Open a settings-center group/pane, tool-center entry, or run a settings action
    * (import/export connections, data-sync, driver manager, sql audit). Mirrors 设置 left-nav groups.
    */
-  onOpenSettingsNavigation?: (spec: {
-    group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
-    pane?: string;
-    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'compare' | 'sync' | 'drivers' | 'sql-audit';
-  }) => void;
+  onOpenSettingsNavigation?: (spec: SettingsCenterNavigationTarget) => void;
+  onCheckUpdate?: () => void; // 标题栏「关于 → 检查更新」，与 macOS 菜单栏一致
+  activeSettingsCenterPaneKey?: string | null; // 设置中心当前面板 key，用于点亮工具条入口
+  hideTitlebarAboutAction?: boolean; // macOS 的「关于」走原生菜单栏，不再渲染到工具条
+  hideTitlebarDriverAction?: boolean; // macOS 的「驱动管理」走原生菜单栏，不再渲染到工具条
   /** Whether web-only settings entries (e.g. browser auth) should appear. */
   isWebRuntime?: boolean;
   onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryModeAlias) => void;
   onToggleAI?: () => void;
   onToggleLogPanel?: () => void;
   v2ExplorerContext?: V2ExplorerContext;
+  /** 标题栏第二行的工具条宿主；存在时搜索/定位/回顶/更多按钮常驻此处，explorer 头部不再渲染（折叠按钮由 App 持有）。 */
   collapsedSidebarActionsTarget?: HTMLElement | null;
   onTitlebarSnapshotChange?: (snapshot: React.SetStateAction<TitlebarSidebarSnapshot>) => void;
   onFocusCommandSearch?: () => void;
@@ -846,6 +697,10 @@ const Sidebar: React.FC<{
   onEditConnection,
   onOpenSettings,
   onOpenSettingsNavigation,
+  activeSettingsCenterPaneKey,
+  onCheckUpdate,
+  hideTitlebarAboutAction = false,
+  hideTitlebarDriverAction = false,
   isWebRuntime = false,
   onToggleAI,
   onToggleLogPanel,
@@ -1470,7 +1325,7 @@ const Sidebar: React.FC<{
               className="gn-v2-tree-folder-icon"
               data-sidebar-tree-folder-icon="true"
             >
-              <FolderOutlined />
+              <GnFolderIcon />
             </span>
           ),
           type: 'tag',
@@ -1786,15 +1641,15 @@ const Sidebar: React.FC<{
         case 'external-sql-root':
           return (
             <span className="gn-v2-tree-folder-icon" data-sidebar-tree-folder-icon="true">
-              <FolderOpenOutlined />
+              <GnFolderOpenIcon />
             </span>
           );
         case 'external-sql-directory':
           return node.dataRef.directoryStatus === 'missing' ? <WarningOutlined /> : <HddOutlined />;
         case 'external-sql-folder':
-          return <FolderOutlined />;
+          return <GnFolderIcon />;
         default:
-          return <FileTextOutlined />;
+          return <GnSqlDocIcon />;
       }
     })();
 
@@ -2206,7 +2061,7 @@ const Sidebar: React.FC<{
             {
                 title: t('sidebar.table_folder.columns'),
                 key: `${key}-columns`,
-                icon: <UnorderedListOutlined />,
+                icon: <GnFieldsIcon />,
                 type: 'folder-columns',
                 isLeaf: true,
                 dataRef: conn
@@ -2214,7 +2069,7 @@ const Sidebar: React.FC<{
             {
                 title: t('sidebar.table_folder.indexes'),
                 key: `${key}-indexes`,
-                icon: <KeyOutlined style={{ transform: 'rotate(45deg)' }} />,
+                icon: <GnIndexIcon />,
                 type: 'folder-indexes',
                 isLeaf: true,
                 dataRef: conn
@@ -2222,7 +2077,7 @@ const Sidebar: React.FC<{
             {
                 title: t('sidebar.table_folder.foreign_keys'),
                 key: `${key}-fks`,
-                icon: <LinkOutlined />,
+                icon: <GnLinkIcon />,
                 type: 'folder-fks',
                 isLeaf: true,
                 dataRef: conn
@@ -2230,7 +2085,7 @@ const Sidebar: React.FC<{
             {
                 title: t('sidebar.table_folder.triggers'),
                 key: `${key}-triggers`,
-                icon: <ThunderboltOutlined />,
+                icon: renderSidebarObjectIcon('trigger'),
                 type: 'folder-triggers',
                 isLeaf: true,
                 dataRef: conn
@@ -2515,7 +2370,7 @@ const Sidebar: React.FC<{
       }
 
       const isMessageQueueConnection = node.type === 'connection'
-          && ['mqtt', 'kafka', 'rocketmq', 'rabbitmq'].includes(
+          && ['mqtt', 'kafka', 'rocketmq', 'rabbitmq', 'pulsar'].includes(
               resolveDataSourceType(node.dataRef?.config),
           );
       if (isMessageQueueConnection || node.type === 'message-namespace') {
@@ -2643,8 +2498,12 @@ const Sidebar: React.FC<{
       if (node.isLeaf) {
           return null;
       }
-      const keepCollapsed = shouldKeepSidebarSwitcherCollapsedWhileLoading(node, loadingNodesRef.current);
-      return <CaretDownFilled rotate={keepCollapsed ? -90 : undefined} />;
+      // 懒加载期间给出转圈反馈；Nacos 命名空间下双击「配置管理」「服务管理」
+      // 走手动 onLoadData，rc-tree 的 node.loading 不会置位，只能靠 loadingNodesRef。
+      if (isSidebarSwitcherLoading(node, loadingNodesRef.current)) {
+          return <LoadingOutlined className="gn-v2-tree-switcher-loading" spin />;
+      }
+      return <CaretDownFilled />;
   }, []);
 
 
@@ -3425,7 +3284,6 @@ const Sidebar: React.FC<{
       filteredCommandSearchActionItems,
       filteredCommandSearchRecentItems,
       commandSearchAiItem,
-      commandSearchFlatItems,
       flattenConnectionNodes,
       activeConnection,
       v2VisibleTreeData,
@@ -3459,6 +3317,16 @@ const Sidebar: React.FC<{
       onToggleLogPanel,
       setAIPanelVisible,
       extractObjectName,
+  });
+  const { destinationSections: commandSearchDestinations, flatItems: commandSearchFlatItems } = useCommandSearchDestinations({
+      isOpen: isV2CommandSearchOpen,
+      searchValue: deferredV2CommandSearchValue,
+      isWebRuntime,
+      onOpenSettingsNavigation,
+      aiItems: commandSearchAiItem,
+      treeItems: filteredCommandSearchTreeItems,
+      actionItems: filteredCommandSearchActionItems,
+      recentItems: filteredCommandSearchRecentItems,
   });
   // The tree never scrolls horizontally: long labels ellipsize and the user
   // widens the sidebar to read them. Wheel input only drives vertical scroll.
@@ -4186,6 +4054,12 @@ const Sidebar: React.FC<{
   const scrollV2ExplorerToTop = () => {
     treeRef.current?.scrollTo?.({ index: 0, align: 'top' });
   };
+  // Docked / rail actions stay reachable while the explorer is collapsed, so reveal it before scrolling.
+  const scrollV2ExplorerToTopExpanded = () => {
+    onEnsureSidebarExpanded?.();
+    scrollV2ExplorerToTop();
+  };
+  const sidebarActionsInRail = appearance.sidebarActionsPlacement === 'rail';
 
   const v2ExplorerToolbarActionProps = {
     labels: {
@@ -4230,27 +4104,21 @@ const Sidebar: React.FC<{
     openDataImportWorkbench({ connectionId, dbName, tableName, mode });
   }, [activeContext?.connectionId, activeContext?.dbName, activeTabId, openDataImportWorkbench, tabs]);
 
-  const handleOpenSlowQueryWorkbench = useCallback(() => {
-    if (!activeTabHasConnection || !activeTab?.connectionId) return;
-    addTab(buildSqlAnalysisWorkbenchTab({
-      connectionId: activeTab.connectionId,
-      dbName: activeTab.dbName,
-      view: 'slow-query',
-    }));
-  }, [activeTab?.connectionId, activeTab?.dbName, activeTabHasConnection, addTab]);
-
-  const handleOpenSqlAuditWorkbench = useCallback(() => {
-    addTab(buildSqlAuditWorkbenchTab());
-  }, [addTab]);
-
-  const handleOpenDMLSnapshotWorkbench = useCallback(() => {
-    addTab(buildDMLSnapshotWorkbenchTab());
-  }, [addTab]);
+  const {
+    openSlowQueryWorkbench,
+    openSqlAuditWorkbench,
+    openDMLSnapshotWorkbench,
+    sessionWorkbenchAction,
+    userManagementAction,
+  } = useSidebarWorkbenchLaunchers({
+    activeTab, activeTabHasConnection, activeConnection, addTab,
+  });
 
   const v2TitlebarQuickActions: TitleBarQuickAction[] = [
     {
       key: 'data-workflow',
       label: v2DataWorkflowLabel,
+      icon: <TitlebarGraphIcon size="100%" />,
       menu: [
         {
           key: 'batch-connections',
@@ -4293,141 +4161,44 @@ const Sidebar: React.FC<{
     {
       key: 'sql-tools',
       label: v2SqlToolsLabel,
+      dividerBefore: true, // 「数据工作流」与「SQL 工具」之间的分组竖线
+      icon: <TitlebarSqlToolIcon size="100%" />,
       menu: [
         {
           key: 'slow-query',
           label: v2SlowQueryLabel,
           icon: <HistoryOutlined aria-hidden="true" />,
-          onClick: handleOpenSlowQueryWorkbench,
+          onClick: openSlowQueryWorkbench,
           disabled: !activeTabHasConnection,
         },
         {
           key: 'sql-audit',
           label: v2SqlAuditLabel,
           icon: <AuditOutlined aria-hidden="true" />,
-          onClick: handleOpenSqlAuditWorkbench,
+          onClick: openSqlAuditWorkbench,
         },
         {
           key: 'dml-snapshot',
           label: t('dml_snapshot.workbench.title'),
           icon: <SafetyCertificateOutlined aria-hidden="true" />,
-          onClick: handleOpenDMLSnapshotWorkbench,
+          onClick: openDMLSnapshotWorkbench,
         },
       ],
     },
-    {
-      key: 'drivers',
-      label: t('app.tools.entry.drivers.title'),
-      onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', action: 'drivers' }),
-    },
+    sessionWorkbenchAction,
+    userManagementAction,
   ];
-  // 关于 GoNavi 作为标题栏独立按钮，和数据工作流 / SQL 工具并列。
-  const v2TitlebarAboutActions: TitleBarQuickAction[] = [
-    {
-      key: 'about-go-navi',
-      label: t('app.settings.group.about.title'),
-      onClick: () => onOpenSettingsNavigation?.({ group: 'about', pane: 'about-go-navi' }),
-    },
-  ];
+  // 尾部操作：非 macOS 渲染到标题栏「设置 │ … │ 主题」胶囊中间，macOS 留在工具条 AI 之后。
+  const v2TitlebarVisibleTrailingActions = buildTitlebarTrailingActions({
+    t,
+    activeSettingsCenterPaneKey,
+    onOpenSettingsNavigation,
+    onCheckUpdate,
+    hideAbout: hideTitlebarAboutAction,
+    hideDrivers: hideTitlebarDriverAction,
+  });
 
-  const getCommandSearchCopyOptions = useCallback((item: V2CommandSearchItem): V2CommandSearchCopyOption[] => {
-    if (item.kind === 'action') return [];
-
-    if (item.kind === 'recent') {
-      const options: V2CommandSearchCopyOption[] = [];
-      if (String(item.sql || '').trim()) {
-        options.push({
-          action: 'sql',
-          label: t('sidebar.command_search.context_menu.copy_sql'),
-        });
-      }
-      if (String(item.dbName || '').trim()) {
-        options.push({
-          action: 'database-name',
-          label: t('sidebar.command_search.context_menu.copy_database_name'),
-        });
-      }
-      const connectionId = String(item.connectionId || '').trim();
-      const connectionName = connections.find((connection) => connection.id === connectionId)?.name?.trim() || '';
-      if (connectionName) {
-        options.push({
-          action: 'connection-name',
-          label: t('sidebar.command_search.context_menu.copy_connection_name'),
-        });
-      }
-      return options;
-    }
-
-    const node = item.node;
-    const nodeType = String(node?.type || '');
-    const options: V2CommandSearchCopyOption[] = [];
-    if (isV2SidebarObjectNode(node)) {
-      options.push({
-        action: 'object-name',
-        label: t('sidebar.command_search.context_menu.copy_object_name'),
-      });
-    }
-    if (nodeType !== 'connection') {
-      options.push({
-        action: 'database-name',
-        label: t('sidebar.command_search.context_menu.copy_database_name'),
-      });
-    }
-    const connectionId = resolveSidebarNodeConnectionId(node, connectionIds);
-    const connectionName = connections.find((connection) => connection.id === connectionId)?.name?.trim() || '';
-    if (connectionName) {
-      options.push({
-        action: 'connection-name',
-        label: t('sidebar.command_search.context_menu.copy_connection_name'),
-      });
-    }
-    return options.filter((option) => {
-      if (option.action === 'object-name') return Boolean(resolveSidebarTableNameForCopy(node));
-      if (option.action === 'database-name') return Boolean(resolveSidebarDatabaseNameForCopy(node));
-      return true;
-    });
-  }, [connectionIds, connections]);
-
-  const handleCopyCommandSearchItem = useCallback(async (
-    item: V2CommandSearchItem,
-    action: V2CommandSearchCopyAction,
-  ): Promise<void> => {
-    let value = '';
-    if (item.kind === 'recent') {
-      if (action === 'sql') value = item.sql;
-      if (action === 'database-name') value = String(item.dbName || '');
-      if (action === 'connection-name') {
-        const connectionId = String(item.connectionId || '').trim();
-        value = connections.find((connection) => connection.id === connectionId)?.name || '';
-      }
-    } else if (item.kind === 'node') {
-      if (action === 'object-name') value = resolveSidebarTableNameForCopy(item.node);
-      if (action === 'database-name') value = resolveSidebarDatabaseNameForCopy(item.node);
-      if (action === 'connection-name') {
-        const connectionId = resolveSidebarNodeConnectionId(item.node, connectionIds);
-        value = connections.find((connection) => connection.id === connectionId)?.name || '';
-      }
-    }
-
-    const normalizedValue = String(value || '').trim();
-    if (!normalizedValue) {
-      message.warning(t('sidebar.copy_object_name.empty', {
-        label: t(`sidebar.command_search.context_menu.copy_${action.replace('-', '_')}`),
-      }));
-      return;
-    }
-
-    try {
-      const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
-      if (!clipboard?.writeText) throw new Error('Clipboard API unavailable');
-      await clipboard.writeText(value);
-      message.success(t('sidebar.command_search.copy_success'));
-    } catch (error: any) {
-      message.error(t('sidebar.command_search.copy_failed', {
-        error: error?.message || String(error),
-      }));
-    }
-  }, [connectionIds, connections]);
+  const { getCommandSearchCopyOptions, handleCopyCommandSearchItem } = useSidebarCommandSearchCopy({ connections, connectionIds });
 
   const v2CommandSearchPanelProps: SidebarSearchPanelProps<V2CommandSearchItem> = {
     isOpen: isV2CommandSearchOpen,
@@ -4441,6 +4212,9 @@ const Sidebar: React.FC<{
     sections: {
       goTo: filteredCommandSearchTreeItems,
       ai: commandSearchAiItem,
+      tabs: commandSearchDestinations.tabs,
+      savedQueries: commandSearchDestinations.savedQueries,
+      settings: commandSearchDestinations.settings,
       actions: filteredCommandSearchActionItems,
       recent: filteredCommandSearchRecentItems,
     },
@@ -4484,15 +4258,35 @@ const Sidebar: React.FC<{
     canLocateActiveTab,
     showObjectActions: false,
     showLocateAction: false,
-    sidebarExpandAction: !collapsedSidebarActionsTarget && onExpandSidebar && expandSidebarLabel ? {
+    // The session workbench is exposed as a titlebar action so it remains
+    // reachable while the expanded explorer hides the fixed rail.
+    showWorkbenchActions: false,
+    sidebarExpandAction: !collapsedSidebarActionsTarget && !sidebarActionsInRail && onExpandSidebar && expandSidebarLabel ? {
       label: expandSidebarLabel,
       onClick: onExpandSidebar,
       buttonRef: expandSidebarButtonRef,
     } : undefined,
+    explorerActions: sidebarActionsInRail ? (
+      <V2RailExplorerActions
+        label={v2RailSystemActionsLabel}
+        searchAction={usePersistentSidebarFilter ? undefined : { label: v2CommandSearchLabel, onClick: () => openV2CommandSearch() }}
+        toolbar={{ ...v2ExplorerToolbarActionProps, onScrollToTop: scrollV2ExplorerToTopExpanded }}
+        collapseAction={onCollapseSidebar && collapseSidebarLabel
+          ? { label: collapseSidebarLabel, onClick: onCollapseSidebar, buttonRef: collapseSidebarButtonRef }
+          : undefined}
+        expandAction={onExpandSidebar && expandSidebarLabel
+          ? { label: expandSidebarLabel, onClick: onExpandSidebar, buttonRef: expandSidebarButtonRef }
+          : undefined}
+      />
+    ) : undefined,
   };
 
   return (
-    <div className="gn-v2-sidebar-redesign" style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+    <div
+        className="gn-v2-sidebar-redesign"
+        data-sidebar-actions-rail={sidebarActionsInRail ? 'true' : undefined}
+        style={{ display: 'flex', height: '100%', minHeight: 0 }}
+    >
         {exportProgressModal}
         <SidebarConnectionRail {...v2ConnectionRailProps} />
         <div
@@ -4508,40 +4302,29 @@ const Sidebar: React.FC<{
                 data-sidebar-explorer-actions="true"
             >
                 {v2ExplorerContext && <V2ExplorerContextSummary context={v2ExplorerContext} />}
-                {!usePersistentSidebarFilter && (
-                    <div
-                        className="gn-v2-explorer-action-group is-search"
-                        role="group"
-                        aria-label={v2CommandSearchLabel}
-                        data-v2-sidebar-search-mode="command"
-                    >
-                        <Tooltip title={v2CommandSearchLabel} placement="bottom" mouseEnterDelay={0.35}>
-                            <Button
-                                size="small"
-                                type="text"
-                                className="gn-v2-explorer-tool"
-                                icon={<SearchOutlined />}
-                                aria-label={v2CommandSearchLabel}
-                                data-sidebar-command-search-action="true"
-                                data-v2-command-search-icon-only="true"
+                {!collapsedSidebarActionsTarget && !sidebarActionsInRail && (
+                    <>
+                        {!usePersistentSidebarFilter && (
+                            <V2ExplorerSearchAction
+                                label={v2CommandSearchLabel}
                                 onClick={() => {
                                     openV2CommandSearch();
                                     onFocusCommandSearch?.();
                                 }}
                             />
-                        </Tooltip>
-                    </div>
+                        )}
+                        <V2ExplorerToolbarActions
+                            {...v2ExplorerToolbarActionProps}
+                            toggleAction={onCollapseSidebar && collapseSidebarLabel ? {
+                              label: collapseSidebarLabel,
+                              onClick: onCollapseSidebar,
+                              buttonRef: collapseSidebarButtonRef,
+                              placement: 'explorer-toolbar',
+                              expanded: true,
+                            } : undefined}
+                        />
+                    </>
                 )}
-                <V2ExplorerToolbarActions
-                    {...v2ExplorerToolbarActionProps}
-                    toggleAction={onCollapseSidebar && collapseSidebarLabel ? {
-                      label: collapseSidebarLabel,
-                      onClick: onCollapseSidebar,
-                      buttonRef: collapseSidebarButtonRef,
-                      placement: 'explorer-toolbar',
-                      expanded: true,
-                    } : undefined}
-                />
         </div>
 
         {usePersistentSidebarFilter && (
@@ -4662,30 +4445,22 @@ const Sidebar: React.FC<{
         <SidebarSearchPanel {...v2CommandSearchPanelProps} />
 
         {collapsedSidebarActionsTarget && createPortal(
-          <V2ExplorerToolbarActions
-            {...v2ExplorerToolbarActionProps}
-            onLocateCurrentTable={() => {
-              handleLocateActiveTabInSidebar();
-            }}
-            onScrollToTop={() => {
-              onExpandSidebar?.();
-              scrollV2ExplorerToTop();
-            }}
-            toggleAction={onExpandSidebar && expandSidebarLabel ? {
-              label: expandSidebarLabel,
-              onClick: onExpandSidebar,
-              buttonRef: expandSidebarButtonRef,
-              placement: 'collapsed-titlebar',
-              expanded: false,
-            } : undefined}
-          />,
+          <>
+            {!usePersistentSidebarFilter && (
+              <V2ExplorerSearchAction label={v2CommandSearchLabel} onClick={() => openV2CommandSearch()} />
+            )}
+            <V2ExplorerToolbarActions
+              {...v2ExplorerToolbarActionProps}
+              onScrollToTop={scrollV2ExplorerToTopExpanded}
+            />
+          </>,
           collapsedSidebarActionsTarget,
         )}
 
         <TitleBarQuickActionsHost
           label={v2RailObjectActionsLabel}
           actions={v2TitlebarQuickActions}
-          trailingActions={v2TitlebarAboutActions}
+          trailingActions={v2TitlebarVisibleTrailingActions}
         />
 
         {contextMenu?.kind && typeof document !== 'undefined' && createPortal(

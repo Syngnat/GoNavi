@@ -1420,7 +1420,9 @@ func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, ta
 	unsupported := make([]string, 0)
 	pkCols := make([]string, 0, 2)
 	pkColNames := make([]string, 0, 2)
+	byteLengthWidener := newByteLengthWidener(resolveMigrationDBType(config.SourceConfig), targetType)
 	for _, col := range sourceCols {
+		col = byteLengthWidener.Adapt(col)
 		def, colWarnings := buildPGLikeToPGLikeColumnDefinition(col)
 		warnings = append(warnings, colWarnings...)
 		columnDefs = append(columnDefs, fmt.Sprintf("%s %s", quoteIdentByType(targetType, col.Name), def))
@@ -1429,6 +1431,7 @@ func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, ta
 			pkColNames = append(pkColNames, col.Name)
 		}
 	}
+	warnings = append(warnings, byteLengthWidener.Warnings()...)
 	if len(pkCols) > 0 {
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(pkCols, ", ")))
 	}
@@ -2136,7 +2139,9 @@ func buildMySQLToPGLikeCreateTablePlan(targetType string, config SyncConfig, tar
 	warnings := make([]string, 0)
 	unsupported := make([]string, 0)
 	pkCols := make([]string, 0, 2)
+	byteLengthWidener := newByteLengthWidener(resolveMigrationDBType(config.SourceConfig), targetType)
 	for _, col := range sourceCols {
+		col = byteLengthWidener.Adapt(col)
 		def, colWarnings := buildMySQLToPGLikeColumnDefinition(col)
 		warnings = append(warnings, colWarnings...)
 		columnDefs = append(columnDefs, fmt.Sprintf("%s %s", quoteIdentByType(targetType, col.Name), def))
@@ -2144,6 +2149,7 @@ func buildMySQLToPGLikeCreateTablePlan(targetType string, config SyncConfig, tar
 			pkCols = append(pkCols, quoteIdentByType(targetType, col.Name))
 		}
 	}
+	warnings = append(warnings, byteLengthWidener.Warnings()...)
 	if len(pkCols) > 0 {
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(pkCols, ", ")))
 	}

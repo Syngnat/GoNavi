@@ -553,7 +553,14 @@ func TestLeaseFenceRejectsStaleOwnerWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaseA, err := l.AcquireLease(ctx, run.ID, "owner-a", 20*time.Millisecond)
+	// The lease must stay valid across the state transition below, so it gets
+	// the same roomy TTL every other lease test in this package uses. A short
+	// TTL here made the transition itself racy: on a loaded CI runner the lease
+	// could expire between AcquireLease and TransitionRun, and the test failed
+	// with ErrLeaseLost before reaching the fencing assertions. Staleness is
+	// established deterministically further down by zeroing owner_expires_at,
+	// so no wall-clock race is needed to get there.
+	leaseA, err := l.AcquireLease(ctx, run.ID, "owner-a", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,6 +568,26 @@ func TestLeaseFenceRejectsStaleOwnerWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The run still carries owner-a's token, so token comparison passes and
+	// only the expiry branch of verifyOwner can reject this write. Asserting
+	// after owner-b takes over would short-circuit on the token mismatch
+	// instead and leave the expiry path unguarded.
+	// A past timestamp is required here: writing 0 leaves OwnerExpiresAt at its
+	// zero value, and verifyOwner treats a zero expiry as "no lease deadline"
+	// rather than "expired", so it would let the write through.
+	expiredAt := time.Now().UTC().Add(-time.Hour).UnixNano()
+	if _, err := l.db.Exec(`UPDATE runs SET owner_expires_at=? WHERE id=?`, expiredAt, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := l.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AppendEvent(ctx, AppendEventRequest{RunID: run.ID, ExpectedRevision: expired.Revision, Kind: EventModelDelta, ResultingState: RunStateRunningModel, Payload: ModelDeltaEvent{Text: "expired"}, OwnerToken: leaseA.Token}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("expired lease append error = %v", err)
+	}
+	// owner-b can only take over an expired lease, which is what the write above
+	// established deterministically.
 	if _, err := l.db.Exec(`UPDATE runs SET owner_expires_at=0 WHERE id=?`, run.ID); err != nil {
 		t.Fatal(err)
 	}

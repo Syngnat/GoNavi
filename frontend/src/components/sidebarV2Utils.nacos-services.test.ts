@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applySidebarDatabasePinning,
+  buildV2SidebarDatabaseSectionedChildren,
   buildNacosServicesTabData,
   resolveNacosNamespaceDiscoveryModeFromTreeNode,
   resolveNacosServicesDoubleClickAction,
   shouldLoadSidebarNodeOnExpand as shouldLoadV2SidebarNodeOnExpand,
 } from './sidebarV2Utils';
+import { buildSidebarDatabasePinKey } from '../store';
 import { shouldLoadSidebarNodeOnExpand } from './sidebar/sidebarHelpers';
 
 const namespaceData = {
@@ -15,6 +18,25 @@ const namespaceData = {
 };
 
 describe('Nacos service group navigation', () => {
+  it('pins namespaces by stable namespace id while retaining their children and display names', () => {
+    const namespaces = [
+      { key: 'nacos-1-nacos-ns-dev', title: 'Development', type: 'nacos-namespace' as const,
+        dataRef: { id: 'nacos-1', nacosNamespaceId: 'dev', nacosNamespaceName: 'Development' },
+        children: [{ key: 'dev-config', title: 'Config' }] },
+      { key: 'nacos-1-nacos-ns-prod', title: 'Production', type: 'nacos-namespace' as const,
+        dataRef: { id: 'nacos-1', nacosNamespaceId: 'prod', nacosNamespaceName: 'Production' } },
+    ];
+    const pinned = applySidebarDatabasePinning(namespaces, {
+      connectionId: 'nacos-1',
+      pinnedSidebarDatabases: [buildSidebarDatabasePinKey('nacos-1', 'prod')],
+    });
+    expect(pinned.map((node) => node.title)).toEqual(['Production', 'Development']);
+    expect(pinned[0].dataRef.pinnedSidebarDatabase).toBe(true);
+    expect(pinned[1].children).toEqual(namespaces[0].children);
+    expect(buildV2SidebarDatabaseSectionedChildren('nacos-1', pinned).map((node) => node.type)).toEqual([
+      'v2-database-section', 'nacos-namespace', 'v2-database-section', 'nacos-namespace',
+    ]);
+  });
   it('recovers configured namespace discovery mode from preserved children after a root rebuild', () => {
     expect(resolveNacosNamespaceDiscoveryModeFromTreeNode({
       type: 'connection',

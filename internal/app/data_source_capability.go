@@ -37,6 +37,7 @@ type DataSourceUICapabilities struct {
 	SupportsApproximateTableCount  bool `json:"supportsApproximateTableCount"`
 	SupportsApproximateTotalPages  bool `json:"supportsApproximateTotalPages"`
 	ParameterBinding               bool `json:"parameterBinding"`
+	UserManagement                 bool `json:"userManagement"`
 }
 
 // DataSourceNavigationCapabilities exposes the navigation filtering contract
@@ -116,6 +117,7 @@ func dataSourceCapabilityFromDB(capability db.DataSourceCapability) DataSourceCa
 			PreferManualTotalCount:         capability.UI.PreferManualTotalCount,
 			SupportsApproximateTableCount:  capability.UI.SupportsApproximateTableCount,
 			SupportsApproximateTotalPages:  capability.UI.SupportsApproximateTotalPages,
+			UserManagement:                 capability.UI.UserManagement,
 		},
 		Navigation: DataSourceNavigationCapabilities{
 			PrimaryVisibilitySupported:         capability.Navigation.PrimaryVisibilitySupported,

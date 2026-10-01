@@ -121,6 +121,7 @@ export const CONNECTION_TYPE_GROUPS: ConnectionTypeCatalogGroup[] = [
       { key: 'mqtt', name: 'MQTT' },
       { key: 'kafka', name: 'Kafka' },
       { key: 'rabbitmq', name: 'RabbitMQ' },
+      { key: 'pulsar', name: 'Apache Pulsar' },
     ],
   },
   {
@@ -213,6 +214,8 @@ export const getConnectionTypeDefaultPort = (type: string): number => {
       return 9092;
     case 'rabbitmq':
       return 15672;
+    case 'pulsar':
+      return 6650;
     case 'nacos':
       return 8848;
     case 'highgo':
@@ -282,6 +285,8 @@ export const getConnectionTypeHint = (
       return 'Broker / Topic / Consumer Group';
     case 'rabbitmq':
       return 'Management API / Virtual Host / Queue';
+    case 'pulsar':
+      return translateCatalogCopy(translate, 'connection_modal.step1.hint.pulsar', 'Broker / Topic');
     case 'nacos':
       return translateCatalogCopy(
         translate,

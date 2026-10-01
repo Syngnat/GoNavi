@@ -10,6 +10,7 @@ import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../u
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { isConnectionDataEditRestricted } from '../../utils/connectionReadOnly';
 import { buildElasticsearchConsoleTemplates } from '../../utils/elasticsearchConsole';
+import { buildUserManagementWorkbenchTab } from '../../utils/userManagementTab';
 import {
   buildTableSelectQuery,
   isElasticsearchDbType,
@@ -625,6 +626,9 @@ export const useSidebarV2ActionHandlers = ({
           connectionId: connId,
           redisDB: 0,
         });
+        return;
+      case 'user-management':
+        addTab(buildUserManagementWorkbenchTab(connId));
         return;
       case 'edit':
         if (onEditConnection) onEditConnection(node.dataRef);

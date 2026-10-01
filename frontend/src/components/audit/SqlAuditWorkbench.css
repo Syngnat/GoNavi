@@ -58,28 +58,9 @@
 }
 
 .gn-sql-audit-privacy-note,
-.gn-sql-audit-health-alert,
 .gn-sql-audit-integrity-alert,
 .gn-sql-audit-load-alert {
   flex: 0 0 auto;
-}
-
-.gn-sql-audit-health-summary {
-  margin-bottom: 6px;
-}
-
-.gn-sql-audit-health-details {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  color: var(--sql-audit-muted);
-  font-size: 12px;
-}
-
-.gn-sql-audit-health-details code {
-  overflow-wrap: anywhere;
-  white-space: normal;
 }
 
 .gn-sql-audit-toolbar {

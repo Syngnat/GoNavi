@@ -93,6 +93,7 @@ export default function CustomThemeManager() {
   const importCustomTheme = useCustomThemeStore((state) => state.importCustomTheme);
   const updateCustomTheme = useCustomThemeStore((state) => state.updateCustomTheme);
   const selectCustomTheme = useCustomThemeStore((state) => state.selectCustomTheme);
+  const deactivateCustomTheme = useCustomThemeStore((state) => state.deactivateCustomTheme);
   const removeCustomTheme = useCustomThemeStore((state) => state.removeCustomTheme);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -203,7 +204,7 @@ export default function CustomThemeManager() {
   };
 
   const handleDeactivate = () => {
-    const result = selectCustomTheme(null);
+    const result = deactivateCustomTheme();
     if (!result.ok) {
       showStoreError(result);
       return;

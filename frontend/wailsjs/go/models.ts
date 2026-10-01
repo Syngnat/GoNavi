@@ -208,6 +208,20 @@ export namespace ai {
 	        this.inputSchema = source["inputSchema"];
 	    }
 	}
+	export class ModelContextProfile {
+	    defaultWindow: number;
+	    options: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ModelContextProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.defaultWindow = source["defaultWindow"];
+	        this.options = source["options"];
+	    }
+	}
 	export class ProviderConfig {
 	    id: string;
 	    type: string;
@@ -222,6 +236,7 @@ export namespace ai {
 	    models?: string[];
 	    disabledModels?: string[];
 	    customModels?: string[];
+	    removedModels?: string[];
 	    apiFormat?: string;
 	    headers?: Record<string, string>;
 	    maxTokens?: number;
@@ -251,6 +266,7 @@ export namespace ai {
 	        this.models = source["models"];
 	        this.disabledModels = source["disabledModels"];
 	        this.customModels = source["customModels"];
+	        this.removedModels = source["removedModels"];
 	        this.apiFormat = source["apiFormat"];
 	        this.headers = source["headers"];
 	        this.maxTokens = source["maxTokens"];
@@ -412,6 +428,20 @@ export namespace aiservice {
 		    }
 		    return a;
 		}
+	}
+	export class AutoApprovalSettings {
+	    global: boolean;
+	    sessionIds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AutoApprovalSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.global = source["global"];
+	        this.sessionIds = source["sessionIds"];
+	    }
 	}
 
 }
@@ -900,6 +930,7 @@ export namespace app {
 	    supportsApproximateTableCount: boolean;
 	    supportsApproximateTotalPages: boolean;
 	    parameterBinding: boolean;
+	    userManagement: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new DataSourceUICapabilities(source);
@@ -922,6 +953,7 @@ export namespace app {
 	        this.supportsApproximateTableCount = source["supportsApproximateTableCount"];
 	        this.supportsApproximateTotalPages = source["supportsApproximateTotalPages"];
 	        this.parameterBinding = source["parameterBinding"];
+	        this.userManagement = source["userManagement"];
 	    }
 	}
 	export class DataSourceOperationCapability {
@@ -3116,6 +3148,26 @@ export namespace connection {
 	}
 	
 	
+	export class SessionActionRequest {
+	    action: string;
+	    sessionId?: string;
+	    queryId?: string;
+	    instanceId?: string;
+	    serialNumber?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionActionRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.action = source["action"];
+	        this.sessionId = source["sessionId"];
+	        this.queryId = source["queryId"];
+	        this.instanceId = source["instanceId"];
+	        this.serialNumber = source["serialNumber"];
+	    }
+	}
 	export class TestGlobalProxyInput {
 	    proxy: SaveGlobalProxyInput;
 	    url: string;
@@ -3173,6 +3225,231 @@ export namespace db {
 	        this.readOnly = source["readOnly"];
 	    }
 	}
+
+}
+
+export namespace dbuser {
+	
+	export class DropOptions {
+	    cascade?: boolean;
+	    reassignTo?: string;
+	    dropOwned?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DropOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cascade = source["cascade"];
+	        this.reassignTo = source["reassignTo"];
+	        this.dropOwned = source["dropOwned"];
+	    }
+	}
+	export class Membership {
+	    role: PrincipalRef;
+	    adminOption?: boolean;
+	    inherit?: boolean;
+	    set?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Membership(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = this.convertValues(source["role"], PrincipalRef);
+	        this.adminOption = source["adminOption"];
+	        this.inherit = source["inherit"];
+	        this.set = source["set"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Grant {
+	    privilege: string;
+	    scope: string;
+	    database?: string;
+	    schema?: string;
+	    object?: string;
+	    column?: string;
+	    objectType?: string;
+	    withGrantOption?: boolean;
+	    deny?: boolean;
+	    inherited?: string;
+	    node?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Grant(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.privilege = source["privilege"];
+	        this.scope = source["scope"];
+	        this.database = source["database"];
+	        this.schema = source["schema"];
+	        this.object = source["object"];
+	        this.column = source["column"];
+	        this.objectType = source["objectType"];
+	        this.withGrantOption = source["withGrantOption"];
+	        this.deny = source["deny"];
+	        this.inherited = source["inherited"];
+	        this.node = source["node"];
+	    }
+	}
+	export class PasswordChange {
+	    set: boolean;
+	    password?: string;
+	    currentPassword?: string;
+	    remove?: boolean;
+	    retainCurrent?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PasswordChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.set = source["set"];
+	        this.password = source["password"];
+	        this.currentPassword = source["currentPassword"];
+	        this.remove = source["remove"];
+	        this.retainCurrent = source["retainCurrent"];
+	    }
+	}
+	export class PrincipalRef {
+	    kind: string;
+	    name: string;
+	    host?: string;
+	    database?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PrincipalRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.host = source["host"];
+	        this.database = source["database"];
+	    }
+	}
+	export class ChangeRequest {
+	    action: string;
+	    target: PrincipalRef;
+	    rename?: PrincipalRef;
+	    options?: Record<string, string>;
+	    password?: PasswordChange;
+	    grantsAdd?: Grant[];
+	    grantsRevoke?: Grant[];
+	    membershipsAdd?: Membership[];
+	    membershipsRemove?: Membership[];
+	    drop?: DropOptions;
+	    database?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChangeRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.action = source["action"];
+	        this.target = this.convertValues(source["target"], PrincipalRef);
+	        this.rename = this.convertValues(source["rename"], PrincipalRef);
+	        this.options = source["options"];
+	        this.password = this.convertValues(source["password"], PasswordChange);
+	        this.grantsAdd = this.convertValues(source["grantsAdd"], Grant);
+	        this.grantsRevoke = this.convertValues(source["grantsRevoke"], Grant);
+	        this.membershipsAdd = this.convertValues(source["membershipsAdd"], Membership);
+	        this.membershipsRemove = this.convertValues(source["membershipsRemove"], Membership);
+	        this.drop = this.convertValues(source["drop"], DropOptions);
+	        this.database = source["database"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DescribeQuery {
+	    ref: PrincipalRef;
+	    database?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DescribeQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ref = this.convertValues(source["ref"], PrincipalRef);
+	        this.database = source["database"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class ListQuery {
+	    database?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.database = source["database"];
+	    }
+	}
+	
+	
 
 }
 

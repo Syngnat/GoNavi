@@ -23,7 +23,7 @@ export type DataSyncConnectionTreeDataNode = {
   children?: DataSyncConnectionTreeDataNode[];
 };
 
-const BrowserSafeTreeSelect: React.FC<
+export const BrowserSafeTreeSelect: React.FC<
   TreeSelectProps<string, DataSyncConnectionTreeDataNode>
 > = (props) => {
   // rc-select requires DOM globals during layout effects. Keep non-browser
@@ -134,7 +134,7 @@ export const buildDataSyncConnectionTreeData = (
   return treeData;
 };
 
-const defaultExpandedGroupValues = (
+export const defaultExpandedGroupValues = (
   treeData: DataSyncConnectionTreeDataNode[],
   selectedValue: string,
 ): string[] => {
@@ -153,7 +153,7 @@ const defaultExpandedGroupValues = (
   return Array.from(expanded);
 };
 
-const firstMatchingConnectionValue = (
+export const firstMatchingConnectionValue = (
   treeData: DataSyncConnectionTreeDataNode[],
   input: string,
 ): string | null => {

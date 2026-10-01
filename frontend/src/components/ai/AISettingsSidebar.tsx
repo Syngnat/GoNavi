@@ -5,11 +5,11 @@ import {
   BarChartOutlined,
   ControlOutlined,
   ExperimentOutlined,
-  RobotOutlined,
   SafetyCertificateOutlined,
   ToolOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
@@ -37,7 +37,7 @@ export const AI_SETTINGS_NAV_ITEMS: Array<{
   { key: 'analysis', titleKey: 'ai_settings.nav.analysis.title', descriptionKey: 'ai_settings.nav.analysis.description', icon: <BarChartOutlined /> },
   { key: 'request_events', titleKey: 'ai_settings.nav.request_events.title', descriptionKey: 'ai_settings.nav.request_events.description', icon: <UnorderedListOutlined /> },
   { key: 'safety', titleKey: 'ai_settings.nav.safety.title', descriptionKey: 'ai_settings.nav.safety.description', icon: <SafetyCertificateOutlined /> },
-  { key: 'context', titleKey: 'ai_settings.nav.context.title', descriptionKey: 'ai_settings.nav.context.description', icon: <RobotOutlined /> },
+  { key: 'context', titleKey: 'ai_settings.nav.context.title', descriptionKey: 'ai_settings.nav.context.description', icon: <AiSparkOutlined /> },
   { key: 'run_policy', titleKey: 'ai_settings.nav.run_policy.title', descriptionKey: 'ai_settings.nav.run_policy.description', icon: <ControlOutlined /> },
   { key: 'mcp', titleKey: 'ai_settings.nav.mcp.title', descriptionKey: 'ai_settings.nav.mcp.description', icon: <AppstoreOutlined /> },
   { key: 'skills', titleKey: 'ai_settings.nav.skills.title', descriptionKey: 'ai_settings.nav.skills.description', icon: <ExperimentOutlined /> },

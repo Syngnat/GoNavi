@@ -8,6 +8,7 @@ import { DataSyncEndpointSelector } from './DataSyncEndpointSelector';
 import { DataSyncField as Field } from './DataSyncField';
 import { DataSyncFieldMappingEditor } from './DataSyncFieldMappingEditor';
 import { DataSyncMappingTable } from './DataSyncMappingTable';
+import { dataSyncMappingKey } from './dataSyncMappingKey';
 import { DataSyncRouteBar } from './DataSyncRouteBar';
 import type { DataSyncWorkbenchGateway } from './gateway';
 import {
@@ -280,21 +281,18 @@ const normalizeDataSyncObjectName = (value: string): string =>
     .toLowerCase();
 
 const hasIdentityMigrationMappings = (task: DataSyncTaskDefinition): boolean => {
+  // 结构型迁移，以及可选开启「自动补字段」的对账（差异同步）任务，都允许同名表 + 识别列的隐式路径。
   const structureMigration =
-    task.kind === 'migration' &&
-    (task.content === 'schema' || task.content === 'both');
+    (task.kind === 'migration' &&
+      (task.content === 'schema' || task.content === 'both')) ||
+    (task.kind === 'reconcile' && task.incremental.mode === 'snapshot');
   const mappings = task.mappings.filter((mapping) => mapping.enabled);
   return (
     structureMigration &&
     mappings.length > 0 &&
     mappings.every((mapping) => {
-      if (
-        mapping.fields.length > 0 ||
-        (!structureMigration &&
-          mapping.keyColumns.some((column) => column.trim().length > 0))
-      ) {
-        return false;
-      }
+      // 外层已保证 structureMigration 为真，识别列允许存在（后端预检会校验它等于源物理主键）。
+      if (mapping.fields.length > 0) return false;
       return Boolean(
         normalizeDataSyncObjectName(mapping.sourceObject) &&
           normalizeDataSyncObjectName(mapping.targetObject),
@@ -344,12 +342,13 @@ const DeliveryStage: React.FC<{
   const schemaOnlyMigration =
     task.kind === 'migration' && task.content === 'schema';
   const canConfigureMigrationStructure =
-    task.kind === 'migration' &&
+    (task.kind === 'migration' || task.kind === 'reconcile') &&
     capability.canExecute &&
     (identityMigrationMappings || schemaOnlyMigration);
   const canAutoAddColumns =
     canConfigureMigrationStructure && capability.supportsAutoAddColumns === true;
   const canCreateIndexes =
+    task.kind === 'migration' &&
     canConfigureMigrationStructure &&
     capability.supportsAutoCreate &&
     capability.requiresExistingTarget !== true &&
@@ -1140,6 +1139,12 @@ export const DataSyncTaskEditor: React.FC<{
   preflight: DataSyncPreflightSnapshot | null;
   preflightStale: boolean;
   preflightContent?: React.ReactNode;
+  /**
+   * 预检问题点「定位」时传入的映射标识。本地校验给出的是映射行 id，
+   * 后端问题给出的是稳定键（`源 -> 目标`），两种情况都要能定位到行。
+   */
+  focusMappingRef?: string;
+  onMappingLocated?: () => void;
   t: DataSyncWorkbenchTranslate;
   onStageChange: (stage: DataSyncTaskStage) => void;
   onPatch: (patch: TaskPatchUpdater) => void;
@@ -1152,6 +1157,8 @@ export const DataSyncTaskEditor: React.FC<{
   preflight,
   preflightStale,
   preflightContent,
+  focusMappingRef,
+  onMappingLocated,
   t,
   onStageChange,
   onPatch,
@@ -1187,6 +1194,25 @@ export const DataSyncTaskEditor: React.FC<{
   } | null>(null);
   const inspectedMapping =
     task.mappings.find((mapping) => mapping.id === inspectedMappingId) || null;
+
+  /**
+   * 把预检问题的映射引用解析成映射行 id。
+   *
+   * 两套标识并存：本地校验给出的是映射行 id（`${taskId}:mapping:...`），后端
+   * 给出的是稳定键（`源 -> 目标`）。先按行 id 试，再按稳定键比对 —— 后者需要
+   * 用任务级 schema 补齐，才能与后端算法算出同一个值。
+   */
+  const resolvedFocusMappingId = (() => {
+    const reference = (focusMappingRef || '').trim();
+    if (!reference) return undefined;
+    if (task.mappings.some((mapping) => mapping.id === reference)) return reference;
+    const matched = task.mappings.find(
+      (mapping) =>
+        dataSyncMappingKey(mapping, task.source.schema, task.target.schema) ===
+        reference.toLowerCase(),
+    );
+    return matched?.id;
+  })();
 
   useEffect(() => {
     setInspectedMappingId('');
@@ -1687,6 +1713,8 @@ export const DataSyncTaskEditor: React.FC<{
             mappings={task.mappings}
             taskKind={task.kind}
             compareMode={task.compareMode}
+            focusMappingId={resolvedFocusMappingId}
+            onLocated={onMappingLocated}
             sourceObjects={sourceObjects}
             targetObjects={targetObjects}
             endpointsReady={Boolean(

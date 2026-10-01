@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Input, Segmented, Typography, message } from 'antd'
-import { HistoryOutlined, SearchOutlined } from '@ant-design/icons'
+import { Alert, Segmented, Typography, message } from 'antd'
+import { HistoryOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { useStore } from '../../store'
 import type { ConnectionConfig, TabData } from '../../types'
 import { useI18n } from '../../i18n/provider'
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities'
+import { buildRestoredQueryTab } from '../../utils/sqlAuditTab'
+import { useWorkbenchThemeStyle } from '../common/useWorkbenchThemeStyle'
+import DiagnoseSqlInput from './DiagnoseSqlInput'
 import { ExplainReportView } from './ExplainWorkbench'
 import { SlowQueryPanelContent } from './SlowQueryPanel'
 import type { SlowQueryRecord } from './slowQueryModel'
-import { buildRestoredQueryTab } from '../../utils/sqlAuditTab'
+import './SqlAnalysisWorkbench.css'
 
-const { Title, Text } = Typography
+const { Title } = Typography
 
 type SqlAnalysisViewKey = 'diagnose' | 'slow-query'
 
@@ -28,6 +31,7 @@ const normalizeConnectionConfig = (connection: any): ConnectionConfig => ({
 
 export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
   const { t } = useI18n()
+  const themeStyle = useWorkbenchThemeStyle()
   const connections = useStore((state) => state.connections)
   const addTab = useStore((state) => state.addTab)
   const connection = useMemo(
@@ -46,6 +50,7 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
   const [sqlDraft, setSqlDraft] = useState(() => String(tab.query || ''))
   const [submittedSql, setSubmittedSql] = useState(() => String(tab.query || ''))
   const [diagnoseRunKey, setDiagnoseRunKey] = useState(0)
+  const [editorCollapsed, setEditorCollapsed] = useState(false)
 
   useEffect(() => {
     const nextView = resolveRequestedView(tab)
@@ -55,9 +60,11 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
     if (nextView === 'diagnose' && nextSql.trim()) {
       setSubmittedSql(nextSql)
       setDiagnoseRunKey((previous) => previous + 1)
+      setEditorCollapsed(true)
     } else if (nextView === 'slow-query') {
       setSubmittedSql('')
       setDiagnoseRunKey(0)
+      setEditorCollapsed(false)
     }
   }, [tab.query, tab.sqlAnalysisRequestKey, tab.sqlAnalysisView])
 
@@ -80,16 +87,16 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
     setActiveView('diagnose')
     setSubmittedSql(sqlDraft)
     setDiagnoseRunKey((previous) => previous + 1)
+    setEditorCollapsed(true)
   }, [sqlDraft, supportsDiagnosis, t])
 
   const handlePickSlowQuery = useCallback((sql: string) => {
     const nextSql = String(sql || '')
-    if (!nextSql.trim()) {
-      return
-    }
+    if (!nextSql.trim()) return
     setSqlDraft(nextSql)
     setSubmittedSql('')
     setDiagnoseRunKey(0)
+    setEditorCollapsed(false)
     setActiveView('diagnose')
   }, [])
 
@@ -115,6 +122,7 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
     if (nextView === 'diagnose') {
       setSubmittedSql('')
       setDiagnoseRunKey(0)
+      setEditorCollapsed(false)
     }
     setActiveView(nextView)
   }, [supportsDiagnosis, t])
@@ -129,8 +137,7 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
 
   if (!connectionConfig) {
     return (
-      <div className="gn-sql-analysis-workbench">
-        <style>{workbenchStyles}</style>
+      <div className="gn-sa gn-wb-theme" style={themeStyle}>
         <Alert
           type="warning"
           showIcon
@@ -142,27 +149,27 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
   }
 
   return (
-    <div className="gn-sql-analysis-workbench">
-      <style>{workbenchStyles}</style>
-      <div className="gn-sql-analysis-workbench-header">
-        <div className="gn-sql-analysis-workbench-header-main">
-          <Title level={5} style={{ margin: 0 }}>
-            {t('sql_analysis.workbench.title')}
-          </Title>
-          <Text type="secondary">
-            {connection?.name || tab.connectionId}
-            {dbName ? ` / ${dbName}` : ''}
-          </Text>
+    <div className="gn-sa gn-wb-theme" style={themeStyle}>
+      <header className="gn-sa-header">
+        <div className="gn-sa-title-group">
+          <span className="gn-sa-title-icon" aria-hidden="true"><ThunderboltOutlined /></span>
+          <div className="gn-sa-title-copy">
+            <Title level={5}>{t('sql_analysis.workbench.title')}</Title>
+            <div className="gn-sa-context">
+              <strong>{connection?.name || tab.connectionId}{dbName ? ` / ${dbName}` : ''}</strong>
+              {connectionConfig.type ? <span className="gn-sa-chip">{connectionConfig.type}</span> : null}
+            </div>
+          </div>
         </div>
         <Segmented
           value={activeView}
           onChange={handleViewChange}
-          className="gn-sql-analysis-view-switcher"
+          className="gn-sa-view-switcher"
           options={[
             {
               value: 'slow-query',
               label: (
-                <span className="gn-sql-analysis-view-switcher-label">
+                <span className="gn-sa-view-label">
                   <HistoryOutlined />
                   <span>{t('sql_analysis.workbench.view.slow_query')}</span>
                 </span>
@@ -172,7 +179,7 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
               value: 'diagnose',
               disabled: !supportsDiagnosis,
               label: (
-                <span className="gn-sql-analysis-view-switcher-label">
+                <span className="gn-sa-view-label">
                   <SearchOutlined />
                   <span>{t('sql_analysis.workbench.view.diagnose')}</span>
                 </span>
@@ -180,46 +187,28 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
             },
           ]}
         />
-      </div>
+      </header>
 
-      <div className="gn-sql-analysis-workbench-body">
+      <div className="gn-sa-body">
         {activeView === 'slow-query' ? (
-          <div className="gn-sql-analysis-pane">
-            <SlowQueryPanelContent
-              config={connectionConfig}
-              dbName={dbName}
-              onPickQuery={handlePickSlowQuery}
-              onRestoreQuery={handleRestoreSlowQuery}
-              activeToken={slowQueryLoadKey}
-            />
-          </div>
+          <SlowQueryPanelContent
+            config={connectionConfig}
+            dbName={dbName}
+            onPickQuery={handlePickSlowQuery}
+            onRestoreQuery={handleRestoreSlowQuery}
+            activeToken={slowQueryLoadKey}
+          />
         ) : (
-          <div className="gn-sql-analysis-pane">
-            <div className="gn-sql-analysis-editor-block">
-              <Input.TextArea
-                value={sqlDraft}
-                onChange={(event) => setSqlDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                    event.preventDefault()
-                    triggerDiagnose()
-                  }
-                }}
-                placeholder={t('sql_analysis.workbench.editor.placeholder')}
-                aria-label={t('sql_analysis.workbench.editor.aria_label')}
-                name="sql-analysis-query"
-                autoComplete="off"
-                spellCheck={false}
-                autoSize={{ minRows: 5, maxRows: 10 }}
-              />
-              <div className="gn-sql-analysis-editor-actions">
-                <Text type="secondary">{t('sql_analysis.workbench.editor.hint')}</Text>
-                <Button type="primary" icon={<SearchOutlined />} onClick={triggerDiagnose}>
-                  {t('sql_analysis.workbench.action.run')}
-                </Button>
-              </div>
-            </div>
-            <div className="gn-sql-analysis-report-shell">
+          <div className="gn-sa-diagnose">
+            <DiagnoseSqlInput
+              value={sqlDraft}
+              hasReport={diagnoseRunKey > 0}
+              collapsed={editorCollapsed}
+              onChange={setSqlDraft}
+              onRun={triggerDiagnose}
+              onCollapsedChange={setEditorCollapsed}
+            />
+            <div className="gn-sa-report">
               <ExplainReportView
                 config={connectionConfig}
                 dbName={dbName}
@@ -233,86 +222,3 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
     </div>
   )
 }
-
-const workbenchStyles = `
-  .gn-sql-analysis-workbench {
-    height: 100%;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px;
-    overflow: hidden;
-    box-sizing: border-box;
-  }
-  .gn-sql-analysis-workbench-header {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .gn-sql-analysis-workbench-header-main {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .gn-sql-analysis-view-switcher {
-    flex: 0 0 auto;
-    align-self: flex-start;
-  }
-  .gn-sql-analysis-view-switcher-label {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    min-width: 88px;
-    white-space: nowrap;
-  }
-  .gn-sql-analysis-view-switcher .ant-segmented-group {
-    display: inline-flex;
-    align-items: center;
-  }
-  .gn-sql-analysis-view-switcher .ant-segmented-item {
-    min-height: 30px;
-  }
-  .gn-sql-analysis-view-switcher .ant-segmented-item-label {
-    padding: 5px 12px;
-    font-size: 13px;
-    line-height: 20px;
-  }
-  .gn-sql-analysis-workbench-body {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .gn-sql-analysis-pane {
-    height: 100%;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .gn-sql-analysis-editor-block {
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-  .gn-sql-analysis-editor-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .gn-sql-analysis-report-shell {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
-  }
-`

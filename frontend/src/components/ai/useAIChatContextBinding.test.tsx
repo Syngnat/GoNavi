@@ -166,4 +166,68 @@ describe('useAIChatContextBinding', () => {
       renderer!.unmount();
     });
   });
+
+  it('attaches the active editor selection as a typed context item', async () => {
+    dbGetDatabasesMock.mockResolvedValue({ success: true, data: [{ Database: 'analytics' }] });
+    dbGetTablesMock.mockResolvedValue({ success: true, data: [] });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<HookHarness activeEditorSelection={{
+        tabId: 'query-1',
+        tabTitle: 'Orders query',
+        connectionId: 'conn-1',
+        dbName: 'analytics',
+        text: 'select * from orders',
+      }} />);
+    });
+
+    await act(async () => {
+      await latestHook!.handleOpenContext();
+    });
+    await act(async () => {
+      latestHook!.setSelectedEditorSelection(true);
+    });
+    expect(latestHook!.selectedEditorSelection).toBe(true);
+    await act(async () => {
+      await latestHook!.handleAppendContext();
+    });
+
+    expect(addAIContextMock).toHaveBeenCalledWith('conn-1::analytics', expect.objectContaining({
+      kind: 'editor_selection',
+      content: 'select * from orders',
+      source: expect.objectContaining({ tabId: 'query-1' }),
+    }));
+
+    await act(async () => {
+      renderer!.unmount();
+    });
+  });
+
+  it('binds the active editor selection directly from the composer action', async () => {
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<HookHarness activeEditorSelection={{
+        tabId: 'query-direct',
+        tabTitle: 'Orders query',
+        connectionId: 'conn-1',
+        dbName: 'analytics',
+        text: 'select count(*) from orders',
+      }} />);
+    });
+
+    await act(async () => {
+      latestHook!.handleBindEditorSelection();
+    });
+
+    expect(addAIContextMock).toHaveBeenCalledWith('conn-1::analytics', expect.objectContaining({
+      kind: 'editor_selection',
+      content: 'select count(*) from orders',
+    }));
+    expect(messageApi.success).toHaveBeenCalledWith('Editor selection attached to AI context');
+
+    await act(async () => {
+      renderer!.unmount();
+    });
+  });
 });

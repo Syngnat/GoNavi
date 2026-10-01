@@ -1,13 +1,12 @@
 package app
 
 import (
-	"strings"
-	"testing"
 	"GoNavi-Wails/internal/connection"
 	syncjob "GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/shared/i18n"
+	"strings"
+	"testing"
 )
-
 
 func TestConnectionReadOnlyCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -36,6 +35,8 @@ func TestConnectionReadOnlyCatalogKeysExist(t *testing.T) {
 		"connection.backend.action.truncate_table",
 		"connection.backend.action.data_sync_structure",
 		"connection.backend.action.data_sync_write",
+		"connection.backend.action.cancel_database_query",
+		"connection.backend.action.terminate_database_session",
 	}
 
 	for _, language := range i18n.SupportedLanguages() {

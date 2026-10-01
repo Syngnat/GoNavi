@@ -1993,6 +1993,28 @@ textarea.gn-data-sync-control {
   box-shadow: inset 2px 0 var(--gn-warn, #d97706);
 }
 
+/* 预检问题点「定位」后的短暂高亮：让用户一眼看到跳到了哪一行。 */
+.gn-data-sync-mapping-row[data-located='true'] {
+  border-color: var(--gn-accent, #2563eb);
+  box-shadow: inset 3px 0 var(--gn-accent, #2563eb);
+  background: var(--gn-accent-soft, rgba(37, 99, 235, 0.08));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .gn-data-sync-mapping-row[data-located='true'] {
+    animation: gn-data-sync-located-pulse 1.6s ease-out 1;
+  }
+}
+
+@keyframes gn-data-sync-located-pulse {
+  from {
+    box-shadow: inset 3px 0 var(--gn-accent, #2563eb), 0 0 0 4px rgba(37, 99, 235, 0.22);
+  }
+  to {
+    box-shadow: inset 3px 0 var(--gn-accent, #2563eb), 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
 .gn-data-sync-mapping-row__route {
   display: grid;
   grid-template-columns: subgrid;

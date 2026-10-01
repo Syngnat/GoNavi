@@ -5,18 +5,15 @@ import {
   CheckOutlined,
   ClockCircleOutlined,
   CloudOutlined,
-  CodeOutlined,
   DatabaseOutlined,
-  EyeOutlined,
   FilterOutlined,
-  KeyOutlined,
   LinkOutlined,
-  PlusOutlined,
-  RobotOutlined,
-  TableOutlined,
   TagOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
+import { GnNewConnectionIcon, GnNewQueryIcon } from '../icons/gnIcons';
+import { renderSidebarObjectIcon } from './sidebarObjectIcons';
 
 import { type SqlLog, useStore } from '../../store';
 import type { SavedConnection } from '../../types';
@@ -27,6 +24,7 @@ import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../u
 import { getDbIcon } from '../DatabaseIcons';
 import {
   isV2SidebarObjectNode,
+  isSidebarSearchableNacosGroupNode,
   matchesSidebarSearchText,
   parseV2CommandSearchQuery,
   type V2ExplorerFilter,
@@ -43,6 +41,7 @@ import {
   type SidebarTreeNode as TreeNode,
   type V2CommandSearchItem,
 } from '../sidebarV2Utils';
+import { formatQueryDuration } from '../../utils/queryDurationFormat';
 
 const SEARCH_SCOPE_OPTIONS: Array<{ value: SearchScope; labelKey: string }> = [
   { value: 'smart', labelKey: 'sidebar.command_search.scope.smart' },
@@ -59,7 +58,7 @@ const SEARCH_SCOPE_LABEL_KEY_MAP: Record<SearchScope, string> = SEARCH_SCOPE_OPT
 
 const SEARCH_SCOPE_ICON_MAP: Record<SearchScope, React.ReactNode> = {
   smart: <ThunderboltOutlined />,
-  object: <TableOutlined />,
+  object: renderSidebarObjectIcon('table'),
   database: <DatabaseOutlined />,
   host: <CloudOutlined />,
   tag: <TagOutlined />,
@@ -313,7 +312,7 @@ export const useSidebarSearchModel = ({
     const title = String(node.title || '');
     if (
       scopes.includes('database')
-      && (node.type === 'database' || node.type === 'message-namespace')
+      && (node.type === 'database' || node.type === 'message-namespace' || node.type === 'nacos-namespace')
       && matchesSidebarSearchText(title, keyword)
     ) {
       return true;
@@ -326,7 +325,7 @@ export const useSidebarSearchModel = ({
     }
     if (
       scopes.includes('object')
-      && (isV2SidebarObjectNode(node) || node.type === 'object-group' || node.type === 'message-object-group')
+      && (isV2SidebarObjectNode(node) || isSidebarSearchableNacosGroupNode(node) || node.type === 'object-group' || node.type === 'message-object-group')
       && (matchesSidebarSearchText(title, keyword) || matchesSidebarSearchText(getObjectCommentSearchText(node), keyword))
     ) {
       return true;
@@ -409,14 +408,27 @@ export const useSidebarSearchModel = ({
             icon: getDbIcon(resolveConnectionIconType(conn), resolveConnectionAccentColor(conn), 16),
             node,
           });
-        } else if (node.type === 'database' || node.type === 'message-namespace') {
+        } else if (node.type === 'database' || node.type === 'message-namespace' || node.type === 'nacos-namespace') {
           const conn = connectionById.get(String(dataRef.id || ''));
           result.push({
             key: `node-${node.key}`,
             kind: 'node',
-            title: String(node.title || dataRef.dbName || t('database.unnamed')),
+            title: String(node.title || dataRef.nacosNamespaceName || dataRef.dbName || t('database.unnamed')),
             meta: conn?.name || dataRef.id || t('database.label'),
             icon: <DatabaseOutlined />,
+            node,
+          });
+        } else if (isSidebarSearchableNacosGroupNode(node)) {
+          const conn = connectionById.get(String(dataRef.id || ''));
+          result.push({
+            key: `node-${node.key}`,
+            kind: 'node',
+            title: String(node.title || dataRef.nacosGroup || '').trim(),
+            meta: [conn?.name || dataRef.id, dataRef.nacosNamespaceName || dataRef.nacosNamespaceId,
+              t(node.type === 'nacos-config-group'
+                ? 'sidebar.command_search.object_kind.nacos_configs'
+                : 'sidebar.command_search.object_kind.nacos_services')].filter(Boolean).join(' · '),
+            icon: node.icon || <DatabaseOutlined />,
             node,
           });
         } else if (isV2SidebarObjectNode(node)) {
@@ -448,14 +460,16 @@ export const useSidebarSearchModel = ({
               tableComment,
             ].filter(Boolean).join(' — '),
             icon: node.type === 'table'
-              ? <TableOutlined />
+              ? renderSidebarObjectIcon('table')
               : node.type === 'sequence'
-                ? <KeyOutlined />
+                ? renderSidebarObjectIcon('sequence')
                 : node.type === 'database-link'
                   ? <LinkOutlined />
                   : node.type === 'db-event'
-                    ? <ClockCircleOutlined />
-                    : ((node.type === 'routine' || node.type === 'package') ? <CodeOutlined /> : <EyeOutlined />),
+                    ? renderSidebarObjectIcon('event')
+                    : node.type === 'routine'
+                      ? renderSidebarObjectIcon('routine')
+                      : node.type === 'package' ? renderSidebarObjectIcon('package') : renderSidebarObjectIcon('view'),
             node,
           });
         }
@@ -476,7 +490,7 @@ export const useSidebarSearchModel = ({
       key: `recent-${log.id}`,
       kind: 'recent',
       title: log.sql.replace(/\s+/g, ' ').trim() || t('sidebar.command_search.recent_sql_fallback'),
-      meta: `${new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${log.duration}ms${log.dbName ? ` · ${log.dbName}` : ''}`,
+      meta: `${new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${formatQueryDuration(log.duration)}${log.dbName ? ` · ${log.dbName}` : ''}`,
       icon: <ClockCircleOutlined />,
       logId: log.id,
       sql: log.sql,
@@ -491,7 +505,7 @@ export const useSidebarSearchModel = ({
       title: t('query.new'),
       meta: t('sidebar.command_search.action.new_query.meta'),
       shortcut: resolveShortcutDisplay(shortcutOptions, 'newQueryTab', activeShortcutPlatform),
-      icon: <PlusOutlined />,
+      icon: <GnNewQueryIcon />,
       onRun: () => window.dispatchEvent(new CustomEvent('gonavi:create-query-tab')),
     },
     {
@@ -500,7 +514,7 @@ export const useSidebarSearchModel = ({
       title: t('sidebar.command_search.action.new_connection.title'),
       meta: t('sidebar.command_search.action.new_connection.meta'),
       shortcut: resolveShortcutDisplay(shortcutOptions, 'newConnection', activeShortcutPlatform),
-      icon: <ThunderboltOutlined />,
+      icon: <GnNewConnectionIcon />,
       onRun: () => onCreateConnection?.(),
     },
     {
@@ -509,7 +523,7 @@ export const useSidebarSearchModel = ({
       title: t('sidebar.command_search.action.open_ai.title'),
       meta: t('sidebar.command_search.action.open_ai.meta'),
       shortcut: resolveShortcutDisplay(shortcutOptions, 'toggleAIPanel', activeShortcutPlatform),
-      icon: <RobotOutlined />,
+      icon: <AiSparkOutlined />,
       onRun: () => onToggleAI?.(),
     },
     {
@@ -560,7 +574,7 @@ export const useSidebarSearchModel = ({
       title: t('sidebar.command_search.action.ask_ai.title'),
       meta: v2CommandSearchQuery.aiPrompt,
       shortcut: '↵',
-      icon: <RobotOutlined />,
+      icon: <AiSparkOutlined />,
       onRun: () => {
         const wasClosed = !useStore.getState().aiPanelVisible;
         if (wasClosed) setAIPanelVisible(true);

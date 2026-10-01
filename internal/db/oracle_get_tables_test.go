@@ -12,6 +12,21 @@ import (
 	"golang.org/x/text/transform"
 )
 
+// oracleTableScopedQueries 过滤掉连接级能力探测，只保留表级元数据查询。
+//
+// identity 字典视图探测是一次性连接级动作，不属于任何一张表的元数据读取。
+// 断言「先查哪张表」时应把它排除，否则断言会随探测策略变化而无谓失败。
+func oracleTableScopedQueries(queries []string) []string {
+	scoped := make([]string, 0, len(queries))
+	for _, query := range queries {
+		if strings.Contains(query, "IDENTITY_PROBE") {
+			continue
+		}
+		scoped = append(scoped, query)
+	}
+	return scoped
+}
+
 func TestNormalizeOracleMetadataCommentRepairsUTF8DecodedAsGBK(t *testing.T) {
 	for _, want := range []string{
 		"平台商品编码",
@@ -137,7 +152,7 @@ func TestOracleGetColumnsIncludesColumnComments(t *testing.T) {
 		t.Fatalf("expected first column comment from Oracle metadata, got %#v", columns[0])
 	}
 
-	queries := state.snapshotQueries()
+	queries := oracleTableScopedQueries(state.snapshotQueries())
 	if len(queries) == 0 || !strings.Contains(queries[0], "all_col_comments") {
 		t.Fatalf("expected GetColumns to join all_col_comments, queries=%v", queries)
 	}
@@ -213,7 +228,7 @@ func TestOracleGetColumnsResolvesSynonymTargetComments(t *testing.T) {
 		t.Fatalf("expected second synonym column comment from DEV.PERSON_INFO, got %#v", columns[1])
 	}
 
-	queries := state.snapshotQueries()
+	queries := oracleTableScopedQueries(state.snapshotQueries())
 	if len(queries) < 3 {
 		t.Fatalf("expected direct metadata probe + synonym lookup + target metadata probe, got %v", queries)
 	}
@@ -273,7 +288,7 @@ func TestOracleGetColumnsPreservesMetadataNameCaseBeforeUppercaseFallback(t *tes
 		t.Fatalf("GetColumns 返回错误: %v", err)
 	}
 
-	queries := state.snapshotQueries()
+	queries := oracleTableScopedQueries(state.snapshotQueries())
 	if len(queries) == 0 {
 		t.Fatalf("expected metadata query")
 	}

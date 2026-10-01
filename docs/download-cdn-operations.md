@@ -36,12 +36,12 @@ Cloudflare 的域名、Origin Rule 和证书必须在控制台完成；代码和
 ## 发布流程
 
 1. `tools/prepare-vps-release-payload.py` 从已校验的 release 产物生成 payload、`deployment.json` 和 `SHA256SUMS`。
-2. `tools/publish-edge-release.sh` 使用两套独立 SSH 凭据，将同一 generation 上传到 Cst 和 Bero 的 `/srv/gonavi-downloads/.incoming/`。
-3. 两个节点上的 root-owned transaction 依次执行 `verify`、`promote-immutable`、`promote-mutable` 和 `finalize`。CI 不上传可执行发布逻辑，也不直接写正式目录。
-4. CI 分别从公网验证两个 hostname 的 `/healthz`、HEAD 和 Range；immutable 产物必须返回真实 `206`、正确 `Content-Range`、`Content-Length` 和 SHA-256。
-5. 两个节点都通过验证后，发布脚本才成功退出。Worker 始终返回静态三源链，不需要额外发布步骤。
+2. `tools/publish-edge-release.sh` 使用独立 SSH 凭据，先将 generation 上传并激活到 Bero，再尝试同步到 Cst 的 `/srv/gonavi-downloads/.incoming/`。
+3. 节点上的 root-owned transaction 依次执行 `verify`、`promote-immutable`、`promote-mutable` 和 `finalize`。CI 不上传可执行发布逻辑，也不直接写正式目录。
+4. CI 从公网验证 Bero 的 `/healthz` 和 Range；Cst 发布成功时也执行相同验证。immutable 产物必须返回真实 `206`、正确 `Content-Range` 和数据长度，节点事务校验 SHA-256。
+5. Bero 通过验证后，Cst 故障只产生 CI 警告；Bero 故障使发布失败。Worker 始终返回静态三源链，不需要额外发布步骤。
 
-任一节点上传、校验、公开 Range 或 health 验证失败，本次发布失败，避免两个源的 generation 分裂。旧 generation 文件由节点上的 retention helper 按磁盘预算清理。
+Bero 上传、校验或公开验证失败，本次发布失败。Cst 失败时 Bero 的新 generation 仍会保留并标记发布成功，Cst 可能暂时落后；需处理 CI 警告并重试同步。旧 generation 文件由节点上的 retention helper 按磁盘预算清理。
 
 ## Worker 和客户端行为
 

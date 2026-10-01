@@ -19,6 +19,15 @@ import {
   resolveAvailableCustomTheme,
   resolveBuiltinCustomThemePreset,
 } from './utils/customThemePresets';
+import {
+  EMPTY_REMEMBERED_CUSTOM_THEME_IDS,
+  forgetCustomTheme,
+  rememberCustomThemeForMode,
+  resolveRememberedCustomThemeId,
+  sanitizeRememberedCustomThemeIds,
+  type RememberedCustomThemeIds,
+  type RememberedThemeMode,
+} from './utils/customThemeModeMemory';
 
 export const CUSTOM_THEME_STORAGE_KEY = 'gonavi-custom-themes-v1';
 
@@ -37,6 +46,8 @@ type CustomThemeSnapshot = {
   version: 1;
   themes: CustomThemeDefinition[];
   activeThemeId: string | null;
+  /** 亮 / 暗模式各自上次应用的主题，一键切换明暗时据此恢复。 */
+  rememberedThemeIds: RememberedCustomThemeIds;
 };
 
 type CustomThemeStorage = Pick<Storage, 'getItem' | 'setItem'>;
@@ -57,6 +68,10 @@ interface CustomThemeState extends CustomThemeSnapshot {
   importCustomTheme: (input: ImportCustomThemeInput) => CustomThemeStoreResult;
   updateCustomTheme: (id: string, patch: UpdateCustomThemeInput) => CustomThemeStoreResult;
   selectCustomTheme: (id: string | null) => CustomThemeStoreResult;
+  /** 用户主动退回基础主题：关闭当前主题并忘掉它在所属模式下的记忆。 */
+  deactivateCustomTheme: () => CustomThemeStoreResult;
+  /** 切换到某个明暗偏好时恢复该模式记住的主题；跟随系统或无记忆时回到基础主题。 */
+  activateRememberedCustomTheme: (mode: RememberedThemeMode | 'system') => CustomThemeStoreResult;
   removeCustomTheme: (id: string) => CustomThemeStoreResult;
   reloadCustomThemes: () => void;
 }
@@ -65,6 +80,7 @@ const EMPTY_CUSTOM_THEME_SNAPSHOT: CustomThemeSnapshot = {
   version: 1,
   themes: [],
   activeThemeId: null,
+  rememberedThemeIds: EMPTY_REMEMBERED_CUSTOM_THEME_IDS,
 };
 
 const getBrowserStorage = (): CustomThemeStorage | null => {
@@ -88,6 +104,7 @@ export const sanitizeCustomThemeSnapshot = (value: unknown): CustomThemeSnapshot
     version: 1,
     themes,
     activeThemeId: activeTheme?.id ?? null,
+    rememberedThemeIds: sanitizeRememberedCustomThemeIds(raw.rememberedThemeIds, themes),
   };
 };
 
@@ -125,7 +142,14 @@ const getTotalThemeBytes = (themes: CustomThemeDefinition[]): number => themes.r
 const createSnapshot = (
   themes: CustomThemeDefinition[],
   activeThemeId: string | null,
-): CustomThemeSnapshot => ({ version: 1, themes, activeThemeId });
+  rememberedThemeIds: RememberedCustomThemeIds,
+): CustomThemeSnapshot => ({
+  version: 1,
+  themes,
+  activeThemeId,
+  // 主题被删除或 baseMode 被改动后，记忆必须随之校正。
+  rememberedThemeIds: sanitizeRememberedCustomThemeIds(rememberedThemeIds, themes),
+});
 
 const initialSnapshot = loadCustomThemeSnapshot();
 
@@ -157,7 +181,7 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
       updatedAt: now,
     });
     if (!theme) return { ok: false, reason: 'invalid-syntax' };
-    const nextSnapshot = createSnapshot([theme, ...state.themes], state.activeThemeId);
+    const nextSnapshot = createSnapshot([theme, ...state.themes], state.activeThemeId, state.rememberedThemeIds);
     if (!persistCustomThemeSnapshot(nextSnapshot)) {
       return { ok: false, reason: 'storage-failed' };
     }
@@ -190,7 +214,7 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     });
     if (!nextTheme) return { ok: false, reason: 'invalid-syntax' };
     const themes = state.themes.map((theme, index) => index === currentIndex ? nextTheme : theme);
-    const nextSnapshot = createSnapshot(themes, state.activeThemeId);
+    const nextSnapshot = createSnapshot(themes, state.activeThemeId, state.rememberedThemeIds);
     if (!persistCustomThemeSnapshot(nextSnapshot)) {
       return { ok: false, reason: 'storage-failed' };
     }
@@ -203,7 +227,12 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     if (id !== null && !resolveAvailableCustomTheme(state.themes, id)) {
       return { ok: false, reason: 'not-found' };
     }
-    const nextSnapshot = createSnapshot(state.themes, id);
+    const theme = resolveAvailableCustomTheme(state.themes, id);
+    const nextSnapshot = createSnapshot(
+      state.themes,
+      id,
+      rememberCustomThemeForMode(state.rememberedThemeIds, theme),
+    );
     if (!persistCustomThemeSnapshot(nextSnapshot)) {
       // Deactivation is also the recovery path for a malformed theme. It must
       // remain available in-memory even when localStorage is blocked or full.
@@ -211,7 +240,30 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
       return { ok: false, reason: 'storage-failed' };
     }
     set(nextSnapshot);
-    return { ok: true, theme: resolveAvailableCustomTheme(state.themes, id) ?? undefined };
+    return { ok: true, theme: theme ?? undefined };
+  },
+
+  deactivateCustomTheme: () => {
+    const state = get();
+    const nextSnapshot = createSnapshot(
+      state.themes,
+      null,
+      forgetCustomTheme(state.rememberedThemeIds, state.activeThemeId),
+    );
+    if (!persistCustomThemeSnapshot(nextSnapshot)) {
+      // Same recovery contract as selectCustomTheme(null): always leave the theme in-memory.
+      set(nextSnapshot);
+      return { ok: false, reason: 'storage-failed' };
+    }
+    set(nextSnapshot);
+    return { ok: true };
+  },
+
+  activateRememberedCustomTheme: (mode) => {
+    const state = get();
+    const targetId = resolveRememberedCustomThemeId(state.rememberedThemeIds, mode);
+    if (targetId === state.activeThemeId) return { ok: true };
+    return get().selectCustomTheme(targetId);
   },
 
   removeCustomTheme: (id) => {
@@ -221,7 +273,7 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     }
     const themes = state.themes.filter((theme) => theme.id !== id);
     const activeThemeId = state.activeThemeId === id ? null : state.activeThemeId;
-    const nextSnapshot = createSnapshot(themes, activeThemeId);
+    const nextSnapshot = createSnapshot(themes, activeThemeId, state.rememberedThemeIds);
     if (!persistCustomThemeSnapshot(nextSnapshot)) {
       return { ok: false, reason: 'storage-failed' };
     }

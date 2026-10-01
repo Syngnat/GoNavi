@@ -1,0 +1,207 @@
+/*
+ * 标题栏下方功能工具条。
+ *
+ * 参考稿是 2x 渲染：按钮实测约 96x92、图标约 46、文字约 26，换算成
+ * 48x46 / 22px / 13px。所有尺寸乘以 --gn-ui-scale，与标题栏
+ * (resolveTitleBarLayout) 的缩放口径一致。
+ *
+ * 注意：这里刻意不复用 .gonavi-titlebar-primary-action 那套胶囊样式。
+ * 那是「标题栏内」按钮的外观契约，测试逐条断言了它的 border-radius /
+ * height / font-size；工具条是另一套视觉，用独立类名各管各的。
+ */
+
+body[data-ui-version='v2'] .gn-titlebar-toolbar {
+  --gn-titlebar-toolbar-item-width: calc(48px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-item-height: calc(46px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-icon-size: calc(22px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-label-size: calc(13px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-gap: calc(4px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-inline-padding: calc(14px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-vertical-padding: calc(4px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-active-surface: #eeebff;
+  --gn-titlebar-toolbar-active-label: #4c3fd6;
+
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--gn-titlebar-toolbar-gap);
+  box-sizing: border-box;
+  /* 上下各留一个内边距，条带总高 = 按钮高 + 2 * padding，随缩放一起变。 */
+  height: calc(
+    var(--gn-titlebar-toolbar-item-height) + 2 * var(--gn-titlebar-toolbar-vertical-padding)
+  );
+  padding: var(--gn-titlebar-toolbar-vertical-padding) var(--gn-titlebar-toolbar-inline-padding);
+  background: var(--gn-bg-titlebar, transparent);
+  border-bottom: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+  user-select: none;
+  /* 工具条不参与窗口拖拽，避免点按钮时手势被标题栏抢走。 */
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+
+body[data-theme='dark'][data-ui-version='v2'] .gn-titlebar-toolbar {
+  --gn-titlebar-toolbar-active-surface: color-mix(in srgb, var(--gn-accent, #7c6cff) 26%, transparent);
+  --gn-titlebar-toolbar-active-label: #c7bfff;
+}
+
+/* portal 插槽只是定位锚点，自身不参与布局，让按钮与兄弟节点同一层排布。 */
+body[data-ui-version='v2'] .gn-titlebar-toolbar > .gn-titlebar-toolbar-slot,
+body[data-ui-version='v2'] .gn-titlebar-toolbar > .gonavi-titlebar-quick-actions-slot {
+  display: contents;
+}
+
+/* 动作组容器：内部按钮按 row 排列，与工具条同向。 */
+body[data-ui-version='v2'] .gn-titlebar-toolbar > .gonavi-titlebar-primary-actions,
+body[data-ui-version='v2'] .gn-titlebar-toolbar > .gn-v2-titlebar-quick-actions,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-primary {
+  display: contents;
+}
+
+/*
+ * 重排按钮外观。作用域限定在工具条内，所以标题栏里同名类名的旧样式
+ * 与断言不受影响。
+ */
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-more {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(3px * var(--gn-ui-scale, 1));
+  box-sizing: border-box;
+  /*
+   * 宽度按标签自适应，只保底一个图标宽。
+   *
+   * 参考稿里的 48px 是图标块尺寸，不是按钮整体宽度：「管理连接分组」这类
+   * 六字标签实测 78px，写死宽度会让它溢出到相邻按钮上。
+   */
+  width: auto;
+  min-width: var(--gn-titlebar-toolbar-item-width);
+  height: var(--gn-titlebar-toolbar-item-height);
+  padding: 0 calc(8px * var(--gn-ui-scale, 1));
+  border: none;
+  border-radius: calc(12px * var(--gn-ui-scale, 1));
+  background: transparent;
+  color: var(--gn-fg-2, inherit);
+  font: inherit;
+  font-size: var(--gn-titlebar-toolbar-label-size);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: 0;
+  box-shadow: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action:hover,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action:focus-visible,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action:hover,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action:focus-visible {
+  border: none;
+  background: var(--gn-bg-panel-2, rgba(15, 23, 42, 0.05));
+  color: var(--gn-fg-1, inherit);
+  outline: none;
+}
+
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-item-active,
+body[data-ui-version='v2'] .gn-titlebar-toolbar [data-titlebar-toolbar-item-active='true'] {
+  background: var(--gn-titlebar-toolbar-active-surface);
+}
+
+/* 激活态换的是淡紫底，文字要跟着变紫才读得出选中。 */
+body[data-ui-version='v2'] .gn-titlebar-toolbar [data-titlebar-toolbar-item-active='true'] .gn-titlebar-toolbar-item-label {
+  color: var(--gn-titlebar-toolbar-active-label);
+  font-weight: 600;
+}
+
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action:disabled,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-item-icon {
+  display: inline-flex;
+  flex: 0 0 var(--gn-titlebar-toolbar-icon-size);
+  align-items: center;
+  justify-content: center;
+  width: var(--gn-titlebar-toolbar-icon-size);
+  height: var(--gn-titlebar-toolbar-icon-size);
+}
+
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-item-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 文字不换行，「管理连接分组」这类长标签保持单行。 */
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-item-label {
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+/* 「SQL 工具」之前的分隔线。 */
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-divider {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 1px;
+  height: calc(22px * var(--gn-ui-scale, 1));
+  margin: 0 calc(10px * var(--gn-ui-scale, 1));
+  background: var(--gn-br-2, rgba(15, 23, 42, 0.12));
+}
+
+
+/*
+ * 「关于」在 macOS 上移到标题栏后，脱离了上面的工具条作用域，需要单独一套
+ * 规则让它与「设置 │ 主题」胶囊同排同高：横向图标+文字，30px 高。
+ */
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-v2-titlebar-quick-action {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: calc(6px * var(--gn-ui-scale, 1));
+  width: auto;
+  height: var(--gn-titlebar-action-height, 30px);
+  padding: 0 calc(8px * var(--gn-ui-scale, 1));
+  border: none;
+  border-radius: calc(7px * var(--gn-ui-scale, 1));
+  background: transparent;
+  color: var(--gn-fg-1, inherit);
+  font: inherit;
+  font-size: calc(13px * var(--gn-ui-scale, 1));
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-v2-titlebar-quick-action:hover,
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-v2-titlebar-quick-action:focus-visible {
+  /* 与相邻的「设置 / 主题」一致：标题栏按钮不做悬停 / 选中底色。 */
+  background: transparent;
+  color: var(--gn-fg-1, inherit);
+  outline: none;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-titlebar-toolbar-item-icon {
+  display: inline-flex;
+  flex: 0 0 calc(17px * var(--gn-ui-scale, 1));
+  align-items: center;
+  justify-content: center;
+  width: calc(17px * var(--gn-ui-scale, 1));
+  height: calc(17px * var(--gn-ui-scale, 1));
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-titlebar-toolbar-item-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-titlebar-toolbar-item-label {
+  white-space: nowrap;
+}

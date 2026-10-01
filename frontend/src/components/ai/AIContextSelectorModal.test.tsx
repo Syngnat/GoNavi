@@ -73,6 +73,7 @@ vi.mock('antd', async () => {
 
 vi.mock('@ant-design/icons', () => ({
   SearchOutlined: () => React.createElement('span', { 'data-icon': 'search' }),
+  CodeOutlined: () => React.createElement('span', { 'data-icon': 'code' }),
 }));
 
 const baseProps: React.ComponentProps<typeof AIContextSelectorModal> = {
@@ -146,5 +147,20 @@ describe('AIContextSelectorModal i18n guards', () => {
     expect(markup).toContain('Sync selected tables to context');
     expect(markup).toContain('Select all matching tables (2)');
     expect(markup).toContain('Invert matching selection');
+  });
+
+  it('shows the current editor selection as an attachable context candidate', () => {
+    const markup = renderWithProvider('en-US', {
+      activeEditorSelection: {
+        tabId: 'query-1',
+        tabTitle: 'Orders query',
+        connectionId: 'conn-1',
+        dbName: 'analytics',
+        text: 'select * from orders',
+      },
+    });
+
+    expect(markup).toContain('Attach editor selection &quot;Orders query&quot; as context');
+    expect(markup).toContain('select * from orders');
   });
 });

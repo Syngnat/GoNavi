@@ -1,9 +1,9 @@
 .gn-ai-session-switcher {
   display: flex;
   flex: 0 0 auto;
-  gap: 6px;
+  gap: calc(6 * var(--gn-ai-unit, 1px));
   overflow-x: auto;
-  padding: 8px 12px 0;
+  padding: calc(10 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px)) calc(2 * var(--gn-ai-unit, 1px));
   scrollbar-width: none;
 }
 
@@ -14,19 +14,25 @@
 .gn-ai-session-switcher button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 180px;
-  height: 26px;
-  padding: 0 10px;
-  border: 0.5px solid var(--gn-br-1, rgba(0, 0, 0, 0.12));
+  gap: calc(6 * var(--gn-ai-unit, 1px));
+  max-width: calc(180 * var(--gn-ai-unit, 1px));
+  height: calc(28 * var(--gn-ai-unit, 1px));
+  padding: 0 calc(12 * var(--gn-ai-unit, 1px));
+  border: 0.5px solid transparent;
   border-radius: 999px;
-  background: transparent;
-  color: var(--gn-fg-2, inherit);
+  background: color-mix(in srgb, var(--gn-fg-1, #000) 5%, transparent);
+  color: var(--gn-fg-3, inherit);
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12 * var(--gn-ai-unit, 1px));
   line-height: 1;
   cursor: pointer;
   flex: 0 0 auto;
+  transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.gn-ai-session-switcher button:hover:not(.is-active) {
+  background: color-mix(in srgb, var(--gn-fg-1, #000) 9%, transparent);
+  color: var(--gn-fg-1, inherit);
 }
 
 .gn-ai-session-switcher button span:last-child {
@@ -36,15 +42,16 @@
 }
 
 .gn-ai-session-switcher button.is-active {
-  background: var(--gn-bg-active, rgba(0, 0, 0, 0.06));
-  color: var(--gn-fg-1, inherit);
+  border-color: color-mix(in srgb, var(--gn-accent, #0284c7) 32%, transparent);
+  background: var(--gn-accent-soft, rgba(0, 0, 0, 0.06));
+  color: var(--gn-accent-2, var(--gn-fg-1, inherit));
   font-weight: 650;
 }
 
 .gn-ai-session-switcher-dot {
-  width: 6px;
-  height: 6px;
+  width: calc(6 * var(--gn-ai-unit, 1px));
+  height: calc(6 * var(--gn-ai-unit, 1px));
   border-radius: 50%;
-  background: var(--gn-accent-2, #0284c7);
+  background: var(--gn-accent, #0284c7);
   flex: 0 0 auto;
 }

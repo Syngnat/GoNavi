@@ -33,7 +33,13 @@ type ScanOptions struct {
 // 方言的宽松默认。
 func OptionsForDBType(dbType string) ScanOptions {
 	normalized := normalizeDBType(dbType)
-	opts := ScanOptions{BackslashEscapes: true}
+	// BackslashEscapes 仅 MySQL 系启用（issue #1326 用户反馈）：Oracle/达梦等
+	// 方言里 `'\'` 是内容为反斜杠的完整字符串，若按转义处理会让扫描器认为
+	// 字符串未闭合，后续所有 ${param} 全部丢失。
+	opts := ScanOptions{BackslashEscapes: normalized == "mysql" ||
+		normalized == "mariadb" || normalized == "oceanbase" ||
+		normalized == "diros" || normalized == "starrocks" ||
+		normalized == "goldendb" || normalized == "sphinx" || normalized == "tidb"}
 	if normalized == "" {
 		opts.HashComments = true
 		opts.DollarQuotes = true

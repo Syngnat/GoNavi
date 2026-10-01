@@ -3,6 +3,7 @@ import { Button } from 'antd';
 import { ExclamationCircleFilled } from '@ant-design/icons';
 
 import type { AIComposerNotice } from '../../utils/aiComposerNotice';
+import { aiPx } from './aiScale';
 
 interface AIChatComposerNoticeProps {
   composerNotice?: AIComposerNotice | null;
@@ -67,12 +68,12 @@ export const AIChatComposerNotice: React.FC<AIChatComposerNoticeProps> = ({
         border: `1px solid ${palette.borderColor}`,
       }}
     >
-      <ExclamationCircleFilled style={{ color: palette.iconColor, fontSize: 14, marginTop: 1, flexShrink: 0 }} />
+      <ExclamationCircleFilled style={{ color: palette.iconColor, fontSize: aiPx(14), marginTop: 1, flexShrink: 0 }} />
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: textColor, lineHeight: 1.4 }}>
+        <div style={{ fontSize: aiPx(12), fontWeight: 600, color: textColor, lineHeight: 1.4 }}>
           {composerNotice.title}
         </div>
-        <div style={{ fontSize: 11, color: mutedColor, lineHeight: 1.5, marginTop: 2, wordBreak: 'break-word' }}>
+        <div style={{ fontSize: aiPx(11), color: mutedColor, lineHeight: 1.5, marginTop: 2, wordBreak: 'break-word' }}>
           {composerNotice.description}
         </div>
         {actionLabel && typeof onComposerNoticeAction === 'function' && (

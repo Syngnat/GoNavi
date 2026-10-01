@@ -12,6 +12,7 @@ const runtimeService = vi.hoisted(() => ({
   AIListProviderModels: vi.fn(),
   AIGetCLIModelCatalog: vi.fn(),
   AIGetCLICapabilities: vi.fn(),
+  AIGetModelContextProfile: vi.fn(),
 }));
 const windowStub = vi.hoisted(() => ({
   addEventListener: vi.fn(),
@@ -46,6 +47,7 @@ describe('useAIChatRuntimeResources', () => {
     runtimeService.AIListProviderModels.mockResolvedValue({ success: true, models: [] });
     runtimeService.AIGetCLIModelCatalog.mockResolvedValue({ models: [], source: 'none', stale: false });
     runtimeService.AIGetCLICapabilities.mockResolvedValue([]);
+    runtimeService.AIGetModelContextProfile.mockResolvedValue({ defaultWindow: 258000, options: [258000] });
     vi.stubGlobal('window', {
       ...windowStub,
       go: {
@@ -112,6 +114,26 @@ describe('useAIChatRuntimeResources', () => {
     expect(runtimeService.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ id: 'provider-grok', model: 'grok-3', hasSecret: true }));
     expect(runtimeService.AISetActiveProvider).toHaveBeenCalledWith('provider-grok');
     expect(latestHook!.activeProvider).toEqual(expect.objectContaining({ id: 'provider-grok', model: 'grok-3' }));
+
+    await act(async () => { renderer!.unmount(); });
+  });
+
+  it('loads the model context profile for the active model but does not write it from the chat', async () => {
+    const provider = { id: 'provider-openai', name: 'OpenAI', type: 'openai', apiKey: '', hasSecret: true, model: 'gpt-5', contextWindow: 500_000 };
+    runtimeService.AIGetProviders.mockResolvedValue([provider]);
+    runtimeService.AIGetActiveProvider.mockResolvedValue('provider-openai');
+    runtimeService.AISaveProvider.mockResolvedValue(undefined);
+    runtimeService.AIGetModelContextProfile.mockResolvedValue({ defaultWindow: 1_000_000, options: [500_000, 1_000_000] });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<Harness />); });
+    await flushAsyncWork();
+
+    expect(runtimeService.AIGetModelContextProfile).toHaveBeenCalledWith(expect.objectContaining({ id: 'provider-openai', model: 'gpt-5' }));
+    expect(latestHook!.modelContextProfile).toEqual({ defaultWindow: 1_000_000, options: [500_000, 1_000_000] });
+    // 档位在供应商设置里改；聊天面板只读，不暴露修改入口。
+    expect(latestHook).not.toHaveProperty('handleContextWindowChange');
+    expect(runtimeService.AISaveProvider).not.toHaveBeenCalled();
 
     await act(async () => { renderer!.unmount(); });
   });

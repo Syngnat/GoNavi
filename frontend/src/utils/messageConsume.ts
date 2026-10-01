@@ -2,7 +2,7 @@ import { t as defaultTranslate, type I18nParams } from '../i18n';
 import { resolveDataSourceType } from './dataSourceCapabilities';
 
 export type MessageConsumeMode = 'stream' | 'pull-preview';
-export type MessageConsumeSourceType = 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq';
+export type MessageConsumeSourceType = 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq' | 'pulsar';
 export type MessageConsumeStartOffset = 'earliest' | 'latest';
 
 type MessageConsumeConnectionLike = {
@@ -77,6 +77,7 @@ const MESSAGE_CONSUME_TYPES = new Set<MessageConsumeSourceType>([
   'kafka',
   'rocketmq',
   'rabbitmq',
+  'pulsar',
 ]);
 
 const resolveMessageConsumeType = (
@@ -223,18 +224,18 @@ export const resolveMessageConsumeProfile = (
     };
   }
 
-  if (type === 'kafka') {
+  if (type === 'kafka' || type === 'pulsar') {
     return {
       type,
       mode: 'pull-preview',
-      transportLabel: 'Kafka',
+      transportLabel: type === 'pulsar' ? 'Apache Pulsar' : 'Kafka',
       destinationLabel: translate('message_consume.field.destination.topic'),
-      destinationPlaceholder: translate('message_consume.presentation.kafka.destination_placeholder'),
+      destinationPlaceholder: translate(`message_consume.presentation.${type}.destination_placeholder`),
       destinationRequiredMessage: translate('message_consume.presentation.topic_required'),
       actionLabel: translate('message_consume.action.consume_preview'),
-      alertMessage: translate('message_consume.presentation.kafka.alert'),
-      showConsumerGroup: true,
-      consumerGroupEditable: true,
+      alertMessage: translate(`message_consume.presentation.${type}.alert`),
+      showConsumerGroup: type === 'kafka',
+      consumerGroupEditable: type === 'kafka',
       showQos: false,
       qosEditable: false,
       showFetchWait: false,
@@ -255,7 +256,7 @@ export const resolveMessageConsumeProfile = (
           'start_offset',
           'offsetReset',
           'auto.offset.reset',
-        ])),
+        ]) || (type === 'pulsar' ? 'earliest' : 'latest')),
       },
     };
   }
@@ -350,7 +351,7 @@ const resolveDefaultDestination = (
       || firstListValue(firstParam(params, ['topics', 'topicFilters', 'topic_filters']))
       || decodeURIPath(config?.uri);
   }
-  if (type === 'kafka' || type === 'rocketmq') {
+  if (type === 'kafka' || type === 'rocketmq' || type === 'pulsar') {
     return firstParam(params, ['topic', 'defaultTopic', 'default_topic'])
       || decodeURIPath(config?.uri);
   }
@@ -528,6 +529,9 @@ export const buildMessageConsumeCommand = (
     }
     case 'rocketmq':
       commandText = `CONSUME FROM "${destination}" LIMIT ${limit};`;
+      break;
+    case 'pulsar':
+      commandText = `CONSUME FROM "${destination}" ${profile.effectiveSettings.startOffset === 'latest' ? 'LATEST' : 'EARLIEST'} LIMIT ${limit};`;
       break;
     case 'rabbitmq':
       commandText = `SELECT * FROM "${destination}" LIMIT ${limit};`;

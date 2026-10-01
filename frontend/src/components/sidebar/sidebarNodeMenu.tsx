@@ -1,4 +1,5 @@
 import { Input, message, type MenuProps } from 'antd';
+import { GnNewConnectionIcon, GnNewQueryIcon } from '../icons/gnIcons';
 import Modal from '../common/ResizableDraggableModal';
 import {
   AppstoreOutlined,
@@ -52,6 +53,8 @@ import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import { confirmProductionMutation } from '../../utils/productionRiskConfirm';
 import { supportsOracleObjectCompilation } from './oracleObjectCompilation';
 import { buildSidebarCopyObjectNameMenuItem } from './sidebarCopyObjectNameMenu';
+import { buildNacosNamespacePinMenuItem } from './nacosNamespacePinMenu';
+import { buildNacosConfigGroupMenu } from './nacosConfigGroupMenu';
 import {
   buildNacosServicesTabData,
   resolveNacosNamespaceDiscoveryModeFromTreeNode,
@@ -419,7 +422,7 @@ export const buildSidebarNodeMenuItems = (
             {
                 key: 'new-query',
                 label: t('sidebar.menu.new_query'),
-                icon: <ConsoleSqlOutlined />,
+                icon: <GnNewQueryIcon />,
                 onClick: () => handleV2DatabaseContextMenuAction(node, 'new-query'),
             },
             {
@@ -575,7 +578,7 @@ export const buildSidebarNodeMenuItems = (
                 {
                     key: 'new-connection-in-tag',
                     label: t('connection.new'),
-                    icon: <PlusOutlined />,
+                    icon: <GnNewConnectionIcon />,
                     onClick: () => onCreateConnectionInGroup?.(tagId),
                 },
                 { type: 'divider' },
@@ -822,7 +825,7 @@ export const buildSidebarNodeMenuItems = (
         // Regular database connection menu
         const connectionCapabilities = getDataSourceCapabilities((node.dataRef as SavedConnection)?.config);
         const isElasticsearch = connectionCapabilities.type === 'elasticsearch';
-        const isMessageQueue = ['mqtt', 'kafka', 'rocketmq', 'rabbitmq'].includes(connectionCapabilities.type);
+        const isMessageQueue = ['mqtt', 'kafka', 'rocketmq', 'rabbitmq', 'pulsar'].includes(connectionCapabilities.type);
         const messagePublishTarget = isMessageQueue ? resolveMessagePublishTarget(node) : null;
         return [
             ...((connectionCapabilities.supportsCreateDatabase || connectionCapabilities.supportsCreateIndex) ? [{
@@ -882,7 +885,7 @@ export const buildSidebarNodeMenuItems = (
                  {
                    key: 'new-query',
                    label: t('sidebar.menu.new_query'),
-                   icon: <ConsoleSqlOutlined />,
+                   icon: <GnNewQueryIcon />,
                    onClick: () => {
                        addTab({
                            id: `query-${Date.now()}`,
@@ -1002,6 +1005,9 @@ export const buildSidebarNodeMenuItems = (
                     });
                 },
             },
+            buildNacosNamespacePinMenuItem(String(id || ''), nsKey, () => {
+                void loadDatabases(parentConnectionNode, { ensureFresh: true });
+            }),
             {
                 key: 'edit-nacos-namespace',
                 label: t('nacos.namespace.menu.edit'),
@@ -1114,41 +1120,7 @@ export const buildSidebarNodeMenuItems = (
             },
         ];
     } else if (node.type === 'nacos-config-group') {
-        const {
-            id,
-            nacosNamespaceId = '',
-            nacosNamespaceName = '',
-            nacosGroup = '',
-            nacosAllConfigs = false,
-        } = node.dataRef || {};
-        const nsName = nacosNamespaceName || nacosNamespaceId || 'public';
-        const nsKey = nacosNamespaceId || 'public';
-        const isAll = !!nacosAllConfigs;
-        const groupName = isAll ? '' : (String(nacosGroup || '').trim() || 'DEFAULT_GROUP');
-        return [
-            {
-                key: 'open-nacos-group',
-                label: isAll
-                    ? t('nacos_viewer.action.open_all_configs')
-                    : t('nacos_viewer.action.open_group_configs'),
-                icon: <FileTextOutlined />,
-                onClick: () => {
-                    addTab({
-                        id: isAll
-                            ? `nacos-config-${id}-ns-${nsKey}`
-                            : `nacos-config-${id}-ns-${nsKey}-g-${encodeURIComponent(groupName)}`,
-                        title: isAll
-                            ? `${nsName} · ${t('nacos_viewer.label.all')}`
-                            : `${nsName} · ${groupName}`,
-                        type: 'nacos-config',
-                        connectionId: id,
-                        nacosNamespaceId: nacosNamespaceId || '',
-                        nacosNamespaceName: nsName,
-                        ...(isAll ? {} : { nacosGroup: groupName }),
-                    });
-                },
-            },
-        ];
+        return buildNacosConfigGroupMenu(node, addTab, treeDataRef, setTreeData);
     } else if (node.type === 'nacos-service-group') {
         return [
             {
@@ -1265,7 +1237,7 @@ export const buildSidebarNodeMenuItems = (
             {
                 key: 'new-query',
                 label: t('sidebar.menu.new_query'),
-                icon: <ConsoleSqlOutlined />,
+                icon: <GnNewQueryIcon />,
                 onClick: () => handleV2DatabaseContextMenuAction(node, 'new-query')
             },
             {
@@ -1365,7 +1337,7 @@ export const buildSidebarNodeMenuItems = (
             {
                 key: 'new-query',
                 label: t('sidebar.menu.new_query'),
-                icon: <ConsoleSqlOutlined />,
+                icon: <GnNewQueryIcon />,
                 onClick: () => {
                     addTab({
                         id: `query-${Date.now()}`,
@@ -1427,7 +1399,7 @@ export const buildSidebarNodeMenuItems = (
             {
                 key: 'new-query',
                 label: t('sidebar.menu.new_query'),
-                icon: <ConsoleSqlOutlined />,
+                icon: <GnNewQueryIcon />,
                 onClick: () => {
                     void (async () => {
                         const tableName = String(node.dataRef?.tableName || node.dataRef?.viewName || '');
@@ -1630,7 +1602,7 @@ export const buildSidebarNodeMenuItems = (
             {
                 key: 'new-query',
                 label: t('sidebar.menu.new_query'),
-                icon: <ConsoleSqlOutlined />,
+                icon: <GnNewQueryIcon />,
                 onClick: () => {
                    void (async () => {
                        const tableName = String(node.dataRef?.tableName || '').trim();

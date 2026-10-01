@@ -22,6 +22,8 @@ const (
 	ModelErrorProvider          = "provider"
 	ModelErrorProtocol          = "protocol"
 	ModelErrorMalformedToolCall = "malformed_tool_call"
+	// ModelErrorOutputLimit：连续多次被输出长度上限截断，自动续写仍无法完成。
+	ModelErrorOutputLimit = "output_limit"
 )
 
 var (
@@ -244,4 +246,29 @@ func retryableModelErrorCode(code string) bool {
 	default:
 		return false
 	}
+}
+
+// maxOutputContinuations 是同一段对话里连续自动续写的最大次数。
+const maxOutputContinuations = 3
+
+var errOutputContinuationsExhausted = errors.New("model output was cut off by the output length limit repeatedly; the reply could not be completed")
+
+// outputContinuationPrompt 是截断后追加给模型的提示。用自然语言而不是结构化 JSON：
+// 它要真正被模型读懂并照做。droppedToolCall 表示被截断的那一轮里有一次工具调用被丢弃。
+func outputContinuationPrompt(droppedToolCall bool) string {
+	if droppedToolCall {
+		return "Your previous reply was cut off by the output length limit while you were writing a tool call, " +
+			"so that call was discarded and NOT executed. Redo the work in smaller pieces " +
+			"(split the task into steps and keep each tool call's arguments short), then call the tool again."
+	}
+	return "Your previous reply was cut off by the output length limit. " +
+		"Resume directly where it stopped - no apology and no recap of what was already written."
+}
+
+// malformedToolCallRepairPrompt 是工具调用被 harness 拒绝（参数不是合法 JSON、工具不存在等）
+// 后追加给模型的提示。带上具体原因，模型才知道该改哪里；机器可读的错误码
+// malformed_tool_call 仍放在消息元数据里，事件与外部客户端依赖它。
+func malformedToolCallRepairPrompt(reason error) string {
+	return "Your previous tool call could not be executed and nothing was run: " + reason.Error() +
+		". Send the tool call again using a tool from the provided list and valid JSON arguments that match its input schema."
 }

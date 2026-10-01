@@ -1,0 +1,188 @@
+/* 数据预览展开后的筛选区：手动 WHERE 一行 + 对齐的条件行/排序行 + 一行操作栏。
+   所有行共用同一套栅格列，不同运算符下各列也不会错位。控件外观沿用
+   .gn-v2-smart-filter-panel 的主题规则，这里只管布局。 */
+.gn-dgf {
+    --gn-dgf-control-height: 32px;
+    gap: 0;
+}
+
+.gn-dgf-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 220px;
+    padding: 2px 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.gn-dgf-row {
+    display: grid;
+    grid-template-columns: 20px 108px minmax(150px, 1.1fr) 132px minmax(200px, 2fr) var(--gn-dgf-control-height);
+    column-gap: 8px;
+    align-items: start;
+    padding: 4px 6px;
+    border-radius: 8px;
+    transition: background-color 0.12s ease, opacity 0.12s ease;
+}
+
+.gn-dgf-row:hover {
+    background: var(--gn-bg-hover, rgba(128, 128, 128, 0.07));
+}
+
+.gn-dgf-row[data-enabled='false'] {
+    opacity: 0.55;
+}
+
+/* 单行控件统一高度，选择框、输入框、删除按钮才对得齐；多行文本框只保证最小高度。 */
+.gn-dgf-row .ant-select .ant-select-selector,
+.gn-dgf-value > .ant-input:not(textarea),
+.gn-dgf-between .ant-input {
+    height: var(--gn-dgf-control-height) !important;
+    min-height: var(--gn-dgf-control-height) !important;
+    box-sizing: border-box;
+}
+
+.gn-dgf-row .ant-select .ant-select-selection-item,
+.gn-dgf-row .ant-select .ant-select-selection-placeholder {
+    line-height: calc(var(--gn-dgf-control-height) - 2px) !important;
+}
+
+.gn-dgf-value textarea.ant-input {
+    min-height: var(--gn-dgf-control-height) !important;
+    box-sizing: border-box;
+}
+
+.gn-dgf-check {
+    align-self: start;
+    justify-self: center;
+    height: var(--gn-dgf-control-height);
+    margin: 0;
+    align-items: center;
+}
+
+.gn-dgf-row .ant-select,
+.gn-dgf-value .ant-input,
+.gn-dgf-value .ant-input-affix-wrapper,
+.gn-dgf-value .ant-input-textarea {
+    width: 100%;
+    min-width: 0;
+}
+
+.gn-dgf-value {
+    min-width: 0;
+}
+
+.gn-dgf-between {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+}
+
+.gn-dgf-sort-label {
+    align-self: start;
+    padding-left: 11px;
+    line-height: var(--gn-dgf-control-height);
+    color: var(--gn-fg-4);
+    font-size: var(--gn-font-size-sm, 12px);
+    white-space: nowrap;
+}
+
+.gn-dgf-sort-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.gn-dgf-sort-group[data-has-conditions='true'] {
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 0.5px solid var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-dgf .ant-btn.gn-dgf-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--gn-dgf-control-height) !important;
+    min-width: var(--gn-dgf-control-height) !important;
+    height: var(--gn-dgf-control-height) !important;
+    padding: 0 !important;
+    color: var(--gn-fg-5);
+    font-size: var(--gn-toolbar-icon-size, 17px);
+}
+
+body[data-ui-version="v2"] .gn-dgf .ant-btn.gn-dgf-remove:hover {
+    background: color-mix(in srgb, var(--gn-danger, #dc2626) 12%, transparent) !important;
+    color: var(--gn-danger, #dc2626) !important;
+}
+
+.gn-dgf-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+}
+
+.gn-dgf-footer[data-has-rows='true'] {
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 0.5px solid var(--gn-br-1);
+}
+
+.gn-dgf-footer-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.gn-dgf-footer-end {
+    margin-left: auto;
+}
+
+body[data-ui-version="v2"] .gn-dgf .ant-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: var(--gn-dgf-control-height) !important;
+    padding: 0 14px !important;
+    border-radius: 8px;
+    box-shadow: none;
+    font-weight: 500;
+}
+
+/* 全局主按钮样式会加粗字重并加阴影，让“应用条件 / 应用”看起来比同排按钮大一圈；
+   这里把字重和阴影压回与其它按钮一致，只保留主色区分。 */
+body[data-ui-version="v2"] .gn-dgf .ant-btn.ant-btn-primary {
+    font-weight: 500 !important;
+    box-shadow: none !important;
+}
+
+/* 添加条件 / 添加排序：浅色强调底，读起来是“新增”而不是普通按钮。 */
+body[data-ui-version="v2"] .gn-dgf .ant-btn.gn-dgf-add {
+    border-color: color-mix(in srgb, var(--gn-accent, #1677ff) 38%, var(--gn-br-1)) !important;
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 8%, transparent) !important;
+    color: var(--gn-accent-2, var(--gn-accent, #1677ff)) !important;
+}
+
+body[data-ui-version="v2"] .gn-dgf .ant-btn.gn-dgf-add:disabled {
+    border-color: var(--gn-br-1) !important;
+    background: transparent !important;
+    color: var(--gn-fg-5) !important;
+}
+
+.gn-dgf-footer-end {
+    gap: 8px;
+}
+
+body[data-ui-version="v2"] .gn-dgf .ant-btn .anticon {
+    font-size: var(--gn-toolbar-icon-size, 17px);
+    line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-dgf .ant-btn .gn-icon svg {
+    display: block;
+}

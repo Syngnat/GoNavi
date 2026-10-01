@@ -1,7 +1,9 @@
 import React from 'react';
-import { ApiOutlined, DatabaseOutlined, FileTextOutlined, RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { GnErDiagramIcon, GnFieldsIcon, GnGaugeIcon, GnSqlDocIcon, GnTableIcon } from '../icons/gnIcons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import { useI18n } from '../../i18n/provider';
+import { aiPx } from './aiScale';
 
 interface AIChatWelcomeProps {
     overlayTheme: OverlayWorkbenchTheme;
@@ -21,16 +23,16 @@ export const AIChatWelcome: React.FC<AIChatWelcomeProps> = ({
     const tableList = contextTableNames.join(t('ai_chat.quick_action.table_separator'));
     const quickActions = hasContext
         ? [
-            { label: t('ai_chat.quick_action.generate_sql.title'), hint: t('ai_chat.quick_action.generate_sql.hint.with_context'), icon: <FileTextOutlined />, tone: 'info', prompt: t('ai_chat.quick_action.generate_sql.prompt.with_context', { tables: tableList }) },
-            { label: t('ai_chat.quick_action.explain_schema.title'), hint: t('ai_chat.quick_action.explain_schema.hint.with_context'), icon: <DatabaseOutlined />, tone: 'success', prompt: t('ai_chat.quick_action.explain_schema.prompt.with_context', { tables: tableList }) },
-            { label: t('ai_chat.quick_action.optimize.title'), hint: t('ai_chat.quick_action.optimize.hint.with_context'), icon: <ThunderboltOutlined />, tone: 'warn', prompt: t('ai_chat.quick_action.optimize.prompt.with_context', { tables: tableList }) },
-            { label: t('ai_chat.quick_action.schema_analysis.title'), hint: t('ai_chat.quick_action.schema_analysis.hint.with_context'), icon: <ApiOutlined />, tone: 'purple', prompt: t('ai_chat.quick_action.schema_analysis.prompt.with_context', { tables: tableList }) },
+            { label: t('ai_chat.quick_action.generate_sql.title'), hint: t('ai_chat.quick_action.generate_sql.hint.with_context'), icon: <GnSqlDocIcon />, tone: 'info', prompt: t('ai_chat.quick_action.generate_sql.prompt.with_context', { tables: tableList }) },
+            { label: t('ai_chat.quick_action.explain_schema.title'), hint: t('ai_chat.quick_action.explain_schema.hint.with_context'), icon: <GnTableIcon />, tone: 'success', prompt: t('ai_chat.quick_action.explain_schema.prompt.with_context', { tables: tableList }) },
+            { label: t('ai_chat.quick_action.optimize.title'), hint: t('ai_chat.quick_action.optimize.hint.with_context'), icon: <GnGaugeIcon />, tone: 'warn', prompt: t('ai_chat.quick_action.optimize.prompt.with_context', { tables: tableList }) },
+            { label: t('ai_chat.quick_action.schema_analysis.title'), hint: t('ai_chat.quick_action.schema_analysis.hint.with_context'), icon: <GnErDiagramIcon />, tone: 'purple', prompt: t('ai_chat.quick_action.schema_analysis.prompt.with_context', { tables: tableList }) },
         ]
         : [
-            { label: t('ai_chat.quick_action.generate_sql.title'), hint: t('ai_chat.quick_action.generate_sql.hint.default'), icon: <FileTextOutlined />, tone: 'info', prompt: t('ai_chat.quick_action.generate_sql.prompt.default') },
-            { label: t('ai_chat.quick_action.explain_sql.title'), hint: t('ai_chat.quick_action.explain_sql.hint.default'), icon: <DatabaseOutlined />, tone: 'success', prompt: t('ai_chat.quick_action.explain_sql.prompt.default') },
-            { label: t('ai_chat.quick_action.optimize.title'), hint: t('ai_chat.quick_action.optimize.hint.default'), icon: <ThunderboltOutlined />, tone: 'warn', prompt: t('ai_chat.quick_action.optimize.prompt.default') },
-            { label: t('ai_chat.quick_action.schema_analysis.title'), hint: t('ai_chat.quick_action.schema_analysis.hint.default'), icon: <ApiOutlined />, tone: 'purple', prompt: t('ai_chat.quick_action.schema_analysis.prompt.default') },
+            { label: t('ai_chat.quick_action.generate_sql.title'), hint: t('ai_chat.quick_action.generate_sql.hint.default'), icon: <GnSqlDocIcon />, tone: 'info', prompt: t('ai_chat.quick_action.generate_sql.prompt.default') },
+            { label: t('ai_chat.quick_action.explain_sql.title'), hint: t('ai_chat.quick_action.explain_sql.hint.default'), icon: <GnFieldsIcon />, tone: 'success', prompt: t('ai_chat.quick_action.explain_sql.prompt.default') },
+            { label: t('ai_chat.quick_action.optimize.title'), hint: t('ai_chat.quick_action.optimize.hint.default'), icon: <GnGaugeIcon />, tone: 'warn', prompt: t('ai_chat.quick_action.optimize.prompt.default') },
+            { label: t('ai_chat.quick_action.schema_analysis.title'), hint: t('ai_chat.quick_action.schema_analysis.hint.default'), icon: <GnErDiagramIcon />, tone: 'purple', prompt: t('ai_chat.quick_action.schema_analysis.prompt.default') },
         ];
     const promptSuggestions = hasContext
         ? [
@@ -48,13 +50,13 @@ export const AIChatWelcome: React.FC<AIChatWelcomeProps> = ({
 
     return (
         <div className="ai-chat-welcome" style={{ padding: '30px 20px', alignItems: 'flex-start', textAlign: 'left' }}>
-            <div className="gn-v2-ai-welcome-title" style={{ color: overlayTheme.titleText, fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+            <div className="gn-v2-ai-welcome-title" style={{ color: overlayTheme.titleText, fontSize: aiPx(16), fontWeight: 600, marginBottom: 8 }}>
                 <span className="gn-v2-ai-welcome-icon">
-                    <RobotOutlined style={{ color: overlayTheme.iconColor }} />
+                    <AiSparkOutlined style={{ color: overlayTheme.iconColor }} />
                 </span>
                 <strong>{t('ai_chat.welcome.title')}</strong>
             </div>
-            <div className="welcome-desc" style={{ color: mutedColor, fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+            <div className="welcome-desc" style={{ color: mutedColor, fontSize: aiPx(13), lineHeight: 1.6, marginBottom: 20 }}>
                 {hasContext
                     ? t('ai_chat.welcome.description.with_context', { count: contextTableNames.length })
                     : t('ai_chat.welcome.description.default')}
@@ -86,7 +88,7 @@ export const AIChatWelcome: React.FC<AIChatWelcomeProps> = ({
                 </div>
                 {promptSuggestions.map((prompt) => (
                     <button key={prompt} type="button" onClick={() => onQuickAction(prompt)}>
-                        <RobotOutlined />
+                        <AiSparkOutlined />
                         <span>{prompt}</span>
                     </button>
                 ))}

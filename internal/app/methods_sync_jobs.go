@@ -128,6 +128,10 @@ func (a *App) DataSyncJobSave(definition syncjob.JobDefinition, approvalToken st
 		if err != nil {
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
+		// 停用/归档同样要对齐 OS 计划任务注册（Windows 上注销被停用任务的注册）。
+		if err := a.prepareDataSyncSchedule(enriched); err != nil {
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
 		return connection.QueryResult{Success: true, Message: "data sync inactive job saved", Data: publicDataSyncJobDefinition(saved)}
 	}
 	preflight := a.preflightDataSyncJob(definition, time.Now())
@@ -170,11 +174,12 @@ func (a *App) DataSyncJobSave(definition syncjob.JobDefinition, approvalToken st
 	} else {
 		definition.Approval = nil
 	}
-	if err := a.prepareDataSyncSchedule(definition); err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
 	saved, err := manager.PutJob(context.Background(), definition)
 	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	// 注册动作放在保存成功之后：按存储中的最终状态对齐 OS 计划任务注册。
+	if err := a.prepareDataSyncSchedule(definition); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	return connection.QueryResult{Success: true, Message: "data sync job saved", Data: publicDataSyncJobDefinition(saved)}
@@ -232,6 +237,9 @@ func (a *App) DataSyncJobDelete(jobID string) connection.QueryResult {
 	}
 	// 删除即永久移除任务及其运行记录/检查点/错误行（区别于"归档"生命周期）。
 	if err := manager.PurgeJob(context.Background(), strings.TrimSpace(jobID)); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if err := a.unregisterDataSyncJobSchedule(strings.TrimSpace(jobID)); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	return connection.QueryResult{Success: true, Message: "data sync job deleted"}

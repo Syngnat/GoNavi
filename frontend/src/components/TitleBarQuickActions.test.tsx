@@ -59,7 +59,7 @@ describe('TitleBarQuickActions', () => {
           {
             key: 'batch-actions',
             label: 'Batch operations',
-            icon: <span data-titlebar-icon="data-workflow" />,
+            icon: <span data-titlebar-toolbar-icon="data-workflow" />,
             menu: [
               { key: 'batch-tables', label: 'Batch tables', icon: <span />, onClick: onBatchTables },
               { key: 'batch-databases', label: 'Batch databases', icon: <span />, onClick: onBatchDatabases },
@@ -69,7 +69,7 @@ describe('TitleBarQuickActions', () => {
           {
             key: 'sql-tools',
             label: 'SQL tools',
-            icon: <span data-titlebar-icon="sql-tools" />,
+            icon: <span data-titlebar-toolbar-icon="sql-tools" />,
             menu: [
               { key: 'slow-query', label: 'Slow SQL workbench', icon: <span />, onClick: onSlowQuery, disabled: true },
               { key: 'sql-audit', label: 'SQL Audit Center', icon: <span />, onClick: onSqlAudit },
@@ -78,7 +78,7 @@ describe('TitleBarQuickActions', () => {
           {
             key: 'data-workflow',
             label: 'Data workflows',
-            icon: <span data-titlebar-icon="data-workflow-secondary" />,
+            icon: <span data-titlebar-toolbar-icon="data-workflow-secondary" />,
             menu: [
               { key: 'schema-compare', label: 'Schema Compare', icon: <span />, onClick: onSchemaCompare },
               { key: 'data-compare', label: 'Data Compare', icon: <span />, onClick: onDataCompare },
@@ -94,7 +94,13 @@ describe('TitleBarQuickActions', () => {
     expect(toolbar.props['aria-label']).toBe('Object actions');
     expect(toolbar.props['data-no-titlebar-toggle']).toBe('true');
     expect(toolbar.findAllByProps({ className: 'gn-v2-titlebar-quick-label' })).toHaveLength(0);
+    // 工具条按钮改成图标+文字：图标挂在 data-titlebar-toolbar-icon 上，
+    // 而 data-titlebar-icon 仍是「快捷入口图标」的旧标记，两者语义不同，
+    // 所以后者在这里必须仍然是 0。
     expect(toolbar.findAll((node) => Boolean(node.props['data-titlebar-icon']))).toHaveLength(0);
+    // fixture 有 3 个带图标的主动作，第 4 个是 secondary，默认被过滤掉。
+    expect(toolbar.findAllByProps({ className: 'gn-titlebar-toolbar-item-icon' })).toHaveLength(3);
+    expect(toolbar.findAllByProps({ className: 'gn-titlebar-toolbar-item-label' })).toHaveLength(3);
     const batchMenuButton = toolbar.findByProps({ 'data-titlebar-quick-menu': 'batch-actions' });
     expect(batchMenuButton.props['data-no-titlebar-toggle']).toBe('true');
     const dropdowns = renderer.root.findAll((node) => Array.isArray(node.props.menu?.items)) as ReactTestInstance[];

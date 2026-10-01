@@ -1,0 +1,62 @@
+/*
+ * 标题栏右侧「偏好设置 │ 主题」分段胶囊。
+ *
+ * 参考稿实测：胶囊高 ~64(2x) -> 32px，圆角 ~10px，白底 + 细阴影；
+ * 段内图标 ~34(2x) -> 17px，文字 ~26(2x) -> 13px。
+ */
+
+body[data-ui-version='v2'] .gn-preferences-pill {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: calc(32px * var(--gn-ui-scale, 1));
+  padding: 0 calc(2px * var(--gn-ui-scale, 1));
+  border: none;
+  border-radius: calc(10px * var(--gn-ui-scale, 1));
+  background: transparent;
+  box-shadow: none;
+  flex: 0 0 auto;
+}
+
+body[data-theme='dark'][data-ui-version='v2'] .gn-preferences-pill {
+  background: transparent;
+}
+
+body[data-ui-version='v2'] .gn-preferences-pill .gn-preferences-pill-segment.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--gn-ui-scale, 1));
+  height: calc(26px * var(--gn-ui-scale, 1));
+  width: auto;
+  min-width: 0;
+  padding: 0 calc(8px * var(--gn-ui-scale, 1));
+  border: none;
+  border-radius: calc(7px * var(--gn-ui-scale, 1));
+  background: transparent;
+  color: var(--gn-fg-1, #0c1322);
+  font-size: calc(13px * var(--gn-ui-scale, 1));
+  font-weight: 500;
+  box-shadow: none;
+}
+
+body[data-ui-version='v2'] .gn-preferences-pill .gn-preferences-pill-segment.ant-btn:hover {
+  background: var(--gn-bg-panel-2, rgba(15, 23, 42, 0.05)) !important;
+  color: var(--gn-fg-1, #0c1322) !important;
+}
+
+body[data-ui-version='v2'] .gn-preferences-pill .gn-preferences-pill-icon {
+  width: calc(17px * var(--gn-ui-scale, 1));
+  height: calc(17px * var(--gn-ui-scale, 1));
+  flex: 0 0 calc(17px * var(--gn-ui-scale, 1));
+  display: block;
+}
+
+body[data-ui-version='v2'] .gn-preferences-pill .gn-preferences-pill-label {
+  white-space: nowrap;
+}
+
+/* 胶囊中间插入的「驱动管理 / 关于」与两侧分段同高。 */
+body[data-ui-version='v2'] .gn-v2-titlebar .gn-preferences-pill .gn-v2-titlebar-about-slot .gn-v2-titlebar-quick-action {
+  height: calc(26px * var(--gn-ui-scale, 1));
+}

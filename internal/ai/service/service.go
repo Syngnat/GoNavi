@@ -57,6 +57,7 @@ type Service struct {
 	agentPendingWorkspaceSnapshots map[string]runharness.WorkspaceSnapshot
 	agentToolCatalog               runharness.ToolCatalog
 	agentApprovalHandler           runharness.ApprovalHandler
+	autoApproval                   autoApprovalState
 	agentHarnessInitialized        bool
 	agentHarnessInitialization     error
 	agentHarnessShutdown           bool
@@ -1013,7 +1014,8 @@ func normalizeProviderConfig(config ai.ProviderConfig) ai.ProviderConfig {
 	if isMiniMaxAnthropicProvider(config) && (model == "" || strings.HasPrefix(strings.ToLower(model), "minimax-text-")) {
 		config.Model = miniMaxAnthropicModels[0]
 	}
-	return config
+	// 三个模型名单（删除 / 停用 / 自定义）在这里统一收敛，保存在任何入口都一致。
+	return normalizeProviderModelPreferences(config)
 }
 
 func isDeepSeekResponsesProvider(config ai.ProviderConfig) bool {
@@ -1510,30 +1512,6 @@ func fetchCursorModels(config ai.ProviderConfig, localizer *i18n.Localizer) ([]s
 	return models, nil
 }
 
-// --- 安全控制 ---
-
-// AIGetSafetyLevel 获取当前安全级别
-func (s *Service) AIGetSafetyLevel() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return string(s.safetyLevel)
-}
-
-// AISetSafetyLevel 设置安全级别
-func (s *Service) AISetSafetyLevel(level string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	switch ai.SQLPermissionLevel(level) {
-	case ai.PermissionReadOnly, ai.PermissionReadWrite, ai.PermissionFull:
-		s.safetyLevel = ai.SQLPermissionLevel(level)
-	default:
-		s.safetyLevel = ai.PermissionReadOnly
-	}
-	s.guard.SetPermissionLevel(s.safetyLevel)
-	_ = s.saveConfig()
-}
-
 // AIGetResultMaskingSettings returns the global rules applied only to built-in
 // execute_sql responses.
 func (s *Service) AIGetResultMaskingSettings() ai.ResultMaskingSettings {
@@ -1570,6 +1548,12 @@ func (s *Service) AIGetContextLevel() string {
 // 它不得自己维护一份值域副本——那会随上游 CLI 版本漂移而失真。
 func (s *Service) AIGetCLICapabilities() []ai.CLICapabilityView {
 	return provider.CLICapabilityViews()
+}
+
+// AIGetModelContextProfile 返回模型的默认上下文窗口与可选档位（token）。
+// 数值只在 Go 侧的规则表里维护，前端据此显示上限并决定是否出现档位切换。
+func (s *Service) AIGetModelContextProfile(config ai.ProviderConfig) ai.ModelContextProfile {
+	return ai.ResolveModelContextProfile(config.Model)
 }
 
 // AIListCLIModels 保留列表接口；新设置页使用含来源的 AIGetCLIModelCatalog。

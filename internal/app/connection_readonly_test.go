@@ -9,20 +9,39 @@ import (
 )
 
 func TestSupportsConnectionReadOnlyMode(t *testing.T) {
-	if !supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "postgres"}) {
-		t.Fatal("postgres should support connection-level production guard")
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config connection.ConnectionConfig
+		want   bool
+	}{
+		{name: "postgres", config: connection.ConnectionConfig{Type: "postgres"}, want: true},
+		{name: "mongodb", config: connection.ConnectionConfig{Type: "mongodb"}, want: true},
+		{name: "nacos", config: connection.ConnectionConfig{Type: "nacos"}, want: true},
+		{name: "elasticsearch", config: connection.ConnectionConfig{Type: "elasticsearch"}, want: true},
+		{name: "iotdb", config: connection.ConnectionConfig{Type: "iotdb"}, want: true},
+		{name: "dameng alias", config: connection.ConnectionConfig{Type: "dm8"}, want: true},
+		{name: "custom dameng alias", config: connection.ConnectionConfig{Type: "custom", Driver: "dm"}, want: true},
+		{name: "kingbase alias", config: connection.ConnectionConfig{Type: "kingbasees"}, want: true},
+		{name: "goldendb alias", config: connection.ConnectionConfig{Type: "greatdb"}, want: true},
+		{name: "custom goldendb alias", config: connection.ConnectionConfig{Type: "custom", Driver: "gdb"}, want: true},
+		{name: "IoTDB alias", config: connection.ConnectionConfig{Type: "apache_iotdb"}, want: true},
+		{name: "IRIS alias", config: connection.ConnectionConfig{Type: "InterSystemsIRIS"}, want: true},
+		{name: "Caché alias", config: connection.ConnectionConfig{Type: "InterSystems-Caché"}, want: true},
+		{name: "custom driver substring alias", config: connection.ConnectionConfig{Type: "custom", Driver: "postgres-driver"}, want: true},
+		{name: "OceanBase Oracle tenant", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "oracle"}, want: true},
+		{name: "custom OceanBase Oracle tenant", config: connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", OceanBaseProtocol: "oracle"}, want: true},
+		{name: "redis", config: connection.ConnectionConfig{Type: "redis"}, want: false},
 	}
-	if !supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "mongodb"}) {
-		t.Fatal("mongodb should support connection-level production guard")
-	}
-	if !supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "nacos"}) {
-		t.Fatal("nacos should support connection-level production guard")
-	}
-	if !supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "elasticsearch"}) {
-		t.Fatal("elasticsearch should support connection-level production guard")
-	}
-	if supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "redis"}) {
-		t.Fatal("redis should not support connection-level production guard")
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := supportsConnectionReadOnlyMode(test.config); got != test.want {
+				t.Fatalf("supportsConnectionReadOnlyMode(%+v) = %v, want %v", test.config, got, test.want)
+			}
+		})
 	}
 }
 

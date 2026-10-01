@@ -7,8 +7,8 @@ import {
   ImportOutlined,
   FileAddOutlined,
   AimOutlined,
-  MenuUnfoldOutlined,
 } from '@ant-design/icons';
+import SidebarPanelOutlined from '../icons/SidebarPanelOutlined';
 
 // V2 Connection Rail 子组件（从 Sidebar.tsx 抽取）。
 //
@@ -52,6 +52,8 @@ export interface SidebarConnectionRailProps {
     buttonRef?: React.Ref<HTMLButtonElement>;
   };
   workbenchActions?: React.ReactNode;
+  /** 选择「侧边栏」摆放时，搜索 / 定位 / 回顶 / 更多 / 折叠这一组竖排在 rail 顶部，展开态也可见。 */
+  explorerActions?: React.ReactNode;
 }
 
 const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
@@ -63,10 +65,12 @@ const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
   showWorkbenchActions = true,
   sidebarExpandAction,
   workbenchActions,
+  explorerActions,
 }) => (
   <div className="gn-v2-connection-rail" data-sidebar-fixed-rail="true" aria-label={labels.railSystemActions}>
     <div className="gn-v2-rail-items">
       <div className="gn-v2-rail-primary-actions" aria-label={labels.railObjectActions}>
+        {explorerActions}
         {sidebarExpandAction && (
           <div className="gn-v2-rail-sidebar-toggle-slot">
             <Tooltip title={sidebarExpandAction.label} placement="right" mouseEnterDelay={0.35}>
@@ -81,7 +85,7 @@ const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
                 aria-expanded={false}
                 onClick={sidebarExpandAction.onClick}
               >
-                <MenuUnfoldOutlined />
+                <SidebarPanelOutlined />
               </button>
             </Tooltip>
           </div>

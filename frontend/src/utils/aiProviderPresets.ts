@@ -10,7 +10,13 @@ export const ATLAS_CLOUD_DEFAULT_MODEL = 'qwen/qwen3.8-max';
 export const ORCAROUTER_BASE_URL = 'https://api.orcarouter.ai/v1';
 export const ORCAROUTER_DEFAULT_MODEL = 'orcarouter/auto';
 export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
-export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
+export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-flash';
+// deepseek-v4-pro 仍在服务，但 V4.1 Pro 尚未发布；旧 ID deepseek-v4-flash 已下线并转发到 V4.1-Flash。
+export const DEEPSEEK_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
+// OpenAI 当前一代：6.1 Sol 旗舰，6 Astra，6 Luna 最便宜；5.6 Sol 作为上一代回退保留。
+export const OPENAI_MODELS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol'];
+// GLM 当前一代：5.3 与 5.3-Flash（均为 1M 上下文）。
+export const ZHIPU_MODELS = ['glm-5.3', 'glm-5.3-flash', 'glm-5.1'];
 export const MOONSHOT_OPENAI_BASE_URL = 'https://api.moonshot.cn/v1';
 export const MOONSHOT_ANTHROPIC_BASE_URL = 'https://api.moonshot.cn/anthropic';
 export const XIAOMI_MIMO_OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1';
@@ -18,6 +24,15 @@ export const XIAOMI_MIMO_ANTHROPIC_BASE_URL = 'https://api.xiaomimimo.com/anthro
 export const XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
 export const XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic';
 export const XIAOMI_MIMO_DEFAULT_MODEL = 'mimo-v2.5-pro';
+
+// Claude 当前一代（5.5 世代）：Fable 5.1 旗舰、Opus 5.5、Sonnet 5.5，Haiku 仍是 4.5。
+// ID 以 Anthropic 平台文档为准；换版本时只改这一处。
+export const CLAUDE_MODELS = [
+  'claude-sonnet-5-5',
+  'claude-opus-5-5',
+  'claude-fable-5-1',
+  'claude-haiku-4-5',
+];
 
 export const QWEN_CODING_PLAN_MODELS = [
   'qwen3.5-plus',

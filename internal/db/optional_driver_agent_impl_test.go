@@ -934,6 +934,9 @@ func TestDamengOptionalDriverAgentSupportsManagedTransactions(t *testing.T) {
 	if _, ok := damengDB.(TransactionExecerProvider); !ok {
 		t.Fatal("expected Dameng optional driver database to expose managed transactions")
 	}
+	if _, ok := damengDB.(SessionExecerProvider); !ok {
+		t.Fatal("expected Dameng optional driver database to expose pinned sessions")
+	}
 
 	for _, dbType := range []string{"sqlserver", "kingbase"} {
 		dbInst, err := NewDatabase(dbType)

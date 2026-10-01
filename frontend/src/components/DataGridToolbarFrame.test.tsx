@@ -193,7 +193,7 @@ describe('DataGridToolbarFrame cell selection actions', () => {
     expect(selectionAction.props['aria-label']).toBe('单元格选择模式');
     expect(selectionAction.props['aria-pressed']).toBe(false);
     expect(selectionAction.props['data-button-type']).toBe('default');
-    expect(selectionAction.findByProps({ 'data-icon': 'select' })).toBeTruthy();
+    expect(selectionAction.findByProps({ role: 'img', 'aria-label': 'cell-select' })).toBeTruthy();
     expectTooltip(renderer, '选择多个单元格');
     expect(renderer.root.findAllByProps({ 'data-grid-action': 'copy-selection' })).toHaveLength(0);
     expect(renderer.root.findAllByProps({ 'data-grid-action': 'copy-fill-template' })).toHaveLength(0);
@@ -234,16 +234,16 @@ describe('DataGridToolbarFrame cell selection actions', () => {
     const batchFillAction = findAction(renderer, 'batch-fill');
 
     expect(clipboardAction.props['aria-label']).toBe('复制到剪贴板（3）');
-    expect(clipboardAction.findByProps({ 'data-icon': 'copy' })).toBeTruthy();
+    expect(clipboardAction.findByProps({ role: 'img', 'aria-label': 'copy' })).toBeTruthy();
     expectTooltip(renderer, clipboardAction.props['aria-label']);
     expect(templateAction.props['aria-label']).toBe('复制为填充模板（3）');
-    expect(templateAction.findByProps({ 'data-icon': 'snippets' })).toBeTruthy();
+    expect(templateAction.findByProps({ role: 'img', 'aria-label': 'clipboard' })).toBeTruthy();
     expect(templateAction.props.disabled).toBe(false);
     expectTooltip(renderer, templateAction.props['aria-label']);
     expect(batchFillAction.props['aria-label']).toBe('批量设值（3）');
     expect(batchFillAction.props['aria-haspopup']).toBe('dialog');
     expect(batchFillAction.props['data-button-type']).toBe('default');
-    expect(batchFillAction.findByProps({ 'data-icon': 'edit' })).toBeTruthy();
+    expect(batchFillAction.findByProps({ role: 'img', 'aria-label': 'pencil' })).toBeTruthy();
     expectTooltip(renderer, batchFillAction.props['aria-label']);
 
     act(() => {

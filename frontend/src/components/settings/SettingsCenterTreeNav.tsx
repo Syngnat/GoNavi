@@ -3,6 +3,7 @@ import { CaretRightOutlined } from '@ant-design/icons';
 
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import SettingsCenterTreeSearch from './SettingsCenterTreeSearch';
+import { SETTINGS_CENTER_SEARCH_ENTRIES } from './settingsCenterSearchIndex';
 import {
   filterSettingsCenterTreeGroups,
   normalizeSettingsCenterSearchQuery,
@@ -15,6 +16,8 @@ const EXPAND_ALL: ReadonlySet<string> = new Set();
 
 export type SettingsCenterTreeItem = {
   key: string;
+  /** `entry` marks a search hit for a setting inside a page; only present while searching. */
+  kind?: 'entry';
   icon?: React.ReactNode;
   title: string;
   description: string;
@@ -268,7 +271,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   const normalizedQuery = normalizeSettingsCenterSearchQuery(searchQuery);
   const searching = normalizedQuery.length > 0;
   const displayGroups = useMemo(
-    () => filterSettingsCenterTreeGroups(groups, searchQuery),
+    () => filterSettingsCenterTreeGroups(groups, searchQuery, { entries: SETTINGS_CENTER_SEARCH_ENTRIES }),
     [groups, searchQuery],
   );
   const effectiveCollapsedKeys = searching ? EXPAND_ALL : collapsedKeys;
@@ -370,7 +373,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   };
 
   const findItem = (groupKey: string, itemKey: string): SettingsCenterTreeItem | null => (
-    findSettingsCenterTreeItem(groups, groupKey, itemKey)
+    findSettingsCenterTreeItem(displayGroups, groupKey, itemKey)
   );
 
   const setFocusedTreeNode = (nodeId: string, syncDomFocus: boolean) => {
@@ -504,7 +507,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     return (
       <div key={item.key} role="none">
         <div
-          className={`gonavi-settings-center-tree-node${depthClass}${hasChildren ? ' has-children' : ''}${itemActive ? ' is-active' : ''}`}
+          className={`gonavi-settings-center-tree-node${depthClass}${item.kind === 'entry' ? ' is-entry' : ''}${hasChildren ? ' has-children' : ''}${itemActive ? ' is-active' : ''}`}
           role="treeitem"
           aria-expanded={hasChildren ? itemExpanded : undefined}
           aria-selected={itemActive}

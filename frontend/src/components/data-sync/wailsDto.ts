@@ -11,6 +11,7 @@ import {
   type DataSyncFieldMetadata,
   type DataSyncObjectMetadata,
   type DataSyncIndexColumn,
+  type DataSyncPreflightProgress,
   type DataSyncPreflightSnapshot,
   type DataSyncRouteCapability,
   type DataSyncRunEvent,
@@ -37,6 +38,7 @@ export type WailsDataSyncJobDefinition = Record<string, unknown>;
 
 import { DataSyncGatewayProtocolError, isRecord, record, array, string, optionalString, number, optionalNumber, optionalMetadataNumber, boolean, optionalBoolean, enumValue, fromMillis, toMillis, rawJSONText, toRawJSON } from './wailsDtoPrimitives';
 export { DataSyncGatewayProtocolError } from './wailsDtoPrimitives';
+import { qualifiedObject, splitQualifiedObject } from './dataSyncMappingKey';
 
 export const requireWailsQueryData = (
   result: WailsQueryResultLike,
@@ -164,24 +166,6 @@ const endpointFromWire = (value: unknown, path: string) => {
     type: optionalString(endpoint.connectionType, `${path}.connectionType`),
     database: optionalString(endpoint.database, `${path}.database`),
     schema: optionalString(endpoint.schema, `${path}.schema`),
-  };
-};
-
-const qualifiedObject = (schema: string, name: string): string =>
-  schema.trim() ? `${schema.trim()}.${name.trim()}` : name.trim();
-
-const splitQualifiedObject = (
-  value: string,
-  fallbackSchema: string,
-): { schema: string; name: string } => {
-  const normalized = value.trim();
-  const separator = normalized.lastIndexOf('.');
-  if (separator <= 0 || separator === normalized.length - 1) {
-    return { schema: fallbackSchema.trim(), name: normalized };
-  }
-  return {
-    schema: normalized.slice(0, separator).trim(),
-    name: normalized.slice(separator + 1).trim(),
   };
 };
 
@@ -808,14 +792,7 @@ export const decodeDataSyncPreflight = (
       ),
       mappingId: optionalString(issue.mappingId, 'issue.mappingId') || undefined,
       message: optionalString(issue.message, 'issue.message') || undefined,
-      detail: isRecord(issue.detail) && issue.detail.unmigratedIndex
-        ? {
-            unmigratedIndex: decodeUnmigratedIndex(
-              issue.detail.unmigratedIndex,
-              `DataSyncJobPreflight.data.issues[${index}].detail.unmigratedIndex`,
-            ),
-          }
-        : undefined,
+      detail: decodePreflightIssueDetail(issue.detail, index),
     };
   });
   let capability: DataSyncRouteCapability;
@@ -1082,6 +1059,33 @@ const decodeUnmigratedIndex = (value: unknown, path: string): DataSyncUnmigrated
     ).map((statement, indexOffset) =>
       string(statement, `${path}.remediationStatements[${indexOffset}]`, false),
     ),
+  };
+};
+
+const decodePreflightIssueDetail = (
+  value: unknown,
+  issueIndex: number,
+): DataSyncValidationIssue['detail'] => {
+  if (!isRecord(value)) return undefined;
+  const path = `DataSyncJobPreflight.data.issues[${issueIndex}].detail`;
+  let unmigratedIndex: DataSyncUnmigratedIndex | undefined;
+  if (value.unmigratedIndex) {
+    unmigratedIndex = decodeUnmigratedIndex(value.unmigratedIndex, `${path}.unmigratedIndex`);
+  }
+  let preflightProgress: DataSyncPreflightProgress | undefined;
+  if (isRecord(value.preflightProgress)) {
+    const progress = value.preflightProgress;
+    preflightProgress = {
+      checked: optionalNumber(progress.checked, `${path}.preflightProgress.checked`),
+      total: optionalNumber(progress.total, `${path}.preflightProgress.total`),
+      mappingKey: optionalString(progress.mappingKey, `${path}.preflightProgress.mappingKey`) || undefined,
+      mappingLabel: optionalString(progress.mappingLabel, `${path}.preflightProgress.mappingLabel`) || undefined,
+    };
+  }
+  if (!unmigratedIndex && !preflightProgress) return undefined;
+  return {
+    ...(unmigratedIndex ? { unmigratedIndex } : {}),
+    ...(preflightProgress ? { preflightProgress } : {}),
   };
 };
 

@@ -1,9 +1,7 @@
 import React from 'react';
-import { Button, Tag, Tooltip } from 'antd';
+import { Button, Tooltip } from 'antd';
 import {
   CheckCircleOutlined,
-  CheckOutlined,
-  CloseCircleOutlined,
   CloudSyncOutlined,
   ExclamationCircleOutlined,
   ReloadOutlined,
@@ -19,6 +17,9 @@ import type {
   AIRunRecoveryState,
   AIRunWorkspaceState,
 } from './aiRunEventProjection';
+import AIApprovalSplitButton from './AIApprovalSplitButton';
+import type { AIApprovalScope } from './aiAutoApproval';
+import { aiPx } from './aiScale';
 
 export type AIRunRecoveryAction = 'recover' | 'mark_completed' | 'abort_recovery';
 export type AIRunWorkspaceAction = 'use_stale_workspace';
@@ -35,6 +36,7 @@ export interface AIChatRunControlsProps {
   onApprovalDecision: (
     approval: AIRunApprovalState,
     decision: 'approved' | 'denied',
+    scope?: AIApprovalScope,
   ) => void;
   onRecoveryAction: (recovery: AIRunRecoveryState, action: AIRunRecoveryAction) => void;
   onWorkspaceAction: (workspace: AIRunWorkspaceState, action: AIRunWorkspaceAction) => void;
@@ -50,6 +52,21 @@ const copyWithFallback = (
   return translated && translated !== key ? translated : fallback;
 };
 
+/**
+ * The sentence under an approval. The Go event only carries an English
+ * boilerplate keyed by the effect class, so the UI words it itself in the
+ * reader's language; an unknown effect falls back to the server text.
+ */
+const approvalSummaryText = (
+  copy: (key: string, params?: I18nParams) => string,
+  approval: AIRunApprovalState,
+): string => {
+  if (approval.effect === 'side_effect' || approval.effect === 'side_effect_unknown') {
+    return copyWithFallback(copy, `ai_chat.run.approval.summary.${approval.effect}`, approval.summary || '');
+  }
+  return approval.summary || copyWithFallback(copy, 'ai_chat.run.approval.summary.default', '');
+};
+
 const ControlMeta: React.FC<{
   toolName?: string;
   effect?: string;
@@ -58,11 +75,13 @@ const ControlMeta: React.FC<{
   copy: (key: string, params?: I18nParams) => string;
 }> = ({ toolName, effect, callId, mutedColor, copy }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
-    {toolName ? <code style={{ color: mutedColor, fontSize: 12 }}>{toolName}</code> : null}
-    {effect ? <Tag color="orange" style={{ margin: 0 }}>{effect}</Tag> : null}
+    {toolName ? <code style={{ color: mutedColor, fontSize: aiPx(12) }}>{toolName}</code> : null}
+    {effect ? (
+      <span className="ai-run-effect">{copyWithFallback(copy, `ai_chat.run.effect.${effect}`, effect)}</span>
+    ) : null}
     {callId ? (
       <Tooltip title={copy('ai_chat.run.control.call_id_tooltip', { callId })}>
-        <code style={{ color: mutedColor, fontSize: 11, maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <code style={{ color: mutedColor, fontSize: aiPx(11), maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {copy('ai_chat.run.control.call_id', { callId })}
         </code>
       </Tooltip>
@@ -101,15 +120,16 @@ const AIChatRunControls: React.FC<AIChatRunControlsProps> = ({
             key={`${approval.runId}:${approval.approvalId}`}
             data-testid={`ai-run-approval-${approval.approvalId}`}
             style={{
-              background: panelBackground,
-              border: `1px solid ${borderColor}`,
-              borderLeft: `3px solid ${overlayTheme.iconColor}`,
               color: textColor,
-            }}
+              '--ai-approve-muted': mutedColor,
+              '--ai-approve-surface': darkMode ? 'rgba(217, 119, 6, 0.1)' : 'rgba(217, 119, 6, 0.06)',
+              '--ai-approve-border': darkMode ? 'rgba(217, 119, 6, 0.38)' : 'rgba(217, 119, 6, 0.3)',
+              '--ai-approve-neutral': darkMode ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.15)',
+            } as React.CSSProperties}
           >
             <div className="ai-run-control-heading">
               <span className="ai-run-control-title">
-                <ExclamationCircleOutlined style={{ color: overlayTheme.iconColor }} />
+                <ExclamationCircleOutlined className="ai-approve-icon" />
                 {copyWithFallback(copy, 'ai_chat.run.approval.title', 'Approval required')}
               </span>
               <span className="ai-run-control-state" style={{ color: mutedColor }}>
@@ -123,28 +143,32 @@ const AIChatRunControls: React.FC<AIChatRunControlsProps> = ({
               mutedColor={mutedColor}
               copy={copy}
             />
-            {approval.summary ? <div className="ai-run-control-detail" style={{ color: mutedColor }}>{approval.summary}</div> : null}
+            {approvalSummaryText(copy, approval)
+              ? <div className="ai-run-control-detail" style={{ color: mutedColor }}>{approvalSummaryText(copy, approval)}</div>
+              : null}
             <div className="ai-run-control-actions">
               <Button
                 size="small"
-                type="primary"
-                icon={<CheckOutlined />}
-                loading={busyKey === approveKey}
-                disabled={Boolean(busyKey) && busyKey !== approveKey}
-                onClick={() => onApprovalDecision(approval, 'approved')}
-              >
-                {copyWithFallback(copy, 'ai_chat.run.approval.approve', 'Approve')}
-              </Button>
-              <Button
-                size="small"
-                danger
-                icon={<CloseCircleOutlined />}
+                className="ai-approve-btn ai-approve-deny"
                 loading={busyKey === denyKey}
                 disabled={Boolean(busyKey) && busyKey !== denyKey}
                 onClick={() => onApprovalDecision(approval, 'denied')}
               >
-                {copyWithFallback(copy, 'ai_chat.run.approval.deny', 'Deny')}
+                {/* A span keeps antd from inserting a space between two CJK characters. */}
+                <span>{copyWithFallback(copy, 'ai_chat.run.approval.deny', 'Deny')}</span>
               </Button>
+              <AIApprovalSplitButton
+                loading={busyKey === approveKey}
+                disabled={Boolean(busyKey) && busyKey !== approveKey}
+                labels={{
+                  approve: copyWithFallback(copy, 'ai_chat.run.approval.approve', 'Approve'),
+                  once: copyWithFallback(copy, 'ai_chat.run.approval.approve_once', 'Approve once'),
+                  session: copyWithFallback(copy, 'ai_chat.run.approval.approve_session', 'Always approve in this session'),
+                  global: copyWithFallback(copy, 'ai_chat.run.approval.approve_global', 'Always approve everywhere'),
+                  more: copyWithFallback(copy, 'ai_chat.run.approval.more_options', 'More approval options'),
+                }}
+                onApprove={(scope) => onApprovalDecision(approval, 'approved', scope)}
+              />
             </div>
           </section>
         );

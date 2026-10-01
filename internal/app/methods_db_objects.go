@@ -18,7 +18,7 @@ type objectMetadataQuerySpec struct {
 
 func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) connection.QueryResult {
 	runConfig := normalizeMetadataRunConfig(config, dbName)
-	dbType := resolveDDLDBType(runConfig)
+	dbType := normalizeDriverType(resolveDDLDBType(runConfig))
 
 	if strings.EqualFold(strings.TrimSpace(runConfig.Type), "redis") {
 		keys := a.DBGetTables(config, dbName)
@@ -53,6 +53,14 @@ func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) co
 	tables, tableErr := dbInst.GetTables(dbName)
 	if tableErr != nil {
 		logger.Warnf("DBGetObjects 获取基础对象失败：%s err=%v", formatConnSummary(runConfig), tableErr)
+		if dbType == "pulsar" && len(tables) > 0 {
+			warning := a.appText("sidebar.message.pulsar_topic_discovery_partial", nil)
+			return connection.QueryResult{
+				Success: true, Partial: true, Retryable: true,
+				Message: warning, Warnings: []string{warning}, FailedObjectTypes: []string{tableType},
+				Data: buildNamedObjects(dbName, tableType, dedupeMetadataTableNames(tables)),
+			}
+		}
 		return failedObjectMetadataResult(tableType, tableErr)
 	}
 	tables = dedupeMetadataTableNames(tables)
@@ -91,7 +99,7 @@ func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) co
 		appendMetadataObjects("exchange", metadataObjects, metadataErr)
 	}
 	switch dbType {
-	case "mqtt", "kafka", "rocketmq", "rabbitmq":
+	case "mqtt", "kafka", "rocketmq", "rabbitmq", "pulsar":
 		return buildResult()
 	}
 
@@ -130,11 +138,28 @@ func failedObjectMetadataResult(objectType string, err error) connection.QueryRe
 	}
 }
 
+func (a *App) tableMetadataErrorResult(config connection.ConnectionConfig, tables []string, err error) connection.QueryResult {
+	if normalizeDriverType(config.Type) == "pulsar" && len(tables) > 0 {
+		logger.Warnf("DBGetTables Pulsar 主题发现不完整：%s err=%v", formatConnSummary(config), err)
+		rows := make([]map[string]string, 0, len(tables))
+		for _, name := range dedupeMetadataTableNames(tables) {
+			rows = append(rows, map[string]string{"Table": name})
+		}
+		warning := a.appText("sidebar.message.pulsar_topic_discovery_partial", nil)
+		return connection.QueryResult{
+			Success: true, Partial: true, Retryable: true, ScannedCount: len(rows),
+			Message: warning, Warnings: []string{warning}, FailedObjectTypes: []string{"topic"}, Data: rows,
+		}
+	}
+	logger.Error(err, "DBGetTables 获取表列表失败：%s", formatConnSummary(config))
+	return connection.QueryResult{Success: false, Message: err.Error()}
+}
+
 func tableObjectTypeForDB(dbType string) string {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeDriverType(dbType) {
 	case "rabbitmq":
 		return "queue"
-	case "rocketmq", "kafka", "mqtt":
+	case "rocketmq", "kafka", "mqtt", "pulsar":
 		return "topic"
 	default:
 		return "table"
@@ -315,9 +340,9 @@ func splitObjectSchemaName(raw string) (string, string) {
 }
 
 func databaseObjectIdentifiersAreCaseSensitive(dbType string) bool {
-	switch resolveDDLDBType(connection.ConnectionConfig{Type: dbType}) {
+	switch normalizeDriverType(resolveDDLDBType(connection.ConnectionConfig{Type: dbType})) {
 	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "oracle", "dameng",
-		"mqtt", "kafka", "rocketmq", "rabbitmq":
+		"mqtt", "kafka", "rocketmq", "rabbitmq", "pulsar":
 		return true
 	default:
 		return false

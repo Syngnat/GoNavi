@@ -164,6 +164,44 @@ func TestDamengOpenTransactionExecerUsesDriverTransaction(t *testing.T) {
 	}
 }
 
+func TestDamengOpenSessionExecerPinsConnectionWithoutTransaction(t *testing.T) {
+	state := &damengTransactionRecordingState{}
+	dbConn := sql.OpenDB(&damengTransactionConnector{state: state})
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	session, err := (&DamengDB{conn: dbConn}).OpenSessionExecer(context.Background())
+	if err != nil {
+		t.Fatalf("OpenSessionExecer returned error: %v", err)
+	}
+	stmt := "INSERT INTO demo(id) VALUES (1)"
+	if _, err := session.ExecContext(context.Background(), stmt); err != nil {
+		t.Fatalf("session exec returned error: %v", err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	beginCalls, commitCalls, rollbackCalls, execQueries := state.snapshot()
+	if beginCalls != 0 || commitCalls != 0 || rollbackCalls != 0 {
+		t.Fatalf(
+			"session must not open a transaction: begin=%d commit=%d rollback=%d",
+			beginCalls,
+			commitCalls,
+			rollbackCalls,
+		)
+	}
+	if !reflect.DeepEqual(execQueries, []string{stmt}) {
+		t.Fatalf("expected DML to reach the driver, got %#v", execQueries)
+	}
+}
+
+func TestDamengOpenSessionExecerRequiresOpenConnection(t *testing.T) {
+	_, err := (&DamengDB{}).OpenSessionExecer(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "连接未打开") {
+		t.Fatalf("error = %v, want 连接未打开", err)
+	}
+}
+
 func TestDamengApplyChangesPreservesSchemaContainingDot(t *testing.T) {
 	state := &damengTransactionRecordingState{}
 	dbConn := sql.OpenDB(&damengTransactionConnector{state: state})

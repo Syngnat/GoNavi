@@ -1,14 +1,15 @@
 import React from 'react';
 import { Button, Popover, Tooltip } from 'antd';
 import {
-  AimOutlined,
-  BugOutlined,
-  ConsoleSqlOutlined,
-  EditOutlined,
-  FileTextOutlined,
-  LinkOutlined,
-  TableOutlined,
-} from '@ant-design/icons';
+  GnColumnsIcon,
+  GnErDiagramIcon,
+  GnFieldsIcon,
+  GnJumpColumnIcon,
+  GnLogIcon,
+  GnSqlDocIcon,
+  GnTableDesignIcon,
+  GnTableIcon,
+} from './icons/gnIcons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
 
 type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLog';
@@ -20,8 +21,6 @@ export interface DataGridSecondaryActionsProps {
   canOpenObjectDesigner: boolean;
   viewMode: GridViewMode;
   ddlLoading: boolean;
-  showColumnComment: boolean;
-  showColumnType: boolean;
   resultViewSwitcher: React.ReactNode;
   columnInfoSettingContent: React.ReactNode;
   columnQuickFindContent: React.ReactNode;
@@ -35,8 +34,6 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
   canOpenObjectDesigner,
   viewMode,
   ddlLoading,
-  showColumnComment,
-  showColumnType,
   resultViewSwitcher,
   columnInfoSettingContent,
   columnQuickFindContent,
@@ -49,14 +46,14 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
   const fieldsActionLabel = canOpenObjectDesigner
       ? translate('data_grid.secondary.object_design')
       : translate('data_grid.column_settings.field_info');
-    const fieldsActionIcon = canOpenObjectDesigner ? <EditOutlined /> : <FileTextOutlined />;
+    const fieldsActionIcon = canOpenObjectDesigner ? <GnTableDesignIcon /> : <GnFieldsIcon />;
     const columnDisplayLabel = translate('data_grid.secondary.column_display');
     const viewTabItems: Array<{ key: GridViewMode; label: string; icon: React.ReactNode; disabled?: boolean }> = [
-      { key: 'table', label: translate('data_grid.secondary.data_preview'), icon: <TableOutlined /> },
+      { key: 'table', label: translate('data_grid.secondary.data_preview'), icon: <GnTableIcon /> },
       { key: 'fields', label: fieldsActionLabel, icon: fieldsActionIcon },
-      { key: 'ddl', label: translate('data_grid.secondary.view_ddl'), icon: <ConsoleSqlOutlined />, disabled: !canViewDdl },
-      { key: 'er', label: translate('data_grid.secondary.er_diagram'), icon: <LinkOutlined /> },
-      { key: 'sqlLog', label: translate('log_panel.short_title'), icon: <BugOutlined /> },
+      { key: 'ddl', label: translate('data_grid.secondary.view_ddl'), icon: <GnSqlDocIcon />, disabled: !canViewDdl },
+      { key: 'er', label: translate('data_grid.secondary.er_diagram'), icon: <GnErDiagramIcon /> },
+      { key: 'sqlLog', label: translate('log_panel.short_title'), icon: <GnLogIcon /> },
     ];
 
   return (
@@ -105,10 +102,10 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
                 data-grid-column-display-action="true"
                 className="gn-v2-data-grid-toolbar-action"
                 aria-label={columnDisplayLabel}
-                aria-pressed={showColumnComment || showColumnType}
+                aria-pressed={columnDisplayOpen}
                 size="small"
-                type={showColumnComment || showColumnType ? 'primary' : 'text'}
-                icon={<FileTextOutlined />}
+                type={columnDisplayOpen ? 'primary' : 'text'}
+                icon={<GnColumnsIcon />}
               />
             </Tooltip>
           </Popover>
@@ -117,7 +114,7 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
               data-grid-column-quick-find-action="true"
               size="small"
               type="text"
-              icon={<AimOutlined />}
+              icon={<GnJumpColumnIcon />}
           >
               {translate('data_grid.secondary.jump_column')}
             </Button>

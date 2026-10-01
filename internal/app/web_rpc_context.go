@@ -15,6 +15,7 @@ var requiredIssue1098WebRPCContextMethods = []string{
 	"DBQuery", "DBQueryApplicationWithCancel", "DBQueryWithCancel", "DBQueryMulti", "DBQueryMultiWithOptions", "DBQueryMultiCompact", "DBQueryAudited", "DBQueryAI", "DBQueryIsolated", "MySQLQuery",
 	"DBGetDatabases", "DBGetTables", "DBGetViews", "DBGetObjects", "DBGetAllColumns", "DBGetColumns", "DBGetIndexes",
 	"DBGetForeignKeys", "DBGetDatabaseForeignKeys", "DBGetTriggers", "DBShowCreateTable", "DBTableExists",
+	"DBListSessions", "DBExecuteSessionAction",
 	"MySQLGetDatabases", "MySQLGetTables", "MySQLShowCreateTable", "MongoDiscoverMembers", "DBRefreshTableStats", "DiagnoseQuery",
 	"DataSyncDatabaseList", "DataSyncObjectList", "DataSyncFieldList", "DataSyncCapabilityResolve", "DataSyncCDCProbe", "DataSyncJobPreflight",
 	"DataSyncJobList", "DataSyncJobGet", "DataSyncRunGet", "DataSyncRunList", "DataSyncRunPage", "DataSyncRunEventList",
@@ -65,6 +66,12 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		"MySQLQuery": func(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
 			config.Type = "mysql"
 			return a.dbQueryContext(ctx, config, dbName, query)
+		},
+		"DBListSessions": func(ctx context.Context, config connection.ConnectionConfig, dbName string) connection.QueryResult {
+			return a.dbListSessionsContext(ctx, config, dbName)
+		},
+		"DBExecuteSessionAction": func(ctx context.Context, config connection.ConnectionConfig, dbName string, request connection.SessionActionRequest) connection.QueryResult {
+			return a.dbExecuteSessionActionWithAuditContext(ctx, config, dbName, request)
 		},
 
 		"DBGetDatabases": func(ctx context.Context, config connection.ConnectionConfig) connection.QueryResult {

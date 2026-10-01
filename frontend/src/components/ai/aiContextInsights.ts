@@ -1,5 +1,6 @@
 import type { AIContextItem, SavedConnection } from '../../types';
 import { translateInspectionCopy, type AIInspectionTranslator } from './aiInspectionI18n';
+import { isAIEditorSelectionContext, isAITableSchemaContext } from './aiEditorSelectionContext';
 
 const DEFAULT_DDL_PREVIEW_LIMIT = 320;
 const DEFAULT_DDL_INCLUDE_LIMIT = 4000;
@@ -62,6 +63,8 @@ export const buildAIContextSnapshot = (params: {
   } = params;
   const contextKey = buildConnectionKey(activeContext);
   const activeContextItems = aiContexts[contextKey] || [];
+  const tableItems = activeContextItems.filter(isAITableSchemaContext);
+  const selectionItems = activeContextItems.filter(isAIEditorSelectionContext);
   const activeConnection = activeContext?.connectionId
     ? connections.find((connection) => connection.id === activeContext.connectionId)
     : undefined;
@@ -73,19 +76,30 @@ export const buildAIContextSnapshot = (params: {
     connectionName: activeConnection?.name || '',
     connectionType: activeConnection?.config?.type || '',
     dbName: activeContext?.dbName || '',
-    tableCount: activeContextItems.length,
+    tableCount: tableItems.length,
+    selectionCount: selectionItems.length,
     includeDDL,
-    tables: activeContextItems.map((item) =>
+    tables: tableItems.map((item) =>
       buildTableContextSnapshot({
         item,
         includeDDL,
         ddlLimit: normalizeDDLLimit(ddlLimit),
       })),
+    selections: selectionItems.map((item) => {
+      const content = sliceText(item.content || item.ddl, normalizeDDLLimit(ddlLimit));
+      return {
+        label: item.label || item.source?.tabTitle || '',
+        tabId: item.source?.tabId || '',
+        content: includeDDL ? content.text : undefined,
+        contentTruncated: content.truncated,
+        charCount: content.charCount,
+      };
+    }),
     message: activeContextItems.length > 0
       ? translateInspectionCopy(
         translate,
         'ai_chat.inspection.ai_context.linked_summary',
-        `Currently linked table schema contexts: ${activeContextItems.length}`,
+        `Currently linked AI contexts: ${activeContextItems.length}`,
         { count: activeContextItems.length },
       )
       : translateInspectionCopy(

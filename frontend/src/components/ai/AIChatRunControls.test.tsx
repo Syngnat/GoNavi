@@ -1,7 +1,11 @@
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
+import { Dropdown } from 'antd';
+
+import { I18nProvider } from '../../i18n/provider';
 import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import AIChatRunControls from './AIChatRunControls';
 import type { AIRunApprovalState, AIRunRecoveryState } from './aiRunEventProjection';
@@ -12,11 +16,13 @@ vi.mock('antd', async () => {
     children,
     icon,
     onClick,
+    loading: _loading,
     ...props
   }: {
     children?: React.ReactNode;
     icon?: React.ReactNode;
     onClick?: () => void;
+    loading?: boolean;
     [key: string]: unknown;
   }) => React.createElement(
     'button',
@@ -28,7 +34,9 @@ vi.mock('antd', async () => {
     React.createElement('span', props, children);
   const Tooltip = ({ title, children }: { title?: React.ReactNode; children?: React.ReactNode }) =>
     React.createElement('span', { 'data-tooltip-title': title }, children);
-  return { Button, Tag, Tooltip };
+  const Dropdown = ({ children }: { children?: React.ReactNode; [key: string]: unknown }) =>
+    React.createElement('span', { 'data-dropdown': true }, children);
+  return { Button, Dropdown, Tag, Tooltip };
 });
 
 vi.mock('@ant-design/icons', async () => {
@@ -39,6 +47,7 @@ vi.mock('@ant-design/icons', async () => {
     CheckOutlined: makeIcon('check'),
     CloseCircleOutlined: makeIcon('close-circle'),
     CloudSyncOutlined: makeIcon('cloud-sync'),
+    DownOutlined: makeIcon('down'),
     ExclamationCircleOutlined: makeIcon('exclamation-circle'),
     ReloadOutlined: makeIcon('reload'),
     StopOutlined: makeIcon('stop'),
@@ -120,7 +129,8 @@ describe('AIChatRunControls', () => {
     expect(text).toContain('Approval required');
     expect(text).toContain('Recovery required');
     expect(text).toContain('execute_sql');
-    expect(text).toContain('Add one audit entry');
+    expect(text).toContain('This tool can change data or external state.');
+    expect(text).toContain('Changes data');
     expect(text).toContain('Approve');
     expect(text).toContain('Deny');
     expect(text).toContain('Retry');
@@ -137,30 +147,56 @@ describe('AIChatRunControls', () => {
     const renderer = renderControls({ onApprovalDecision, onRecoveryAction, onWorkspaceAction });
     const buttons = renderer.root.findAllByType('button');
 
+    // buttons: deny, approve, approval options (drop-down trigger), then recovery and workspace actions.
     await act(async () => {
       buttons[0].props.onClick();
       buttons[1].props.onClick();
-      buttons[2].props.onClick();
       buttons[3].props.onClick();
       buttons[4].props.onClick();
       buttons[5].props.onClick();
+      buttons[6].props.onClick();
     });
 
-    expect(onApprovalDecision).toHaveBeenNthCalledWith(1, approval, 'approved');
-    expect(onApprovalDecision).toHaveBeenNthCalledWith(2, approval, 'denied');
+    expect(onApprovalDecision).toHaveBeenNthCalledWith(1, approval, 'denied');
+    expect(onApprovalDecision).toHaveBeenNthCalledWith(2, approval, 'approved', 'once');
     expect(onRecoveryAction).toHaveBeenNthCalledWith(1, recovery, 'recover');
     expect(onRecoveryAction).toHaveBeenNthCalledWith(2, recovery, 'mark_completed');
     expect(onRecoveryAction).toHaveBeenNthCalledWith(3, recovery, 'abort_recovery');
     expect(onWorkspaceAction).toHaveBeenCalledWith(workspace, 'use_stale_workspace');
   });
 
-  it('renders only the server summary and never raw approval arguments', () => {
+  it('offers to approve this session or everywhere from the approval drop-down', async () => {
+    const onApprovalDecision = vi.fn();
+    const renderer = renderControls({ onApprovalDecision });
+    const menu = renderer.root.findByType(Dropdown).props.menu as {
+      items: Array<{ key: string; label: string; danger?: boolean }>;
+      onClick: (info: { key: string }) => void;
+    };
+
+    expect(menu.items.map((item) => [item.key, item.label])).toEqual([
+      ['once', 'Approve once'],
+      ['session', 'Always approve in this session'],
+      ['global', 'Always approve everywhere'],
+    ]);
+    expect(menu.items.find((item) => item.key === 'global')?.danger).toBe(true);
+    expect(renderer.root.findAllByType('button')[2].props['aria-label']).toBe('More approval options');
+
+    await act(async () => {
+      menu.onClick({ key: 'session' });
+      menu.onClick({ key: 'global' });
+    });
+
+    expect(onApprovalDecision).toHaveBeenNthCalledWith(1, approval, 'approved', 'session');
+    expect(onApprovalDecision).toHaveBeenNthCalledWith(2, approval, 'approved', 'global');
+  });
+
+  it('never renders raw approval arguments', () => {
     const rawArguments = { sql: 'INSERT INTO audit_log VALUES (super_secret)' };
     const renderer = renderControls({
       approvals: [{ ...approval, arguments: rawArguments } as unknown as AIRunApprovalState],
     });
     const text = textContent(renderer.toJSON());
-    expect(text).toContain('Add one audit entry');
+    expect(text).toContain('This tool can change data or external state.');
     expect(text).not.toContain('INSERT INTO audit_log');
 
     renderer.update(
@@ -178,5 +214,31 @@ describe('AIChatRunControls', () => {
       />,
     );
     expect(renderer.toJSON()).toBeNull();
+  });
+
+  it('words the whole approval card in the reader language, not in the server English', () => {
+    const markup = renderToStaticMarkup(
+      <I18nProvider preference="zh-CN" systemLanguages={['zh-CN']} onPreferenceChange={() => {}}>
+        <AIChatRunControls
+          approvals={[{ ...approval, summary: 'This tool can change data or external state.' }]}
+          recoveries={[]}
+          waitingWorkspaces={[]}
+          darkMode={false}
+          textColor="#111"
+          mutedColor="#667085"
+          overlayTheme={theme}
+          onApprovalDecision={() => undefined}
+          onRecoveryAction={() => undefined}
+          onWorkspaceAction={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    for (const zh of ['需要审批', '等待确认', '会修改数据', '该工具会改变数据或外部状态。', '批准', '拒绝', '更多批准方式']) {
+      expect(markup).toContain(zh);
+    }
+    for (const raw of ['side_effect', 'This tool can change', 'Approval required', 'Deny']) {
+      expect(markup).not.toContain(raw);
+    }
   });
 });

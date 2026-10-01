@@ -3,12 +3,18 @@ import { message } from 'antd';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import type { I18nParams } from '../../i18n/types';
 
-import type { AIContextItem } from '../../types';
+import type { AIContextItem, AIEditorSelection } from '../../types';
 import { useStore } from '../../store';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { resolveAITableSchemaToolResult } from '../../utils/aiTableSchemaTool';
 import { normalizeTableNamesFromMetadataRows } from '../../utils/tableMetadataRows';
 import { DBGetColumns, DBGetDatabases, DBGetTables, DBShowCreateTable } from '../../../wailsjs/go/app/App';
+import {
+  buildAIEditorSelectionContextItem,
+  isAIEditorSelectionContext,
+  isAITableSchemaContext,
+} from './aiEditorSelectionContext';
+import { bindAIEditorSelectionContext } from './bindAIEditorSelectionContext';
 
 interface ActiveContextRef {
   connectionId?: string | null;
@@ -17,6 +23,7 @@ interface ActiveContextRef {
 
 interface UseAIChatContextBindingParams {
   activeContext: ActiveContextRef | null;
+  activeEditorSelection?: AIEditorSelection | null;
   activeContextItems: AIContextItem[];
   connectionKey: string;
   addAIContext: (connectionKey: string, item: AIContextItem) => void;
@@ -43,6 +50,7 @@ export const normalizeAIContextTables = (data: unknown): { name: string }[] => {
 
 export const useAIChatContextBinding = ({
   activeContext,
+  activeEditorSelection,
   activeContextItems,
   connectionKey,
   addAIContext,
@@ -53,6 +61,7 @@ export const useAIChatContextBinding = ({
   const [contextLoading, setContextLoading] = React.useState(false);
   const [contextTables, setContextTables] = React.useState<{ name: string }[]>([]);
   const [selectedTableKeys, setSelectedTableKeys] = React.useState<string[]>([]);
+  const [selectedEditorSelection, setSelectedEditorSelection] = React.useState(false);
   const [searchText, setSearchText] = React.useState('');
   const [appendingContext, setAppendingContext] = React.useState(false);
   const [dbList, setDbList] = React.useState<string[]>([]);
@@ -63,6 +72,7 @@ export const useAIChatContextBinding = ({
     () => contextTables.filter((table) => table.name.toLowerCase().includes(searchText.toLowerCase())),
     [contextTables, searchText],
   );
+
   const translateMessage = React.useCallback((
     key: string,
     fallback: string,
@@ -118,7 +128,16 @@ export const useAIChatContextBinding = ({
     setContextOpen(true);
     setContextLoading(true);
     setSearchText('');
-    setSelectedTableKeys(activeContextItems.map((item) => `${item.dbName}::${item.tableName}`));
+    setSelectedTableKeys(activeContextItems
+      .filter(isAITableSchemaContext)
+      .map((item) => `${item.dbName}::${item.tableName}`));
+    const currentSelectionTabId = String(activeEditorSelection?.tabId || '').trim();
+    const currentSelectionText = String(activeEditorSelection?.text || '');
+    setSelectedEditorSelection(activeContextItems.some((item) => {
+      if (!isAIEditorSelectionContext(item)) return false;
+      return item.source?.tabId === currentSelectionTabId
+        && String(item.content || item.ddl || '') === currentSelectionText;
+    }));
 
     try {
       const dbRes = await DBGetDatabases(buildRpcConnectionConfig(connection.config) as any);
@@ -150,7 +169,7 @@ export const useAIChatContextBinding = ({
     } finally {
       setContextLoading(false);
     }
-  }, [activeContext, activeContextItems, translateMessage]);
+  }, [activeContext, activeContextItems, activeEditorSelection, translateMessage]);
 
   const handleAppendContext = React.useCallback(async () => {
     if (!activeContext?.connectionId) {
@@ -166,12 +185,39 @@ export const useAIChatContextBinding = ({
     try {
       let addedCount = 0;
       let removedCount = 0;
+      let selectionChanged = false;
 
-      for (const item of activeContextItems) {
+      const tableItems = activeContextItems.filter(isAITableSchemaContext);
+      const selectionItems = activeContextItems.filter(isAIEditorSelectionContext);
+
+      for (const item of tableItems) {
         const key = `${item.dbName}::${item.tableName}`;
         if (!selectedTableKeys.includes(key)) {
           removeAIContext(connectionKey, item.dbName, item.tableName);
           removedCount += 1;
+        }
+      }
+
+      const currentSelectionText = String(activeEditorSelection?.text || '');
+      const currentSelectionTabId = String(activeEditorSelection?.tabId || '').trim();
+      const keepSelection = Boolean(selectedEditorSelection && currentSelectionText.trim() && currentSelectionTabId);
+      for (const item of selectionItems) {
+        const matchesCurrentSelection = keepSelection
+          && item.source?.tabId === currentSelectionTabId
+          && String(item.content || item.ddl || '') === currentSelectionText;
+        if (!matchesCurrentSelection) {
+          removeAIContext(connectionKey, item.dbName, item.tableName);
+          removedCount += 1;
+          selectionChanged = true;
+        }
+      }
+
+      if (keepSelection && activeEditorSelection) {
+        if (!selectionItems.some((item) => item.source?.tabId === currentSelectionTabId
+          && String(item.content || item.ddl || '') === currentSelectionText)) {
+          addAIContext(connectionKey, buildAIEditorSelectionContextItem(activeEditorSelection));
+          addedCount += 1;
+          selectionChanged = true;
         }
       }
 
@@ -216,14 +262,14 @@ export const useAIChatContextBinding = ({
       if (addedCount > 0 || removedCount > 0) {
         if (addedCount > 0 && removedCount === 0) {
           message.success(translateMessage(
-            'ai_chat.input.message.context_added',
-            `Added ${addedCount} table structures to the context`,
+            selectionChanged ? 'ai_chat.input.message.context_items_added' : 'ai_chat.input.message.context_added',
+            `Added ${addedCount} context item(s)`,
             { count: addedCount },
           ));
         } else if (removedCount > 0 && addedCount === 0) {
           message.success(translateMessage(
-            'ai_chat.input.message.context_removed',
-            `Removed ${removedCount} table structures from the context`,
+            selectionChanged ? 'ai_chat.input.message.context_items_removed' : 'ai_chat.input.message.context_removed',
+            `Removed ${removedCount} context item(s) from the context`,
             { count: removedCount },
           ));
         } else {
@@ -253,7 +299,7 @@ export const useAIChatContextBinding = ({
     } finally {
       setAppendingContext(false);
     }
-  }, [activeContext, activeContextItems, addAIContext, connectionKey, removeAIContext, selectedTableKeys, translateMessage]);
+  }, [activeContext, activeContextItems, activeEditorSelection, addAIContext, connectionKey, removeAIContext, selectedEditorSelection, selectedTableKeys, translateMessage]);
 
   const handleDbChange = React.useCallback((value: string) => {
     const connection = useStore.getState().connections.find((item) => item.id === activeContext?.connectionId);
@@ -266,6 +312,40 @@ export const useAIChatContextBinding = ({
     removeAIContext(connectionKey, dbName, tableName);
   }, [connectionKey, removeAIContext]);
 
+  const handleBindEditorSelection = React.useCallback(() => {
+    if (!activeContext?.connectionId || !activeEditorSelection?.text.trim()) {
+      message.warning(translateMessage(
+        'ai_chat.input.message.select_editor_text_first',
+        'Select non-empty text in the editor before binding it to AI context',
+      ));
+      return;
+    }
+
+    const result = bindAIEditorSelectionContext({
+      selection: activeEditorSelection,
+      connectionKey,
+      contextItems: activeContextItems,
+      addAIContext,
+      removeAIContext,
+    });
+    if (result === 'unchanged') {
+      message.info(translateMessage(
+        'ai_chat.input.message.context_selection_unchanged',
+        'The current editor selection is already attached',
+      ));
+      setContextExpanded(true);
+      return;
+    }
+
+    setContextExpanded(true);
+    if (result === 'added') {
+      message.success(translateMessage(
+        'ai_chat.input.message.context_selection_added',
+        'Editor selection attached to AI context',
+      ));
+    }
+  }, [activeContext?.connectionId, activeContextItems, activeEditorSelection, addAIContext, connectionKey, removeAIContext, translateMessage]);
+
   return {
     appendingContext,
     contextExpanded,
@@ -274,15 +354,18 @@ export const useAIChatContextBinding = ({
     dbList,
     filteredTables,
     handleAppendContext,
+    handleBindEditorSelection,
     handleDbChange,
     handleOpenContext,
     handleRemoveContextItem,
     searchText,
     selectedDbName,
+    selectedEditorSelection,
     selectedTableKeys,
     setContextExpanded,
     setContextOpen,
     setSearchText,
     setSelectedTableKeys,
+    setSelectedEditorSelection,
   };
 };

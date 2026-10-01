@@ -51,8 +51,8 @@ import { dispatchSidebarDatabaseRefresh } from '../utils/sidebarDatabaseRefresh'
 import { getCurrentLanguage, t } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import {
-    COMMON_COLUMN_DEFAULT_OPTIONS, getColumnDefinitionExtra, isMySQLCharacterColumnType, normalizeColumnDefinition,
-    normalizeMySQLUnsignedColumnType, setMySQLUnsignedColumnType, supportsMySQLUnsignedColumnType, supportsMySQLUnsignedDialect,
+    getColumnDefinitionExtra, isMySQLCharacterColumnType, normalizeColumnDefinition,
+    normalizeMySQLUnsignedColumnType, resolveColumnDefaultOptions, setMySQLUnsignedColumnType, supportsMySQLUnsignedColumnType, supportsMySQLUnsignedDialect,
 } from '../utils/columnDefinition';
 import { resolveDataTableVerticalBorderRule } from '../utils/dataGridDisplay';
 import { buildEditableTriggerSql } from '../utils/triggerEditSql';
@@ -87,6 +87,7 @@ import {
 } from './tableDesignerSchemaContext';
 import { buildTDengineStableOptions, buildTDengineStableQueries } from '../utils/tdengineStableMetadata';
 import TableDesignerCopyColumnsModal from './TableDesignerCopyColumnsModal';
+import { TableDesignerCommentField } from './tableDesignerCommentField';
 import { useTableDesignerColumnClipboard } from './useTableDesignerColumnClipboard';
 
 interface EditableColumn extends ColumnDefinition {
@@ -569,7 +570,6 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const [columnDefaultValue, setColumnDefaultValue] = useState('');
   const [columnCharset, setColumnCharset] = useState<string | undefined>();
   const [columnCollation, setColumnCollation] = useState<string | undefined>();
-  const [inlineCommentEditingKey, setInlineCommentEditingKey] = useState('');
 
   const connections = useStore(state => state.connections);
   const addTab = useStore(state => state.addTab);
@@ -622,7 +622,6 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
 
   const openCommentEditor = useCallback((record: EditableColumn) => {
       if (!record?._key) return;
-      setInlineCommentEditingKey('');
       setCommentEditorColumnKey(record._key);
       setCommentEditorColumnName(record.name || '');
       setCommentEditorColumnType(record.type || '');
@@ -685,10 +684,6 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   }, [columns]);
 
   useEffect(() => {
-      setInlineCommentEditingKey(prev => (prev && columns.some(c => c._key === prev) ? prev : ''));
-  }, [columns]);
-
-  useEffect(() => {
       return () => {
           if (focusHighlightTimerRef.current !== null) {
               window.clearTimeout(focusHighlightTimerRef.current);
@@ -732,15 +727,6 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
       }
       return true;
   }, [activeKey, readOnly]);
-
-  const startInlineCommentEdit = useCallback((record: EditableColumn) => {
-      if (readOnly || !record?._key) return;
-      setInlineCommentEditingKey(record._key);
-  }, [readOnly]);
-
-  const finishInlineCommentEdit = useCallback(() => {
-      setInlineCommentEditingKey('');
-  }, []);
 
   useEffect(() => {
       const pendingKey = pendingFocusColumnKeyRef.current;
@@ -854,7 +840,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   if (readOnly) return value;
                   return renderDesignerCellField(
                       <AutoComplete
-                          options={COMMON_COLUMN_DEFAULT_OPTIONS}
+                          options={resolveColumnDefaultOptions(dbType, record.type)}
                           value={value}
                           onChange={val => {
                               const hasDefault = val.length > 0;
@@ -872,32 +858,12 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
               dataIndex: 'comment',
               key: 'comment',
               width: 200,
-              render: (text: string, record: EditableColumn) => readOnly ? (
-                  <Tooltip title={text || ''}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || ''}</div>
-                  </Tooltip>
-              ) : (
-                  <div className="table-designer-cell-field table-designer-comment-field">
-                      {inlineCommentEditingKey !== record._key ? (
-                          <Tooltip title={text || ''}>
-                              <div
-                                  className={`table-designer-comment-display${text ? '' : ' is-empty'}`}
-                                  onDoubleClick={() => startInlineCommentEdit(record)}
-                              >
-                                  {text || '\u00A0'}
-                              </div>
-                          </Tooltip>
-                      ) : (
-                          <Input
-                              value={text}
-                              onChange={e => handleColumnChange(record._key, 'comment', e.target.value)}
-                              onBlur={finishInlineCommentEdit}
-                              onPressEnter={finishInlineCommentEdit}
-                              autoFocus={inlineCommentEditingKey === record._key}
-                              variant="borderless"
-                          />
-                      )}
-                  </div>
+              render: (text: string, record: EditableColumn) => (
+                  <TableDesignerCommentField
+                      text={text}
+                      readOnly={readOnly}
+                      onChange={(value) => handleColumnChange(record._key, 'comment', value)}
+                  />
               )
           },
           ...(readOnly ? [] : [{
@@ -919,7 +885,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
           }])
       ];
       setTableColumns(initialCols);
-  }, [connections, finishInlineCommentEdit, i18nLanguage, inlineCommentEditingKey, openCommentEditor, readOnly, startInlineCommentEdit, tab.connectionId]); // Re-create when datasource dialect, language, inline comment state, or readonly state changes
+  }, [connections, i18nLanguage, openCommentEditor, readOnly, tab.connectionId]);
 
   const flushResizeGhost = useCallback(() => {
     resizeRafRef.current = null;
@@ -4363,7 +4329,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                         {t('table_designer.column.enable_default', undefined, i18nLanguage)}
                     </Checkbox>
                     <AutoComplete
-                        options={COMMON_COLUMN_DEFAULT_OPTIONS}
+                        options={resolveColumnDefaultOptions(getDbType(), commentEditorColumnType)}
                         value={columnDefaultValue}
                         onChange={setColumnDefaultValue}
                         disabled={!columnDefaultEnabled}

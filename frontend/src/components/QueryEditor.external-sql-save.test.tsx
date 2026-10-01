@@ -490,7 +490,11 @@ vi.mock('../store', async (importOriginal) => {
       () => selector(storeState),
       () => selector(storeState),
     ),
-    { getState: () => storeState },
+    {
+      getState: () => storeState,
+      // queryEditorResultSessionLifecycle 用 useStore.subscribe 监听 activeTabId；这里的用例不切换标签。
+      subscribe: () => () => undefined,
+    },
   );
   return { ...actual, useStore };
 });
@@ -10096,8 +10100,11 @@ describe('QueryEditor external SQL save', () => {
         vi.runAllTimers();
       });
 
+      const diagnoseError = formatSqlExecutionError('You have an error in your SQL syntax at line 1');
+      // 诊断提示词首行是「库名 · 错误首行」标题（截断到 80 字符），用作 AI 会话标题。
+      const diagnoseHeadline = ['main', diagnoseError.split('\n')[0].trim()].join(' · ').slice(0, 80);
       expect(getLastInjectedPrompt()).toBe(
-        `Context: mysql "local", selected database "main", database version 5.7.44-log.\nI got an error while executing this SQL:\n\`\`\`sql\nselect * from broken_table where id = ;\n\`\`\`\n\nThe database returned this error:\n\`\`\`text\n${formatSqlExecutionError('You have an error in your SQL syntax at line 1')}\n\`\`\`\n\nAnalyze the cause and suggest a fix.`,
+        `${diagnoseHeadline}\nContext: mysql "local", selected database "main", database version 5.7.44-log.\nI got an error while executing this SQL:\n\`\`\`sql\nselect * from broken_table where id = ;\n\`\`\`\n\nThe database returned this error:\n\`\`\`text\n${diagnoseError}\n\`\`\`\n\nAnalyze the cause and suggest a fix.`,
       );
       expect(getLastInjectedPrompt()).not.toContain('first_table');
       expect(getLastInjectedPrompt()).not.toContain('我在执行以下 SQL 时遇到了错误');

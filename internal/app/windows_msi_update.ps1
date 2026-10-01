@@ -168,20 +168,24 @@ try {
     Remove-UpdateArtifact $Source
     Write-UpdateLog 'MSI update finished'
 
-    $CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR -Recurse -Force -ErrorAction SilentlyContinue'
-    $EncodedCleanupCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($CleanupCommand))
+    # The MSI updater runs with its working directory inside $UpdatesDir, and
+    # Windows refuses to delete a directory that is still some process's
+    # current directory. Leaving the staging tree first lets this process
+    # remove it directly, so no second interpreter is required. A concealed
+    # child shell carrying an obfuscated command and a disabled execution
+    # policy is the shape antivirus heuristic engines read as a dropper, so
+    # the cleanup stays inline and observable instead.
     $CleanupWorkingDirectory = [IO.Path]::GetTempPath()
     try {
-        Start-Process -FilePath 'powershell.exe' -WorkingDirectory $CleanupWorkingDirectory -WindowStyle Hidden -ArgumentList @(
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-EncodedCommand',
-            $EncodedCleanupCommand
-        ) -ErrorAction Stop | Out-Null
+        Set-Location -LiteralPath $CleanupWorkingDirectory -ErrorAction Stop
+        # Set-Location only moves the PowerShell provider location. The Win32
+        # current directory still points into the staging tree and keeps a
+        # handle on it, so Windows refuses the delete until it is reset too.
+        [System.Environment]::CurrentDirectory = $CleanupWorkingDirectory
+        Start-Sleep -Seconds 2
+        Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR -Recurse -Force -ErrorAction SilentlyContinue
     } catch {
-        Write-UpdateLog ("cleanup scheduler failed: " + $_.Exception.Message)
+        Write-UpdateLog ("cleanup failed: " + $_.Exception.Message)
     }
     exit 0
 } catch {

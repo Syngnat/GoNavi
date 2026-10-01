@@ -1,6 +1,6 @@
 import React from 'react';
 import { Segmented, Tooltip } from 'antd';
-import { CodeOutlined, FileTextOutlined, TableOutlined } from '@ant-design/icons';
+import { GnJsonIcon, GnTableIcon, GnTextViewIcon } from './icons/gnIcons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
 
 type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLog';
@@ -20,9 +20,9 @@ const DataGridResultViewSwitcher: React.FC<DataGridResultViewSwitcherProps> = ({
 }) => {
   const resultViewLabel = translate('data_grid.view.result_view');
   const viewOptions = [
-    { label: translate('data_grid.view.table'), value: 'table', icon: <TableOutlined /> },
-    { label: 'JSON', value: 'json', icon: <CodeOutlined /> },
-    { label: translate('data_grid.view.text'), value: 'text', icon: <FileTextOutlined /> },
+    { label: translate('data_grid.view.table'), value: 'table', icon: <GnTableIcon /> },
+    { label: 'JSON', value: 'json', icon: <GnJsonIcon /> },
+    { label: translate('data_grid.view.text'), value: 'text', icon: <GnTextViewIcon /> },
   ];
 
   return (

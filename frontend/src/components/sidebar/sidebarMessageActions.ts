@@ -3,7 +3,7 @@ import {
   resolveMessageQueueExecutionDbName,
 } from '../../utils/dataSourceCapabilities';
 
-export type SidebarMessageQueueType = 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq';
+export type SidebarMessageQueueType = 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq' | 'pulsar';
 export type SidebarMessageObjectKind = 'topic-filter' | 'topic' | 'queue' | 'exchange' | '';
 
 export type SidebarMessageActionNode = {
@@ -38,6 +38,7 @@ const MESSAGE_QUEUE_TYPES = new Set<SidebarMessageQueueType>([
   'kafka',
   'rocketmq',
   'rabbitmq',
+  'pulsar',
 ]);
 
 const resolveMessageQueueType = (

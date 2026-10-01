@@ -3,24 +3,20 @@ import { Button, message } from 'antd';
 import {
   AppstoreOutlined,
   CloudOutlined,
-  CodeOutlined,
-  ClockCircleOutlined,
   DashboardOutlined,
   DatabaseOutlined,
-  EyeOutlined,
-  FileTextOutlined,
-  FolderOpenOutlined,
-  FunctionOutlined,
   HddOutlined,
-  KeyOutlined,
   LinkOutlined,
-  TableOutlined,
-  ThunderboltOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import type { SavedConnection, SavedQuery, JVMCapability, JVMResourceSummary } from '../../types';
 import { useStore } from '../../store';
 import { t } from '../../i18n';
+import { renderSidebarObjectIcon } from './sidebarObjectIcons';
+import { GnDatabaseIcon, GnFieldsIcon, GnFolderOpenIcon, GnIndexIcon, GnLinkIcon, GnSqlDocIcon } from '../icons/gnIcons';
+import { buildNacosNamespaceTreeNode as buildNamespaceNode } from './nacosNamespaceTreeNode';
+import { buildPinnedNacosConfigGroups } from './nacosConfigGroupNodes';
+import { resolveSidebarMessageQueueProfile, type SidebarMessageQueueProfile, type SidebarMessageObjectKind } from './sidebarMessageProfiles';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import {
   getDataSourceCapabilities,
@@ -279,85 +275,6 @@ const resolveSavedConnectionDriverType = (conn: SavedConnection | undefined): st
   return normalizeDriverType(conn?.config?.driver || '');
 };
 
-type SidebarMessageQueueType = 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq';
-type SidebarMessageObjectKind = 'topic-filter' | 'topic' | 'queue' | 'exchange';
-type SidebarMessageNamespaceKind = 'topic-filter' | 'topic' | 'vhost';
-
-type SidebarMessageObjectGroupProfile = {
-  kind: SidebarMessageObjectKind;
-  groupKey: 'queues' | 'exchanges';
-  titleKey: string;
-};
-
-type SidebarMessageQueueProfile = {
-  type: SidebarMessageQueueType;
-  namespaceKind: SidebarMessageNamespaceKind;
-  namespaceTitle: (databaseName: string) => string;
-  resolveObjectKind: (rawType: string) => SidebarMessageObjectKind | null;
-  groups?: SidebarMessageObjectGroupProfile[];
-};
-
-const normalizeSidebarMessageObjectType = (value: unknown): string => (
-  String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
-);
-
-const SIDEBAR_MESSAGE_QUEUE_PROFILES: Record<SidebarMessageQueueType, SidebarMessageQueueProfile> = {
-  mqtt: {
-    type: 'mqtt',
-    namespaceKind: 'topic-filter',
-    namespaceTitle: () => t('sidebar.message_queue.namespace.topic_filters'),
-    resolveObjectKind: (rawType) => normalizeSidebarMessageObjectType(rawType) === 'topic'
-      ? 'topic-filter'
-      : null,
-  },
-  kafka: {
-    type: 'kafka',
-    namespaceKind: 'topic',
-    namespaceTitle: () => t('sidebar.message_queue.namespace.topics'),
-    resolveObjectKind: (rawType) => normalizeSidebarMessageObjectType(rawType) === 'topic'
-      ? 'topic'
-      : null,
-  },
-  rocketmq: {
-    type: 'rocketmq',
-    namespaceKind: 'topic',
-    namespaceTitle: () => t('sidebar.message_queue.namespace.topics'),
-    resolveObjectKind: (rawType) => normalizeSidebarMessageObjectType(rawType) === 'topic'
-      ? 'topic'
-      : null,
-  },
-  rabbitmq: {
-    type: 'rabbitmq',
-    namespaceKind: 'vhost',
-    namespaceTitle: (databaseName) => databaseName,
-    resolveObjectKind: (rawType) => {
-      const normalizedType = normalizeSidebarMessageObjectType(rawType);
-      return normalizedType === 'queue' || normalizedType === 'exchange'
-        ? normalizedType
-        : null;
-    },
-    groups: [
-      {
-        kind: 'queue',
-        groupKey: 'queues',
-        titleKey: 'sidebar.message_queue.group.queues',
-      },
-      {
-        kind: 'exchange',
-        groupKey: 'exchanges',
-        titleKey: 'sidebar.message_queue.group.exchanges',
-      },
-    ],
-  },
-};
-
-const resolveSidebarMessageQueueProfile = (
-  config: SavedConnection['config'] | undefined,
-): SidebarMessageQueueProfile | null => {
-  const type = resolveDataSourceType(config) as SidebarMessageQueueType;
-  return SIDEBAR_MESSAGE_QUEUE_PROFILES[type] || null;
-};
-
 const sidebarMessageObjectIcon = (kind: SidebarMessageObjectKind): React.ReactNode => (
   kind === 'exchange' ? <LinkOutlined /> : <UnorderedListOutlined />
 );
@@ -410,7 +327,7 @@ const buildSidebarMessageObjectNodes = (
     return {
       title: t(group.titleKey),
       key: `${parentKey}-message-group-${group.groupKey}`,
-      icon: <FolderOpenOutlined />,
+      icon: <GnFolderOpenIcon />,
       type: 'message-object-group',
       dataRef: {
         ...conn,
@@ -853,50 +770,6 @@ export const useSidebarTreeLoaders = ({
                   }
                   return currentConnection;
               };
-              type NacosNamespaceDiscoveryMode = 'listed' | 'configured';
-              const buildNamespaceNode = (
-                  sourceConnection: SavedConnection,
-                  namespaceId: string,
-                  showName: string,
-                  configCount: number,
-                  discoveryMode: NacosNamespaceDiscoveryMode,
-              ): TreeNode => {
-                  const nodeKeyId = namespaceId || 'public';
-                  const nsDataRef = {
-                      ...sourceConnection,
-                      nacosNamespaceId: namespaceId,
-                      nacosNamespaceName: showName,
-                      nacosConfigCount: Number.isFinite(configCount) ? configCount : 0,
-                      nacosNamespaceDiscoveryMode: discoveryMode,
-                  };
-                  return {
-                      title: showName,
-                      key: `${conn.id}-nacos-ns-${nodeKeyId}`,
-                      icon: <DatabaseOutlined style={{ color: '#2E6BE6' }} />,
-                      type: 'nacos-namespace',
-                      dataRef: nsDataRef,
-                      isLeaf: false,
-                      children: [
-                          {
-                              title: t('nacos_viewer.title.config_explorer'),
-                              key: `${conn.id}-nacos-ns-${nodeKeyId}-config`,
-                              icon: <DatabaseOutlined style={{ color: '#2E6BE6' }} />,
-                              type: 'nacos-config-entry',
-                              dataRef: nsDataRef,
-                              // Expand to load Group list.
-                              isLeaf: false,
-                          },
-                          {
-                              title: t('nacos_service.title.service_explorer'),
-                              key: `${conn.id}-nacos-ns-${nodeKeyId}-services`,
-                              icon: <CloudOutlined style={{ color: '#13C2C2' }} />,
-                              type: 'nacos-services-entry',
-                              dataRef: nsDataRef,
-                              isLeaf: false,
-                          },
-                      ],
-                  };
-              };
               try {
                   const res = await (window as any).go.app.App.NacosListNamespaces(buildRpcConnectionConfig(config));
                   const currentConnection = resolveCurrentRequestConnection();
@@ -917,7 +790,13 @@ export const useSidebarTreeLoaders = ({
                               'listed',
                           );
                       });
-                      replaceTreeNodeChildren(node.key, namespaces, {
+                      replaceTreeNodeChildren(node.key, buildV2SidebarDatabaseSectionedChildren(
+                          String(node.key),
+                          applySidebarDatabasePinning(namespaces, {
+                              connectionId: conn.id,
+                              pinnedSidebarDatabases: useStore.getState().pinnedSidebarDatabases || pinnedSidebarDatabases,
+                          }),
+                      ), {
                           ...currentConnection,
                           nacosNamespaceDiscoveryMode: 'listed',
                       });
@@ -938,7 +817,13 @@ export const useSidebarTreeLoaders = ({
                               0,
                               'configured',
                           );
-                          replaceTreeNodeChildren(node.key, [namespace], {
+                          replaceTreeNodeChildren(node.key, buildV2SidebarDatabaseSectionedChildren(
+                              String(node.key),
+                              applySidebarDatabasePinning([namespace], {
+                                  connectionId: conn.id,
+                                  pinnedSidebarDatabases: useStore.getState().pinnedSidebarDatabases || pinnedSidebarDatabases,
+                              }),
+                          ), {
                               ...currentConnection,
                               nacosNamespaceDiscoveryMode: 'configured',
                           });
@@ -1056,7 +941,7 @@ export const useSidebarTreeLoaders = ({
                     : {
 	                    title: databaseName,
                         key: `${currentConnection.id}-${databaseName}`,
-                        icon: <DatabaseOutlined />,
+                        icon: <GnDatabaseIcon />,
                         type: 'database' as const,
                         dataRef: { ...currentConnection, dbName: databaseName },
                         isLeaf: false,
@@ -1176,7 +1061,7 @@ export const useSidebarTreeLoaders = ({
               const resourceNodes: TreeNode[] = resourceRows.map((item) => ({
                   title: item.name || item.path || item.id,
                   key: `${conn.id}-jvm-resource-${providerMode}-${item.path}`,
-                  icon: item.hasChildren ? <FolderOpenOutlined /> : <HddOutlined />,
+                  icon: item.hasChildren ? <GnFolderOpenIcon /> : <HddOutlined />,
                   type: 'jvm-resource',
                   dataRef: {
                       ...conn,
@@ -1256,13 +1141,13 @@ export const useSidebarTreeLoaders = ({
       const queriesNode: TreeNode = {
           title: t('sidebar.tree.saved_queries'),
           key: `${key}-queries`,
-          icon: <FolderOpenOutlined />,
+          icon: <GnFolderOpenIcon />,
           type: 'queries-folder',
           isLeaf: dbQueries.length === 0,
           children: dbQueries.map(q => ({
               title: resolveSavedQueryDisplayName(q.name),
               key: q.id,
-              icon: <FileTextOutlined />,
+              icon: <GnSqlDocIcon />,
               type: 'saved-query',
               dataRef: q,
               isLeaf: true
@@ -1896,7 +1781,7 @@ export const useSidebarTreeLoaders = ({
 	                        {
 	                            title: t('sidebar.table_folder.columns'),
 	                            key: `${nodeKey}-columns`,
-	                            icon: <UnorderedListOutlined />,
+	                            icon: <GnFieldsIcon />,
 	                            type: 'folder-columns',
 	                            isLeaf: true,
 	                            dataRef: tableDataRef,
@@ -1904,7 +1789,7 @@ export const useSidebarTreeLoaders = ({
 	                        {
 	                            title: t('sidebar.table_folder.indexes'),
 	                            key: `${nodeKey}-indexes`,
-	                            icon: <KeyOutlined style={{ transform: 'rotate(45deg)' }} />,
+	                            icon: <GnIndexIcon />,
 	                            type: 'folder-indexes',
 	                            isLeaf: true,
 	                            dataRef: tableDataRef,
@@ -1912,7 +1797,7 @@ export const useSidebarTreeLoaders = ({
 	                        {
 	                            title: t('sidebar.table_folder.foreign_keys'),
 	                            key: `${nodeKey}-fks`,
-	                            icon: <LinkOutlined />,
+	                            icon: <GnLinkIcon />,
 	                            type: 'folder-fks',
 	                            isLeaf: true,
 	                            dataRef: tableDataRef,
@@ -1920,7 +1805,7 @@ export const useSidebarTreeLoaders = ({
 	                        {
 	                            title: t('sidebar.table_folder.triggers'),
 	                            key: `${nodeKey}-triggers`,
-	                            icon: <ThunderboltOutlined />,
+	                            icon: renderSidebarObjectIcon('trigger'),
 	                            type: 'folder-triggers',
 	                            isLeaf: true,
 	                            dataRef: tableDataRef,
@@ -1928,7 +1813,7 @@ export const useSidebarTreeLoaders = ({
 	                        {
 	                            title: t('sidebar.table_folder.partitions'),
 	                            key: `${nodeKey}-partitions`,
-	                            icon: <FolderOpenOutlined />,
+	                            icon: <GnFolderOpenIcon />,
 	                            type: 'object-group',
 	                            isLeaf: false,
 	                            selectable: false,
@@ -1944,7 +1829,7 @@ export const useSidebarTreeLoaders = ({
 	                return {
 	                    title: entry.displayName,
 	                    key: nodeKey,
-	                    icon: <TableOutlined />,
+	                    icon: renderSidebarObjectIcon('table'),
 	                    type: 'table',
 	                    dataRef: tableDataRef,
 	                    ...(children ? { children } : {}),
@@ -1957,7 +1842,7 @@ export const useSidebarTreeLoaders = ({
 	                return {
 	                    title: entry.displayName,
 	                    key: `${conn.id}-${conn.dbName}-view-${keyName}`,
-	                    icon: <EyeOutlined />,
+	                    icon: renderSidebarObjectIcon('view'),
 	                    type: 'view',
 	                    dataRef: { ...conn, viewName: entry.viewName, tableName: entry.viewName, schemaName: entry.schemaName },
 	                    isLeaf: true,
@@ -1969,7 +1854,7 @@ export const useSidebarTreeLoaders = ({
 	                return {
 	                    title: entry.displayName,
 	                    key: `${conn.id}-${conn.dbName}-materialized-view-${keyName}`,
-	                    icon: <ThunderboltOutlined />,
+	                    icon: renderSidebarObjectIcon('materializedView'),
 	                    type: 'materialized-view',
 	                    dataRef: { ...conn, viewName: entry.viewName, tableName: entry.viewName, schemaName: entry.schemaName, objectKind: 'materialized-view' },
 	                    isLeaf: true,
@@ -1979,7 +1864,7 @@ export const useSidebarTreeLoaders = ({
             const buildTriggerNode = (entry: { triggerName: string; tableName: string; schemaName: string; displayName: string; objectStatus?: string }): TreeNode => ({
 	                title: entry.displayName,
 	                key: `${conn.id}-${conn.dbName}-trigger-${entry.triggerName}-${entry.tableName}`,
-	                icon: <FunctionOutlined />,
+	                icon: renderSidebarObjectIcon('trigger'),
 	                type: 'db-trigger',
                 dataRef: { ...conn, triggerName: entry.triggerName, triggerTableName: entry.tableName, tableName: entry.tableName, schemaName: entry.schemaName, ...(entry.objectStatus ? { objectStatus: entry.objectStatus } : {}) },
 	                isLeaf: true,
@@ -1992,7 +1877,7 @@ export const useSidebarTreeLoaders = ({
 	                    title: entry.displayName,
 	                    // 必须带 routineType：同名函数/过程否则 key 冲突，虚拟列表会叠成“同一函数无限重复”
 	                    key: `${conn.id}-${conn.dbName}-routine-${typeToken}-${keyName}`,
-	                    icon: <CodeOutlined />,
+	                    icon: renderSidebarObjectIcon('routine'),
 	                    type: 'routine',
                     dataRef: { ...conn, routineName: entry.routineName, routineType: entry.routineType, schemaName: entry.schemaName, ...(entry.objectStatus ? { objectStatus: entry.objectStatus } : {}) },
 	                    isLeaf: true,
@@ -2004,7 +1889,7 @@ export const useSidebarTreeLoaders = ({
 	                return {
 	                    title: entry.displayName,
 	                    key: `${conn.id}-${conn.dbName}-sequence-${keyName}`,
-	                    icon: <KeyOutlined />,
+	                    icon: renderSidebarObjectIcon('sequence'),
 	                    type: 'sequence',
 	                    dataRef: { ...conn, sequenceName: entry.sequenceName, schemaName: entry.schemaName },
 	                    isLeaf: true,
@@ -2016,7 +1901,7 @@ export const useSidebarTreeLoaders = ({
 	                return {
 	                    title: entry.displayName,
 	                    key: `${conn.id}-${conn.dbName}-package-${keyName}`,
-	                    icon: <CodeOutlined />,
+	                    icon: renderSidebarObjectIcon('package'),
 	                    type: 'package',
 	                    dataRef: { ...conn, packageName: entry.packageName, schemaName: entry.schemaName },
 	                    isLeaf: true,
@@ -2026,7 +1911,7 @@ export const useSidebarTreeLoaders = ({
             const buildEventNode = (entry: { eventName: string; schemaName: string; displayName: string; eventType?: string; status?: string }): TreeNode => ({
 	                title: entry.displayName,
 	                key: `${conn.id}-${conn.dbName}-event-${entry.schemaName}-${entry.eventName}`,
-	                icon: <ClockCircleOutlined />,
+	                icon: renderSidebarObjectIcon('event'),
 	                type: 'db-event',
 	                dataRef: { ...conn, eventName: entry.eventName, schemaName: entry.schemaName, eventType: entry.eventType, eventStatus: entry.status },
 	                isLeaf: true,
@@ -2112,21 +1997,21 @@ export const useSidebarTreeLoaders = ({
 	                    const schemaNodeKey = `${key}-schema-${encodeURIComponent(schemaIdentity)}`;
 	                    const schemaTitle = bucket.schemaName || t('sidebar.tree.default_schema');
 	                        const groupedNodes: TreeNode[] = [
-	                            buildObjectGroup(schemaNodeKey, 'tables', t('sidebar.object_group.tables'), <TableOutlined />, bucket.tables, { schemaName: bucket.schemaName }),
-	                            buildObjectGroup(schemaNodeKey, 'views', t('sidebar.object_group.views'), <EyeOutlined />, bucket.views, { schemaName: bucket.schemaName }),
-	                            ...(includeMaterializedViews ? [buildObjectGroup(schemaNodeKey, 'materializedViews', t('sidebar.object_group.materialized_views'), <ThunderboltOutlined />, bucket.materializedViews, { schemaName: bucket.schemaName })] : []),
-	                            ...(includeSequences ? [buildObjectGroup(schemaNodeKey, 'sequences', t('sidebar.object_group.sequences'), <KeyOutlined />, bucket.sequences, { schemaName: bucket.schemaName })] : []),
-	                            buildObjectGroup(schemaNodeKey, 'routines', t('sidebar.object_group.routines'), <CodeOutlined />, bucket.routines, { schemaName: bucket.schemaName }),
-	                            ...(includeOracleObjects ? [buildObjectGroup(schemaNodeKey, 'packages', t('sidebar.object_group.packages'), <CodeOutlined />, bucket.packages, { schemaName: bucket.schemaName })] : []),
-	                            buildObjectGroup(schemaNodeKey, 'triggers', t('sidebar.object_group.triggers'), <FunctionOutlined />, bucket.triggers, { schemaName: bucket.schemaName }),
-	                            ...(includeEvents ? [buildObjectGroup(schemaNodeKey, 'events', t('sidebar.object_group.events'), <ClockCircleOutlined />, bucket.events, { schemaName: bucket.schemaName })] : []),
+	                            buildObjectGroup(schemaNodeKey, 'tables', t('sidebar.object_group.tables'), renderSidebarObjectIcon('table'), bucket.tables, { schemaName: bucket.schemaName }),
+	                            buildObjectGroup(schemaNodeKey, 'views', t('sidebar.object_group.views'), renderSidebarObjectIcon('view'), bucket.views, { schemaName: bucket.schemaName }),
+	                            ...(includeMaterializedViews ? [buildObjectGroup(schemaNodeKey, 'materializedViews', t('sidebar.object_group.materialized_views'), renderSidebarObjectIcon('materializedView'), bucket.materializedViews, { schemaName: bucket.schemaName })] : []),
+	                            ...(includeSequences ? [buildObjectGroup(schemaNodeKey, 'sequences', t('sidebar.object_group.sequences'), renderSidebarObjectIcon('sequence'), bucket.sequences, { schemaName: bucket.schemaName })] : []),
+	                            buildObjectGroup(schemaNodeKey, 'routines', t('sidebar.object_group.routines'), renderSidebarObjectIcon('routine'), bucket.routines, { schemaName: bucket.schemaName }),
+	                            ...(includeOracleObjects ? [buildObjectGroup(schemaNodeKey, 'packages', t('sidebar.object_group.packages'), renderSidebarObjectIcon('package'), bucket.packages, { schemaName: bucket.schemaName })] : []),
+	                            buildObjectGroup(schemaNodeKey, 'triggers', t('sidebar.object_group.triggers'), renderSidebarObjectIcon('trigger'), bucket.triggers, { schemaName: bucket.schemaName }),
+	                            ...(includeEvents ? [buildObjectGroup(schemaNodeKey, 'events', t('sidebar.object_group.events'), renderSidebarObjectIcon('event'), bucket.events, { schemaName: bucket.schemaName })] : []),
 	                            ...(dialect === 'oracle' ? [buildOracleDatabaseLinkGroup(objectGroupConnection, schemaNodeKey, t('sidebar.object_group.database_links'), bucket.databaseLinks, bucket.schemaName)] : []),
 	                        ];
 
 	                        return {
 	                            title: schemaTitle,
 	                            key: schemaNodeKey,
-	                            icon: <FolderOpenOutlined />,
+	                            icon: <GnFolderOpenIcon />,
 	                            type: 'object-group' as const,
 	                            isLeaf: groupedNodes.length === 0,
 	                            children: groupedNodes,
@@ -2142,14 +2027,14 @@ export const useSidebarTreeLoaders = ({
 	                const includeSequences = supportsDatabaseSequences(conn as SavedConnection);
 	                const includeEvents = supportsDatabaseEvents(conn as SavedConnection);
 	                const groupedNodes: TreeNode[] = [
-	                    buildObjectGroup(key as string, 'tables', t('sidebar.object_group.tables'), <TableOutlined />, sortedTableEntries.map(buildTableNode)),
-	                    buildObjectGroup(key as string, 'views', t('sidebar.object_group.views'), <EyeOutlined />, viewEntries.map(buildViewNode)),
-	                    ...(includeMaterializedViews ? [buildObjectGroup(key as string, 'materializedViews', t('sidebar.object_group.materialized_views'), <ThunderboltOutlined />, materializedViewEntries.map(buildMaterializedViewNode))] : []),
-	                    ...(includeSequences ? [buildObjectGroup(key as string, 'sequences', t('sidebar.object_group.sequences'), <KeyOutlined />, sequenceEntries.map(buildSequenceNode))] : []),
-	                    buildObjectGroup(key as string, 'routines', t('sidebar.object_group.routines'), <CodeOutlined />, routineEntries.map(buildRoutineNode)),
-	                    ...(includeOracleObjects ? [buildObjectGroup(key as string, 'packages', t('sidebar.object_group.packages'), <CodeOutlined />, packageEntries.map(buildPackageNode))] : []),
-	                    buildObjectGroup(key as string, 'triggers', t('sidebar.object_group.triggers'), <FunctionOutlined />, triggerEntries.map(buildTriggerNode)),
-	                    ...(includeEvents ? [buildObjectGroup(key as string, 'events', t('sidebar.object_group.events'), <ClockCircleOutlined />, eventEntries.map(buildEventNode))] : []),
+	                    buildObjectGroup(key as string, 'tables', t('sidebar.object_group.tables'), renderSidebarObjectIcon('table'), sortedTableEntries.map(buildTableNode)),
+	                    buildObjectGroup(key as string, 'views', t('sidebar.object_group.views'), renderSidebarObjectIcon('view'), viewEntries.map(buildViewNode)),
+	                    ...(includeMaterializedViews ? [buildObjectGroup(key as string, 'materializedViews', t('sidebar.object_group.materialized_views'), renderSidebarObjectIcon('materializedView'), materializedViewEntries.map(buildMaterializedViewNode))] : []),
+	                    ...(includeSequences ? [buildObjectGroup(key as string, 'sequences', t('sidebar.object_group.sequences'), renderSidebarObjectIcon('sequence'), sequenceEntries.map(buildSequenceNode))] : []),
+	                    buildObjectGroup(key as string, 'routines', t('sidebar.object_group.routines'), renderSidebarObjectIcon('routine'), routineEntries.map(buildRoutineNode)),
+	                    ...(includeOracleObjects ? [buildObjectGroup(key as string, 'packages', t('sidebar.object_group.packages'), renderSidebarObjectIcon('package'), packageEntries.map(buildPackageNode))] : []),
+	                    buildObjectGroup(key as string, 'triggers', t('sidebar.object_group.triggers'), renderSidebarObjectIcon('trigger'), triggerEntries.map(buildTriggerNode)),
+	                    ...(includeEvents ? [buildObjectGroup(key as string, 'events', t('sidebar.object_group.events'), renderSidebarObjectIcon('event'), eventEntries.map(buildEventNode))] : []),
 	                    ...(dialect === 'oracle' ? [buildOracleDatabaseLinkGroup(objectGroupConnection, key as string, t('sidebar.object_group.database_links'), databaseLinkEntries)] : []),
 	                ];
 
@@ -2294,36 +2179,9 @@ export const useSidebarTreeLoaders = ({
               return;
           }
           const groups: string[] = Array.isArray(res.data) ? res.data.map((g: any) => String(g || '').trim()).filter(Boolean) : [];
-          // Always offer "全部" so users can open the namespace without a group filter.
-          const allNode: TreeNode = {
-              title: t('nacos_viewer.label.all'),
-              key: `${connectionId}-nacos-ns-${nodeKeyId}-group-__all__`,
-              icon: <AppstoreOutlined style={{ color: '#2E6BE6' }} />,
-              type: 'nacos-config-group' as const,
-              dataRef: {
-                  ...dataRef,
-                  nacosNamespaceId: namespaceId,
-                  nacosNamespaceName: namespaceName,
-                  nacosGroup: '',
-                  nacosAllConfigs: true,
-              },
-              isLeaf: true,
-          };
-          const groupNodes: TreeNode[] = groups.map((group) => ({
-              title: group,
-              key: `${connectionId}-nacos-ns-${nodeKeyId}-group-${encodeURIComponent(group)}`,
-              icon: <FolderOpenOutlined style={{ color: '#2E6BE6' }} />,
-              type: 'nacos-config-group' as const,
-              dataRef: {
-                  ...dataRef,
-                  nacosNamespaceId: namespaceId,
-                  nacosNamespaceName: namespaceName,
-                  nacosGroup: group,
-                  nacosAllConfigs: false,
-              },
-              isLeaf: true,
-          }));
-          replaceTreeNodeChildren(node.key, [allNode, ...groupNodes], dataRef);
+          replaceTreeNodeChildren(node.key, buildPinnedNacosConfigGroups(
+              dataRef, groups, useStore.getState().pinnedSidebarDatabases || pinnedSidebarDatabases,
+          ), dataRef);
           if (groups.length === 0) {
               message.info({
                   content: t('nacos_viewer.message.no_groups'),

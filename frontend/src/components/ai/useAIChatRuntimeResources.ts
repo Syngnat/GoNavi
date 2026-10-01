@@ -8,6 +8,7 @@ import type {
 } from '../../types';
 import type { AIComposerNotice, AIComposerNoticeAction } from '../../utils/aiComposerNotice';
 import { buildModelFetchFailedNotice } from '../../utils/aiComposerNotice';
+import { parseModelContextProfile, type AIModelContextProfile } from '../../utils/aiChatRuntime';
 import { parseCLIModelCatalog, type CLIModelCatalog } from '../../utils/aiProviderManagement';
 import { isLocalCLISubscriptionProvider } from '../../utils/aiProviderPresets';
 import { readCachedCLIModelCatalog, writeCachedCLIModelCatalog } from './cliModelCatalogCache';
@@ -24,6 +25,7 @@ interface AIChatRuntimeService {
   AIListProviderModels?: (provider: AIProviderConfig) => Promise<{ success?: boolean; models?: string[]; error?: string } | undefined>;
   AIGetCLIModelCatalog?: (provider: AIProviderConfig) => Promise<unknown>;
   AIGetCLICapabilities?: () => Promise<CLIThinkingCapability[]>;
+  AIGetModelContextProfile?: (provider: AIProviderConfig) => Promise<unknown>;
 }
 
 export interface CLIThinkingCapability {
@@ -56,6 +58,7 @@ export const useAIChatRuntimeResources = ({
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerCatalogs, setProviderCatalogs] = useState<Record<string, CLIModelCatalog>>({});
   const [cliCapabilities, setCLICapabilities] = useState<CLIThinkingCapability[]>([]);
+  const [modelContextProfile, setModelContextProfile] = useState<AIModelContextProfile | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [composerNotice, setComposerNotice] = useState<AIComposerNotice | null>(null);
 
@@ -200,13 +203,15 @@ export const useAIChatRuntimeResources = ({
     if (!targetProvider) return;
     try {
       const service = getAIService();
+      const modelChanged = String(targetProvider.model || '').trim() !== model;
       const payload = {
         ...targetProvider,
         model,
+        // 上下文档位是按模型选的：换模型后回到该模型的默认档。
+        ...(modelChanged ? { contextWindow: 0 } : {}),
         apiKey: targetProvider.apiKey || '',
         hasSecret: targetProvider.hasSecret ?? Boolean(targetProvider.secretRef),
       };
-      const modelChanged = String(targetProvider.model || '').trim() !== model;
       const providerChanged = activeProvider?.id !== providerId;
       if (modelChanged) {
         if (typeof service?.AISaveProvider !== 'function') throw new Error('AI provider save bridge is unavailable');
@@ -258,6 +263,29 @@ export const useAIChatRuntimeResources = ({
       setComposerNotice(null);
     }
   }, [activeProvider?.model]);
+
+  // 模型的默认上下文与可选档位由后端给出；模型变化后重新取。
+  useEffect(() => {
+    const load = getAIService()?.AIGetModelContextProfile;
+    if (!activeProvider || typeof load !== 'function') {
+      setModelContextProfile(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void load(activeProvider)
+      .then((result) => {
+        if (!cancelled) setModelContextProfile(parseModelContextProfile(result));
+      })
+      .catch((error) => {
+        console.warn('Failed to load model context profile', error);
+        if (!cancelled) setModelContextProfile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // 只关心模型身份；其余字段变化（如 contextWindow）不影响模型的档位表。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProvider?.id, activeProvider?.model, getAIService]);
 
   const fetchDynamicModels = useCallback(async () => {
     try {
@@ -367,6 +395,7 @@ export const useAIChatRuntimeResources = ({
     handleOpenSettingsFromPanel,
     loadingModels,
     mcpTools,
+    modelContextProfile,
     providers,
     providerModels,
     providerCatalogs,

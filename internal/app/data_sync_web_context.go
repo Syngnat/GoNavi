@@ -117,7 +117,8 @@ func (a *App) dataSyncJobPreflightContext(ctx context.Context, definition syncjo
 	// 注意这只是给调用方一个确定的返回时刻，并不真正中断已阻塞的 Connect
 	// （见 getDatabaseSynchronouslyWithContext 的说明），因此上报为阻塞问题让
 	// 用户重试，而不是伪装成取消。
-	ctx, cancel := context.WithTimeout(ctx, dataSyncJobPreflightTimeout)
+	// 与桌面端共用按映射规模放宽的预算，避免同一任务在两端得到不同的上界。
+	ctx, cancel := context.WithTimeout(ctx, dataSyncJobPreflightTimeoutFor(syncjob.NormalizeDefinition(definition)))
 	defer cancel()
 	result := a.preflightDataSyncJobContext(ctx, definition, time.Now())
 	message := "data sync job preflight passed"

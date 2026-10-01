@@ -6,6 +6,7 @@ import { SearchOutlined } from '@ant-design/icons';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
+import type { AIEditorSelection } from '../../types';
 
 interface ContextTableItem {
   name: string;
@@ -23,11 +24,14 @@ interface AIContextSelectorModalProps {
   searchText: string;
   filteredTables: ContextTableItem[];
   selectedTableKeys: string[];
+  activeEditorSelection?: AIEditorSelection | null;
+  selectedEditorSelection?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   onDbChange: (dbName: string) => void;
   onSearchTextChange: (value: string) => void;
   onSelectedTableKeysChange: (keys: string[]) => void;
+  onSelectedEditorSelectionChange?: (selected: boolean) => void;
 }
 
 export const AIContextSelectorModal: React.FC<AIContextSelectorModalProps> = ({
@@ -42,11 +46,14 @@ export const AIContextSelectorModal: React.FC<AIContextSelectorModalProps> = ({
   searchText,
   filteredTables,
   selectedTableKeys,
+  activeEditorSelection,
+  selectedEditorSelection = false,
   onCancel,
   onConfirm,
   onDbChange,
   onSearchTextChange,
   onSelectedTableKeysChange,
+  onSelectedEditorSelectionChange,
 }) => {
   const i18n = useOptionalI18n();
   const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
@@ -64,6 +71,12 @@ export const AIContextSelectorModal: React.FC<AIContextSelectorModalProps> = ({
   const emptyStateText = searchText
     ? t('ai_chat.input.context.selector.empty_no_match', { searchText })
     : t('ai_chat.input.context.selector.empty_no_tables');
+  const selectionText = String(activeEditorSelection?.text || '');
+  const selectionLabel = String(activeEditorSelection?.tabTitle || '').trim()
+    || t('ai_chat.input.context.selector.editor_selection');
+  const selectionPreview = selectionText.length > 520
+    ? `${selectionText.slice(0, 520)}…`
+    : selectionText;
 
   const handleToggleAll = (checked: boolean) => {
     if (checked) {
@@ -105,6 +118,39 @@ export const AIContextSelectorModal: React.FC<AIContextSelectorModalProps> = ({
       }}
     >
       <Spin spinning={loading}>
+        {activeEditorSelection && selectionText.trim() && (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: `1px solid ${darkMode ? 'rgba(255,255,255,0.14)' : 'rgba(22,119,255,0.16)'}`,
+              background: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(22,119,255,0.04)',
+            }}
+          >
+            <Checkbox
+              checked={selectedEditorSelection}
+              onChange={(event) => onSelectedEditorSelectionChange?.(event.target.checked)}
+              style={{ color: textColor, width: '100%' }}
+            >
+              <span style={{ fontWeight: 600 }}>{t('ai_chat.input.context.selector.editor_selection_label', { label: selectionLabel })}</span>
+            </Checkbox>
+            <pre
+              style={{
+                margin: '8px 0 0 24px',
+                maxHeight: 120,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                color: overlayTheme.mutedText,
+                fontSize: 11,
+                lineHeight: 1.5,
+              }}
+            >
+              {selectionPreview}
+            </pre>
+          </div>
+        )}
         <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
           {dbList.length > 0 && (
             <Select

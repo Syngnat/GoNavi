@@ -258,13 +258,17 @@ func (s *ProviderConfigStore) readStoredSnapshot() (aiConfig, ProviderConfigStor
 }
 
 func providerHasRemovedEditorFields(config ai.ProviderConfig) bool {
-	return len(config.Models) > 0 || config.MaxTokens != 0 || config.ContextWindow != 0
+	return len(config.Models) > 0 || config.MaxTokens != 0
 }
 
+// clearRemovedProviderEditorFields 清掉供应商编辑器已移除的字段。
+// ContextWindow 不在其中：它现在是聊天输入区里为当前模型选的上下文档位，
+// 只保留落在该模型可选档位内的值（见 ai.ModelContextProfile.NormalizeWindow），
+// 其余一律归零，表示跟随模型默认。
 func clearRemovedProviderEditorFields(config ai.ProviderConfig) ai.ProviderConfig {
 	config.Models = nil
 	config.MaxTokens = 0
-	config.ContextWindow = 0
+	config.ContextWindow = ai.ResolveModelContextProfile(config.Model).NormalizeWindow(config.ContextWindow)
 	return config
 }
 

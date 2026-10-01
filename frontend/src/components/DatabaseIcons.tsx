@@ -57,6 +57,7 @@ const DB_DEFAULT_COLORS: Record<string, string> = {
     mqtt:       '#0EA5A4',
     kafka:      '#F97316',
     rabbitmq:   '#FF6B35',
+    pulsar:     '#188FFF',
     nacos:      '#2E6BE6',
     chroma:     '#7C3AED',
     qdrant:     '#DC244C',
@@ -140,6 +141,7 @@ const BRAND_ASSET_CONFIGS: Record<string, BrandAssetConfig> = {
         iconScale: 0.84,
     },
     kafka: { src: '/db-icons/kafka.png', iconScale: 0.8 },
+    pulsar: { src: '/db-icons/pulsar.svg', iconScale: 0.8 },
     rabbitmq: { src: '/db-icons/rabbitmq.svg', iconScale: 0.74 },
     nacos: { src: '/db-icons/nacos.svg' },
     chroma: { src: '/db-icons/chroma.svg', iconScale: 0.9 },
@@ -280,6 +282,9 @@ const KafkaIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
 const RabbitMQIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="rabbitmq" size={size} color={color} />
 );
+const PulsarIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
+    <BrandAssetIcon type="pulsar" size={size} color={color} />
+);
 const NacosIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="nacos" size={size} color={color} />
 );
@@ -346,6 +351,7 @@ const DB_ICON_MAP: Record<string, React.FC<DbIconProps>> = {
     mqtt: MQTTIcon,
     kafka: KafkaIcon,
     rabbitmq: RabbitMQIcon,
+    pulsar: PulsarIcon,
     nacos: NacosIcon,
     chroma: ChromaIcon,
     qdrant: QdrantIcon,
@@ -358,7 +364,7 @@ const DB_ICON_MAP: Record<string, React.FC<DbIconProps>> = {
 export const DB_ICON_TYPES: string[] = [
     'mysql', 'mariadb', 'oceanbase', 'postgres', 'redis', 'mongodb', 'jvm',
     'oracle', 'sqlserver', 'sqlite', 'duckdb', 'clickhouse', 'starrocks',
-    'kingbase', 'dameng', 'vastbase', 'opengauss', 'gaussdb', 'goldendb', 'highgo', 'iris', 'cache', 'tdengine', 'iotdb', 'rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'nacos', 'chroma', 'qdrant', 'milvus', 'elasticsearch', 'custom',
+    'kingbase', 'dameng', 'vastbase', 'opengauss', 'gaussdb', 'goldendb', 'highgo', 'iris', 'cache', 'tdengine', 'iotdb', 'rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'pulsar', 'nacos', 'chroma', 'qdrant', 'milvus', 'elasticsearch', 'custom',
 ];
 
 /** 该类型是否有品牌图标资源 */
@@ -392,7 +398,7 @@ export const getDbIconLabel = (type: string, translate?: DbIconLabelTranslator):
         sqlserver: 'SQL Server', clickhouse: 'ClickHouse', sqlite: 'SQLite',
         starrocks: 'StarRocks',
         duckdb: 'DuckDB', kingbase: 'Kingbase', dameng: 'Dameng',
-        vastbase: 'VastBase', opengauss: 'OpenGauss', gaussdb: 'GaussDB', goldendb: 'GoldenDB', highgo: 'HighGo', iris: 'InterSystems IRIS', cache: 'InterSystems Caché', tdengine: 'TDengine', iotdb: 'Apache IoTDB', rocketmq: 'RocketMQ', mqtt: 'MQTT', kafka: 'Kafka', rabbitmq: 'RabbitMQ', nacos: 'Nacos',
+        vastbase: 'VastBase', opengauss: 'OpenGauss', gaussdb: 'GaussDB', goldendb: 'GoldenDB', highgo: 'HighGo', iris: 'InterSystems IRIS', cache: 'InterSystems Caché', tdengine: 'TDengine', iotdb: 'Apache IoTDB', rocketmq: 'RocketMQ', mqtt: 'MQTT', kafka: 'Kafka', rabbitmq: 'RabbitMQ', pulsar: 'Apache Pulsar', nacos: 'Nacos',
         chroma: 'Chroma',
         qdrant: 'Qdrant',
         milvus: 'Milvus',

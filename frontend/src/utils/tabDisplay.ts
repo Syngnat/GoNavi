@@ -553,6 +553,7 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'sql-analysis') return 'ANALYZE';
   if (tab.type === 'sql-audit') return 'AUDIT';
   if (tab.type === 'dml-snapshot') return 'SNAPSHOT';
+  if (tab.type === 'user-management') return 'USERS';
   if (tab.type === 'driver-manager') return 'DRIVER';
   if (tab.type === 'settings-center') return 'SETTINGS';
   if (tab.type === 'request-diagnostics') return 'TRACE';

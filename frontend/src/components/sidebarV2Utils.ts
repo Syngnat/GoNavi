@@ -2,7 +2,6 @@ import type { Key, ReactNode } from 'react';
 
 import {
   resolveConnectionTagChildOrder,
-  buildSidebarDatabasePinKey,
   buildSidebarRootConnectionToken,
   buildSidebarRootTagToken,
   buildSidebarTablePinKey,
@@ -17,6 +16,7 @@ import { t } from '../i18n';
 import { t as catalogTranslate } from '../i18n/catalog';
 import {
   matchesSidebarSearchText,
+  isSidebarCommandSearchObjectNode,
   normalizeSidebarSearchText,
 } from './sidebar/sidebarHelpers';
 
@@ -374,63 +374,7 @@ export const isSidebarTablePinned = (
   return !!key && pinnedKeys.includes(key);
 };
 
-export const isSidebarDatabasePinned = (
-  pinnedKeys: string[],
-  connectionId: string,
-  dbName: string,
-): boolean => {
-  const key = buildSidebarDatabasePinKey(connectionId, dbName);
-  return !!key && pinnedKeys.includes(key);
-};
-
-export const applySidebarDatabasePinning = (
-  nodes: SidebarTreeNode[],
-  options: {
-    connectionId: string;
-    pinnedSidebarDatabases?: string[];
-  },
-): SidebarTreeNode[] => {
-  const pinnedNodes: Array<{ node: SidebarTreeNode; order: number; index: number }> = [];
-  const regularNodes: Array<{ node: SidebarTreeNode; order: number; index: number }> = [];
-  const pinnedKeys = options.pinnedSidebarDatabases || [];
-
-  nodes.forEach((node, index) => {
-    if (node.type === 'v2-database-section') {
-      return;
-    }
-    if (node.type !== 'database') {
-      regularNodes.push({ node, order: index, index });
-      return;
-    }
-    const dbName = String(node.dataRef?.dbName || node.title || '').trim();
-    const pinned = isSidebarDatabasePinned(pinnedKeys, options.connectionId, dbName);
-    const currentlyPinned = node.dataRef?.pinnedSidebarDatabase === true;
-    const savedOrder = Number(node.dataRef?.sidebarDatabaseOrder);
-    const order = Number.isSafeInteger(savedOrder) && savedOrder >= 0 ? savedOrder : index;
-    let nextNode = node;
-    if (currentlyPinned !== pinned || node.dataRef?.sidebarDatabaseOrder !== order) {
-      const dataRef = { ...(node.dataRef || {}) };
-      dataRef.sidebarDatabaseOrder = order;
-      if (pinned) {
-        dataRef.pinnedSidebarDatabase = true;
-      } else {
-        delete dataRef.pinnedSidebarDatabase;
-      }
-      nextNode = { ...node, dataRef };
-    }
-    (pinned ? pinnedNodes : regularNodes).push({ node: nextNode, order, index });
-  });
-
-  const byOriginalOrder = (
-    left: { order: number; index: number },
-    right: { order: number; index: number },
-  ) => left.order - right.order || left.index - right.index;
-
-  return [
-    ...pinnedNodes.sort(byOriginalOrder),
-    ...regularNodes.sort(byOriginalOrder),
-  ].map(({ node }) => node);
-};
+export { isSidebarDatabasePinned, applySidebarDatabasePinning } from './sidebar/sidebarDatabasePinning';
 
 export const buildV2SidebarDatabaseSectionedChildren = (
   parentKey: string,
@@ -1012,14 +956,6 @@ export const parseV2CommandSearchQuery = (value: unknown): V2CommandSearchQuery 
   };
 };
 
-const isV2CommandSearchObjectNode = (node: SidebarTreeNode): boolean => {
-  return node.type === 'table'
-    || node.type === 'view'
-    || node.type === 'materialized-view'
-    || node.type === 'sequence' || node.type === 'package'
-    || node.type === 'database-link' || node.type === 'message-object';
-};
-
 export const V2_COMMAND_SEARCH_INITIAL_TREE_LIMIT = 24;
 export const V2_COMMAND_SEARCH_MAX_TREE_RESULTS = 120;
 
@@ -1073,7 +1009,7 @@ export const buildV2CommandSearchTreeIndex = (
       normalizedObjectText: normalizeSidebarSearchText(
         `${normalizedPrimaryObjectText} ${String(dataRef.tableComment || '').trim()} ${normalizedTitle}`,
       ),
-      objectNode: isV2CommandSearchObjectNode(item.node),
+      objectNode: isSidebarCommandSearchObjectNode(item.node),
     }];
   });
 };

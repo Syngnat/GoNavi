@@ -1,4 +1,5 @@
 import React from 'react';
+import { GnNewConnectionIcon, GnNewQueryIcon } from './icons/gnIcons';
 import type { SidebarTableSortPreference } from '../utils/sidebarTreeOrder';
 import {
   CodeOutlined,
@@ -36,11 +37,17 @@ import {
   UndoOutlined,
   SortAscendingOutlined,
   SortDescendingOutlined,
+  TeamOutlined,
   VerticalAlignBottomOutlined,
 } from '@ant-design/icons';
 import { getCurrentLanguage, t } from '../i18n';
 import { getPrimaryShortcutDisplayLabel, type ShortcutPlatform } from '../utils/shortcuts';
 import { formatSidebarTableSize } from './sidebar/sidebarHelpers';
+import {
+  renderV2ContextMenuItems,
+  V2ContextMenuHeader,
+  type V2TableContextMenuItemConfig,
+} from './v2ContextMenu/v2ContextMenuPrimitives';
 
 export type V2TableContextMenuActionKey =
   | 'pin-table'
@@ -77,17 +84,6 @@ export type V2TableContextMenuStats = {
   unavailable?: boolean;
 };
 
-type V2TableContextMenuItemConfig = {
-  action: string;
-  icon: React.ReactNode;
-  title: string;
-  kbd?: string;
-  featured?: boolean;
-  selected?: boolean;
-  disabled?: boolean;
-  tone?: 'default' | 'ai' | 'danger';
-};
-
 export const formatV2TableContextMenuRows = (count?: number): string => {
   if (count === undefined || count === null || !Number.isFinite(count) || count < 0) {
     return t('sidebar.v2_table_menu.meta.rows_empty');
@@ -112,62 +108,6 @@ const resolveV2TableContextMenuMeta = (stats?: V2TableContextMenuStats): string 
     indexes: formatV2TableContextMenuSize(stats?.indexLength),
   });
 };
-
-const V2TableContextMenuItem: React.FC<{
-  item: V2TableContextMenuItemConfig;
-  onAction?: (action: string) => void;
-}> = ({ item, onAction }) => (
-  <button
-    type="button"
-    className={[
-      'gn-v2-context-menu-item',
-      item.featured ? 'is-featured' : '',
-      item.selected ? 'is-selected' : '',
-      item.tone === 'ai' ? 'is-ai' : '',
-      item.tone === 'danger' ? 'is-danger' : '',
-      item.tone === 'default' ? 'is-default' : '',
-      item.disabled ? 'is-disabled' : '',
-    ].filter(Boolean).join(' ')}
-    role="menuitem"
-    disabled={item.disabled}
-    aria-disabled={item.disabled || undefined}
-    onClick={(event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (item.disabled) return;
-      onAction?.(item.action);
-    }}
-  >
-    <span className="gn-v2-context-menu-item-icon">{item.icon}</span>
-    <span className="gn-v2-context-menu-item-title">{item.title}</span>
-    {item.kbd && <span className="gn-v2-context-menu-kbd">{item.kbd}</span>}
-  </button>
-);
-
-const V2ContextMenuHeader: React.FC<{
-  icon: React.ReactNode;
-  title: string;
-  meta: string;
-  pill?: string;
-}> = ({ icon, title, meta, pill }) => (
-  <div className="gn-v2-context-menu-header">
-    <span className="gn-v2-context-menu-table-icon">{icon}</span>
-    <span className="gn-v2-context-menu-heading">
-      <strong title={title}>{title}</strong>
-      <small>{meta}</small>
-    </span>
-    {pill && (
-      <span className="gn-v2-context-menu-engine-pill">{pill}</span>
-    )}
-  </div>
-);
-
-const renderV2ContextMenuItems = (
-  items: V2TableContextMenuItemConfig[],
-  onAction?: (action: string) => void,
-) => items.map((item) => (
-  <V2TableContextMenuItem key={item.action} item={item} onAction={onAction} />
-));
 
 export const V2TableContextMenuView: React.FC<{
   tableName: string;
@@ -243,7 +183,7 @@ export const V2TableContextMenuView: React.FC<{
           { action: isPinned ? 'unpin-table' : 'pin-table', icon: <PushpinOutlined />, title: isPinned ? t('sidebar.action.unpin_table') : t('sidebar.action.pin_table'), kbd: isPinned ? t('sidebar.status.pinned') : undefined, selected: isPinned },
           { action: 'design-table', icon: <EditOutlined />, title: `${t('sidebar.menu.design_table')} · ${t('sidebar.v2_table_menu.design_table_detail')}`, kbd: primaryShortcut('D', shortcutPlatform) },
           { action: 'open-new-tab', icon: <FileAddOutlined />, title: t('sidebar.v2_table_menu.open_in_new_tab'), kbd: primaryShortcut('Enter', shortcutPlatform) },
-          { action: 'new-query', icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query') },
+          { action: 'new-query', icon: <GnNewQueryIcon />, title: t('sidebar.menu.new_query') },
           ...(supportsMessagePublish ? [{ action: 'publish-message' as const, icon: <SendOutlined />, title: t('message_publish_modal.title') }] : []),
         ])}
 
@@ -435,7 +375,7 @@ export const V2DatabaseContextMenuView: React.FC<{
           { action: 'new-table', icon: <TableOutlined />, title: t('sidebar.menu.create_table'), kbd: primaryShortcut('N', shortcutPlatform), featured: true },
           ...(supportsSchemaActions ? [{ action: 'new-schema', icon: <FolderAddOutlined />, title: t('sidebar.v2_database_menu.new_schema') }] : []),
           ...(supportsSchemaVisibility ? [{ action: 'schema-visibility', icon: <FolderOpenOutlined />, title: t('sidebar.schema_visibility.menu.manage') }] : []),
-          { action: 'new-query', icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query') },
+          { action: 'new-query', icon: <GnNewQueryIcon />, title: t('sidebar.menu.new_query') },
           { action: 'run-sql', icon: <FileAddOutlined />, title: t('sidebar.sql_file_exec.title') },
         ])}
 
@@ -505,7 +445,7 @@ export const V2SchemaContextMenuView: React.FC<{
       <div className="gn-v2-context-menu-body">
         <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.maintenance_section')}</div>
         {renderItems([
-          { action: 'new-query', icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query'), featured: true },
+          { action: 'new-query', icon: <GnNewQueryIcon />, title: t('sidebar.menu.new_query'), featured: true },
           { action: 'rename-schema', icon: <EditOutlined />, title: t('sidebar.v2_schema_menu.edit_schema'), kbd: 'F2', featured: true },
           { action: 'refresh-schema', icon: <ReloadOutlined />, title: t('sidebar.v2_database_menu.refresh_object_tree'), kbd: primaryShortcut('R', shortcutPlatform) },
         ])}
@@ -543,6 +483,7 @@ export type V2ConnectionContextMenuActionKey =
   | 'open-sql-file'
   | 'new-command'
   | 'open-monitor'
+  | 'user-management'
   | 'edit'
   | 'copy-connection'
   | 'batch-connections'
@@ -588,7 +529,7 @@ export const V2ConnectionGroupContextMenuView: React.FC<{
 
       <div className="gn-v2-context-menu-body">
         {renderItems([
-          { action: 'new-connection', icon: <PlusOutlined />, title: t('connection.new'), featured: true },
+          { action: 'new-connection', icon: <GnNewConnectionIcon />, title: t('connection.new'), featured: true },
           { action: 'new-subgroup', icon: <FolderAddOutlined />, title: t('connection.sidebar.group.newSubgroup'), featured: true },
           { action: 'edit-group', icon: <EditOutlined />, title: t('connection.sidebar.group.edit'), kbd: 'F2', featured: true },
         ])}
@@ -614,6 +555,7 @@ export const V2ConnectionContextMenuView: React.FC<{
   supportsQueryEditor?: boolean;
   isMessageQueue?: boolean;
   supportsMessagePublish?: boolean;
+  supportsUserManagement?: boolean;
   tags?: V2ConnectionContextMenuTagItem[];
   onAction?: (action: V2ConnectionContextMenuActionKey) => void;
 }> = ({
@@ -629,6 +571,7 @@ export const V2ConnectionContextMenuView: React.FC<{
   supportsQueryEditor = true,
   isMessageQueue = false,
   supportsMessagePublish = false,
+  supportsUserManagement = false,
   tags = [],
   onAction,
 }) => {
@@ -667,7 +610,7 @@ export const V2ConnectionContextMenuView: React.FC<{
               : []),
           { action: 'refresh', icon: <ReloadOutlined />, title: t('connection.sidebar.menu.refresh'), kbd: primaryShortcut('R', shortcutPlatform) },
           ...(supportsQueryEditor ? [
-            { action: 'new-query' as const, icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query') },
+            { action: 'new-query' as const, icon: <GnNewQueryIcon />, title: t('sidebar.menu.new_query') },
             { action: 'open-sql-file' as const, icon: <FileAddOutlined />, title: t('sidebar.sql_file_exec.title') },
           ] : []),
         ])}
@@ -675,6 +618,7 @@ export const V2ConnectionContextMenuView: React.FC<{
         <div className="gn-v2-context-menu-section-title">{t('connection.sidebar.menu.section')}</div>
         {renderItems([
           ...(supportsVisibility ? [{ action: 'visibility' as const, icon: <EyeInvisibleOutlined />, title: t('sidebar.database_schema_visibility.menu.manage') }] : []),
+          ...(supportsUserManagement ? [{ action: 'user-management' as const, icon: <TeamOutlined />, title: t('sidebar.action.user_management') }] : []),
           { action: 'edit', icon: <EditOutlined />, title: t('sidebar.menu.edit_connection'), kbd: 'F2' },
           { action: 'copy-connection', icon: <CopyOutlined />, title: t('connection.sidebar.menu.copy') },
           { action: 'batch-connections', icon: <AppstoreOutlined />, title: t('sidebar.action.batch_connections') },

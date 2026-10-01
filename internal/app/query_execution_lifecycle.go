@@ -53,9 +53,22 @@ type queryExecutionLifecycle struct {
 	stopCh    chan struct{}
 	stopOnce  sync.Once
 	completed atomic.Bool
+	// connecting 为 true 期间心跳仍上报 starting 阶段：前端据此暂停计时，
+	// 避免把建连/隧道等待算进 SQL 执行耗时（driver 侧 DurationMs 不含建连）。
+	connecting atomic.Bool
 }
 
 func (a *App) beginQueryExecutionLifecycle(queryID string) *queryExecutionLifecycle {
+	return a.newQueryExecutionLifecycle(queryID, false)
+}
+
+// beginQueryExecutionLifecycleWithConnection 用于执行前还需要获取连接的入口，
+// 拿到连接后必须调用 markExecuting，否则心跳会一直停在 starting 阶段。
+func (a *App) beginQueryExecutionLifecycleWithConnection(queryID string) *queryExecutionLifecycle {
+	return a.newQueryExecutionLifecycle(queryID, true)
+}
+
+func (a *App) newQueryExecutionLifecycle(queryID string, connecting bool) *queryExecutionLifecycle {
 	queryID = strings.TrimSpace(queryID)
 	lifecycle := &queryExecutionLifecycle{
 		app:     a,
@@ -63,12 +76,21 @@ func (a *App) beginQueryExecutionLifecycle(queryID string) *queryExecutionLifecy
 		started: time.Now(),
 		stopCh:  make(chan struct{}),
 	}
+	lifecycle.connecting.Store(connecting)
 	if queryID == "" || a == nil {
 		return lifecycle
 	}
 	lifecycle.emit(queryExecutionStatusRunning, queryExecutionStageStarting, connection.QueryResult{})
 	go lifecycle.heartbeatLoop()
 	return lifecycle
+}
+
+// markExecuting 标记连接已就绪、SQL 即将交给驱动执行，并立即通知前端开始计时。
+func (l *queryExecutionLifecycle) markExecuting() {
+	if l == nil || !l.connecting.CompareAndSwap(true, false) {
+		return
+	}
+	l.emit(queryExecutionStatusRunning, queryExecutionStageExecuting, connection.QueryResult{})
 }
 
 func (l *queryExecutionLifecycle) complete(result connection.QueryResult) {
@@ -101,7 +123,11 @@ func (l *queryExecutionLifecycle) heartbeatLoop() {
 			if l.completed.Load() {
 				return
 			}
-			l.emit(queryExecutionStatusRunning, queryExecutionStageExecuting, connection.QueryResult{})
+			stage := queryExecutionStageExecuting
+			if l.connecting.Load() {
+				stage = queryExecutionStageStarting
+			}
+			l.emit(queryExecutionStatusRunning, stage, connection.QueryResult{})
 		}
 	}
 }

@@ -32,6 +32,7 @@ vi.mock('antd', async (importOriginal) => {
 });
 
 import { useStore } from '../../store';
+import { buildSidebarDatabasePinKey } from '../../store';
 import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 
 const createNacosConnection = (protection: {
@@ -93,10 +94,12 @@ const findItem = (items: any[], key: string) => items.find((item) => item?.key =
 
 describe('Nacos service group context menu', () => {
   const originalConnections = useStore.getState().connections;
+  const originalPinnedSidebarDatabases = useStore.getState().pinnedSidebarDatabases;
 
   beforeEach(() => {
     vi.clearAllMocks();
     useStore.setState({ connections: [] });
+    useStore.setState({ pinnedSidebarDatabases: [] });
     nacosBackend.NacosCreateNamespace.mockResolvedValue({ success: true });
     nacosBackend.NacosUpdateNamespace.mockResolvedValue({ success: true });
     nacosBackend.NacosDeleteNamespace.mockResolvedValue({ success: true });
@@ -110,7 +113,7 @@ describe('Nacos service group context menu', () => {
   });
 
   afterEach(() => {
-    useStore.setState({ connections: originalConnections });
+    useStore.setState({ connections: originalConnections, pinnedSidebarDatabases: originalPinnedSidebarDatabases });
     vi.unstubAllGlobals();
   });
 
@@ -134,6 +137,45 @@ describe('Nacos service group context menu', () => {
       type: 'nacos-services',
       nacosGroup: 'MKEFU_SERVICE',
     }));
+  });
+
+  it('pins a namespace through its context menu and reloads the connection tree', () => {
+    const connection = createNacosConnection();
+    const loadDatabases = vi.fn();
+    const items = buildNacosNamespaceItems(connection, loadDatabases);
+    findItem(items, 'pin-nacos-namespace')?.onClick?.();
+    expect(useStore.getState().pinnedSidebarDatabases).toContain(
+      buildSidebarDatabasePinKey(connection.id, 'mkefu-dev'),
+    );
+    expect(loadDatabases).toHaveBeenCalledWith(
+      expect.objectContaining({ key: connection.id }),
+      { ensureFresh: true },
+    );
+    const updatedItems = buildNacosNamespaceItems(connection, loadDatabases);
+    expect(findItem(updatedItems, 'unpin-nacos-namespace')).toBeDefined();
+    findItem(updatedItems, 'unpin-nacos-namespace')?.onClick?.();
+    expect(useStore.getState().pinnedSidebarDatabases).not.toContain(
+      buildSidebarDatabasePinKey(connection.id, 'mkefu-dev'),
+    );
+  });
+
+  it('pins a config group locally without dropping the expanded group nodes', () => {
+    useStore.setState({ pinnedSidebarDatabases: [] });
+    const root = { current: [{ key: 'c1', title: 'Nacos', type: 'connection' as const, children: [
+      { key: 'groups', title: 'Config', type: 'nacos-config-entry' as const, dataRef: { id: 'c1', nacosNamespaceId: 'dev' }, children: [
+        { key: 'a', title: 'A', type: 'nacos-config-group' as const, dataRef: { id: 'c1', nacosNamespaceId: 'dev', nacosGroup: 'A' } },
+        { key: 'b', title: 'B', type: 'nacos-config-group' as const, dataRef: { id: 'c1', nacosNamespaceId: 'dev', nacosGroup: 'B' } },
+      ] },
+    ] }] };
+    const setTreeData = vi.fn();
+    const node = root.current[0].children[0].children[1];
+    const menu = buildSidebarNodeMenuItems(node, { addTab: vi.fn(), treeDataRef: root, setTreeData }) as any[];
+    findItem(menu, 'pin-nacos-group')?.onClick?.();
+    expect(setTreeData).toHaveBeenCalled();
+    expect(root.current[0].children[0].children.map(n => n.title)).toEqual(['B', 'A']);
+    const updated = buildSidebarNodeMenuItems(node, { addTab: vi.fn(), treeDataRef: root, setTreeData }) as any[];
+    findItem(updated, 'unpin-nacos-group')?.onClick?.();
+    expect(root.current[0].children[0].children.map(n => n.title)).toEqual(['A', 'B']);
   });
 
   it('does not attach a group filter to the all-services node', () => {

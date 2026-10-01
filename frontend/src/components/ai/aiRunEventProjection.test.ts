@@ -130,6 +130,41 @@ describe('AI run event projection contract', () => {
     })).toBeNull();
   });
 
+  it('keeps the latest snapshot when a streaming delta repeats one call ID', () => {
+    const snapshot = (args?: Record<string, unknown>) => ({
+      callId: 'call-1',
+      toolName: 'execute_sql',
+      effect: '',
+      ...(args ? { arguments: args } : {}),
+    });
+    const parsed = parseAIRunEvent({
+      ...event(7),
+      payload: {
+        callId: 'call-1',
+        toolCalls: [snapshot(), snapshot(), snapshot({ sql: 'SELECT 1' })],
+      },
+    });
+
+    expect(parsed).not.toBeNull();
+    expect((parsed!.payload as { toolCalls: unknown[] }).toolCalls).toEqual([
+      { callId: 'call-1', toolName: 'execute_sql', arguments: { sql: 'SELECT 1' } },
+    ]);
+  });
+
+  it('still rejects repeated call IDs in a completed model turn', () => {
+    expect(parseAIRunEvent({
+      ...event(8),
+      kind: 'model_completed',
+      payload: {
+        text: 'done',
+        toolCalls: [
+          { callId: 'call-1', toolName: 'execute_sql', arguments: {} },
+          { callId: 'call-1', toolName: 'execute_sql', arguments: {} },
+        ],
+      },
+    })).toBeNull();
+  });
+
   it('deduplicates, reports gaps without advancing, and drops terminal callbacks', () => {
     const tracker = new AIRunEventSequenceTracker();
 

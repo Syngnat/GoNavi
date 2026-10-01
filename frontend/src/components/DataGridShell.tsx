@@ -1058,8 +1058,6 @@ const renderDataTableView = () => (
                 canOpenObjectDesigner={canOpenObjectDesigner}
                 viewMode={viewMode}
                 ddlLoading={ddlLoading}
-                showColumnComment={showColumnComment}
-                showColumnType={showColumnType}
                 resultViewSwitcher={resultViewSwitcher}
                 columnInfoSettingContent={columnInfoSettingContent}
                 columnQuickFindContent={columnQuickFindContent}

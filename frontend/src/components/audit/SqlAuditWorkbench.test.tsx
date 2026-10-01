@@ -38,21 +38,4 @@ describe('SqlAuditWorkbench', () => {
     expect(markup).toContain('Search SQL, fingerprint, query ID, or error…');
     expect(markup).not.toContain('SQL 审计中心');
   });
-
-  it('renders the execution-history workflow separately from the audit workspace', () => {
-    const markup = renderWorkbench('zh-CN', {
-      id: 'sql-query-history-center',
-      title: '执行历史',
-      type: 'sql-audit',
-      connectionId: 'conn-1',
-      dbName: 'analytics',
-      sqlAuditView: 'query-history',
-    });
-
-    expect(markup).toContain('SQL 执行历史');
-    expect(markup).toContain('执行历史遵循 SQL 审计策略');
-    expect(markup).toContain('没有符合当前筛选条件的 SQL 执行记录');
-    expect(markup).not.toContain('校验完整性');
-    expect(markup).not.toContain('清空记录');
-  });
 });

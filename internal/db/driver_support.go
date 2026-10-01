@@ -25,6 +25,7 @@ var coreBuiltinDrivers = map[string]struct{}{
 	"mqtt":     {},
 	"kafka":    {},
 	"rabbitmq": {},
+	"pulsar":   {},
 }
 
 // optionalGoDrivers 表示需要用户“安装启用”后才能使用的纯 Go 驱动。
@@ -109,6 +110,8 @@ func normalizeRuntimeDriverType(driverType string) string {
 		return "kafka"
 	case "rabbitmq", "rabbit-mq", "rabbit_mq":
 		return "rabbitmq"
+	case "pulsar", "apache-pulsar", "apache_pulsar":
+		return "pulsar"
 	default:
 		return normalized
 	}
@@ -184,6 +187,8 @@ func driverDisplayName(driverType string) string {
 		return "Kafka"
 	case "rabbitmq":
 		return "RabbitMQ"
+	case "pulsar":
+		return "Pulsar"
 	default:
 		return strings.ToUpper(strings.TrimSpace(driverType))
 	}
@@ -275,8 +280,9 @@ func ResolveOptionalGoDriverMarkerPath(downloadDir string, driverType string) (s
 	return filepath.Join(root, normalized, "installed.json"), nil
 }
 
-func optionalGoDriverInstalled(driverType string) bool {
-	markerPath, err := ResolveOptionalGoDriverMarkerPath("", driverType)
+// optionalGoDriverInstalledAt 的 root 为空时回落全局目录（连接期调用方的既有行为）。
+func optionalGoDriverInstalledAt(root string, driverType string) bool {
+	markerPath, err := ResolveOptionalGoDriverMarkerPath(root, driverType)
 	if err != nil {
 		return false
 	}
@@ -284,13 +290,13 @@ func optionalGoDriverInstalled(driverType string) bool {
 	return statErr == nil && !info.IsDir()
 }
 
-func optionalGoDriverRuntimeReady(driverType string) (bool, string) {
+func optionalGoDriverRuntimeReadyAt(root string, driverType string) (bool, string) {
 	normalized := normalizeRuntimeDriverType(driverType)
 	if !IsOptionalGoDriver(normalized) {
 		return true, ""
 	}
 	displayName := driverDisplayName(normalized)
-	executablePath, err := ResolveOptionalDriverAgentExecutablePath("", normalized)
+	executablePath, err := ResolveOptionalDriverAgentExecutablePath(root, normalized)
 	if err != nil {
 		return false, localizedDriverRuntimeText("driver_manager.backend.status.agent_path_failed", map[string]any{"name": displayName})
 	}
@@ -316,7 +322,20 @@ func optionalGoDriverRuntimeReady(driverType string) (bool, string) {
 }
 
 // DriverRuntimeSupportStatus 返回当前构建下驱动是否可用（可直接用于连接）。
+//
+// 内部走全局驱动目录回落。连接期调用方（postgres/clickhouse/gaussdb 的 Connect）
+// 手里只有 ConnectionConfig、拿不到目录，因此保留这个签名；已知目录的调用方
+// 请用 DriverRuntimeSupportStatusAt，避免与并发安装互相覆盖全局目录。
 func DriverRuntimeSupportStatus(driverType string) (bool, string) {
+	return DriverRuntimeSupportStatusAt("", driverType)
+}
+
+// DriverRuntimeSupportStatusAt 以显式 root 判定驱动可用性。
+//
+// root 为空时回落全局驱动目录。传入非空 root 可让判定不受
+// SetExternalDriverDownloadDirectory 的进程级全局值影响 —— 后者会在并发安装
+// 期间被不同驱动的安装互相改写。
+func DriverRuntimeSupportStatusAt(root string, driverType string) (bool, string) {
 	normalized := normalizeRuntimeDriverType(driverType)
 	if normalized == "" {
 		return false, localizedDriverRuntimeText("driver_manager.backend.status.unrecognized_driver_type", nil)
@@ -332,8 +351,8 @@ func DriverRuntimeSupportStatus(driverType string) (bool, string) {
 		if !IsOptionalGoDriverBuildIncluded(normalized) {
 			return false, localizedDriverRuntimeText("driver_manager.backend.status.slim_build_required", map[string]any{"name": displayName})
 		}
-		if optionalGoDriverInstalled(normalized) {
-			if ready, reason := optionalGoDriverRuntimeReady(normalized); !ready {
+		if optionalGoDriverInstalledAt(root, normalized) {
+			if ready, reason := optionalGoDriverRuntimeReadyAt(root, normalized); !ready {
 				return false, reason
 			}
 			return true, ""

@@ -268,6 +268,21 @@ export const isV2SidebarObjectNode = (
       || node?.type === 'database-link';
 };
 
+export const isSidebarSearchableNacosGroupNode = (
+  node: { type?: string } | null | undefined,
+): boolean => node?.type === 'nacos-config-group' || node?.type === 'nacos-service-group';
+
+export const isSidebarCommandSearchObjectNode = (
+  node: { type?: string } | null | undefined,
+): boolean => node?.type === 'table'
+  || node?.type === 'view'
+  || node?.type === 'materialized-view'
+  || node?.type === 'sequence'
+  || node?.type === 'package'
+  || node?.type === 'database-link'
+  || node?.type === 'message-object'
+  || isSidebarSearchableNacosGroupNode(node);
+
 // === 第二期：依赖 i18n 但不依赖 TreeNode 内部类型的工具函数 ===
 
 /**

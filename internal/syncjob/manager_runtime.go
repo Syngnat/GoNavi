@@ -15,9 +15,12 @@ func (manager *Manager) startRuntime(ctx context.Context) error {
 		}
 		manager.lastRecoveryAt = now
 	}
-	manager.wg.Add(2)
+	manager.wg.Add(1)
 	go manager.dispatchLoop()
-	go manager.schedulerLoop()
+	if !manager.options.SchedulerDisabled {
+		manager.wg.Add(1)
+		go manager.schedulerLoop()
+	}
 	manager.signalWake()
 	return nil
 }

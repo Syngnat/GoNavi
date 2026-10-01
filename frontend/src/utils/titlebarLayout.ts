@@ -2,9 +2,8 @@ export type TitleBarLayout = {
   height: number;
   actionHeight: number;
   dividerHeight: number;
-  /** Height of the upper titlebar row when docked collapsed actions use a second row. */
+  /** Height of the upper titlebar row when docked sidebar actions use a second row. */
   upperBandHeight: number;
-  emptyWorkbenchTopOffset: number;
 };
 
 const MIN_UI_SCALE = 0.8;
@@ -97,8 +96,11 @@ export const resolveDocumentPlatform = (
 };
 
 /**
- * Collapsed explorer actions use the titlebar's second row on desktop V2
+ * Explorer actions (search, locate, scroll to top, connection menu, sidebar
+ * toggle) are docked permanently in the titlebar's second row on desktop V2
  * runtimes whose window chrome has enough horizontal space for the toolbar.
+ * Docking is independent of the collapsed state so the actions never move.
+ * Users who keep the actions in the fixed sidebar rail opt out of docking.
  *
  * The runtime platform is authoritative when available. Browser platform
  * detection is only a fallback for the web/bootstrap phase before Wails has
@@ -108,8 +110,10 @@ export const shouldDockCollapsedSidebarActionsInTitlebar = (
   runtimePlatform: string,
   navigatorPlatform: string,
   isWebRuntime = false,
+  sidebarActionsInRail = false,
 ): boolean => {
   return !isWebRuntime
+    && !sidebarActionsInRail
     && resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform) !== null;
 };
 
@@ -129,10 +133,10 @@ const resolveSidebarButtonScale = (sidebarButtonScale: number): number => {
   return Math.min(MAX_SIDEBAR_BUTTON_SCALE, Math.max(MIN_SIDEBAR_BUTTON_SCALE, parsed));
 };
 
-/** Keep the V2 titlebar comfortably clickable; only reserve a second band for docked collapsed-sidebar actions. */
+/** Keep the V2 titlebar comfortably clickable; only reserve a second band for docked sidebar actions. */
 export const resolveTitleBarLayout = (
   uiScale: number,
-  reserveCollapsedActionBand = false,
+  reserveActionBand = false,
   sidebarButtonScale = 1,
 ): TitleBarLayout => {
   const scale = resolveUiScale(uiScale);
@@ -145,22 +149,21 @@ export const resolveTitleBarLayout = (
     actionHeight: Math.max(24, Math.round(actionBaseHeight * scale)),
     dividerHeight: Math.max(10, Math.round(dividerBaseHeight * scale)),
     upperBandHeight: Math.max(28, Math.round(titlebarBaseHeight * scale)),
-    emptyWorkbenchTopOffset: 0,
   };
 
-  if (!reserveCollapsedActionBand) {
+  if (!reserveActionBand) {
     return compactLayout;
   }
 
   // Keep the first titlebar row compact and reserve a full second row for the
-  // docked collapsed-sidebar actions on desktop platforms.
+  // docked sidebar actions on desktop platforms.
   const upperBandBottom = 16 + (Math.max(26, compactLayout.actionHeight) / 2);
   const upperBandHeight = Math.ceil(upperBandBottom);
-  const collapsedActionBandHeight = 26 * scale * resolvedSidebarButtonScale;
+  const actionBandHeight = 26 * scale * resolvedSidebarButtonScale;
   const minimumTwoBandHeight = Math.ceil(
     upperBandHeight
     + 1 // visual separation between the rows
-    + collapsedActionBandHeight
+    + actionBandHeight
     + 1, // bottom inset used by the docked toolbar
   );
 
@@ -169,20 +172,5 @@ export const resolveTitleBarLayout = (
     ...compactLayout,
     height,
     upperBandHeight,
-    // The empty landing page already reserves enough room above its heading.
-    // Let it overlap this extra band so collapsing the explorer does not move
-    // the whole workbench down; regular tab content still starts below it.
-    emptyWorkbenchTopOffset: height - compactLayout.height,
   };
 };
-
-/**
- * The empty-workbench overlap for the docked band, independent of whether the
- * band is currently shown. The value lives on the app root, where any change
- * restyles every element, so it must not flip with the sidebar; CSS applies it
- * only while the collapsed actions are docked.
- */
-export const resolveDockedTitleBarBandOffset = (
-  uiScale: number,
-  sidebarButtonScale = 1,
-): number => resolveTitleBarLayout(uiScale, true, sidebarButtonScale).emptyWorkbenchTopOffset;

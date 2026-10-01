@@ -76,7 +76,7 @@ describe('backup workbench tasks', () => {
     expect(incremental?.props.disabled).toBe(true);
     expect(incremental?.findAllByType('option').map((option) => option.props.value)).toEqual(['snapshot']);
     expect(JSON.stringify(renderer.toJSON())).toContain('每次运行都会完整导出');
-    expect(JSON.stringify(renderer.toJSON())).toContain('关闭 GoNavi 窗口后继续运行');
+    expect(JSON.stringify(renderer.toJSON())).toContain('无需保持 GoNavi 运行');
     await act(async () => renderer.unmount());
   });
 });

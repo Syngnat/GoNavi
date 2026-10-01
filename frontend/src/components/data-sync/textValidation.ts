@@ -91,6 +91,9 @@ export const dataSyncValidationTextsZhCN = {
   'validation.index_inspection_failed': '无法读取源端索引元数据，不能确认所有索引都已迁移。',
   'validation.unmigrated_index': '有索引无法自动迁移，请在执行前审核候选补救 DDL。',
   'validation.capability_unverified': '当前使用静态 gateway，运行前仍需后端确认数据源组合能力。',
+  'validation.preflight_timeout': '预检超时：已检查 {checked}/{total} 个映射{stuck}。源端响应过慢，任务配置本身没有问题，请重试；表较多时可拆分成多个任务。',
+  'validation.preflight_timeout_stuck': '，卡在 {mapping}',
+  'validation.request_cancelled': '预检已取消。',
   'validation.unknown': '预检发现未识别的配置问题。',
 } as const;
 
@@ -184,5 +187,8 @@ export const dataSyncValidationTextsEnUS: Record<DataSyncValidationTextKey, stri
   'validation.index_inspection_failed': 'Source index metadata could not be read, so complete index migration cannot be verified.',
   'validation.unmigrated_index': 'An index could not be migrated automatically. Review the remediation DDL before execution.',
   'validation.capability_unverified': 'This task uses the static gateway. The backend must still verify the source-target capability before execution.',
+  'validation.preflight_timeout': 'Preflight timed out after checking {checked} of {total} mapping(s){stuck}. The source responded too slowly; the task configuration itself is valid, so retry — or split it into smaller tasks when there are many tables.',
+  'validation.preflight_timeout_stuck': ', stuck on {mapping}',
+  'validation.request_cancelled': 'Preflight was cancelled.',
   'validation.unknown': 'Preflight found an unrecognized configuration issue.',
 };

@@ -1,3 +1,12 @@
+/*
+ * AI 聊天面板的尺寸单位：1 个单位在默认设置（字号 14、缩放 1）下恰好是 1px，
+ * 字号设置与界面缩放变化时按比例放大缩小。面板内的字号、图标、控件高度与间距
+ * 都写成 calc(N * var(--gn-ai-unit))，这样 AI 面板与其余界面同步跟随主题设置。
+ */
+:root {
+    --gn-ai-unit: calc(var(--gn-font-size, 14px) * var(--gn-ui-scale, 1) / 14);
+}
+
 .ai-chat-panel {
     display: flex;
     flex-direction: column;
@@ -14,7 +23,7 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: 4px;
+    width: calc(4 * var(--gn-ai-unit, 1px));
     cursor: col-resize;
     z-index: 10;
     transition: background 0.15s ease;
@@ -30,7 +39,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px));
     border-bottom: 1px solid rgba(128, 128, 128, 0.1);
     flex-shrink: 0;
 }
@@ -38,22 +47,22 @@
 .ai-chat-header-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: calc(10 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-header-left .ai-logo {
-    width: 28px;
-    height: 28px;
+    width: calc(28 * var(--gn-ai-unit, 1px));
+    height: calc(28 * var(--gn-ai-unit, 1px));
     border-radius: 8px;
     display: grid;
     place-items: center;
-    font-size: 16px;
+    font-size: calc(16 * var(--gn-ai-unit, 1px));
     font-weight: 700;
     flex-shrink: 0;
 }
 
 .ai-chat-header-left .ai-title {
-    font-size: 14px;
+    font-size: calc(14 * var(--gn-ai-unit, 1px));
     font-weight: 700;
     letter-spacing: 0.01em;
 }
@@ -61,21 +70,21 @@
 .ai-chat-header-right {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: calc(4 * var(--gn-ai-unit, 1px));
 }
 
 /* Messages Area */
 .ai-chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: calc(16 * var(--gn-ai-unit, 1px));
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: calc(16 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-messages::-webkit-scrollbar {
-    width: 5px;
+    width: calc(5 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-messages::-webkit-scrollbar-track {
@@ -93,16 +102,16 @@
 .ai-run-controls {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
     flex: 0 0 auto;
     max-height: min(34vh, 360px);
     overflow-y: auto;
-    padding: 0 16px 10px;
+    padding: 0 calc(16 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
 }
 
 .ai-run-control-card {
     border-radius: 7px;
-    padding: 10px 12px;
+    padding: calc(10 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px));
     min-width: 0;
     box-sizing: border-box;
 }
@@ -111,35 +120,35 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 7px;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    margin-bottom: calc(7 * var(--gn-ai-unit, 1px));
     min-width: 0;
 }
 
 .ai-run-control-title {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
     min-width: 0;
-    font-size: 12px;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
     font-weight: 650;
 }
 
 .ai-run-control-state {
     flex: 0 0 auto;
-    font-size: 11px;
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
 }
 
 .ai-run-control-detail {
-    margin-top: 7px;
-    font-size: 11px;
+    margin-top: calc(7 * var(--gn-ai-unit, 1px));
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
     line-height: 1.45;
     overflow-wrap: anywhere;
 }
 
 .ai-run-control-arguments {
-    margin-top: 7px;
-    font-size: 11px;
+    margin-top: calc(7 * var(--gn-ai-unit, 1px));
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
 }
 
 .ai-run-control-arguments summary {
@@ -151,8 +160,8 @@
 .ai-run-control-arguments pre {
     max-height: 150px;
     overflow: auto;
-    margin: 6px 0 0;
-    padding: 7px 8px;
+    margin: calc(6 * var(--gn-ai-unit, 1px)) 0 0;
+    padding: calc(7 * var(--gn-ai-unit, 1px)) calc(8 * var(--gn-ai-unit, 1px));
     border-radius: 4px;
     background: rgba(128, 128, 128, 0.08);
     font: 11px/1.45 var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -165,12 +174,12 @@
     align-items: center;
     justify-content: flex-end;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 9px;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    margin-top: calc(9 * var(--gn-ai-unit, 1px));
 }
 
 .ai-run-control-actions .ant-btn {
-    min-height: 26px;
+    min-height: calc(26 * var(--gn-ai-unit, 1px));
 }
 
 /* Welcome */
@@ -179,39 +188,39 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    padding: 40px 20px;
+    gap: calc(16 * var(--gn-ai-unit, 1px));
+    padding: calc(40 * var(--gn-ai-unit, 1px)) calc(20 * var(--gn-ai-unit, 1px));
     text-align: center;
     flex: 1;
 }
 
 .ai-chat-welcome .welcome-icon {
-    width: 56px;
-    height: 56px;
+    width: calc(56 * var(--gn-ai-unit, 1px));
+    height: calc(56 * var(--gn-ai-unit, 1px));
     border-radius: 16px;
     display: grid;
     place-items: center;
-    font-size: 28px;
+    font-size: calc(28 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-welcome .welcome-title {
-    font-size: 18px;
+    font-size: calc(18 * var(--gn-ai-unit, 1px));
     font-weight: 700;
-    margin-bottom: 4px;
+    margin-bottom: calc(4 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-welcome .quick-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
     justify-content: center;
-    margin-top: 8px;
+    margin-top: calc(8 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-welcome .quick-action-btn {
-    padding: 6px 14px;
+    padding: calc(6 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
     border-radius: 20px;
-    font-size: 12px;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
     cursor: pointer;
     transition: all 0.2s ease;
     border: 1px solid;
@@ -225,7 +234,7 @@
 
 /* IDE Style Messages */
 .ai-ide-message {
-    padding: 12px 16px;
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px));
     animation: ai-msg-in 0.2s ease-out;
 }
 
@@ -243,16 +252,31 @@
 .ai-ide-message-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 650;
+    margin-bottom: calc(8 * var(--gn-ai-unit, 1px));
+    letter-spacing: 0.01em;
+}
+
+/* 消息卡片：用户消息是品牌色淡底的气泡，助手消息不套卡片，让内容成为视觉主体 */
+.ai-ide-message-card {
+    border-radius: calc(14 * var(--gn-ai-unit, 1px));
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
+}
+
+.ai-ide-message-card.is-user {
+    background: color-mix(in srgb, var(--gn-accent, #6366f1) 8%, var(--gn-bg-panel, transparent));
+    border: 0.5px solid color-mix(in srgb, var(--gn-accent, #6366f1) 20%, transparent);
+}
+
+.ai-ide-message-card.is-assistant {
+    padding-left: calc(2 * var(--gn-ai-unit, 1px));
+    padding-right: calc(2 * var(--gn-ai-unit, 1px));
 }
 
 .ai-ide-message-content {
-    font-size: 13px;
+    font-size: calc(13 * var(--gn-ai-unit, 1px));
     line-height: 1.6;
     word-break: break-word;
     /* Remove pre-wrap here, as it conflicts with ReactMarkdown's block rendering */
@@ -263,7 +287,7 @@
     white-space: normal;
 }
 .ai-markdown-content p {
-    margin: 0 0 10px;
+    margin: 0 0 calc(10 * var(--gn-ai-unit, 1px));
 }
 .ai-markdown-content p:last-child {
     margin-bottom: 0;
@@ -274,7 +298,7 @@
 .ai-markdown-content h4,
 .ai-markdown-content h5,
 .ai-markdown-content h6 {
-    margin: 16px 0 8px;
+    margin: calc(16 * var(--gn-ai-unit, 1px)) 0 calc(8 * var(--gn-ai-unit, 1px));
     line-height: 1.4;
     font-weight: 600;
 }
@@ -287,11 +311,11 @@
     margin-top: 0;
 }
 .ai-markdown-content pre {
-    margin: 10px 0;
-    border-radius: 4px;
-    padding: 10px;
+    margin: calc(10 * var(--gn-ai-unit, 1px)) 0;
+    border-radius: calc(10 * var(--gn-ai-unit, 1px));
+    padding: calc(10 * var(--gn-ai-unit, 1px));
     font-family: var(--gn-font-mono, "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
-    font-size: 12px;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
     overflow-x: auto;
     border: 1px solid rgba(128, 128, 128, 0.15);
     background: rgba(0, 0, 0, 0.2);
@@ -299,27 +323,27 @@
 .ai-markdown-content code {
     font-family: var(--gn-font-mono, "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
     background: rgba(128, 128, 128, 0.15);
-    padding: 2px 4px;
-    border-radius: 3px;
+    padding: calc(2 * var(--gn-ai-unit, 1px)) calc(5 * var(--gn-ai-unit, 1px));
+    border-radius: calc(5 * var(--gn-ai-unit, 1px));
     font-size: 0.95em;
 }
 .ai-markdown-content ul, .ai-markdown-content ol {
-    margin: 0 0 10px;
-    padding-left: 20px;
+    margin: 0 0 calc(10 * var(--gn-ai-unit, 1px));
+    padding-left: calc(20 * var(--gn-ai-unit, 1px));
 }
 .ai-markdown-content li {
-    margin-bottom: 4px;
+    margin-bottom: calc(4 * var(--gn-ai-unit, 1px));
 }
 
 /* Advanced Typing/Blinker indicator */
 .ai-blinking-cursor {
     display: inline-block;
-    width: 6px;
-    height: 14px;
+    width: calc(6 * var(--gn-ai-unit, 1px));
+    height: calc(14 * var(--gn-ai-unit, 1px));
     background-color: currentColor;
     border-radius: 1px;
     vertical-align: middle;
-    margin-left: 4px;
+    margin-left: calc(4 * var(--gn-ai-unit, 1px));
     animation: blink 1s step-end infinite;
 }
 
@@ -335,7 +359,7 @@
 
 /* History Drawer Styles */
 .ai-history-list::-webkit-scrollbar {
-    width: 4px;
+    width: calc(4 * var(--gn-ai-unit, 1px));
 }
 .ai-history-list::-webkit-scrollbar-thumb {
     background: rgba(128, 128, 128, 0.2);
@@ -361,7 +385,7 @@
 
 /* Input Area */
 .ai-chat-input-area {
-    padding: 12px 16px 16px;
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px));
     border-top: 1px solid rgba(128, 128, 128, 0.1);
     flex-shrink: 0;
 }
@@ -373,7 +397,7 @@
 }
 
 .ai-chat-input-wrapper textarea::-webkit-scrollbar {
-    width: 4px;
+    width: calc(4 * var(--gn-ai-unit, 1px));
 }
 
 .ai-chat-input-wrapper textarea::-webkit-scrollbar-track {
@@ -388,11 +412,11 @@
 .ai-chat-input-wrapper {
     display: flex;
     align-items: flex-end;
-    gap: 8px;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
     border-radius: 6px;
     border: 1px solid transparent;
     border-color: rgba(128, 128, 128, 0.22) !important;
-    padding: 6px 10px;
+    padding: calc(6 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
     transition: all 0.2s ease;
     background: rgba(128, 128, 128, 0.03) !important;
     box-shadow: none !important;
@@ -410,9 +434,9 @@
     outline: none;
     background: transparent;
     resize: none;
-    font-size: 13px;
+    font-size: calc(13 * var(--gn-ai-unit, 1px));
     line-height: 1.5;
-    min-height: 28px;
+    min-height: calc(28 * var(--gn-ai-unit, 1px));
     max-height: 200px;
     padding: 0;
     font-family: inherit;
@@ -450,8 +474,8 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
 }
 
 .ai-chat-send-btn {
-    width: 26px;
-    height: 26px;
+    width: calc(26 * var(--gn-ai-unit, 1px));
+    height: calc(26 * var(--gn-ai-unit, 1px));
     border-radius: 4px;
     display: grid;
     place-items: center;
@@ -484,8 +508,8 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
-  margin: 12px 0;
-  font-size: 13px;
+  margin: calc(12 * var(--gn-ai-unit, 1px)) 0;
+  font-size: calc(13 * var(--gn-ai-unit, 1px));
 }
 
 /* 让消息内容区域成为表格的滚动约束容器 */
@@ -503,7 +527,7 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
 }
 
 .ai-markdown-content table::-webkit-scrollbar {
-  height: 4px;
+  height: calc(4 * var(--gn-ai-unit, 1px));
 }
 
 .ai-markdown-content table::-webkit-scrollbar-thumb {
@@ -514,7 +538,7 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
 .ai-markdown-content th,
 .ai-markdown-content td {
   border: 1px solid rgba(125, 125, 125, 0.2);
-  padding: 6px 12px;
+  padding: calc(6 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px));
   text-align: left;
   white-space: nowrap;
 }
@@ -525,8 +549,8 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
 }
 
 .ai-markdown-content blockquote {
-  margin: 12px 0;
-  padding: 8px 14px;
+  margin: calc(12 * var(--gn-ai-unit, 1px)) 0;
+  padding: calc(8 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
   border-left: 4px solid rgba(125, 125, 125, 0.4);
   background: rgba(125, 125, 125, 0.05);
   color: inherit;
@@ -548,11 +572,11 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
 .ai-wave-pulse {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: calc(4 * var(--gn-ai-unit, 1px));
 }
 .ai-wave-pulse span {
-    width: 6px;
-    height: 6px;
+    width: calc(6 * var(--gn-ai-unit, 1px));
+    height: calc(6 * var(--gn-ai-unit, 1px));
     border-radius: 50%;
     background-color: currentColor;
     animation: wave-pulse-anim 1.2s ease-in-out infinite;
@@ -583,10 +607,701 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
     overflow: hidden;
 }
 
+/* 快捷命令菜单：紧凑的单行列表（图标 · 命令 · 名称 · 说明），按分类分组；
+   支持键盘上下选择、回车插入、Esc 关闭。颜色变量由 AISlashCommandMenu 注入。 */
+.ai-slash-menu {
+    display: flex;
+    flex-direction: column;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: calc(4 * var(--gn-ai-unit, 1px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.ai-slash-group + .ai-slash-group {
+    margin-top: calc(4 * var(--gn-ai-unit, 1px));
+    padding-top: calc(4 * var(--gn-ai-unit, 1px));
+    border-top: 1px solid var(--ai-slash-border);
+}
+
+.ai-slash-group-title {
+    padding: calc(4 * var(--gn-ai-unit, 1px)) calc(8 * var(--gn-ai-unit, 1px)) calc(2 * var(--gn-ai-unit, 1px));
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.ai-slash-item {
+    display: grid;
+    grid-template-columns: calc(20 * var(--gn-ai-unit, 1px)) calc(78 * var(--gn-ai-unit, 1px)) auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    margin: 0;
+    padding: 0 calc(8 * var(--gn-ai-unit, 1px));
+    border: 0;
+    border-radius: calc(6 * var(--gn-ai-unit, 1px));
+    background: transparent;
+    color: var(--ai-slash-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-slash-item[data-active='true'] {
+    background: var(--ai-slash-active);
+}
+
+.ai-slash-icon {
+    text-align: center;
+    font-size: calc(13 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-cmd {
+    overflow: hidden;
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-slash-label {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ai-slash-desc {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-slash-footer {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(14 * var(--gn-ai-unit, 1px));
+    padding: calc(6 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px));
+    border-top: 1px solid var(--ai-slash-border);
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-footer span {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-footer kbd {
+    min-width: calc(18 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(4 * var(--gn-ai-unit, 1px));
+    border-radius: calc(4 * var(--gn-ai-unit, 1px));
+    background: var(--ai-slash-key);
+    color: var(--ai-slash-text);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(10.5 * var(--gn-ai-unit, 1px));
+    line-height: calc(16 * var(--gn-ai-unit, 1px));
+    text-align: center;
+}
+
+.ai-slash-empty {
+    display: flex;
+    flex-direction: column;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-empty-title {
+    color: var(--ai-slash-text);
+    font-weight: 600;
+}
+
+.ai-slash-empty-text {
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    line-height: 1.5;
+}
+
+.ai-slash-empty-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-chip {
+    padding: calc(2 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-slash-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ai-slash-text);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    cursor: pointer;
+}
+
+.ai-slash-chip:hover {
+    background: var(--ai-slash-active);
+}
+
+/* 运行过程：一个扁平卡片，每步一行（状态图标 · 名称 · 耗时/状态），步骤之间用竖线相连。
+   颜色变量由 AIActivityTimeline 按明暗主题注入。 */
+.ai-run {
+    margin-top: calc(10 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-run-border);
+    border-radius: calc(8 * var(--gn-ai-unit, 1px));
+    background: var(--ai-run-surface);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow: hidden;
+}
+
+.ai-run-header {
+    display: grid;
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    margin: 0;
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    border: 0;
+    background: transparent;
+    color: var(--ai-run-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.ai-run-header:hover {
+    background: var(--ai-run-hover);
+}
+
+.ai-run-header:focus-visible {
+    outline: 2px solid #1677ff;
+    outline-offset: -2px;
+}
+
+.ai-run-header-text {
+    display: flex;
+    align-items: baseline;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+}
+
+.ai-run-header-title {
+    color: var(--ai-run-title);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ai-run-header-summary {
+    min-width: 0;
+    overflow: hidden;
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-run-caret {
+    justify-self: center;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-run-icon {
+    display: grid;
+    place-items: center;
+    width: calc(16 * var(--gn-ai-unit, 1px));
+    height: calc(16 * var(--gn-ai-unit, 1px));
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+}
+
+.ai-run-spinner {
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    border-width: 1.5px;
+}
+
+.ai-run-steps {
+    margin: 0;
+    padding: calc(4 * var(--gn-ai-unit, 1px)) 0;
+    list-style: none;
+    border-top: 1px solid var(--ai-run-border);
+}
+
+.ai-run-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-height: calc(26 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    color: var(--ai-run-muted);
+}
+
+/* 相邻步骤图标之间的竖线 */
+.ai-run-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    top: calc(21 * var(--gn-ai-unit, 1px));
+    bottom: calc(-5 * var(--gn-ai-unit, 1px));
+    left: calc(17.5 * var(--gn-ai-unit, 1px));
+    width: 1px;
+    background: var(--ai-run-rail);
+}
+
+.ai-run-step[data-activity-status='active'] {
+    color: var(--ai-run-title);
+}
+
+.ai-run-step-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-run-step-trailing {
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* 思考过程块：把模型的推理摘要（`**标题**` + 正文）拆成带标题的步骤，
+   不再原样显示 Markdown 标记。颜色变量由 AIThinkingBlock 按明暗主题注入。 */
+.ai-think {
+    margin-bottom: calc(8 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-think-border);
+    border-radius: calc(8 * var(--gn-ai-unit, 1px));
+    background: var(--ai-think-surface);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow: hidden;
+}
+
+.ai-think-header {
+    display: grid;
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) auto minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    margin: 0;
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    border: 0;
+    background: transparent;
+    color: var(--ai-think-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.ai-think-header:hover {
+    background: var(--ai-think-hover);
+}
+
+.ai-think-header:focus-visible {
+    outline: 2px solid var(--ai-think-accent);
+    outline-offset: -2px;
+}
+
+.ai-think-header-title {
+    color: var(--ai-think-title);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ai-think-meta {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-think-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-think-caret {
+    justify-self: center;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-think-spinner {
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    justify-self: center;
+    border-width: 1.5px;
+    border-color: rgba(139, 92, 246, 0.2);
+    border-top-color: var(--ai-think-accent);
+}
+
+.ai-think-scroll {
+    max-height: calc(320 * var(--gn-ai-unit, 1px));
+    padding: calc(2 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    overflow-y: auto;
+    border-top: 1px solid var(--ai-think-border);
+}
+
+.ai-think-steps {
+    margin: 0;
+    padding: calc(8 * var(--gn-ai-unit, 1px)) 0 0;
+    list-style: none;
+}
+
+.ai-think-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: calc(10 * var(--gn-ai-unit, 1px)) minmax(0, 1fr);
+    column-gap: calc(10 * var(--gn-ai-unit, 1px));
+    padding-bottom: calc(8 * var(--gn-ai-unit, 1px));
+}
+
+/* 步骤之间的竖线，最后一步不画 */
+.ai-think-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    top: calc(14 * var(--gn-ai-unit, 1px));
+    bottom: calc(-2 * var(--gn-ai-unit, 1px));
+    left: calc(4.5 * var(--gn-ai-unit, 1px));
+    width: 1px;
+    background: var(--ai-think-border);
+}
+
+.ai-think-dot {
+    width: calc(7 * var(--gn-ai-unit, 1px));
+    height: calc(7 * var(--gn-ai-unit, 1px));
+    margin: calc(6 * var(--gn-ai-unit, 1px)) calc(1.5 * var(--gn-ai-unit, 1px)) 0;
+    border-radius: 50%;
+    background: var(--ai-think-accent);
+    opacity: 0.55;
+}
+
+.ai-think-dot-header {
+    margin: 0;
+    justify-self: center;
+}
+
+.ai-think-step[data-active='true'] .ai-think-dot {
+    opacity: 1;
+    animation: ai-think-pulse 1.5s ease-in-out infinite;
+}
+
+.ai-think-text {
+    min-width: 0;
+    color: var(--ai-think-muted);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+.ai-think-title {
+    color: var(--ai-think-title);
+    font-weight: 500;
+}
+
+.ai-think-node {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-think-node:hover .ai-think-title {
+    color: var(--ai-think-accent);
+}
+
+.ai-think-node:focus-visible {
+    outline: 2px solid var(--ai-think-accent);
+    outline-offset: 2px;
+}
+
+.ai-think-node-caret {
+    justify-self: center;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-think-body {
+    margin: calc(2 * var(--gn-ai-unit, 1px)) 0 0;
+    white-space: pre-wrap;
+}
+
+.ai-think-text strong {
+    color: var(--ai-think-title);
+    font-weight: 600;
+}
+
+.ai-think-text code {
+    padding: 0 calc(4 * var(--gn-ai-unit, 1px));
+    border-radius: calc(4 * var(--gn-ai-unit, 1px));
+    background: var(--ai-think-code);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: 0.95em;
+}
+
+.ai-think-cursor {
+    display: inline-block;
+    width: calc(6 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    margin-left: calc(4 * var(--gn-ai-unit, 1px));
+    vertical-align: middle;
+    background: var(--ai-think-accent);
+    opacity: 0.8;
+    animation: ai-think-pulse 1s ease-in-out infinite;
+}
+
+@keyframes ai-think-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+/* 审批卡片：琥珀色提示底 + 细边框；“拒绝”是中性描边按钮，“批准”是实心主按钮，
+   右侧下拉在同一个圆角容器里用细分隔线相连。颜色变量由 AIChatRunControls 注入。 */
+.ai-run-approval-card {
+    border: 1px solid var(--ai-approve-border);
+    background: var(--ai-approve-surface);
+}
+
+.ai-approve-icon {
+    color: #d97706;
+}
+
+.ai-run-effect {
+    padding: 0 calc(6 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-approve-border);
+    border-radius: calc(4 * var(--gn-ai-unit, 1px));
+    background: var(--ai-approve-surface);
+    color: #b45309;
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    line-height: calc(18 * var(--gn-ai-unit, 1px));
+    white-space: nowrap;
+}
+
+.ai-run-approval-card .ai-run-control-actions {
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    margin-top: calc(10 * var(--gn-ai-unit, 1px));
+}
+
+.ai-approve-split {
+    display: inline-flex;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-btn {
+    height: calc(28 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(12 * var(--gn-ai-unit, 1px));
+    border-radius: calc(6 * var(--gn-ai-unit, 1px));
+    box-shadow: none;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 500;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-deny {
+    border-color: var(--ai-approve-neutral);
+    background: transparent;
+    color: var(--ai-approve-muted);
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-deny:not(:disabled):hover {
+    border-color: #dc2626;
+    background: rgba(220, 38, 38, 0.06);
+    color: #dc2626;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-main {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-more {
+    width: calc(26 * var(--gn-ai-unit, 1px));
+    margin-left: 1px;
+    padding: 0;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+}
+
+/* 数据探针块：整体一个扁平卡片，每个探针一行；详情（参数 / 结果）点开再看。
+   颜色变量由 AIToolCallingBlock 按明暗主题注入。 */
+.ai-probe {
+    margin-top: calc(10 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-probe-border);
+    border-radius: calc(8 * var(--gn-ai-unit, 1px));
+    background: var(--ai-probe-surface);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow: hidden;
+}
+
+.ai-probe-header,
+.ai-probe-row {
+    display: grid;
+    align-items: center;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ai-probe-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-probe-header {
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+}
+
+.ai-probe-header-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-probe-title);
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-probe-body {
+    border-top: 1px solid var(--ai-probe-border);
+}
+
+.ai-probe-step + .ai-probe-step {
+    border-top: 1px solid var(--ai-probe-divider);
+}
+
+.ai-probe-row {
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) auto calc(12 * var(--gn-ai-unit, 1px));
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    transition: background 0.15s ease;
+}
+
+.ai-probe-row:not(:disabled):hover,
+.ai-probe-header:hover {
+    background: var(--ai-probe-hover);
+}
+
+.ai-probe-row:disabled {
+    cursor: default;
+}
+
+.ai-probe-row:focus-visible,
+.ai-probe-header:focus-visible {
+    outline: 2px solid var(--ai-probe-accent);
+    outline-offset: -2px;
+}
+
+.ai-probe-label {
+    display: flex;
+    align-items: baseline;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+}
+
+.ai-probe-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-probe-title);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-probe-tool {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-probe-muted);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    opacity: 0.75;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-probe-size {
+    color: var(--ai-probe-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ai-probe-caret {
+    justify-self: center;
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    color: var(--ai-probe-muted);
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-probe-spinner {
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    justify-self: center;
+    border-width: 1.5px;
+}
+
+.ai-probe-detail {
+    display: flex;
+    flex-direction: column;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px)) calc(34 * var(--gn-ai-unit, 1px));
+}
+
+.ai-probe-detail-title,
+.ai-probe-meta {
+    color: var(--ai-probe-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+}
+
+.ai-probe-meta {
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    overflow-wrap: anywhere;
+}
+
+.ai-probe-code {
+    margin: 0;
+    max-height: calc(240 * var(--gn-ai-unit, 1px));
+    padding: calc(8 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    overflow: auto;
+    border-radius: calc(6 * var(--gn-ai-unit, 1px));
+    background: var(--ai-probe-code);
+    color: var(--ai-probe-muted);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(11.5 * var(--gn-ai-unit, 1px));
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
 /* 3. Agent风格旋转Loading环 */
 .ai-spinning-ring {
-    width: 14px;
-    height: 14px;
+    width: calc(14 * var(--gn-ai-unit, 1px));
+    height: calc(14 * var(--gn-ai-unit, 1px));
     border: 2px solid rgba(22, 119, 255, 0.2);
     border-top-color: #1677ff;
     border-radius: 50%;
@@ -610,7 +1325,7 @@ body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-inpu
 }
 
 .ai-chat-panel .ant-message {
-    width: min(100%, 720px);
+    width: min(100%, calc(720 * var(--gn-ai-unit, 1px)));
     max-width: calc(100% - 32px);
 }
 

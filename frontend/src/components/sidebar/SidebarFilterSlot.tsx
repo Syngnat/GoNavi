@@ -1,15 +1,4 @@
 import React from 'react';
-import {
-  AppstoreOutlined,
-  CloudOutlined,
-  ClockCircleOutlined,
-  CodeOutlined,
-  EyeOutlined,
-  FileTextOutlined,
-  KeyOutlined,
-  SwitcherOutlined,
-  TableOutlined,
-} from '@ant-design/icons';
 import { Tooltip } from 'antd';
 
 import { t } from '../../i18n';
@@ -21,6 +10,7 @@ import {
   type V2ExplorerFilter,
 } from './sidebarExplorerFilter';
 import RedisSidebarOverviewBar from './RedisSidebarOverviewBar';
+import { renderSidebarObjectIcon } from './sidebarObjectIcons';
 
 type SidebarFilterSlotProps = {
   /** The active connection, used to decide what (if anything) this slot carries. */
@@ -34,17 +24,17 @@ type SidebarFilterSlotProps = {
 };
 
 const V2_EXPLORER_FILTER_ICONS: Record<V2ExplorerFilter, React.ReactNode> = {
-  all: <AppstoreOutlined />,
-  tables: <TableOutlined />,
-  views: <EyeOutlined />,
-  sequences: <KeyOutlined />,
-  routines: <CodeOutlined />,
-  packages: <SwitcherOutlined />,
-  events: <ClockCircleOutlined />,
+  all: renderSidebarObjectIcon('all'),
+  tables: renderSidebarObjectIcon('table'),
+  views: renderSidebarObjectIcon('view'),
+  sequences: renderSidebarObjectIcon('sequence'),
+  routines: renderSidebarObjectIcon('routine'),
+  packages: renderSidebarObjectIcon('package'),
+  events: renderSidebarObjectIcon('event'),
   // A Nacos workbench filters between its two explorer branches, so the icons echo
   // those rather than reusing the relational ones.
-  'nacos-services': <CloudOutlined />,
-  'nacos-configs': <FileTextOutlined />,
+  'nacos-services': renderSidebarObjectIcon('nacosService'),
+  'nacos-configs': renderSidebarObjectIcon('nacosConfig'),
 };
 
 /**

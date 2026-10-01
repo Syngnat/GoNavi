@@ -590,6 +590,12 @@ func buildDataSyncJobEngineConfig(definition syncjob.JobDefinition, runID string
 		return config, nil
 	}
 	needsExplicitProjection := dataSyncJobMappingNeedsExplicitProjection(definition, mapping)
+	if definition.Kind == syncjob.JobKindReconcile && definition.AutoAddColumnsEnabled() && !needsExplicitProjection {
+		// 对账（差异同步）任务开启了「自动补字段」：引擎只有按结构同步内容运行才允许补齐目标缺失字段。
+		// 目标表策略仍由任务/映射决定（默认 existing_only，不会建表）；显式字段映射仍保持仅数据，
+		// 因为引擎对显式映射 + 结构内容是拒绝的。
+		config.Content = "both"
+	}
 	if needsExplicitProjection || dataSyncJobMappingNeedsIdentityObjectRemap(mapping) {
 		engineMapping, err := buildEngineObjectMapping(mapping)
 		if err != nil {
@@ -627,8 +633,7 @@ func dataSyncJobMappingNeedsExplicitProjection(definition syncjob.JobDefinition,
 	// 运行时引擎会按物理主键做行匹配与差异回填，UI 自动填充的识别列
 	// 恰好就是源表主键元数据，二者等价；若因 KeyColumns 降级为显式投影，
 	// 引擎会强制关闭 AutoAddColumns，导致目标缺列永远不被补齐（issue #1014）。
-	structureMigration := definition.Kind == syncjob.JobKindMigration &&
-		dataSyncJobMigrationAllowsSchemaChanges(definition)
+	structureMigration := dataSyncJobStructureSyncEnabled(definition)
 	if len(mapping.Columns) > 0 ||
 		(len(mapping.KeyColumns) > 0 && !structureMigration) ||
 		(!strings.EqualFold(strings.TrimSpace(mapping.SourceTable), strings.TrimSpace(mapping.TargetTable)) && !structureMigration) {
@@ -646,7 +651,7 @@ func dataSyncJobMappingNeedsExplicitProjection(definition syncjob.JobDefinition,
 	// can inspect the target table and emit ALTER TABLE statements. Explicit
 	// mappings are intentionally rejected by the sync engine for schema/both
 	// content, so only structure-capable migration tasks may omit the mapping.
-	return !(definition.Kind == syncjob.JobKindMigration && dataSyncJobMigrationAllowsSchemaChanges(definition))
+	return !dataSyncJobStructureSyncEnabled(definition)
 }
 
 // dataSyncJobMappingNeedsIdentityObjectRemap reports the one kind of object
@@ -675,6 +680,19 @@ func dataSyncJobEffectiveTargetTableStrategy(definition syncjob.JobDefinition, m
 		return taskStrategy
 	}
 	return firstNonEmptySyncJob(mappingStrategy, taskStrategy)
+}
+
+// dataSyncJobStructureSyncEnabled 判定任务是否会让引擎同步结构（至少补齐目标缺失字段）：
+// 迁移任务看同步内容是否含结构；对账任务只在显式开启「自动补字段」时才会。
+func dataSyncJobStructureSyncEnabled(definition syncjob.JobDefinition) bool {
+	switch definition.Kind {
+	case syncjob.JobKindMigration:
+		return dataSyncJobMigrationAllowsSchemaChanges(definition)
+	case syncjob.JobKindReconcile:
+		return definition.AutoAddColumnsEnabled()
+	default:
+		return false
+	}
 }
 
 func dataSyncJobMigrationAllowsSchemaChanges(definition syncjob.JobDefinition) bool {

@@ -42,7 +42,7 @@ describe('aiSettingsModalConfig', () => {
       key: 'deepseek',
       defaultApiFormat: 'openai-responses',
       defaultBaseUrl: 'https://api.deepseek.com',
-      defaultModel: 'deepseek-v4-flash',
+      defaultModel: 'deepseek-flash',
     });
   });
 
@@ -57,7 +57,7 @@ describe('aiSettingsModalConfig', () => {
 
   it('uses stable Gemini and Kimi OpenAI-compatible defaults', () => {
     expect(findPreset('gemini')).toMatchObject({
-      defaultModel: 'gemini-3.6-flash',
+      defaultModel: 'gemini-3.8-flash',
     });
     expect(findPreset('moonshot')).toMatchObject({
       backendType: 'openai',

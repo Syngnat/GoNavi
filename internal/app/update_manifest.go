@@ -64,17 +64,27 @@ type updateNetworkCheckMemory struct {
 }
 
 var (
-	updateFetchStaticManifest = fetchStaticUpdateManifest
-	updateNetworkCheckMu      sync.Mutex
-	updateLastNetworkCheck    updateNetworkCheckMemory
+	updateFetchStaticManifest     = fetchStaticUpdateManifest
+	updateFetchStaticManifestURLs = fetchStaticUpdateManifestFromURLs
+	updateNetworkCheckMu          sync.Mutex
+	updateLastNetworkCheck        updateNetworkCheckMemory
 )
 
 func swapUpdateFetchStaticManifest(next func(updateChannel) (*githubRelease, error)) func() {
 	original := updateFetchStaticManifest
-	updateFetchStaticManifest = next
+	originalURLs := updateFetchStaticManifestURLs
+	updateFetchStaticManifest = func(channel updateChannel, _ DownloadSource) (*githubRelease, error) { return next(channel) }
+	updateFetchStaticManifestURLs = func(channel updateChannel, _ []string) (*githubRelease, error) { return next(channel) }
 	return func() {
 		updateFetchStaticManifest = original
+		updateFetchStaticManifestURLs = originalURLs
 	}
+}
+
+func swapUpdateFetchStaticManifestURLs(next func(updateChannel, []string) (*githubRelease, error)) func() {
+	original := updateFetchStaticManifestURLs
+	updateFetchStaticManifestURLs = next
+	return func() { updateFetchStaticManifestURLs = original }
 }
 
 func updateManifestRemoteURLs(channel updateChannel) []string {
@@ -82,6 +92,39 @@ func updateManifestRemoteURLs(channel updateChannel) []string {
 		return []string{updateMirrorDevManifestURL, updateGitHubDevManifestURL}
 	}
 	return []string{updateMirrorLatestManifestURL, updateGitHubLatestManifestURL}
+}
+
+func updateManifestRemoteURLsForSource(channel updateChannel, preferred DownloadSource) []string {
+	urls := updateManifestRemoteURLs(channel)
+	switch normalizeDownloadSource(string(preferred)) {
+	case DownloadSourceGitHub:
+		urls[0], urls[1] = urls[1], urls[0]
+	case DownloadSourceBero:
+		candidates, err := staticDispatcherDownloadCandidates(urls[0])
+		if err == nil {
+			for _, candidate := range candidates {
+				if downloadSourceForURL(candidate) == DownloadSourceBero {
+					return append([]string{candidate}, urls...)
+				}
+			}
+		}
+	}
+	return urls
+}
+
+func updateMirrorManifestURLs(channel updateChannel) []string {
+	dispatcherURL := updateManifestRemoteURLs(channel)[0]
+	candidates, err := staticDispatcherDownloadCandidates(dispatcherURL)
+	if err != nil {
+		return []string{dispatcherURL}
+	}
+	mirrors := make([]string, 0, 2)
+	for _, candidate := range candidates {
+		if source := downloadSourceForURL(candidate); source == DownloadSourceCst || source == DownloadSourceBero {
+			mirrors = append(mirrors, candidate)
+		}
+	}
+	return mirrors
 }
 
 func updateManifestCachePath(channel updateChannel) string {
@@ -227,8 +270,8 @@ func storeDiskUpdateManifest(channel updateChannel, manifest *updateReleaseManif
 	}
 }
 
-func fetchStaticUpdateManifest(channel updateChannel) (*githubRelease, error) {
-	return fetchStaticUpdateManifestFromURLs(channel, updateManifestRemoteURLs(channel))
+func fetchStaticUpdateManifest(channel updateChannel, preferred DownloadSource) (*githubRelease, error) {
+	return fetchStaticUpdateManifestFromURLs(channel, updateManifestRemoteURLsForSource(channel, preferred))
 }
 
 func fetchStaticUpdateManifestFromURLs(channel updateChannel, manifestURLs []string) (*githubRelease, error) {
@@ -420,9 +463,13 @@ func validateRemoteUpdateManifest(channel updateChannel, manifest *updateRelease
 	return nil
 }
 
-// fetchReleaseForChannel prefers static manifest → GitHub API → disk cache.
-// forceNetwork=false 时：静默检查若距上次成功拉网过近，直接用磁盘缓存。
 func fetchReleaseForChannelPreferringStatic(channel updateChannel, forceNetwork bool) (*githubRelease, error) {
+	return fetchReleaseForChannelWithSource(channel, forceNetwork, DownloadSourceCst)
+}
+
+// GitHub 来源先查静态清单，再查 API，最后尝试镜像；其他来源先查所选镜像。
+// forceNetwork=false 时保留静默检查节流，手动检查总是联网。
+func fetchReleaseForChannelWithSource(channel updateChannel, forceNetwork bool, preferred DownloadSource) (*githubRelease, error) {
 	if channel != updateChannelDev {
 		channel = updateChannelLatest
 	}
@@ -433,26 +480,48 @@ func fetchReleaseForChannelPreferringStatic(channel updateChannel, forceNetwork 
 		}
 	}
 
-	var staticErr error
-	if release, err := updateFetchStaticManifest(channel); err == nil && release != nil {
-		markUpdateNetworkCheck(channel)
-		return release, nil
+	type releaseSource struct {
+		name  string
+		fetch func() (*githubRelease, error)
+	}
+	api := releaseSource{name: "api", fetch: func() (*githubRelease, error) { return fetchReleaseForChannel(channel) }}
+	var sources []releaseSource
+	if normalizeDownloadSource(string(preferred)) == DownloadSourceGitHub {
+		githubManifestURL := updateManifestRemoteURLs(channel)[1]
+		sources = []releaseSource{
+			{name: "github-manifest", fetch: func() (*githubRelease, error) {
+				return updateFetchStaticManifestURLs(channel, []string{githubManifestURL})
+			}},
+			api,
+			{name: "mirror", fetch: func() (*githubRelease, error) {
+				return updateFetchStaticManifestURLs(channel, updateMirrorManifestURLs(channel))
+			}},
+		}
 	} else {
-		staticErr = err
-		if err != nil {
-			logger.Warnf("静态更新清单不可用，回退 GitHub API：channel=%s err=%v", channel, err)
+		sources = []releaseSource{
+			{name: "static", fetch: func() (*githubRelease, error) { return updateFetchStaticManifest(channel, preferred) }},
+			api,
 		}
 	}
-
-	var apiErr error
-	release, err := fetchReleaseForChannel(channel)
-	if err == nil && release != nil {
-		// API 成功时落盘，供下次静态失败/限流时使用
-		storeDiskUpdateManifest(channel, updateManifestFromGitHubRelease(channel, release, nil))
-		markUpdateNetworkCheck(channel)
-		return release, nil
+	var staticErr, apiErr error
+	for _, source := range sources {
+		release, err := source.fetch()
+		if err == nil && release != nil {
+			if source.name == "api" {
+				storeDiskUpdateManifest(channel, updateManifestFromGitHubRelease(channel, release, nil))
+			}
+			markUpdateNetworkCheck(channel)
+			return release, nil
+		}
+		if source.name == "api" {
+			apiErr = err
+		} else {
+			staticErr = errors.Join(staticErr, err)
+		}
+		if err != nil {
+			logger.Warnf("更新元数据来源不可用，尝试回退：channel=%s source=%s err=%v", channel, source.name, err)
+		}
 	}
-	apiErr = err
 
 	if cached, stale := loadDiskUpdateManifest(channel); cached != nil {
 		logger.Warnf("更新检查回退磁盘清单：channel=%s stale=%v staticErr=%v apiErr=%v", channel, stale, staticErr, apiErr)
@@ -493,4 +562,105 @@ func markUpdateNetworkCheck(channel updateChannel) {
 	updateNetworkCheckMu.Lock()
 	updateLastNetworkCheck = updateNetworkCheckMemory{at: time.Now(), channel: channel}
 	updateNetworkCheckMu.Unlock()
+}
+
+func fetchLatestUpdateInfo(channel updateChannel) (UpdateInfo, error) {
+	return fetchLatestUpdateInfoWithOptions(channel, true, DownloadSourceCst)
+}
+
+func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool, preferred DownloadSource) (UpdateInfo, error) {
+	if channel != updateChannelDev {
+		channel = updateChannelLatest
+	}
+	installMode := updateResolveInstallMode()
+	packageType := resolveUpdatePackageType(stdRuntime.GOOS, installMode)
+	if stdRuntime.GOOS == "windows" && packageType == "" {
+		return UpdateInfo{}, localizedUpdateError{
+			key:    "app.update.backend.error.online_update_unsupported",
+			params: map[string]any{"platform": stdRuntime.GOOS + "/" + stdRuntime.GOARCH + "/" + string(installMode)},
+		}
+	}
+
+	// 按首选下载来源选择元数据入口，镜像与 API 失败后仍可回退磁盘缓存。
+	release, err := fetchReleaseForChannelWithSource(channel, forceNetwork, preferred)
+	if err != nil {
+		return UpdateInfo{}, err
+	}
+
+	currentVersion := getCurrentVersion()
+	latestVersion := resolveReleaseVersion(channel, release)
+	if latestVersion == "" {
+		return UpdateInfo{}, localizedUpdateError{key: "app.update.backend.error.latest_version_unparseable"}
+	}
+
+	hasUpdate := false
+	if channel == updateChannelDev {
+		hasUpdate = normalizeVersion(currentVersion) != latestVersion
+	} else {
+		hasUpdate = compareVersion(currentVersion, latestVersion) < 0
+	}
+	if !hasUpdate {
+		return UpdateInfo{
+			HasUpdate:          false,
+			Channel:            string(channel),
+			CurrentVersion:     currentVersion,
+			LatestVersion:      latestVersion,
+			ReleaseName:        release.Name,
+			ReleasePublishedAt: strings.TrimSpace(release.PublishedAt),
+			ReleaseNotesURL:    release.HTMLURL,
+			ReleaseNotes:       strings.TrimSpace(release.Body),
+			InstallMode:        string(installMode),
+			PackageType:        string(packageType),
+			AutoRelaunch:       true,
+		}, nil
+	}
+
+	assetVersion := strings.TrimSpace(release.TagName)
+	if assetVersion == "" || strings.EqualFold(normalizeVersion(assetVersion), updateDevReleaseTag) {
+		assetVersion = latestVersion
+	}
+	assetName, err := expectedAssetNameForInstallMode(stdRuntime.GOOS, stdRuntime.GOARCH, assetVersion, installMode)
+	if err != nil {
+		return UpdateInfo{}, err
+	}
+	asset, err := findReleaseAsset(release.Assets, assetName)
+	if err != nil {
+		return UpdateInfo{}, err
+	}
+
+	sha256Value := normalizeGitHubAssetSHA256(asset.Digest)
+	if sha256Value == "" {
+		hashMap, err := updateFetchReleaseSHA256(release.Assets)
+		if err != nil {
+			return UpdateInfo{}, err
+		}
+		sha256Value = strings.TrimSpace(hashMap[assetName])
+	}
+	if sha256Value == "" {
+		return UpdateInfo{}, localizedUpdateError{key: "app.update.backend.error.sha256_missing_current_package"}
+	}
+	assetURL := updateDispatcherAssetURL(channel, assetVersion, asset.Name)
+	if assetURL == "" {
+		// Keep legacy release metadata usable if an unexpected asset coordinate
+		// cannot be represented by the Dispatcher path validator.
+		assetURL = firstNonEmptyString(asset.BrowserDownloadURL, asset.URL)
+	}
+	return UpdateInfo{
+		HasUpdate:          hasUpdate,
+		Channel:            string(channel),
+		CurrentVersion:     currentVersion,
+		LatestVersion:      latestVersion,
+		ReleaseName:        release.Name,
+		ReleasePublishedAt: strings.TrimSpace(release.PublishedAt),
+		ReleaseNotesURL:    release.HTMLURL,
+		ReleaseNotes:       strings.TrimSpace(release.Body),
+		AssetName:          asset.Name,
+		AssetURL:           assetURL,
+		AssetAPIURL:        strings.TrimSpace(asset.URL),
+		AssetSize:          asset.Size,
+		SHA256:             sha256Value,
+		InstallMode:        string(installMode),
+		PackageType:        string(packageType),
+		AutoRelaunch:       true,
+	}, nil
 }

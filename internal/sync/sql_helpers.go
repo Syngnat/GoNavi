@@ -255,15 +255,56 @@ func normalizeSyncTargetSchemaAndTable(config SyncConfig, tableName string) (str
 		)
 	}
 	targetSchema := strings.TrimSpace(config.TargetSchema)
-	if targetSchema == "" || strings.TrimSpace(config.SourceQuery) != "" {
-		return normalizeSchemaAndTableWithDefaultSchema(config.TargetConfig.Type, selectedSyncTargetDatabase(config), targetSchema, tableName)
+	// 目标 tableName 承载的是源端标识：Oracle/达梦的 GetTables 恒定返回
+	// OWNER.TABLE_NAME，所以选中的 owner 会以点号前缀出现在表名前。目标未显式
+	// 指定 schema 时，这层源端 owner 会被下游的点号切分当成目标 schema，生成
+	// CREATE TABLE "CLOUD_SHOW"."ACT_BUSINESS" —— 海量/PostgreSQL 系目标上没有
+	// 该 schema，建表阶段即以 3F001 失败，且不产生可重试错误行
+	// （issue：Oracle -> 海量 同步建表失败）。
+	//
+	// 显式指定了目标 schema 时保持原行为（一律取末段）；只有目标 schema 为空、
+	// 且点号前缀与本连接选中的源 owner 完全一致时才剥离。判据刻意收窄是为了
+	// 不截断"点号属于表名本身"的场景（MySQL 允许表名含点，SQL Server/DuckDB
+	// 的点号是表名结构）。source-query 模式下 tableName 是用户手写的目标对象名，
+	// 前缀是用户意图，一律保留。
+	targetTable := tableName
+	if strings.TrimSpace(config.SourceQuery) == "" {
+		switch prefix, last := splitSyncTableQualifier(tableName); {
+		case targetSchema != "":
+			targetTable = lastSyncTableIdentifier(tableName)
+		case prefix != "" && isSelectedSyncSourceOwner(config, prefix):
+			targetTable = last
+		}
 	}
 	return normalizeSchemaAndTableWithDefaultSchema(
 		config.TargetConfig.Type,
 		selectedSyncTargetDatabase(config),
 		targetSchema,
-		lastSyncTableIdentifier(tableName),
+		targetTable,
 	)
+}
+
+// isSelectedSyncSourceOwner 判定限定名前缀是否就是本连接选中的源 schema/owner。
+// 只有这种情况才能认定前缀是源端限定符而非表名的一部分。
+func isSelectedSyncSourceOwner(config SyncConfig, prefix string) bool {
+	owner := strings.TrimSpace(selectedSyncSourceDatabase(config))
+	return owner != "" && strings.EqualFold(strings.TrimSpace(prefix), owner)
+}
+
+// splitSyncTableQualifier 把限定名拆成首个点号前的前缀与其余部分。
+// 返回空前缀表示没有可识别的限定前缀。
+func splitSyncTableQualifier(tableName string) (string, string) {
+	raw := strings.TrimSpace(tableName)
+	prefix, rest, found := strings.Cut(raw, ".")
+	if !found {
+		return "", raw
+	}
+	prefix = strings.TrimSpace(prefix)
+	rest = strings.TrimSpace(rest)
+	if prefix == "" || rest == "" {
+		return "", raw
+	}
+	return prefix, rest
 }
 
 func shouldUseQualifiedSyncApplyTable(config connection.ConnectionConfig) bool {

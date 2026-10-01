@@ -10,6 +10,7 @@ import {
   resolveOverlayAIPanelWidth,
   shouldOverlayAIPanel,
   shouldUseFullscreenAIPanelOverlay,
+  sanitizeAIPanelWidth,
 } from './aiPanelLayout';
 
 describe('aiPanelLayout', () => {
@@ -81,5 +82,19 @@ describe('aiPanelLayout', () => {
     expect(shouldUseFullscreenAIPanelOverlay(640)).toBe(false);
     expect(resolveFullscreenAIPanelOverlayWidth(390)).toBe(DEFAULT_AI_PANEL_WIDTH);
     expect(resolveFullscreenAIPanelOverlayWidth(320)).toBe(320);
+  });
+});
+
+describe('sanitizeAIPanelWidth', () => {
+  it('keeps a dragged width and floors it at the dock minimum', () => {
+    expect(sanitizeAIPanelWidth(520)).toBe(520);
+    expect(sanitizeAIPanelWidth(MIN_AI_PANEL_WIDTH - 40)).toBe(MIN_AI_PANEL_WIDTH);
+  });
+
+  it('falls back to the default for missing or invalid persisted values', () => {
+    expect(sanitizeAIPanelWidth(undefined)).toBe(DEFAULT_AI_PANEL_WIDTH);
+    expect(sanitizeAIPanelWidth(0)).toBe(DEFAULT_AI_PANEL_WIDTH);
+    expect(sanitizeAIPanelWidth('wide')).toBe(DEFAULT_AI_PANEL_WIDTH);
+    expect(sanitizeAIPanelWidth(-100)).toBe(DEFAULT_AI_PANEL_WIDTH);
   });
 });

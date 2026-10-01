@@ -1,3 +1,5 @@
+import type { WorkbenchTabType } from './tabTypes';
+
 export interface SSHConfig {
   host: string;
   port: number;
@@ -512,39 +514,7 @@ export interface TableExportHistoryEntry {
 export interface TabData {
   id: string;
   title: string;
-  type:
-    | "query"
-    | "table"
-    | "design"
-    | "data-sync"
-    | "sql-file-execution"
-    | "sql-analysis"
-    | "sql-audit"
-    | "dml-snapshot"
-    | "driver-manager"
-    | "settings-center"
-    | "request-diagnostics"
-    | "message-queue"
-    | "redis-keys"
-    | "redis-command"
-    | "redis-monitor"
-    | "nacos-config"
-    | "nacos-services"
-    | "trigger"
-    | "view-def"
-    | "event-def"
-    | "routine-def"
-    | "sequence-def"
-    | "package-def"
-    | "database-link-def"
-    | "table-overview"
-    | "table-export"
-    | "data-import"
-    | "jvm-overview"
-    | "jvm-resource"
-    | "jvm-audit"
-    | "jvm-diagnostic"
-    | "jvm-monitoring";
+  type: WorkbenchTabType;
   connectionId: string;
   dbName?: string;
   tableName?: string;
@@ -747,6 +717,28 @@ export type AIProviderAuthMode = "api-key" | "bearer" | "local-cli";
 export type AISafetyLevel = "readonly" | "readwrite" | "full";
 export type AIContextLevel = "schema_only" | "with_samples" | "with_results";
 
+/**
+ * A context item is either a durable schema attachment or an explicitly
+ * attached editor selection.  The optional fields keep the legacy table
+ * contract (`dbName`, `tableName`, `ddl`) JSON-compatible while allowing the
+ * composer to describe other bounded sources without another store.
+ */
+export type AIContextItemKind = "table_schema" | "editor_selection";
+
+export interface AIEditorSelection {
+  tabId: string;
+  tabTitle?: string;
+  connectionId?: string;
+  dbName?: string;
+  language?: string;
+  text: string;
+  startLine?: number;
+  startColumn?: number;
+  endLine?: number;
+  endColumn?: number;
+  truncated?: boolean;
+}
+
 export interface AIResultMaskingSettings {
   enabled: boolean;
   fullMaskFields: string[];
@@ -757,6 +749,13 @@ export interface AIContextItem {
   dbName: string;
   tableName: string;
   ddl: string;
+  kind?: AIContextItemKind;
+  /** Human-readable source label shown in the composer chip. */
+  label?: string;
+  /** Original bounded content for non-table context items. */
+  content?: string;
+  source?: Pick<AIEditorSelection, "tabId" | "tabTitle" | "connectionId" | "dbName" | "language"
+    | "startLine" | "startColumn" | "endLine" | "endColumn" | "truncated">;
 }
 
 export interface AIProviderConfig {
@@ -774,6 +773,11 @@ export interface AIProviderConfig {
   /** Per-configuration suggestions only; absent fields preserve legacy behavior. */
   disabledModels?: string[];
   customModels?: string[];
+  /**
+   * 用户从模型列表里删除的模型：删除后不再出现在列表里（含内置预设与上游同步来的同名项），
+   * 因此需要持久化。与 disabledModels 的区别是「删除」而非「停用」。
+   */
+  removedModels?: string[];
   apiFormat?: string; // openai 可选 openai-responses；custom 支持 openai/anthropic/gemini/CLI 等格式
   headers?: Record<string, string>;
   maxTokens: number;
@@ -951,6 +955,8 @@ export interface AIChatMessage {
   tokenUsage?: AIChatTokenUsage;
   /** Redacted, ordered execution steps retained with this assistant message. */
   runActivities?: AIChatRunActivity[];
+  /** Time the AI actually spent on this reply (model and tools, approval waits excluded). */
+  processingMs?: number;
   tool_call_id?: string;
   tool_name?: string; // used for UI display
   rawError?: string; // 存储未清洗的原始错误信息，用于用户复制排查

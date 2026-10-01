@@ -20,6 +20,8 @@ import type { DataSyncMetadataResult } from './useDataSyncMetadata';
 const normalizeName = (value: string): string => value.trim().toLowerCase();
 
 const MAPPING_BATCH_SIZE = 100;
+/** 定位高亮的保留时长：够看清跳到了哪一行，又不至于长时间干扰阅读。 */
+const LOCATED_HIGHLIGHT_MS = 2400;
 const OBJECT_COMBOBOX_MENU_GAP = 3;
 const OBJECT_COMBOBOX_MENU_MAX_HEIGHT = 260;
 const OBJECT_COMBOBOX_MENU_MIN_HEIGHT = 120;
@@ -326,6 +328,12 @@ export const DataSyncMappingTable: React.FC<{
   onRemove: (mappingId: string) => void;
   onRemoveMany?: (mappingIds: string[]) => void;
   onInspectFields?: (mappingId: string) => void;
+  /**
+   * 需要滚动到并高亮的映射行 id。预检问题点「定位」时由外层传入；
+   * 行被找到后由 `onLocated` 通知外层清空，避免再次渲染时重复跳动。
+   */
+  focusMappingId?: string;
+  onLocated?: () => void;
 }> = ({
   mappings,
   taskKind,
@@ -342,12 +350,17 @@ export const DataSyncMappingTable: React.FC<{
   onRemove,
   onRemoveMany,
   onInspectFields,
+  focusMappingId,
+  onLocated,
 }) => {
   const [catalogSearch, setCatalogSearch] = useState('');
   const [expandedMappingIds, setExpandedMappingIds] = useState<Set<string>>(
     new Set(),
   );
   const [visibleLimit, setVisibleLimit] = useState(MAPPING_BATCH_SIZE);
+  // 定位后短暂高亮的行。定时清除，避免用户下一次进来看见一个「不知道哪来的」高亮。
+  const [locatedMappingId, setLocatedMappingId] = useState('');
+  const locateTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const mappingListRef = useRef<HTMLDivElement | null>(null);
   const previousMappingIdsRef = useRef(
     new Set(mappings.map((mapping) => mapping.id)),
@@ -542,6 +555,69 @@ export const DataSyncMappingTable: React.FC<{
     );
   }, [mappings, orderedMappings]);
 
+  useEffect(() => {
+    const target = (focusMappingId || '').trim();
+    if (!target) return undefined;
+    const index = orderedMappings.findIndex((mapping) => mapping.id === target);
+    if (index < 0) {
+      // 行可能对不上（后端稳定键与本地行 id 分属两套标识）。交给外层决定
+      // 如何处理，这里保持沉默，避免弹出与用户操作无关的错误。
+      onLocated?.();
+      return undefined;
+    }
+    // 目标行可能落在「显示更多」之外：先展开到它，再滚动定位。
+    setVisibleLimit((current) => (index < current ? current : index + 1));
+    const schedule =
+      typeof globalThis.requestAnimationFrame === 'function'
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : (callback: FrameRequestCallback) => {
+            callback(0);
+            return 0;
+          };
+    const handle = schedule(() => {
+      // 逐行比对而不是拼选择器：映射 id 含冒号，直接拼进 querySelector 会
+      // 被当成伪类，且 CSS.escape 在测试环境里不一定可用。
+      const rows = Array.from(
+        mappingListRef.current?.querySelectorAll<HTMLElement>('[data-mapping-id]') || [],
+      );
+      const row = rows.find((candidate) => candidate.dataset.mappingId === target);
+      if (!row) {
+        onLocated?.();
+        return;
+      }
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row
+        .querySelector<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
+        )
+        ?.focus();
+      setLocatedMappingId(target);
+      if (locateTimerRef.current !== null) {
+        globalThis.clearTimeout(locateTimerRef.current);
+      }
+      locateTimerRef.current = globalThis.setTimeout(() => {
+        locateTimerRef.current = null;
+        setLocatedMappingId('');
+      }, LOCATED_HIGHLIGHT_MS);
+      onLocated?.();
+    });
+    return () => {
+      if (typeof globalThis.cancelAnimationFrame === 'function') {
+        globalThis.cancelAnimationFrame(handle);
+      }
+    };
+  }, [focusMappingId, orderedMappings, onLocated]);
+
+  useEffect(
+    () => () => {
+      if (locateTimerRef.current !== null) {
+        globalThis.clearTimeout(locateTimerRef.current);
+        locateTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   return (
     <section
       className={`gn-data-sync-section${showCatalog ? ' gn-data-sync-section--mappings' : ''}`}
@@ -680,6 +756,7 @@ export const DataSyncMappingTable: React.FC<{
                 key={mapping.id}
                 className="gn-data-sync-mapping-row"
                 data-mapping-id={mapping.id}
+                data-located={locatedMappingId === mapping.id ? 'true' : 'false'}
                 data-ready={ready ? 'true' : 'false'}
                 data-source-locked={showCatalog ? 'true' : 'false'}
                 data-expanded={detailsOpen ? 'true' : 'false'}

@@ -4,6 +4,7 @@ import { MenuFoldOutlined, PlusOutlined, DeleteOutlined, SearchOutlined } from '
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useStore, type AIChatSessionSummary } from '../../store';
 import { useOptionalI18n } from '../../i18n/provider';
+import { aiPx } from './aiScale';
 
 interface AIHistoryDrawerProps {
     open: boolean;
@@ -77,7 +78,7 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
             }}
         >
             <div style={{ padding: '16px 16px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: textColor }}>{t('ai_chat.history.title')}</span>
+                <span style={{ fontSize: aiPx(14), fontWeight: 600, color: textColor }}>{t('ai_chat.history.title')}</span>
                 <Tooltip title={t('ai_chat.history.tooltip.collapse')}>
                     <Button type="text" size="small" icon={<MenuFoldOutlined />} onClick={onClose} style={{ color: mutedColor }} />
                 </Tooltip>
@@ -111,7 +112,7 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 16px' }} className="ai-history-list">
                 {filteredSessions.length === 0 ? (
-                    <div style={{ padding: '30px 0', textAlign: 'center', color: mutedColor, fontSize: 12 }}>{emptyStateText}</div>
+                    <div style={{ padding: '30px 0', textAlign: 'center', color: mutedColor, fontSize: aiPx(12) }}>{emptyStateText}</div>
                 ) : (
                     filteredSessions.map(session => (
                         <div
@@ -136,10 +137,10 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
                             }}
                         >
                             <div style={{ overflow: 'hidden', flex: 1, paddingRight: 8 }}>
-                                <div style={{ fontSize: 13, color: textColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: sessionId === session.id ? 600 : 'normal' }}>
+                                <div style={{ fontSize: aiPx(13), color: textColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: sessionId === session.id ? 600 : 'normal' }}>
                                     {session.title || defaultSessionTitle}
                                 </div>
-                                <div style={{ fontSize: 11, color: mutedColor, marginTop: 4 }}>
+                                <div style={{ fontSize: aiPx(11), color: mutedColor, marginTop: 4 }}>
                                     {new Date(session.updatedAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                 </div>
                             </div>

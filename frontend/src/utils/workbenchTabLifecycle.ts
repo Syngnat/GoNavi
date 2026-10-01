@@ -1,13 +1,14 @@
 import type { TabData } from '../types';
 
+// Query editors stay mounted while their tab is hidden. Unmounting disposes
+// Monaco, and creating a new editor always starts at the top of the file.
+// A real tab close still unmounts the editor, which is what rolls a managed
+// transaction back.
 export const shouldDestroyHiddenWorkbenchTab = (
-  tab: Pick<TabData, 'id' | 'type'>,
-  pendingTransactions: Record<string, unknown> | null | undefined,
-  hasPendingResultChanges = false,
-): boolean => (
-  // The transaction controller treats unmount as tab close and rolls back.
-  tab.type === 'query' && !pendingTransactions?.[tab.id] && !hasPendingResultChanges
-);
+  _tab: Pick<TabData, 'id' | 'type'>,
+  _pendingTransactions?: Record<string, unknown> | null,
+  _hasPendingResultChanges = false,
+): boolean => false;
 
 export const shouldBlockWorkbenchTabDetach = (
   tab: Pick<TabData, 'type'>,

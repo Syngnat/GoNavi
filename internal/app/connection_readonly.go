@@ -27,6 +27,9 @@ var connectionReadOnlySupportedTypes = map[string]struct{}{
 	"highgo":        {},
 	"iris":          {},
 	"cache":         {},
+	"iotdb":         {},
+	"apache-iotdb":  {},
+	"apache_iotdb":  {},
 	"kingbase":      {},
 	"mariadb":       {},
 	"mongodb":       {},
@@ -43,6 +46,7 @@ var connectionReadOnlySupportedTypes = map[string]struct{}{
 	"tdengine":      {},
 	"trino":         {},
 	"vastbase":      {},
+	"goldendb":      {},
 }
 
 var mongoReadOnlyCommands = map[string]struct{}{
@@ -165,10 +169,13 @@ var readOnlyConnectionActionTextKeys = map[string]string{
 	"connection.backend.action.data_sync_structure":        "connection.backend.action.data_sync_structure",
 	"数据同步写入":                                               "connection.backend.action.data_sync_write",
 	"connection.backend.action.data_sync_write":            "connection.backend.action.data_sync_write",
+	"connection.backend.action.user_management":            "connection.backend.action.user_management",
+	"connection.backend.action.cancel_database_query":      "connection.backend.action.cancel_database_query",
+	"connection.backend.action.terminate_database_session": "connection.backend.action.terminate_database_session",
 }
 
 func supportsConnectionReadOnlyMode(config connection.ConnectionConfig) bool {
-	_, ok := connectionReadOnlySupportedTypes[resolveDDLDBType(config)]
+	_, ok := connectionReadOnlySupportedTypes[resolveConnectionProtectionDBType(config)]
 	return ok
 }
 

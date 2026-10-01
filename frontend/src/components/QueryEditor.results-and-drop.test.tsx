@@ -345,7 +345,11 @@ vi.mock('../store', async (importOriginal) => {
       () => selector(storeState),
       () => selector(storeState),
     ),
-    { getState: () => storeState },
+    {
+      getState: () => storeState,
+      // queryEditorResultSessionLifecycle 用 useStore.subscribe 监听 activeTabId；这里的用例不切换标签。
+      subscribe: () => () => undefined,
+    },
   );
   return { ...actual, useStore };
 });

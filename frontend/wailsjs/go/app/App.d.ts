@@ -11,6 +11,7 @@ import {jvm} from '../models';
 import {db} from '../models';
 import {redis} from '../models';
 import {resultdiff} from '../models';
+import {dbuser} from '../models';
 
 export function AnalyzeQueryParameters(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<app.QueryParameterAnalysis>;
 
@@ -92,6 +93,8 @@ export function DBCommitTransactionWithTrigger(arg1:string,arg2:string):Promise<
 
 export function DBConnect(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
 
+export function DBExecuteSessionAction(arg1:connection.ConnectionConfig,arg2:string,arg3:connection.SessionActionRequest):Promise<connection.QueryResult>;
+
 export function DBGetAllColumns(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
 export function DBGetAllColumnsContext(arg1:context.Context,arg2:connection.ConnectionConfig,arg3:string):Promise<connection.QueryResult>;
@@ -141,6 +144,10 @@ export function DBGetTriggersContext(arg1:context.Context,arg2:connection.Connec
 export function DBGetViews(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
 export function DBGetViewsContext(arg1:context.Context,arg2:connection.ConnectionConfig,arg3:string):Promise<connection.QueryResult>;
+
+export function DBListSessionDatabases(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
+
+export function DBListSessions(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
 export function DBQuery(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
@@ -322,6 +329,10 @@ export function ExportDatabaseSQLWithOptions(arg1:connection.ConnectionConfig,ar
 
 export function ExportDatabasesSQLWithOptions(arg1:connection.ConnectionConfig,arg2:Array<string>,arg3:boolean,arg4:app.ExportFileOptions):Promise<connection.QueryResult>;
 
+export function ExportDriverPackage(arg1:string,arg2:string):Promise<connection.QueryResult>;
+
+export function ExportDriverPackageSelection(arg1:string,arg2:string,arg3:Array<string>):Promise<connection.QueryResult>;
+
 export function ExportImportErrorRows(arg1:string):Promise<connection.QueryResult>;
 
 export function ExportQuery(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string,arg5:string):Promise<connection.QueryResult>;
@@ -427,6 +438,8 @@ export function ImportLegacyConnections(arg1:Array<connection.SavedConnectionInp
 export function ImportLegacyGlobalProxy(arg1:connection.SaveGlobalProxyInput):Promise<connection.GlobalProxyView>;
 
 export function ImportSavedQueries(arg1:connection.SavedQueryImportPayload):Promise<Array<connection.SavedQuery>>;
+
+export function InspectDriverPackage(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function InspectElasticsearchConsole(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<app.ElasticsearchConsoleInspection>;
 
@@ -736,6 +749,8 @@ export function SelectDriverPackageDirectory(arg1:string):Promise<connection.Que
 
 export function SelectDriverPackageFile(arg1:string):Promise<connection.QueryResult>;
 
+export function SelectDriverPackageZipFile(arg1:string):Promise<connection.QueryResult>;
+
 export function SelectLogDirectory(arg1:string):Promise<connection.QueryResult>;
 
 export function SelectSQLDirectory(arg1:string):Promise<connection.QueryResult>;
@@ -783,6 +798,20 @@ export function TrustSSHHostKeyForConnection(arg1:connection.ConnectionConfig,ar
 export function UpdateConnectionVisibility(arg1:connection.ConnectionVisibilityInput):Promise<connection.SavedConnectionView>;
 
 export function UpdateSQLAuditSettings(arg1:sqlaudit.Settings):Promise<connection.QueryResult>;
+
+export function UserMgmtApply(arg1:connection.ConnectionConfig,arg2:dbuser.ChangeRequest,arg3:string):Promise<connection.QueryResult>;
+
+export function UserMgmtDescribePrincipal(arg1:connection.ConnectionConfig,arg2:dbuser.DescribeQuery):Promise<connection.QueryResult>;
+
+export function UserMgmtDropImpact(arg1:connection.ConnectionConfig,arg2:dbuser.PrincipalRef):Promise<connection.QueryResult>;
+
+export function UserMgmtExportDDL(arg1:connection.ConnectionConfig,arg2:dbuser.PrincipalRef):Promise<connection.QueryResult>;
+
+export function UserMgmtOverview(arg1:connection.ConnectionConfig,arg2:dbuser.ListQuery):Promise<connection.QueryResult>;
+
+export function UserMgmtPreview(arg1:connection.ConnectionConfig,arg2:dbuser.ChangeRequest):Promise<connection.QueryResult>;
+
+export function UserMgmtSyncConnectionPassword(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function VerifySQLAuditIntegrity():Promise<connection.QueryResult>;
 

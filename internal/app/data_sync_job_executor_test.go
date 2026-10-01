@@ -555,3 +555,76 @@ func TestBuildDataSyncJobEngineConfigPreservesExplicitMappingStrategy(t *testing
 		t.Fatalf("explicit mapping strategy = %q, want existing_only", config.TargetTableStrategy)
 	}
 }
+
+// 对账（差异同步）任务可选开启「自动补字段」：引擎必须按结构同步内容运行才允许补齐目标缺失字段，
+// 但仍不建表；显式字段映射继续保持仅数据（引擎拒绝显式映射 + 结构内容）。
+func TestBuildDataSyncJobEngineConfigReconcileAutoAddColumns(t *testing.T) {
+	build := func(autoAdd *bool, mapping syncjob.TableMapping) syncbackend.SyncConfig {
+		t.Helper()
+		config, err := buildDataSyncJobEngineConfig(
+			syncjob.JobDefinition{
+				Kind: syncjob.JobKindReconcile,
+				Options: syncjob.ExecutionOptions{
+					Content:        "data",
+					AutoAddColumns: autoAdd,
+					SyncMode:       "insert_update",
+				},
+			},
+			"run-reconcile",
+			resolvedDataSyncJobEndpoint{Config: connection.ConnectionConfig{Type: "oracle"}, Database: "src"},
+			resolvedDataSyncJobEndpoint{Config: connection.ConnectionConfig{Type: "mysql"}, Database: "dst"},
+			mapping,
+		)
+		if err != nil {
+			t.Fatalf("buildDataSyncJobEngineConfig returned error: %v", err)
+		}
+		return config
+	}
+	implicit := syncjob.TableMapping{SourceTable: "orders", TargetTable: "orders", KeyColumns: []string{"id"}}
+
+	on := build(boolPtr(true), implicit)
+	if on.Content != "both" || !on.AutoAddColumns {
+		t.Fatalf("opted-in reconcile must run with structure content and auto-add, got content=%q autoAdd=%v", on.Content, on.AutoAddColumns)
+	}
+	if on.TargetTableStrategy == "smart" || on.TargetTableStrategy == "auto_create_if_missing" {
+		t.Fatalf("auto-adding columns must not enable table creation, got %q", on.TargetTableStrategy)
+	}
+	if len(on.Mappings) != 0 {
+		t.Fatalf("opted-in reconcile with detected keys must stay implicit, got %#v", on.Mappings)
+	}
+
+	off := build(nil, implicit)
+	if off.Content != "data" || off.AutoAddColumns {
+		t.Fatalf("reconcile defaults must stay data-only without auto-add, got content=%q autoAdd=%v", off.Content, off.AutoAddColumns)
+	}
+	if len(off.Mappings) != 1 {
+		t.Fatalf("default reconcile with key columns keeps the explicit projection route, got %#v", off.Mappings)
+	}
+
+	explicit := build(boolPtr(true), syncjob.TableMapping{
+		SourceTable: "orders", TargetTable: "orders", KeyColumns: []string{"id"},
+		Columns: []syncjob.ColumnMapping{{Source: "name", Target: "full_name"}},
+	})
+	if explicit.Content != "data" || explicit.AutoAddColumns {
+		t.Fatalf("explicit field mappings must stay data-only, got content=%q autoAdd=%v", explicit.Content, explicit.AutoAddColumns)
+	}
+}
+
+func TestDataSyncJobStructureSyncEnabled(t *testing.T) {
+	cases := []struct {
+		name       string
+		definition syncjob.JobDefinition
+		want       bool
+	}{
+		{"migration both", syncjob.JobDefinition{Kind: syncjob.JobKindMigration, Options: syncjob.ExecutionOptions{Content: "both"}}, true},
+		{"migration data", syncjob.JobDefinition{Kind: syncjob.JobKindMigration, Options: syncjob.ExecutionOptions{Content: "data"}}, false},
+		{"reconcile default", syncjob.JobDefinition{Kind: syncjob.JobKindReconcile}, false},
+		{"reconcile opted in", syncjob.JobDefinition{Kind: syncjob.JobKindReconcile, Options: syncjob.ExecutionOptions{AutoAddColumns: boolPtr(true)}}, true},
+		{"compare ignores the flag", syncjob.JobDefinition{Kind: syncjob.JobKindCompare, Options: syncjob.ExecutionOptions{AutoAddColumns: boolPtr(true)}}, false},
+	}
+	for _, tc := range cases {
+		if got := dataSyncJobStructureSyncEnabled(tc.definition); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

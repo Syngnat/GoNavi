@@ -357,6 +357,8 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const selectedTaskIdRef = useRef(selectedTaskId);
   selectedTaskIdRef.current = selectedTaskId;
   const [activeStage, setActiveStage] = useState<DataSyncTaskStage>('endpoints');
+  // 预检问题「定位」时携带的映射引用；由编辑器解析成具体行并回报清空。
+  const [focusMappingRef, setFocusMappingRef] = useState('');
   const [search, setSearch] = useState('');
   const [showKindSelector, setShowKindSelector] = useState(false);
   const [taskRailOpen, setTaskRailOpen] = useState(false);
@@ -1663,10 +1665,13 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     }
   };
 
-  const locateIssue = (stage: DataSyncTaskStage) => {
+  const locateIssue = (stage: DataSyncTaskStage, mappingRef?: string) => {
     setActiveView('tasks');
     setShowKindSelector(false);
     setActiveStage(stage);
+    // 映射引用交给编辑器解析：本地校验给行 id，后端给稳定键，只有编辑器
+    // 同时掌握两套标识与任务级 schema。
+    setFocusMappingRef((mappingRef || '').trim());
   };
 
   const transitionLifecycle = (
@@ -2285,6 +2290,8 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
                   activeStage={activeStage}
                   preflight={selectedPreflight}
                   preflightStale={preflightStale}
+                  focusMappingRef={focusMappingRef}
+                  onMappingLocated={() => setFocusMappingRef('')}
                   preflightContent={(
                     <DataSyncPreflightPanel
                       snapshot={selectedPreflight}

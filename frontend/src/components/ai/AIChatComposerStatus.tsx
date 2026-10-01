@@ -12,6 +12,7 @@ import { useOptionalI18n } from '../../i18n/provider';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import type { AIComposerNoticeAction } from '../../utils/aiComposerNotice';
 import type { AIChatReadinessSnapshot } from './aiChatReadiness';
+import { aiPx } from './aiScale';
 
 interface AIChatComposerStatusProps {
   snapshot: AIChatReadinessSnapshot;
@@ -87,12 +88,12 @@ const resolvePalette = (
 
 const resolveIcon = (snapshot: AIChatReadinessSnapshot) => {
   if (snapshot.status === 'loading_models') {
-    return <LoadingOutlined style={{ fontSize: 14 }} />;
+    return <LoadingOutlined style={{ fontSize: aiPx(14) }} />;
   }
   if (snapshot.ready) {
-    return <CheckCircleFilled style={{ fontSize: 14 }} />;
+    return <CheckCircleFilled style={{ fontSize: aiPx(14) }} />;
   }
-  return <ExclamationCircleFilled style={{ fontSize: 14 }} />;
+  return <ExclamationCircleFilled style={{ fontSize: aiPx(14) }} />;
 };
 
 const AIChatComposerStatus: React.FC<AIChatComposerStatusProps> = ({
@@ -135,7 +136,7 @@ const AIChatComposerStatus: React.FC<AIChatComposerStatusProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span
               style={{
-                fontSize: 11,
+                fontSize: aiPx(11),
                 fontWeight: 700,
                 padding: '2px 8px',
                 borderRadius: 999,
@@ -145,13 +146,13 @@ const AIChatComposerStatus: React.FC<AIChatComposerStatusProps> = ({
             >
               {snapshot.label}
             </span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: overlayTheme.titleText }}>
+            <span style={{ fontSize: aiPx(12), fontWeight: 600, color: overlayTheme.titleText }}>
               {snapshot.title}
             </span>
           </div>
           <div
             style={{
-              fontSize: 11,
+              fontSize: aiPx(11),
               color: overlayTheme.mutedText,
               lineHeight: 1.5,
               marginTop: 4,

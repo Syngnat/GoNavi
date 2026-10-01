@@ -45,6 +45,16 @@ type BuiltinThemePalette = {
   shadowCard: string;
   kbdBg: string;
   kbdFg: string;
+  /**
+   * 标题栏 / 工具条彩色图标的核心色（见 titlebarIconTokens.css）。
+   * 刻意选用与主题强调色色相拉开的高饱和色，让图标在低饱和的主题底色上一眼可辨。
+   */
+  icons: {
+    primary: string;
+    accent: string;
+    badge: string;
+    warm: string;
+  };
 };
 
 export type BuiltinCustomThemePreset = CustomThemeDefinition & {
@@ -320,6 +330,11 @@ body[data-custom-theme][data-ui-version="v2"] {
   --gn-kbd-bg: ${palette.kbdBg};
   --gn-kbd-fg: ${palette.kbdFg};
 
+  --gn-titlebar-icon-primary: ${palette.icons.primary};
+  --gn-titlebar-icon-accent: ${palette.icons.accent};
+  --gn-titlebar-icon-badge: ${palette.icons.badge};
+  --gn-titlebar-icon-warm: ${palette.icons.warm};
+
   --gn-accent-hover: ${mixHex(palette.accent, accentStateAnchor(palette), ACCENT_HOVER_RATIO)};
   --gn-accent-active: ${mixHex(palette.accent, accentStateAnchor(palette), ACCENT_ACTIVE_RATIO)};
 
@@ -553,6 +568,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#79a6c9', infoSoft: 'rgba(121, 166, 201, 0.14)', onInfo: '#10202d', warn: '#c6a15b', warnSoft: 'rgba(198, 161, 91, 0.15)', danger: '#d47777', dangerStrong: '#b3575d', dangerHover: '#a74f56', onDanger: '#ffffff', purple: '#9b8ab5', purpleSoft: 'rgba(155, 138, 181, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.16)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.24)', shadowLg: '0 12px 36px rgba(0, 0, 0, 0.32)', shadowCard: '0 0 0 0.5px rgba(255, 255, 255, 0.07), 0 1px 3px rgba(0, 0, 0, 0.18)',
       kbdBg: '#2d3138', kbdFg: '#bbc0c7',
+      icons: { primary: '#60a5fa', accent: '#fb923c', badge: '#4ade80', warm: '#fbbf24' },
     },
     'app.theme.custom.preset.badge.recommended',
   ),
@@ -570,6 +586,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#6cb6d9', infoSoft: 'rgba(108, 182, 217, 0.15)', onInfo: '#10202d', warn: '#d0a85c', warnSoft: 'rgba(208, 168, 92, 0.16)', danger: '#df7d84', dangerStrong: '#b15860', dangerHover: '#a04d55', onDanger: '#ffffff', purple: '#9c8bc4', purpleSoft: 'rgba(156, 139, 196, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(199, 210, 223, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#223142', kbdFg: '#c7d2df',
+      icons: { primary: '#2dd4bf', accent: '#f472b6', badge: '#4ade80', warm: '#fbbf24' },
     },
   ),
   createPreset(
@@ -586,6 +603,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#89add0', infoSoft: 'rgba(137, 173, 208, 0.17)', onInfo: '#17212b', warn: '#ebcb8b', warnSoft: 'rgba(235, 203, 139, 0.16)', danger: '#df858d', dangerStrong: '#a94f59', dangerHover: '#943f49', onDanger: '#ffffff', purple: '#b993b2', purpleSoft: 'rgba(185, 147, 178, 0.17)',
       shadowSm: '0 1px 2px rgba(20, 24, 31, 0.24)', shadowMd: '0 4px 14px rgba(20, 24, 31, 0.32)', shadowLg: '0 12px 38px rgba(20, 24, 31, 0.42)', shadowCard: '0 0 0 0.5px rgba(216, 222, 233, 0.08), 0 1px 3px rgba(20, 24, 31, 0.25)',
       kbdBg: '#3b4351', kbdFg: '#d8dee9',
+      icons: { primary: '#7aa2f7', accent: '#ff9e64', badge: '#9ece6a', warm: '#e0af68' },
     },
   ),
   createPreset(
@@ -602,6 +620,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#69a9bd', infoSoft: 'rgba(105, 169, 189, 0.15)', onInfo: '#0d2026', warn: '#c5a36d', warnSoft: 'rgba(197, 163, 109, 0.16)', danger: '#cd787b', dangerStrong: '#b05a5f', dangerHover: '#9f4d52', onDanger: '#ffffff', purple: '#9b8bb3', purpleSoft: 'rgba(155, 139, 179, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.22)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.30)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.40)', shadowCard: '0 0 0 0.5px rgba(197, 215, 214, 0.07), 0 1px 3px rgba(0, 0, 0, 0.24)',
       kbdBg: '#21363d', kbdFg: '#c5d7d6',
+      icons: { primary: '#5eaefc', accent: '#fb7185', badge: '#34d399', warm: '#fcd34d' },
     },
   ),
   createPreset(
@@ -618,6 +637,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#3572a4', infoSoft: '#ddeaf4', onInfo: '#ffffff', warn: '#9f5f1d', warnSoft: '#f2e4cf', danger: '#b94a4a', dangerStrong: '#a83c3c', dangerHover: '#923333', onDanger: '#ffffff', purple: '#765b93', purpleSoft: '#eae1f2',
       shadowSm: '0 1px 2px rgba(67, 59, 49, 0.07)', shadowMd: '0 4px 14px rgba(67, 59, 49, 0.10)', shadowLg: '0 12px 36px rgba(67, 59, 49, 0.16)', shadowCard: '0 0 0 0.5px rgba(67, 59, 49, 0.10), 0 1px 3px rgba(67, 59, 49, 0.07)',
       kbdBg: '#ece5d9', kbdFg: '#45413a',
+      icons: { primary: '#1d6fd6', accent: '#c2410c', badge: '#16a34a', warm: '#e08a00' },
     },
   ),
   createPreset(
@@ -634,6 +654,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#327386', infoSoft: '#dcebef', onInfo: '#ffffff', warn: '#946329', warnSoft: '#efe4d3', danger: '#b54f5e', dangerStrong: '#a43e4e', dangerHover: '#903442', onDanger: '#ffffff', purple: '#6f6590', purpleSoft: '#e5e1ee',
       shadowSm: '0 1px 2px rgba(38, 72, 60, 0.06)', shadowMd: '0 4px 14px rgba(38, 72, 60, 0.09)', shadowLg: '0 12px 36px rgba(38, 72, 60, 0.14)', shadowCard: '0 0 0 0.5px rgba(38, 72, 60, 0.10), 0 1px 3px rgba(38, 72, 60, 0.06)',
       kbdBg: '#e3ece7', kbdFg: '#2d3d37',
+      icons: { primary: '#3a5bd9', accent: '#d9467a', badge: '#1f9d55', warm: '#f59e0b' },
     },
   ),
 
@@ -651,6 +672,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#7eabbf', infoSoft: 'rgba(126, 171, 191, 0.15)', onInfo: '#102028', warn: '#d0a15a', warnSoft: 'rgba(208, 161, 90, 0.16)', danger: '#d48478', dangerStrong: '#aa5b51', dangerHover: '#9e564c', onDanger: '#ffffff', purple: '#a892b0', purpleSoft: 'rgba(168, 146, 176, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(232, 214, 188, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#3a322a', kbdFg: '#d5c9b8',
+      icons: { primary: '#60a5fa', accent: '#c084fc', badge: '#4ade80', warm: '#fb923c' },
     },
   ),
   createPreset(
@@ -667,6 +689,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#7ea6bc', infoSoft: 'rgba(126, 166, 188, 0.15)', onInfo: '#102028', warn: '#c9a060', warnSoft: 'rgba(201, 160, 96, 0.16)', danger: '#d47d86', dangerStrong: '#b35a64', dangerHover: '#a34f58', onDanger: '#ffffff', purple: '#a18ab8', purpleSoft: 'rgba(161, 138, 184, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(230, 214, 220, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#372f33', kbdFg: '#d4c8cd',
+      icons: { primary: '#38bdf8', accent: '#fbbf24', badge: '#4ade80', warm: '#fb923c' },
     },
   ),
   createPreset(
@@ -683,6 +706,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#76a5b5', infoSoft: 'rgba(118, 165, 181, 0.15)', onInfo: '#0f2228', warn: '#c2a35f', warnSoft: 'rgba(194, 163, 95, 0.16)', danger: '#cd8078', dangerStrong: '#b05f58', dangerHover: '#9f544e', onDanger: '#ffffff', purple: '#958eaa', purpleSoft: 'rgba(149, 142, 170, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(206, 220, 208, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#303832', kbdFg: '#c8d4ca',
+      icons: { primary: '#7dd3fc', accent: '#f472b6', badge: '#bef264', warm: '#fbbf24' },
     },
   ),
   createPreset(
@@ -699,6 +723,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#7ea8c4', infoSoft: 'rgba(126, 168, 196, 0.15)', onInfo: '#10202c', warn: '#c9a45f', warnSoft: 'rgba(201, 164, 95, 0.16)', danger: '#d48494', dangerStrong: '#af5b6c', dangerHover: '#a35363', onDanger: '#ffffff', purple: '#b09ad0', purpleSoft: 'rgba(176, 154, 208, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.22)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.30)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.40)', shadowCard: '0 0 0 0.5px rgba(220, 212, 234, 0.07), 0 1px 3px rgba(0, 0, 0, 0.24)',
       kbdBg: '#342f40', kbdFg: '#d0cadc',
+      icons: { primary: '#22d3ee', accent: '#fb923c', badge: '#4ade80', warm: '#facc15' },
     },
   ),
   createPreset(
@@ -715,6 +740,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#3f7398', infoSoft: '#ddeaf4', onInfo: '#ffffff', warn: '#9f6820', warnSoft: '#f2e5d0', danger: '#b94f4f', dangerStrong: '#a84040', dangerHover: '#923636', onDanger: '#ffffff', purple: '#7a628f', purpleSoft: '#ebe3f1',
       shadowSm: '0 1px 2px rgba(74, 58, 48, 0.07)', shadowMd: '0 4px 14px rgba(74, 58, 48, 0.10)', shadowLg: '0 12px 36px rgba(74, 58, 48, 0.16)', shadowCard: '0 0 0 0.5px rgba(74, 58, 48, 0.10), 0 1px 3px rgba(74, 58, 48, 0.07)',
       kbdBg: '#ece4da', kbdFg: '#463a33',
+      icons: { primary: '#2b6cb0', accent: '#9333ea', badge: '#16a34a', warm: '#ea8c00' },
     },
   ),
   createPreset(
@@ -731,6 +757,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#3a7590', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6d668c', purpleSoft: '#e4e1ee',
       shadowSm: '0 1px 2px rgba(36, 64, 92, 0.06)', shadowMd: '0 4px 14px rgba(36, 64, 92, 0.09)', shadowLg: '0 12px 36px rgba(36, 64, 92, 0.14)', shadowCard: '0 0 0 0.5px rgba(36, 64, 92, 0.10), 0 1px 3px rgba(36, 64, 92, 0.06)',
       kbdBg: '#e2ebf3', kbdFg: '#2c3d50',
+      icons: { primary: '#0f8a7e', accent: '#e0602a', badge: '#22a55b', warm: '#f2a007' },
     },
   ),
 
@@ -748,6 +775,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#4a6f98', infoSoft: '#e0e8f2', onInfo: '#ffffff', warn: '#9a6828', warnSoft: '#f0e5d2', danger: '#b45464', dangerStrong: '#a04050', dangerHover: '#8c3646', onDanger: '#ffffff', purple: '#7a68a0', purpleSoft: '#ebe4f4',
       shadowSm: '0 1px 2px rgba(58, 48, 78, 0.06)', shadowMd: '0 4px 14px rgba(58, 48, 78, 0.09)', shadowLg: '0 12px 36px rgba(58, 48, 78, 0.14)', shadowCard: '0 0 0 0.5px rgba(58, 48, 78, 0.10), 0 1px 3px rgba(58, 48, 78, 0.06)',
       kbdBg: '#e9e4f0', kbdFg: '#3a3148',
+      icons: { primary: '#0f7fb8', accent: '#e0532f', badge: '#2fa84f', warm: '#f5a100' },
     },
   ),
   createPreset(
@@ -764,6 +792,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#4a7398', infoSoft: '#e0eaf2', onInfo: '#ffffff', warn: '#9f6820', warnSoft: '#f2e5d0', danger: '#b84858', dangerStrong: '#a03848', dangerHover: '#8c3040', onDanger: '#ffffff', purple: '#84608c', purpleSoft: '#eee4f0',
       shadowSm: '0 1px 2px rgba(82, 48, 58, 0.06)', shadowMd: '0 4px 14px rgba(82, 48, 58, 0.09)', shadowLg: '0 12px 36px rgba(82, 48, 58, 0.14)', shadowCard: '0 0 0 0.5px rgba(82, 48, 58, 0.10), 0 1px 3px rgba(82, 48, 58, 0.06)',
       kbdBg: '#f0e4e8', kbdFg: '#463038',
+      icons: { primary: '#2563eb', accent: '#7c3aed', badge: '#16a34a', warm: '#f08c00' },
     },
   ),
   createPreset(
@@ -780,6 +809,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#3a7090', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6a6688', purpleSoft: '#e4e2ee',
       shadowSm: '0 1px 2px rgba(40, 52, 68, 0.06)', shadowMd: '0 4px 14px rgba(40, 52, 68, 0.09)', shadowLg: '0 12px 36px rgba(40, 52, 68, 0.14)', shadowCard: '0 0 0 0.5px rgba(40, 52, 68, 0.10), 0 1px 3px rgba(40, 52, 68, 0.06)',
       kbdBg: '#e3e7ec', kbdFg: '#2e3a48',
+      icons: { primary: '#2f80ed', accent: '#f97316', badge: '#1faa55', warm: '#f5a000' },
     },
   ),
   createPreset(
@@ -796,6 +826,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       info: '#3a7590', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6d668c', purpleSoft: '#e4e1ee',
       shadowSm: '0 1px 2px rgba(20, 72, 84, 0.06)', shadowMd: '0 4px 14px rgba(20, 72, 84, 0.09)', shadowLg: '0 12px 36px rgba(20, 72, 84, 0.14)', shadowCard: '0 0 0 0.5px rgba(20, 72, 84, 0.10), 0 1px 3px rgba(20, 72, 84, 0.06)',
       kbdBg: '#dceef2', kbdFg: '#28404a',
+      icons: { primary: '#3b5bdb', accent: '#e8590c', badge: '#2b9a4a', warm: '#f59f00' },
     },
   ),
 

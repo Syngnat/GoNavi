@@ -237,7 +237,7 @@ describe('settings center tool entries', () => {
     );
   });
 
-  it('switches mirrors in place from About and Driver Manager without navigating settings', () => {
+  it('lets users pick the mirror from an in-place dropdown in About and Driver Manager instead of cycling to the next source', () => {
     const aboutStart = appSource.indexOf('className="gonavi-about-download-source"');
     const aboutEnd = appSource.indexOf('</section>', aboutStart);
     const aboutSource = appSource.slice(aboutStart, aboutEnd);
@@ -245,14 +245,20 @@ describe('settings center tool entries', () => {
     const driverPaneEnd = appSource.indexOf("activeSettingsCenterPane.key === 'snippet-settings'", driverPaneStart);
     const driverPaneSource = appSource.slice(driverPaneStart, driverPaneEnd);
 
-    expect(aboutSource).toContain('getNextDownloadSource(downloadSource)');
+    // 直接在原地下拉选择目标源，不再「切换」到循环里的下一项，也不跳去设置页。
+    expect(aboutSource).toContain('<DownloadSourceSelect');
     expect(aboutSource).toContain('handleDownloadSourceChange');
+    expect(aboutSource).not.toContain('getNextDownloadSource');
     expect(aboutSource).not.toContain('handleOpenDownloadSourceSettings');
-    expect(driverPaneSource).toContain('onSwitchDownloadSource');
+    expect(driverPaneSource).toContain('onChangeDownloadSource');
+    expect(driverPaneSource).not.toContain('onSwitchDownloadSource');
     expect(driverPaneSource).not.toContain("handleOpenSettingsCenterPane('services', 'download-source')");
-    expect(driverWorkbenchSource).toContain('handleSwitchDownloadSource');
+    expect(driverWorkbenchSource).toContain('<DownloadSourceSelect');
+    expect(driverWorkbenchSource).toContain('handleSelectDownloadSource');
+    expect(driverWorkbenchSource).not.toContain('getNextDownloadSource');
     expect(driverWorkbenchSource).not.toContain('requestDownloadSourceSettings');
-    expect(driverModalSource).toContain('onSwitchDownloadSource');
+    expect(driverModalSource).toContain('onChangeDownloadSource');
+    expect(driverModalSource).not.toContain('onSwitchDownloadSource');
     expect(driverModalSource).not.toContain('onOpenDownloadSourceSettings');
   });
 

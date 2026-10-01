@@ -1,0 +1,645 @@
+/* 颜色取自通用主题桥 workbenchTheme.css（应用主题变量 --gn-*，缺失时回落 antd token）。 */
+.gn-qh {
+  --qh-bg: var(--wb-bg);
+  --qh-panel: var(--wb-panel);
+  --qh-panel-2: var(--wb-panel-2);
+  --qh-input: var(--wb-input);
+  --qh-hover: var(--wb-hover);
+  --qh-selected: var(--wb-selected);
+  --qh-border: var(--wb-border);
+  --qh-border-strong: var(--wb-border-strong);
+  --qh-text: var(--wb-text);
+  --qh-muted: var(--wb-muted);
+  --qh-primary: var(--wb-primary);
+  --qh-success: var(--wb-success);
+  --qh-error: var(--wb-error);
+  --qh-warning: var(--wb-warning);
+  --qh-info: var(--wb-info);
+  container: gn-qh / inline-size;
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px 16px;
+  background: var(--qh-bg);
+  color: var(--qh-text);
+}
+
+/* ───────── 头部与提示 ───────── */
+
+.gn-qh-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gn-qh-title-group,
+.gn-qh-title-copy {
+  min-width: 0;
+}
+
+.gn-qh-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gn-qh-title-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--gn-accent-soft, var(--qh-panel-2));
+  color: var(--gn-accent-2, var(--qh-primary));
+  font-size: 16px;
+}
+
+.gn-qh-title-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.gn-qh-title-copy .ant-typography {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-qh-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.gn-qh-notices {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.gn-qh-notices .ant-alert {
+  align-items: center;
+  padding-block: 6px;
+}
+
+.gn-qh-notices .gn-sql-audit-health-alert {
+  min-width: 0;
+}
+
+/* 隐私说明压成一行；完整文本在 title 里，窗口很窄时也不挤占列表高度。 */
+.gn-qh-privacy-note {
+  min-width: 0;
+}
+
+.gn-qh-privacy-note .ant-alert-content {
+  min-width: 0;
+}
+
+.gn-qh-privacy-note .ant-alert-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-qh-error {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--qh-error) 40%, var(--qh-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--qh-error) 6%, var(--qh-panel));
+}
+
+/* ───────── 筛选条 ───────── */
+
+.gn-qh-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--qh-border);
+  border-radius: 12px;
+  background: var(--qh-panel);
+}
+
+.gn-qh-filter-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 340px;
+}
+
+.gn-qh-filter-connection {
+  width: 160px;
+}
+
+.gn-qh-filter-database {
+  width: 150px;
+}
+
+.gn-qh-filter-time {
+  width: 300px;
+  max-width: 100%;
+}
+
+.gn-qh-filter-reset {
+  margin-left: auto;
+}
+
+.gn-qh-status-option {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.gn-qh-status-option em {
+  color: var(--qh-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+/* antd 控件默认取 antd token，这里显式改回主题面：输入框、选择器、分段器、日期选择器。 */
+.gn-qh-toolbar .ant-input-affix-wrapper,
+.gn-qh-toolbar .ant-select .ant-select-selector,
+.gn-qh-toolbar .ant-picker {
+  border-color: var(--qh-border-strong);
+  background: var(--qh-input);
+  color: var(--qh-text);
+}
+
+.gn-qh-toolbar .ant-input,
+.gn-qh-toolbar .ant-picker-input > input {
+  background: transparent;
+  color: var(--qh-text);
+}
+
+.gn-qh-toolbar .ant-segmented {
+  background: var(--qh-hover);
+  color: var(--qh-muted);
+}
+
+.gn-qh-toolbar .ant-segmented .ant-segmented-thumb,
+.gn-qh-toolbar .ant-segmented .ant-segmented-item-selected {
+  background: var(--qh-panel);
+  color: var(--qh-text);
+}
+
+/* 提示条的 info/success/warning 由全局 v2 主题规则接管；error 没有全局规则，这里取主题危险色。 */
+.gn-qh .ant-alert .ant-alert-message,
+.gn-qh .ant-alert .ant-alert-description {
+  color: var(--qh-text);
+}
+
+.gn-qh .ant-alert-error {
+  border-color: color-mix(in srgb, var(--qh-error) 30%, transparent);
+  background: color-mix(in srgb, var(--qh-error) 9%, var(--qh-panel));
+}
+
+.gn-qh .ant-alert-error .ant-alert-icon {
+  color: var(--qh-error);
+}
+
+/* ───────── 主体：列表 + 预览 ───────── */
+
+.gn-qh-body {
+  display: grid;
+  /* 工作台高度不够时整页滚动，而不是把列表挤成一两行 */
+  min-height: 380px;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 38%);
+  gap: 10px;
+}
+
+.gn-qh-list-panel,
+.gn-qh-preview {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--qh-border);
+  border-radius: 12px;
+  background: var(--qh-panel);
+}
+
+.gn-qh-list-spin,
+.gn-qh-list-spin > .ant-spin-container {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.gn-qh-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.gn-qh-list:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--qh-primary) 50%, transparent);
+}
+
+.gn-qh-empty {
+  margin: auto;
+  padding: 24px 0;
+}
+
+.gn-qh-day {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--qh-border);
+  background: color-mix(in srgb, var(--qh-text) 4%, var(--qh-panel));
+  color: var(--qh-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gn-qh-day em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.gn-qh-pagination {
+  display: flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--qh-border);
+}
+
+/* ───────── 记录行 ───────── */
+
+.gn-qh-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 56px;
+  align-items: start;
+  gap: 4px 12px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--qh-border);
+}
+
+.gn-qh-row::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: transparent;
+  content: '';
+}
+
+.gn-qh-row.is-success::before {
+  background: color-mix(in srgb, var(--qh-success) 70%, transparent);
+}
+
+.gn-qh-row.is-error::before {
+  background: var(--qh-error);
+}
+
+.gn-qh-row.is-cancelled::before {
+  background: var(--qh-warning);
+}
+
+.gn-qh-row:hover {
+  background: var(--qh-hover);
+}
+
+.gn-qh-row.is-selected {
+  background: var(--qh-selected);
+}
+
+.gn-qh-row-main {
+  min-width: 0;
+  cursor: pointer;
+}
+
+.gn-qh-row-head {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.gn-qh-row-head time {
+  color: var(--qh-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-qh-row-context {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--qh-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-qh-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--qh-hover);
+  color: var(--qh-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.gn-qh-status.is-success {
+  background: color-mix(in srgb, var(--qh-success) 14%, transparent);
+  color: var(--qh-success);
+}
+
+.gn-qh-status.is-error {
+  background: color-mix(in srgb, var(--qh-error) 14%, transparent);
+  color: var(--qh-error);
+}
+
+.gn-qh-status.is-cancelled {
+  background: color-mix(in srgb, var(--qh-warning) 16%, transparent);
+  color: var(--qh-warning);
+}
+
+.gn-qh-chip {
+  padding: 0 6px;
+  border: 1px solid var(--qh-border);
+  border-radius: 5px;
+  color: var(--qh-muted);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.gn-qh-chip.is-transaction {
+  border-color: color-mix(in srgb, var(--qh-primary) 40%, var(--qh-border));
+  color: var(--qh-primary);
+}
+
+.gn-qh-chip.is-warning {
+  border-color: color-mix(in srgb, var(--qh-warning) 50%, var(--qh-border));
+  color: var(--qh-warning);
+}
+
+.gn-qh-chip.is-muted {
+  border-style: dashed;
+}
+
+.gn-qh-row-sql,
+.gn-qh-preview-sql,
+.gn-qh-preview-error {
+  margin: 0;
+  font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.gn-qh-row-sql {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--qh-text);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.gn-qh-row-sql.is-empty {
+  color: var(--qh-muted);
+  font-family: inherit;
+  font-style: italic;
+}
+
+.gn-qh-row-error {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--qh-error);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gn-qh-row-metrics {
+  display: flex;
+  min-width: 64px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gn-qh-duration {
+  color: var(--qh-text);
+  font-weight: 600;
+}
+
+.gn-qh-duration.is-slow {
+  color: var(--qh-warning);
+}
+
+.gn-qh-duration.is-critical {
+  color: var(--qh-error);
+}
+
+.gn-qh-rows {
+  color: var(--qh-muted);
+}
+
+.gn-qh-row-actions {
+  display: flex;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.gn-qh-row:hover .gn-qh-row-actions,
+.gn-qh-row.is-selected .gn-qh-row-actions,
+.gn-qh-row:focus-within .gn-qh-row-actions {
+  opacity: 1;
+}
+
+/* ───────── 预览 ───────── */
+
+.gn-qh-preview.is-empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.gn-qh-preview-head {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--qh-border);
+}
+
+.gn-qh-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.gn-qh-preview-title time {
+  color: var(--qh-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-qh-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gn-qh-preview-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+}
+
+.gn-qh-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.gn-qh-fact {
+  min-width: 0;
+}
+
+.gn-qh-fact dt {
+  color: var(--qh-muted);
+  font-size: 11px;
+}
+
+.gn-qh-fact dd {
+  overflow: hidden;
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-qh-mono {
+  font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 12px;
+}
+
+.gn-qh-preview-sql {
+  max-height: none;
+  padding: 10px 12px;
+  border: 1px solid var(--qh-border);
+  border-radius: 8px;
+  background: var(--qh-panel-2);
+  color: var(--qh-text);
+  line-height: 1.6;
+}
+
+.gn-qh-preview-note {
+  margin-top: 8px;
+}
+
+.gn-qh-preview-error {
+  color: inherit;
+}
+
+/* ───────── 响应式（按工作台自身宽度，而非窗口宽度） ───────── */
+
+@container gn-qh (max-width: 980px) {
+  .gn-qh-body {
+    min-height: 620px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(340px, 1fr) minmax(240px, 0.6fr);
+  }
+
+  .gn-qh-facts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container gn-qh (max-width: 620px) {
+  .gn-qh-header {
+    align-items: flex-start;
+  }
+
+  .gn-qh-title-copy .ant-typography.ant-typography-secondary {
+    display: none;
+  }
+
+  .gn-qh-filter-search,
+  .gn-qh-filter-connection,
+  .gn-qh-filter-database,
+  .gn-qh-filter-time {
+    width: 100%;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .gn-qh-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .gn-qh-row-actions {
+    display: none;
+  }
+
+  .gn-qh-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gn-qh *,
+  .gn-qh *::before,
+  .gn-qh *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

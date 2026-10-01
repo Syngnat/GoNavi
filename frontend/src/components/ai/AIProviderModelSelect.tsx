@@ -29,15 +29,20 @@ interface ModelManagementRowProps {
   toggleLabel: string;
   setDefaultLabel: string;
   showSetDefault: boolean;
+  removeLabel: string;
+  /** 空字符串表示可以删除；否则是本地化的阻止原因（默认模型 / 自动补全模型不允许删除）。 */
+  removeReason: string;
   onSetDefault: (value: string) => void;
   onToggle: (value: string, enabled: boolean, reason: string, label: string) => void;
+  onRemove: (value: string, reason: string, label: string) => void;
 }
 
 // Memoized so toggling one model re-renders that row alone. Without it every
 // switch click re-rendered the whole popup, which is what made the enable and
 // set-default buttons feel like they lagged the click on large model lists.
 export const ModelManagementRow = React.memo<ModelManagementRowProps>(({
-  value, label, enabled, isDefault, badge, reason, flash, stateLabel, toggleLabel, setDefaultLabel, showSetDefault, onSetDefault, onToggle,
+  value, label, enabled, isDefault, badge, reason, flash, stateLabel, toggleLabel, setDefaultLabel, showSetDefault,
+  removeLabel, removeReason, onSetDefault, onToggle, onRemove,
 }) => <div className={`gonavi-ai-model-management-row${enabled ? '' : ' is-disabled'}${isDefault ? ' is-default' : ''}`}>
   <div className="gonavi-ai-model-management-name">
     <Tooltip title={label} {...passThroughHintTooltip}><span>{label}</span></Tooltip>
@@ -46,6 +51,11 @@ export const ModelManagementRow = React.memo<ModelManagementRowProps>(({
   <div className="gonavi-ai-model-management-actions">
     {showSetDefault && <button type="button" aria-label={`${setDefaultLabel}: ${label}`}
       onClick={(event) => { event?.stopPropagation(); onSetDefault(value); }}>{setDefaultLabel}</button>}
+    <Tooltip title={removeReason || undefined} {...passThroughHintTooltip}>
+      <button type="button" className="gonavi-ai-model-remove" aria-label={`${removeLabel}: ${label}`}
+        disabled={Boolean(removeReason)}
+        onClick={() => onRemove(value, removeReason, label)}>{removeLabel}</button>
+    </Tooltip>
     <Tooltip title={flash || reason || undefined} {...passThroughHintTooltip}
       // While the flash is up the popover is forced open beside the row it
       // belongs to; afterwards the same tooltip goes back to hover-only reasons.
@@ -70,6 +80,7 @@ export interface ModelSelectionManagement {
   copy: (key: string, params?: Record<string, string | number>) => string;
   onToggle: (model: string, enabled: boolean) => void;
   onAdd: (model: string) => void;
+  onRemove: (model: string) => void;
 }
 
 interface AIProviderModelSelectProps extends React.AriaAttributes {
@@ -98,6 +109,8 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
   // Feedback is anchored to the row it concerns instead of a shared footer line,
   // so "disabled" is never ambiguous; it clears itself after MODEL_ROW_FLASH_MS.
   const [flash, setFlash] = React.useState<{ model: string; text: string } | null>(null);
+  // 已停用 / 已移除的模型默认折叠，避免列表被不可用项淹没。
+  const [inactiveExpanded, setInactiveExpanded] = React.useState(false);
   const flashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const announce = (model: string, text: string) => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -144,14 +157,57 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
     management?.onToggle(model, !enabled);
     announce(model, management?.copy(enabled ? 'ai_settings.models.disabled' : 'ai_settings.models.enabled', { model: label }) || '');
   };
+  const removeModel = (model: string, reason: string, label: string) => {
+    if (reason) { announce(model, reason); return; }
+    management?.onRemove(model);
+    announce(model, management?.copy('ai_settings.models.removed', { model: label }) || '');
+  };
   // Row callbacks must keep a stable identity or React.memo on the row can never
   // bail out. The ref carries the latest closure without changing that identity.
-  const rowHandlersRef = React.useRef({ choose, toggleModel });
-  rowHandlersRef.current = { choose, toggleModel };
+  const rowHandlersRef = React.useRef({ choose, toggleModel, removeModel });
+  rowHandlersRef.current = { choose, toggleModel, removeModel };
+  const stableRemove = React.useCallback((model: string, reason: string, label: string) =>
+    rowHandlersRef.current.removeModel(model, reason, label), []);
   const stableSetDefault = React.useCallback((model: string) => rowHandlersRef.current.choose(model), []);
   const stableToggle = React.useCallback((model: string, enabled: boolean, reason: string, label: string) =>
     rowHandlersRef.current.toggleModel(model, enabled, reason, label), []);
   const renderManagement = (menu: React.ReactElement) => {
+    const matches = (option: { value: string; label: string }) =>
+      option.label.toLowerCase().includes(search.trim().toLowerCase());
+    const renderRow = (option: { value: string; label: string }) => {
+      const enabled = !disabled.has(option.value);
+      const isDefault = option.value === management!.defaultModel;
+      const isCompletion = option.value === management!.completionModel;
+      const reason = isDefault ? 'ai_settings.models.default_required' : isCompletion ? 'ai_settings.models.completion_required'
+        : enabledCount <= 1 && enabled && !management!.allowDefaultFallback ? 'ai_settings.models.one_required' : '';
+      // 默认模型与自动补全模型是必填项，不允许删除（与停用的拦截语义一致）。
+      const removeReason = isDefault ? 'ai_settings.models.remove_default_blocked'
+        : isCompletion ? 'ai_settings.models.remove_completion_blocked' : '';
+      return <ModelManagementRow
+        key={option.value}
+        value={option.value}
+        label={option.label}
+        enabled={enabled}
+        isDefault={isDefault}
+        badge={isDefault ? copy('ai_settings.provider.default') : isCompletion ? copy('ai_settings.form.section.inline_completion') : ''}
+        reason={reason ? copy(reason) : ''}
+        removeLabel={copy('ai_settings.models.remove')}
+        removeReason={removeReason ? copy(removeReason) : ''}
+        flash={flash?.model === option.value ? flash.text : ''}
+        stateLabel={copy(enabled ? 'ai_settings.models.on' : 'ai_settings.models.off')}
+        toggleLabel={copy('ai_settings.models.enable', { model: option.label })}
+        setDefaultLabel={copy('ai_settings.models.set_default')}
+        showSetDefault={enabled && !isDefault}
+        onSetDefault={stableSetDefault}
+        onToggle={stableToggle}
+        onRemove={stableRemove}
+      />;
+    };
+    // 刚被停用 / 删除的那一行在提示消失前保持原位可见：否则行会立刻缩进折叠分组，
+    // 用户看不到「已停用」的确认，列表还会跳一下。
+    const flashing = (option: { value: string }) => flash?.model === option.value;
+    const visibleCandidates = allCandidates.filter((option) => (!disabled.has(option.value) || flashing(option)) && matches(option));
+    const inactiveCandidates = allCandidates.filter((option) => disabled.has(option.value) && !flashing(option) && matches(option));
     // Opening the selector itself shows the plain option menu; the management
     // chrome (heading, search, switches) only appears from the enabled-count button.
     if (!management || mode !== 'manage') return menu;
@@ -182,30 +238,16 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
           value={search} maxLength={150} onChange={(event) => setSearch(event.target.value)}
           onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); add(); } else if (event.key === 'Escape') { close(); selectRef.current?.focus(); } }} />
         <div className="gonavi-ai-model-management-list" role="group" aria-label={copy('ai_settings.models.manage')}>
-          {allCandidates.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase())).map((option) => {
-            const enabled = !disabled.has(option.value);
-            const isDefault = option.value === management.defaultModel;
-            const isCompletion = option.value === management.completionModel;
-            const reason = isDefault ? 'ai_settings.models.default_required' : isCompletion ? 'ai_settings.models.completion_required'
-              : enabledCount <= 1 && enabled && !management.allowDefaultFallback ? 'ai_settings.models.one_required' : '';
-            return <ModelManagementRow
-              key={option.value}
-              value={option.value}
-              label={option.label}
-              enabled={enabled}
-              isDefault={isDefault}
-              badge={isDefault ? copy('ai_settings.provider.default') : isCompletion ? copy('ai_settings.form.section.inline_completion') : ''}
-              reason={reason ? copy(reason) : ''}
-              flash={flash?.model === option.value ? flash.text : ''}
-              stateLabel={copy(enabled ? 'ai_settings.models.on' : 'ai_settings.models.off')}
-              toggleLabel={copy('ai_settings.models.enable', { model: option.label })}
-              setDefaultLabel={copy('ai_settings.models.set_default')}
-              showSetDefault={enabled && !isDefault}
-              onSetDefault={stableSetDefault}
-              onToggle={stableToggle}
-            />;
-          })}
+          {visibleCandidates.map(renderRow)}
           {canAdd && <button type="button" className="gonavi-ai-model-add" onClick={add}>{copy('ai_settings.models.add', { model: customValue })}</button>}
+          {/* 已停用 / 已移除的模型折叠起来：默认只显示可用模型，列表本身保持清爽。 */}
+          {inactiveCandidates.length > 0 && (
+            <button type="button" className="gonavi-ai-model-inactive-toggle" aria-expanded={inactiveExpanded}
+              onClick={() => setInactiveExpanded((value) => !value)}>
+              {copy('ai_settings.models.inactive_group', { count: inactiveCandidates.length })}
+            </button>
+          )}
+          {inactiveExpanded && inactiveCandidates.map(renderRow)}
         </div>
       </div>
       {/* Screen readers still get the confirmation; sighted users read it off the row popover. */}

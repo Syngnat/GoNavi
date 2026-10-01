@@ -103,6 +103,9 @@ type ModelTurnResult struct {
 	Usage         Usage
 	ProviderState json.RawMessage
 	Completed     bool
+	// Truncated 表示这一轮输出被模型的输出长度上限截断。已生成的 Text / Reasoning
+	// 可以保留，但同一轮里的工具调用参数可能只写了一半，harness 会丢弃而不是执行。
+	Truncated bool
 }
 
 // ToolCatalog is the single source of tool definitions and execution rules.
@@ -212,11 +215,14 @@ type HarnessConfig struct {
 	ContextBuilder ContextBuilder
 	Tools          ToolCatalog
 	Approvals      ApprovalHandler
-	Events         EventSink
-	RootContext    context.Context
-	OwnerID        string
-	LeaseDuration  time.Duration
-	PollInterval   time.Duration
+	// AutoApproval, when set, approves side-effecting tool calls the host has
+	// chosen to always allow instead of waiting for a person.
+	AutoApproval  AutoApprovalPolicy
+	Events        EventSink
+	RootContext   context.Context
+	OwnerID       string
+	LeaseDuration time.Duration
+	PollInterval  time.Duration
 	// Runtime contains the live coordination settings. The legacy individual
 	// fields below remain accepted for source compatibility with low-level
 	// adapters; when Runtime is provided it takes precedence.

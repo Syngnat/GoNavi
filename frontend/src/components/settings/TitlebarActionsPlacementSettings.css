@@ -1,0 +1,6 @@
+/* 「标题栏显示方式」是位置选项下的二级设置：与上方按钮组拉开距离，并沿用设置行的分隔线。 */
+body .gonavi-theme-settings .gonavi-settings-row.gn-titlebar-actions-display-settings {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gn-settings-line);
+}

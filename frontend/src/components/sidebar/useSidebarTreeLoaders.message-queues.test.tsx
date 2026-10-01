@@ -52,7 +52,7 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
 }));
 
 type MessageQueueCase = {
-  type: 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq';
+  type: 'mqtt' | 'kafka' | 'rocketmq' | 'rabbitmq' | 'pulsar';
   database: string;
   expectedNamespaceTitle: string;
   objects: Array<{ name: string; type: string }>;
@@ -60,6 +60,13 @@ type MessageQueueCase = {
 };
 
 const messageQueueCases: MessageQueueCase[] = [
+  {
+    type: 'pulsar',
+    database: 'topics',
+    expectedNamespaceTitle: t('sidebar.message_queue.namespace.topics'),
+    objects: [{ name: 'persistent://public/default/orders.events', type: 'topic' }],
+    expectedKinds: ['topic'],
+  },
   {
     type: 'mqtt',
     database: 'topics',

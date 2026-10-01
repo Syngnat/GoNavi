@@ -307,7 +307,8 @@ body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-function {
   color: var(--gn-accent);
 }
 
-body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-database {
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-database,
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .gn-icon-database {
   color: var(--gn-info);
 }
 
@@ -2203,6 +2204,33 @@ body[data-ui-version="v2"] .gn-v2-rail-sidebar-toggle:focus-visible {
   outline-offset: 1px;
 }
 
+/* Sidebar-rail placement: the rail stays visible while the explorer is expanded
+   (App.css hides it by default) and carries the search / locate / scroll-to-top /
+   connection-menu / collapse actions as a vertical column. */
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-sidebar-redesign[data-sidebar-actions-rail='true'] > .gn-v2-connection-rail {
+  display: flex;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-explorer-actions {
+  width: 100%;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-explorer-actions .gn-v2-explorer-action-group {
+  flex-direction: column;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+/* The collapse and expand toggles share one slot; the Sider state picks the visible one. */
+body[data-ui-version="v2"] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-rail-explorer-actions .gn-v2-explorer-tool[data-sidebar-toggle-placement='rail-expand'],
+body[data-ui-version="v2"] .ant-layout-sider[data-sidebar-collapsed='true'] .gn-v2-rail-explorer-actions .gn-v2-explorer-tool[data-sidebar-toggle-placement='rail-collapse'] {
+  display: none !important;
+}
+
 body[data-ui-version="v2"] .gn-v2-rail-items {
   flex: 1 1 auto;
   min-height: 0;
@@ -3300,6 +3328,22 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .antico
   transition: color 80ms ease;
 }
 
+/* 懒加载节点展开时用转圈替代箭头。上面的 hover / 展开规则会把颜色拉到
+   --gn-fg-2/3，loading 态需要更醒目且不随行 hover 变化。 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .gn-v2-tree-switcher-loading {
+  color: var(--gn-accent, #2E6BE6);
+  animation: gn-v2-tree-switcher-spin 0.8s linear infinite;
+}
+
+@keyframes gn-v2-tree-switcher-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Ant Design transitions `all` here. Collapsing the sidebar hides the explorer
    through inherited visibility, which must not animate on every visible row. */
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher,
@@ -3314,6 +3358,11 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher_open {
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher:hover {
   color: var(--gn-fg-2) !important;
+}
+
+/* 整行已有 hover / 选中底色，antd 在展开箭头上再叠一层 hover 框显得多余，直接去掉。 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher::before {
+  display: none;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher-noop .ant-tree-switcher-icon {
@@ -3398,6 +3447,27 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle [data-db
   max-height: 16px !important;
 }
 
+/* 树节点的字体图标（antd 与自绘线性图标）跟随侧栏树字号缩放：默认 13px 字号下 17px，
+   图标槽 20px，与文件夹、连接图标同宽，整棵树的图标大小才一致。
+   连接 logo 等图片图标不走这条规则，仍受上面的 16px 上限约束。 */
+body[data-ui-version="v2"] {
+  --gn-tree-icon-size: calc(var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px)) * 17 / 13);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle:has(> .anticon) {
+  width: calc(var(--gn-tree-icon-size) + 3px) !important;
+  min-width: calc(var(--gn-tree-icon-size) + 3px) !important;
+  height: calc(var(--gn-tree-icon-size) + 3px) !important;
+  font-size: var(--gn-tree-icon-size);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle > .anticon,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle > .anticon svg {
+  max-width: none !important;
+  max-height: none !important;
+  font-size: var(--gn-tree-icon-size);
+}
+
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle,
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle,
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle,
@@ -3453,7 +3523,9 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon {
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder,
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder-open {
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .gn-icon-folder-open {
   color: #d48806;
   font-size: 17px;
   line-height: 1;
@@ -3464,7 +3536,13 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .anticon-folder,
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .anticon-folder-open,
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder,
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder-open {
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .gn-icon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .gn-icon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .gn-icon-folder-open {
   color: #d48806;
   font-size: 17px;
   line-height: 1;
@@ -3936,6 +4014,28 @@ body[data-ui-version="v2"] .gn-v2-tree-table-comment {
   font-size: clamp(10px, calc(var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px)) - 1px), 16px);
   font-weight: 400 !important;
   opacity: 0.78;
+}
+
+/* 表节点：表名优先完整显示。空间不够时先收缩备注，再收缩行数等元数据，
+   最后才截断表名（表名本身不参与收缩）。 */
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="table"] .gn-v2-tree-label {
+  /* 不参与收缩：哪怕只被挤掉 0.1px，浏览器也会给表名画出省略号。
+     整行放不下时由 max-width 兜底，才截断表名。 */
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="table"] .gn-v2-tree-table-comment {
+  flex-shrink: 1000;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="table"] .gn-v2-tree-count {
+  flex-shrink: 100;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-hover-tooltip .ant-tooltip-inner {
@@ -4465,30 +4565,6 @@ body[data-ui-version="v2"] .gn-v2-empty-resource-empty .ant-btn {
   }
 }
 
-/* The docked collapsed toolbar needs a second titlebar band. The empty
-   workbench already has clear space above its heading, so let that one screen
-   reclaim the band instead of shifting every landing-page element downward. */
-body[data-ui-version="v2"]
-  [data-gonavi-close-shortcut-scope="workspace"][data-empty-workbench='true'][data-collapsed-sidebar-actions-docked='true'][data-security-update-banner-visible='false']
-  > .ant-layout {
-  margin-top: calc(-1 * var(--gn-v2-empty-workbench-titlebar-overlap, 0px));
-}
-
-/* Only the eyebrow crosses the docked toolbar row. Keep the headline and all
-   following content on their normal left edge while moving this short label
-   just past the six scaled toolbar actions. */
-body[data-ui-version="v2"]
-  [data-gonavi-close-shortcut-scope="workspace"][data-empty-workbench='true'][data-collapsed-sidebar-actions-docked='true'][data-security-update-banner-visible='false']
-  .gn-v2-empty-eyebrow {
-  padding-left: max(
-    0px,
-    calc(
-      (182px * var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1))
-      - var(--gn-v2-empty-hero-padding-inline-start, 30px)
-    )
-  );
-}
-
 /* ─── Full V2 workbench shell: app / topbar / workspace ─ */
 body[data-ui-version="v2"] .gn-v2-app-root {
   background: var(--gn-bg-app) !important;
@@ -4503,9 +4579,10 @@ body[data-ui-version="v2"] .gn-v2-titlebar {
   box-shadow: none !important;
 }
 
-/* When the V2 explorer is collapsed on macOS or Windows, reuse the otherwise
-   empty lower titlebar band for the same six scaled actions shown by the
-   expanded explorer toolbar. Keep the Windows window controls out of its way. */
+/* On macOS and Windows the explorer actions (search, locate, scroll to top,
+   connection menu, sidebar toggle) live permanently in the lower titlebar band,
+   so collapsing or expanding the explorer never moves them. Keep the Windows
+   window controls out of its way. */
 body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions {
   --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
   position: absolute;
@@ -4532,7 +4609,40 @@ body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sid
   display: none;
 }
 
+/* The explorer portals its actions into this slot; let them lay out as direct
+   flex items of the toolbar so the toggle button stays last. */
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions-slot {
+  display: contents;
+}
+
+/* Standalone toolbar mode: the titlebar stays compact and the same actions sit
+   in their own row directly below the toolbar, left-aligned with its items. */
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar {
+  --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: calc(34px * var(--gn-v2-explorer-scale));
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(2px * var(--gn-v2-explorer-scale));
+  padding: calc(4px * var(--gn-v2-explorer-scale)) calc(14px * var(--gn-ui-scale, 1));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: var(--gn-bg-titlebar, transparent);
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Keep the shared focus ring inside the scrolling titlebar host. */
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar .gn-v2-explorer-tool.ant-btn:focus-visible,
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar .gn-v2-explorer-action-wrap:focus-visible,
 body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions .gn-v2-explorer-tool.ant-btn:focus-visible,
 body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions .gn-v2-explorer-action-wrap:focus-visible {
   outline-offset: -3px;
@@ -5133,6 +5243,24 @@ body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-p
   color: var(--gn-toolbar-action-primary-disabled-fg) !important;
   background: var(--gn-toolbar-action-primary-disabled-bg) !important;
   border-color: var(--gn-toolbar-action-primary-disabled-border) !important;
+}
+
+/* 工具栏图标统一大小：随主题字号缩放（默认 14px 字号下为 17px），
+   SQL 编辑器、数据预览上下工具栏共用，不再各自写死。 */
+body[data-ui-version="v2"] {
+  --gn-toolbar-icon-size: calc(var(--gn-font-size, 14px) * 17 / 14);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn .anticon,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn .anticon svg {
+  font-size: var(--gn-toolbar-icon-size);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn .ant-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-data-grid-toolbar-action {
@@ -6362,6 +6490,10 @@ body[data-ui-version="v2"] .gn-v2-data-grid-statusbar .anticon svg {
   display: block;
 }
 
+body[data-ui-version="v2"] .gn-v2-data-grid-statusbar .anticon {
+  font-size: var(--gn-toolbar-icon-size);
+}
+
 body[data-ui-version="v2"] .gn-v2-data-grid-pagination-wrap .data-grid-pagination-summary {
   display: inline-flex;
   align-items: center;
@@ -6459,8 +6591,8 @@ body[data-ui-version="v2"] .gn-v2-data-grid-pagination-wrap .ant-btn svg {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 12px;
-  height: 12px;
+  width: calc(var(--gn-toolbar-icon-size) * 0.88);
+  height: calc(var(--gn-toolbar-icon-size) * 0.88);
   line-height: 1 !important;
   margin-inline-end: 0 !important;
 }

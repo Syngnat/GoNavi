@@ -1,18 +1,27 @@
 #!/usr/bin/env node
-// wails preBuildHook：构建前刷新派生资源，并在 Linux 上提前校验 WebKitGTK 开发包。
+// wails preBuildHook：构建前检查工具链与 Linux 桌面构建依赖，并刷新派生资源。
 //
 // cwd 由 wails 固定为 build/bin（见 wails v2 pkg/commands/build/build.go 中的
 // shell.RunCommand(options.BinDirectory, ...)），因此这里按脚本自身位置反推仓库
 // 根目录，不依赖 cwd，也不依赖调用方传入路径。
-import { execFileSync, spawnSync } from 'node:child_process';
+//
+// 只用 Node 12 能解析的语法：发行版软件源里的旧 Node 也要能走到版本提示，
+// 而不是报一句看不懂的 SyntaxError。
+import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkLinuxBuildPrereqs, commandExists } from './linux-build-prereqs.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // wails 会把 ${platform} 替换成 "GOOS/GOARCH"（build.go：options.Platform + "/" + options.Arch）。
-const targetPlatform = process.argv[2] ?? '';
+const targetPlatform = process.argv[2] || '';
+
+// Vite 5 要求 Node.js 18+，更旧的版本要到编译前端时才会报错。
+const MIN_NODE_MAJOR = 18;
+
+assertNodeVersion();
 
 // frontend/dist.zip 占位：沿用原 preBuildHook 行为，本地未构建前端时保证
 // wails 能找到 embed 目标。
@@ -22,81 +31,62 @@ if (!existsSync(frontendDistZip)) {
   copyFileSync(stubDistZip, frontendDistZip);
 }
 
+// 只在「目标为 linux 且宿主也是 linux」时校验：跨平台交叉编译不在本机链接
+// WebKitGTK，探测本机环境只会误报。
+if (targetPlatform.split('/')[0] === 'linux' && process.platform === 'linux') {
+  checkLinuxBuildPrereqs(repoRoot, fail);
+}
+
 // shared/i18n/catalog.zip 是提交进 git 的派生物，二进制无法参与三方合并。
 // 历史上出现过合并后 zip 与 JSON 源文件漂移的事故：Go 侧 T() 取不到键会直接
 // 返回裸 key，用户界面显示成 table_designer.message.xxx 这种原文。
 // 所有 wails 构建入口在此强制重新生成，使漂移无法进入产物；漂移本身仍由
 // shared/i18n 的 TestCatalogZipInSyncWithJSON 在 CI 拦下（该测试刻意不预生成，
 // 以保留探测能力）。
-execFileSync('go', ['generate', './shared/i18n'], {
-  cwd: repoRoot,
-  stdio: 'inherit',
-});
+regenerateI18nCatalog();
 
-assertLinuxWebKitDevPackages();
-
-// assertLinuxWebKitDevPackages 在编译前校验 pkg-config 能否找到目标 WebKitGTK。
-//
-// 背景：wails.json 的 build:tags 决定链接 webkit2gtk-4.0 还是 4.1，而命令行
-// -tags 无法覆盖它（wails v2.15 做的是 projectTags + userTags 合并）。一旦标签
-// 与本机装的版本不匹配，用户拿到的是一屏 cgo/pkg-config 报错，看不出该装哪个包。
-//
-// 只在「目标为 linux 且宿主也是 linux」时校验：跨平台交叉编译不在本机链接
-// WebKitGTK，探测本机环境只会误报。
-function assertLinuxWebKitDevPackages() {
-  const target = targetPlatform.split('/')[0];
-  if (target !== 'linux' || process.platform !== 'linux') {
+function assertNodeVersion() {
+  const major = Number(process.versions.node.split('.')[0]);
+  if (major >= MIN_NODE_MAJOR) {
     return;
   }
-
-  const projectTags = readProjectBuildTags();
-  const usesWebKit41 = projectTags.includes('webkit2_41');
-  const pkgConfigName = usesWebKit41 ? 'webkit2gtk-4.1' : 'webkit2gtk-4.0';
-  const probe = spawnSync('pkg-config', ['--exists', pkgConfigName], { stdio: 'ignore' });
-
-  if (probe.status === 0) {
-    return;
-  }
-  if (probe.error?.code === 'ENOENT') {
-    fail(
-      '未找到 pkg-config，无法校验 WebKitGTK 开发包。请先安装 pkg-config 与 WebKitGTK 开发包。',
+  const lines = [
+    `当前 Node.js 版本 ${process.version} 过低，前端编译（Vite 5）需要 Node.js ${MIN_NODE_MAJOR} 或更高版本。`,
+    '请安装 Node.js LTS：https://nodejs.org/ （也可以用 nvm、fnm 等版本管理器）。',
+  ];
+  if (process.platform === 'linux' && commandExists('dnf')) {
+    lines.push(
+      'RHEL / Rocky / AlmaLinux 可直接切换到新版本：',
+      '  sudo dnf module reset -y nodejs && sudo dnf module enable -y nodejs:22 && sudo dnf install -y nodejs npm',
     );
   }
-
-  const installHint = usesWebKit41
-    ? `  Debian 13 / Ubuntu 24.04+：sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
-  Fedora / RHEL 9+：sudo dnf install -y gtk3-devel webkit2gtk4.1-devel libsoup3-devel`
-    : `  Ubuntu 22.04 / Debian 12：sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
-  Fedora / RHEL 9+：sudo dnf install -y gtk3-devel webkit2gtk4.0-devel`;
-
-  // 两条出路：装当前标签对应的包，或把标签切到本机已装的版本。
-  // 后者不能靠命令行 -tags 覆盖（wails 做的是 projectTags + userTags 合并），
-  // 必须改写 wails.json —— 这正是 ci-apply-wails-webkit-tags.py 的用途。
-  const otherApi = usesWebKit41 ? '4.0' : '4.1';
-  const otherPkgConfigName = usesWebKit41 ? 'webkit2gtk-4.0' : 'webkit2gtk-4.1';
-  const switchHint =
-    `若本机装的是 WebKitGTK ${otherApi}（pkg-config ${otherPkgConfigName}），` +
-    `请改用该版本：\n  python3 scripts/ci-apply-wails-webkit-tags.py ${otherApi}`;
-
-  fail(
-    `未找到 WebKitGTK 开发包（pkg-config ${pkgConfigName}）。\n` +
-      `当前 wails.json 的 build:tags = ${JSON.stringify(projectTags)}，` +
-      `链接目标是 ${pkgConfigName}。\n\n` +
-      `方案一 · 安装缺失的开发包：\n${installHint}\n\n` +
-      `方案二 · 改用本机已有的 WebKitGTK：\n${switchHint}\n\n` +
-      `只想跑无界面的 web-server / CLI（完全不依赖 WebKitGTK）：\n` +
-      `  CGO_ENABLED=0 go build -o gonavi .\n` +
-      `  ./gonavi web-server --addr 127.0.0.1:34116`,
-  );
+  fail(lines.join('\n'));
 }
 
-function readProjectBuildTags() {
+function regenerateI18nCatalog() {
   try {
-    const config = JSON.parse(readFileSync(join(repoRoot, 'wails.json'), 'utf8'));
-    return config['build:tags'] ?? '';
-  } catch {
-    // 配置文件不可读时不阻断构建：真正的解析错误会由 wails 自己报出来。
-    return '';
+    execFileSync('go', ['generate', './shared/i18n'], { cwd: repoRoot, stdio: 'inherit' });
+  } catch (error) {
+    const goVersion = readGoModVersion();
+    if (error.code === 'ENOENT') {
+      fail(`未找到 go 命令。请安装 Go ${goVersion} 或更高版本：https://go.dev/dl/`);
+    }
+    fail(
+      [
+        'go generate ./shared/i18n 执行失败，原因见上方输出。常见原因：',
+        `  · Go 版本低于 go.mod 要求的 ${goVersion}：请安装 Go ${goVersion} 或更高版本（https://go.dev/dl/）；`,
+        '  · 无法下载 Go 模块或工具链：国内网络可先执行 go env -w GOPROXY=https://goproxy.cn,direct 再重试。',
+      ].join('\n'),
+    );
+  }
+}
+
+function readGoModVersion() {
+  try {
+    const match = /^go\s+(\S+)/m.exec(readFileSync(join(repoRoot, 'go.mod'), 'utf8'));
+    return match ? match[1] : '1.25';
+  } catch (error) {
+    return '1.25';
   }
 }
 

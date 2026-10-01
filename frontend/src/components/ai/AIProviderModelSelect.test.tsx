@@ -60,11 +60,14 @@ describe('searchable model selection', () => {
         options={['default', 'fast', 'sql', 'hidden'].map((model) => ({ value: model, label: model }))}
         management={{ defaultModel: value, disabledModels: disabled, completionModel: 'sql', allowDefaultFallback: true,
           copy: (key, params) => t('en-US', key, params), source: 'Fixture catalog',
-          onToggle: (model, enabled) => setDisabled((previous) => enabled ? previous.filter((item) => item !== model) : [...previous, model]), onAdd: vi.fn() }} />;
+          onToggle: (model, enabled) => setDisabled((previous) => enabled ? previous.filter((item) => item !== model) : [...previous, model]), onAdd: vi.fn(), onRemove: vi.fn() }} />;
     };
     await act(async () => { renderer = create(<Harness />); });
     const select = () => renderer!.root.findByType('select');
     const toggle = (name: string) => renderer!.root.findByProps({ role: 'switch', 'aria-label': `Enable ${name}` });
+    const expandInactive = () => renderer!.root.findByProps({ className: 'gonavi-ai-model-inactive-toggle' }).props.onClick();
+    // 已停用 / 已移除的行默认折叠，需先展开才能互动。
+    await act(async () => expandInactive());
     expect(toggle('default').props['aria-disabled']).toBe(true);
     expect(toggle('sql').props['aria-disabled']).toBe(true);
     await act(async () => { toggle('default').props.onClick(); toggle('sql').props.onClick(); });
@@ -98,7 +101,7 @@ describe('searchable model selection', () => {
           options={['default', 'fast'].map((model) => ({ value: model, label: model }))}
           management={{ defaultModel: 'default', disabledModels: disabled, completionModel: '', allowDefaultFallback: false,
             copy: (key, params) => t('en-US', key, params), source: 'Saved catalog',
-            onToggle: (model, enabled) => setDisabled((previous) => enabled ? previous.filter((item) => item !== model) : [...previous, model]), onAdd: vi.fn() }} />;
+            onToggle: (model, enabled) => setDisabled((previous) => enabled ? previous.filter((item) => item !== model) : [...previous, model]), onAdd: vi.fn(), onRemove: vi.fn() }} />;
       };
       await act(async () => { renderer = create(<Harness />); });
       const openTooltips = () => renderer!.root.findAllByType(Tooltip as never).filter((tooltip) => tooltip.props.open === true);
@@ -131,7 +134,7 @@ describe('searchable model selection', () => {
         label="Model" placeholder="Choose" customLabel="Use custom:" managementRequest={1}
         options={['default', 'fast'].map((model) => ({ value: model, label: model }))}
         management={{ defaultModel: 'default', disabledModels: [], completionModel: '', allowDefaultFallback: false,
-          copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: vi.fn() }} />);
+          copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: vi.fn(), onRemove: vi.fn() }} />);
     });
 
     const tooltips = renderer!.root.findAllByType(Tooltip as never);
@@ -151,7 +154,7 @@ describe('searchable model selection', () => {
         label="Model" placeholder="Choose" customLabel="Use custom:" managementRequest={1}
         options={['default', 'fast'].map((model) => ({ value: model, label: model }))}
         management={{ defaultModel: value, disabledModels: [], completionModel: '', allowDefaultFallback: false,
-          copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: vi.fn() }} />;
+          copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: vi.fn(), onRemove: vi.fn() }} />;
     };
     await act(async () => { renderer = create(<Harness />); });
     const body = renderer!.root.findByProps({ className: 'gonavi-ai-model-management-body is-short' });
@@ -173,7 +176,7 @@ describe('searchable model selection', () => {
         management={{ defaultModel: 'default', disabledModels: disabled, completionModel: '', allowDefaultFallback: true,
           copy: (key, params) => t('en-US', key, params), source: 'Saved catalog',
           onToggle: (model, enabled) => setDisabled((previous) => enabled ? previous.filter((item) => item !== model) : [...previous, model]),
-          onAdd: vi.fn() }} />;
+          onAdd: vi.fn(), onRemove: vi.fn() }} />;
     };
     await act(async () => { renderer = create(<Harness />); });
     // React collapses memo(fn) into a SimpleMemoComponent whose fiber type is the
@@ -197,7 +200,7 @@ describe('searchable model selection', () => {
       label="Model" placeholder="Choose" customLabel="Use custom:" managementRequest={1}
       options={['default', 'hidden'].map((model) => ({ value: model, label: model }))}
       management={{ defaultModel: 'default', disabledModels: ['hidden'], completionModel: '', allowDefaultFallback: false,
-        copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: added }} />); });
+        copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: added, onRemove: vi.fn() }} />); });
     const search = () => renderer!.root.findByType('input');
     await act(async () => search().props.onChange({ target: { value: 'new-model' } }));
     await act(async () => search().props.onKeyDown({ key: 'Enter', stopPropagation: vi.fn(), preventDefault: vi.fn() }));
@@ -223,7 +226,7 @@ describe('searchable model selection', () => {
     const renderSelect = (request: number) => <AIProviderModelSelect value="default" label="Model" placeholder="Choose" customLabel="Use custom:"
       managementRequest={request} options={[{ value: 'default', label: 'default' }]}
       management={{ defaultModel: 'default', disabledModels: [], completionModel: '', allowDefaultFallback: false,
-        copy: (key, params) => t('en-US', key, params), source: 'Fixture catalog', onToggle: vi.fn(), onAdd: vi.fn() }} />;
+        copy: (key, params) => t('en-US', key, params), source: 'Fixture catalog', onToggle: vi.fn(), onAdd: vi.fn(), onRemove: vi.fn() }} />;
     await act(async () => { renderer = create(renderSelect(1), { createNodeMock: (element) => element.type === 'input' ? node : null }); });
     expect(focus).not.toHaveBeenCalled();
     node.offsetWidth = 240;

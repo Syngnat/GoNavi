@@ -1,0 +1,774 @@
+.gn-user-mgmt {
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  padding: 12px 16px 14px;
+  background: var(--gn-bg-app);
+  color: var(--gn-fg-1);
+}
+
+.gn-user-mgmt-loading {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  padding: 24px;
+}
+
+.gn-user-mgmt-title-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--gn-accent-soft, rgba(22, 119, 255, 0.12));
+  color: var(--gn-accent, #1677ff);
+  font-size: 17px;
+}
+
+/* 空状态 */
+.gn-user-mgmt-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px;
+  color: var(--gn-fg-4);
+  font-size: 13px;
+  text-align: center;
+}
+
+.gn-user-mgmt-empty-icon {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--gn-accent-soft, rgba(22, 119, 255, 0.12));
+  color: var(--gn-accent, #1677ff);
+  font-size: 26px;
+}
+
+.gn-user-mgmt-empty-state.is-compact {
+  gap: 8px;
+  padding: 20px 12px;
+  font-size: 12.5px;
+}
+
+.gn-user-mgmt-empty-state.is-compact .gn-user-mgmt-empty-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  font-size: 18px;
+}
+
+.gn-user-mgmt-empty-state.gn-user-mgmt-empty {
+  margin: auto;
+}
+
+/* 头部 */
+.gn-user-mgmt-header {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gn-user-mgmt-header-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gn-user-mgmt-connection-select {
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.gn-user-mgmt-database-select {
+  min-width: 160px;
+}
+
+.gn-user-mgmt-profile {
+  min-width: 0;
+}
+
+.gn-user-mgmt-current-user {
+  color: var(--gn-fg-3);
+  font-size: 12px;
+}
+
+.gn-user-mgmt-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* 服务端提示：一条一行的紧凑提示卡，按级别着色，不再裁切滚动 */
+.gn-user-mgmt-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 只靠底色区分级别，不画边框 */
+.gn-user-mgmt-notice {
+  --gn-notice-color: var(--gn-info, #0369a1);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gn-notice-color) 10%, transparent);
+  color: var(--gn-fg-2);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.gn-user-mgmt-notice.is-warning {
+  --gn-notice-color: var(--gn-warn, #d97706);
+}
+
+.gn-user-mgmt-notice.is-danger {
+  --gn-notice-color: var(--gn-danger, #dc2626);
+}
+
+.gn-user-mgmt-notice-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--gn-notice-color);
+  font-size: 14px;
+}
+
+/* 主体区域 */
+/* 平铺布局：列表与编辑器直接落在主题底色上，仅用一条竖线分隔 */
+.gn-user-mgmt-body {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.gn-user-mgmt-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 14px 0 0;
+  border-right: 1px solid var(--gn-br-1);
+}
+
+.gn-user-mgmt-list-toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+.gn-user-mgmt-list-toolbar > .ant-btn-primary {
+  flex: 1 1 auto;
+}
+
+.gn-user-mgmt-list-items {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.gn-user-mgmt-list-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.gn-user-mgmt-list-item:hover,
+.gn-user-mgmt-list-item:focus-visible {
+  background: var(--gn-bg-hover);
+}
+
+.gn-user-mgmt-list-item.is-selected {
+  background: color-mix(in srgb, var(--gn-accent) 13%, transparent);
+}
+
+.gn-user-mgmt-list-item.is-creating {
+  cursor: default;
+}
+
+.gn-user-mgmt-list-item.is-system .gn-user-mgmt-list-name {
+  color: var(--gn-fg-3);
+}
+
+.gn-user-mgmt-list-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--gn-accent) 13%, transparent);
+  color: var(--gn-accent);
+  font-size: 14px;
+}
+
+.gn-user-mgmt-list-icon.is-role {
+  background: color-mix(in srgb, var(--gn-info, #0369a1) 14%, transparent);
+  color: var(--gn-info, #0369a1);
+}
+
+.gn-user-mgmt-list-icon.is-login {
+  background: color-mix(in srgb, var(--gn-warn, #d97706) 15%, transparent);
+  color: var(--gn-warn, #d97706);
+}
+
+.gn-user-mgmt-list-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-family: var(--gn-font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-user-mgmt-list-tags {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.gn-user-mgmt-list-tags .ant-tag {
+  margin-inline-end: 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.gn-user-mgmt-list-tags .gn-user-mgmt-current-tag {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--gn-accent) 16%, transparent);
+  color: var(--gn-accent);
+}
+
+.gn-user-mgmt-tag-icon.is-super {
+  color: var(--gn-warn, #d97706);
+}
+
+.gn-user-mgmt-tag-icon.is-locked {
+  color: var(--gn-danger, #dc2626);
+}
+
+/* 编辑器外框与底栏 */
+/* 编辑器外框：内容区滚动，底栏固定在最底部（所有页签一致） */
+.gn-user-mgmt-editor-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gn-user-mgmt-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 12px 0 12px 28px;
+  border-top: 1px solid var(--gn-br-1);
+}
+
+.gn-user-mgmt-footer-status {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--gn-fg-3);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-user-mgmt-footer > .ant-btn {
+  flex: 0 0 auto;
+}
+
+/* 编辑器：页签、表单、口令、权限矩阵、对象权限、预览 */
+.gn-user-mgmt-editor {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  padding: 0 0 0 28px;
+  overflow-y: auto;
+}
+
+.gn-user-mgmt-editor-alert {
+  margin: 4px 24px 0 0;
+}
+
+/* 页签：工作台嵌在 .gn-v2-main-tabs 内，主页签的固定宽高/零内边距会按后代选择器泄漏进来，这里显式复位。
+   文字页签 + 底部下划线，首个页签与下方内容左对齐；导航吸顶，长列表滚动时仍可切换。 */
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: 0 0 auto;
+  background: var(--gn-bg-app);
+}
+
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-nav-wrap,
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-nav-list {
+  min-height: 0;
+}
+
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-tab {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  margin: 0 26px 0 0 !important;
+  padding: 12px 0 !important;
+  border-right: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--gn-fg-3) !important;
+  align-items: center;
+  justify-content: center;
+}
+
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-tab:hover {
+  background: transparent !important;
+  color: var(--gn-fg-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-tab .ant-tabs-tab-btn {
+  width: auto;
+  height: auto;
+  line-height: 20px;
+}
+
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gn-accent) !important;
+}
+
+body[data-ui-version="v2"] .gn-user-mgmt-editor-tabs > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active::after {
+  top: auto;
+  bottom: 0;
+  display: block;
+  border-radius: 2px 2px 0 0;
+}
+
+.gn-user-mgmt-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 24px 28px 0;
+}
+
+/* 表单：限制最大宽度，避免输入框拉满整屏；行列间距放宽 */
+.gn-user-mgmt-form-grid {
+  display: grid;
+  max-width: 960px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 22px 28px;
+}
+
+.gn-user-mgmt-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 控件占满字段宽度；否则空值的下拉框 / 日期选择器会缩成一小截，弹层也跟着被截断 */
+.gn-user-mgmt-field-control {
+  min-width: 0;
+}
+
+.gn-user-mgmt-field-control > .ant-select,
+.gn-user-mgmt-field-control > .ant-picker,
+.gn-user-mgmt-field-control > .ant-input-number,
+.gn-user-mgmt-field-control > .ant-input-affix-wrapper {
+  width: 100%;
+}
+
+/* 开关字段单独成组：标签在左、开关在右，一行到底，不画卡片边框 */
+.gn-user-mgmt-form-grid.is-toggles {
+  gap: 16px 28px;
+}
+
+.gn-user-mgmt-field-bool {
+  min-height: 32px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gn-user-mgmt-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gn-fg-2);
+  font-size: 12.5px;
+}
+
+.gn-user-mgmt-field-hint,
+.gn-user-mgmt-field-hint-icon {
+  color: var(--gn-fg-4);
+  font-size: 12px;
+}
+
+.gn-user-mgmt-field-hint-icon {
+  cursor: help;
+}
+
+.gn-user-mgmt-field-error {
+  color: var(--gn-danger, #dc2626);
+  font-size: 12px;
+}
+
+.gn-user-mgmt-number {
+  width: 100%;
+}
+
+.gn-user-mgmt-choice-tag,
+.gn-user-mgmt-privilege-tag {
+  margin-inline-start: 6px;
+}
+
+.gn-user-mgmt-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--gn-fg-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* 口令：不再套边框卡片，与其他字段同级排布 */
+.gn-user-mgmt-password {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.gn-user-mgmt-password-row {
+  display: flex;
+  gap: 8px;
+}
+
+.gn-user-mgmt-password-row > .ant-input-affix-wrapper {
+  flex: 1 1 auto;
+}
+
+.gn-user-mgmt-strength {
+  display: grid;
+  height: 4px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.gn-user-mgmt-strength > span {
+  border-radius: 2px;
+  background: var(--gn-br-2);
+  transition: background-color 0.15s ease;
+}
+
+.gn-user-mgmt-strength.level-1 > .is-on {
+  background: var(--gn-danger, #dc2626);
+}
+
+.gn-user-mgmt-strength.level-2 > .is-on {
+  background: var(--gn-warn, #d97706);
+}
+
+.gn-user-mgmt-strength.level-3 > .is-on,
+.gn-user-mgmt-strength.level-4 > .is-on {
+  background: var(--gn-status-connected, #15803d);
+}
+
+.gn-user-mgmt-policy-list,
+.gn-user-mgmt-risk-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--gn-warn, #d97706);
+  font-size: 12px;
+}
+
+/* 权限矩阵 / 成员关系表：无外框，只保留行分隔线 */
+.gn-user-mgmt-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gn-user-mgmt-table-card {
+  overflow-x: auto;
+}
+
+.gn-user-mgmt-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.gn-user-mgmt-matrix-table th,
+.gn-user-mgmt-matrix-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gn-br-1);
+  text-align: left;
+}
+
+.gn-user-mgmt-matrix-table th {
+  color: var(--gn-fg-4);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.gn-user-mgmt-matrix-table th:not(:first-child),
+.gn-user-mgmt-matrix-table td:not(:first-child) {
+  width: 1%;
+  min-width: 96px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.gn-user-mgmt-matrix-table td:first-child {
+  font-family: var(--gn-font-mono);
+}
+
+.gn-user-mgmt-matrix-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.gn-user-mgmt-matrix-table tbody tr:hover td {
+  background: var(--gn-bg-hover);
+}
+
+.gn-user-mgmt-privilege-name {
+  font-family: var(--gn-font-mono);
+}
+
+.gn-user-mgmt-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gn-user-mgmt-members .gn-user-mgmt-section-title {
+  width: 100%;
+}
+
+/* 对象权限：左侧对象树 + 手动指定，右侧权限矩阵 */
+.gn-user-mgmt-object-privileges {
+  display: grid;
+  min-height: 360px;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  align-items: start;
+  gap: 32px;
+  padding: 24px 24px 28px 0;
+}
+
+.gn-user-mgmt-object-tree,
+.gn-user-mgmt-object-matrix {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.gn-user-mgmt-object-matrix > .gn-user-mgmt-empty-state {
+  min-height: 240px;
+}
+
+.gn-user-mgmt-tree-box {
+  max-height: 340px;
+  overflow: auto;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-treenode {
+  align-items: center;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-switcher {
+  display: inline-flex;
+  width: 20px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  margin-inline-end: 2px;
+  line-height: 1;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-switcher .ant-tree-switcher-icon {
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-switcher .ant-tree-switcher-icon svg {
+  transform: none;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-switcher_open .ant-tree-switcher-icon {
+  transform: rotate(90deg);
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-node-content-wrapper {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-node-content-wrapper .ant-tree-iconEle {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--gn-accent);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.gn-user-mgmt-tree-box .ant-tree .ant-tree-title {
+  flex: 1 1 auto;
+  padding: 0;
+  line-height: 20px;
+}
+
+.gn-user-mgmt-granted-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gn-user-mgmt-target-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gn-user-mgmt-target-chip:hover,
+.gn-user-mgmt-target-chip.is-selected {
+  background: var(--gn-bg-hover);
+}
+
+.gn-user-mgmt-manual-target {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gn-user-mgmt-manual-target .ant-select,
+.gn-user-mgmt-manual-target .ant-select-auto-complete {
+  width: 100%;
+}
+
+/* 预览 */
+.gn-user-mgmt-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 24px 28px 0;
+}
+
+.gn-user-mgmt-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gn-user-mgmt-preview-loading {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.gn-user-mgmt-preview-code {
+  max-height: 360px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--gn-bg-hover);
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+@container (max-width: 720px) {
+  .gn-user-mgmt-body,
+  .gn-user-mgmt-object-privileges {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 应用结果 */
+.gn-user-mgmt-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gn-user-mgmt-outcome-item {
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-start !important;
+}
+
+.gn-user-mgmt-outcome-item code {
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.gn-user-mgmt-outcome-item .is-success {
+  color: var(--gn-status-connected, #15803d);
+}
+
+.gn-user-mgmt-outcome-item .is-failed {
+  color: var(--gn-danger, #dc2626);
+}
+
+.gn-user-mgmt-outcome-item .is-skipped {
+  color: var(--gn-fg-4);
+}
+
+.gn-user-mgmt-outcome-error {
+  width: 100%;
+  color: var(--gn-danger, #dc2626);
+  font-size: 12px;
+}

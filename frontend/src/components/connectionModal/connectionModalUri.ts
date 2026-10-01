@@ -35,6 +35,18 @@ const MAX_CONNECTION_PARAMS_LENGTH = 4096;
 const MAX_URI_HOSTS = 32;
 const MAX_TIMEOUT_SECONDS = 3600;
 
+export const getPulsarDefaultPort = (useSSL: boolean) =>
+  useSSL ? 6651 : getDefaultPortByType("pulsar");
+
+export const getPulsarPortAfterSSLChange = (
+  currentPort: number,
+  useSSL: boolean,
+  manuallyEdited: boolean,
+) =>
+  manuallyEdited || currentPort !== getPulsarDefaultPort(!useSSL)
+    ? currentPort
+    : getPulsarDefaultPort(useSSL);
+
 export const normalizeClickHouseProtocolValue = (
   value: unknown,
 ): ClickHouseProtocolChoice => {
@@ -1119,6 +1131,26 @@ export const parseUriToValues = (
     };
   }
 
+  if (type === "pulsar") {
+    const tlsParams = new URLSearchParams(trimmedUri.split("?")[1] || "");
+    const tlsEnabled = trimmedUri.toLowerCase().startsWith("pulsar+ssl://") ||
+      normalizeUriBool(tlsParams.get("tls") || tlsParams.get("ssl"));
+    const defaultPort = getPulsarDefaultPort(tlsEnabled);
+    const parsed = parseSingleHostUri(trimmedUri, ["pulsar", "pulsar+ssl"], defaultPort);
+    if (!parsed) return null;
+    return {
+      host: parsed.host,
+      port: parsed.port,
+      user: parsed.username,
+      password: parsed.password,
+      database: parsed.database || "",
+      useSSL: tlsEnabled,
+      sslMode: normalizeUriBool(parsed.params.get("skip_verify")) ? "skip-verify" : tlsEnabled ? "required" : "preferred",
+      connectionParams: serializeConnectionParams(parsed.params),
+      ...extractSSLPathValuesFromParams(parsed.params, type),
+    };
+  }
+
   if (type === "trino") {
     return parseTrinoUriToValues(trimmedUri);
   }
@@ -1353,150 +1385,15 @@ export const parseUriToValues = (
   return null;
 };
 
-export const getUriPlaceholder = (dbType: string) => {
-  if (isMySQLCompatibleType(dbType)) {
-    const defaultPort = getDefaultPortByType(dbType);
-    const scheme =
-      dbType === "diros" ? "doris" : dbType === "starrocks" ? "starrocks" : dbType === "oceanbase" ? "oceanbase" : dbType === "goldendb" ? "goldendb" : "mysql";
-    if (dbType === "oceanbase") {
-      return `${scheme}://sys%40oracle001:pass@127.0.0.1:${defaultPort}?protocol=oracle`;
-    }
-    return `${scheme}://user:pass@127.0.0.1:${defaultPort},127.0.0.2:${defaultPort}/db_name?topology=replica`;
-  }
-  if (isFileDatabaseType(dbType)) {
-    return dbType === "duckdb"
-      ? "duckdb:///Users/name/demo.duckdb"
-      : "sqlite:///Users/name/demo.sqlite";
-  }
-  if (dbType === "mongodb") {
-    return "mongodb+srv://user:pass@cluster0.example.com/db_name?authSource=admin&authMechanism=SCRAM-SHA-256";
-  }
-  if (dbType === "clickhouse") {
-    return "clickhouse://default:pass@127.0.0.1:9000/default";
-  }
-  if (dbType === "trino") {
-    return "http://user@127.0.0.1:8080?catalog=hive&schema=default&source=GoNavi";
-  }
-  if (dbType === "chroma") {
-    return "http://127.0.0.1:8000/default_database?tenant=default_tenant";
-  }
-  if (dbType === "qdrant") {
-    return "http://127.0.0.1:6333";
-  }
-  if (dbType === "milvus") {
-    return "http://127.0.0.1:19530/default";
-  }
-  if (dbType === "iotdb") {
-    return "iotdb://root:root@127.0.0.1:6667/root.sg";
-  }
-  if (dbType === "rocketmq") {
-    return "rocketmq://accessKey:secretKey@127.0.0.1:9876,127.0.0.2:9876/orders.events?topology=cluster&groupId=gonavi&namespace=prod&tag=TagA&pullBatchSize=32&startOffset=latest";
-  }
-  if (dbType === "mqtt") {
-    return "mqtt://user:pass@127.0.0.1:1883/devices%2F%2B%2Ftelemetry?topology=cluster&clientId=gonavi-desktop&qos=1";
-  }
-  if (dbType === "kafka") {
-    return "kafka://user:pass@127.0.0.1:9092,127.0.0.2:9092/orders.events?topology=cluster&groupId=analytics&mechanism=scram-sha-256";
-  }
-  if (dbType === "rabbitmq") {
-    return "rabbitmq://guest:guest@127.0.0.1:15672/%2F?defaultQueue=orders.queue&exchange=events.topic&timeout=30";
-  }
-  if (dbType === "redis") {
-    return t("connection.modal.example.or", {
-      first:
-        "redis://:pass@127.0.0.1:6379,127.0.0.2:6379/0?topology=cluster",
-      second:
-        "redis://:pass@10.0.0.1:26379,10.0.0.2:26379/0?topology=sentinel&master=mymaster",
-    });
-  }
-  if (dbType === "nacos") {
-    return "http://nacos:nacos@127.0.0.1:8848/nacos?namespaceId=dev";
-  }
-  if (dbType === "oracle") {
-    return "oracle://user:pass@127.0.0.1:1521/ORCLPDB1";
-  }
-  if (dbType === "iris") {
-    return "iris://user:pass@127.0.0.1:1972/USER";
-  }
-  if (dbType === "cache") {
-    return "cache://user:pass@127.0.0.1:1972/USER";
-  }
-  if (dbType === "opengauss") {
-    return "opengauss://user:pass@127.0.0.1:5432/db_name";
-  }
-  if (dbType === "gaussdb") {
-    return "gaussdb://user:pass@127.0.0.1:5432/db_name";
-  }
-  return t("connection.modal.example", {
-    value: "postgres://user:pass@127.0.0.1:5432/db_name",
-  });
-};
-
-export const getConnectionParamsPlaceholder = (
-  dbType: string,
-  oceanBaseProtocol: OceanBaseProtocolChoice,
-) => {
-  if (dbType === "oceanbase") {
-    return oceanBaseProtocol === "oracle"
-      ? "PREFETCH_ROWS=5000"
-      : "useUnicode=true&characterEncoding=utf8&autoReconnect=true&useSSL=false";
-  }
-  if (isMySQLCompatibleType(dbType)) {
-    return "useUnicode=true&characterEncoding=utf8&autoReconnect=true&useSSL=false";
-  }
-  switch (dbType) {
-    case "postgres":
-    case "kingbase":
-    case "highgo":
-    case "vastbase":
-    case "opengauss":
-    case "gaussdb":
-      return "application_name=GoNavi&statement_timeout=30000";
-    case "oracle":
-      return "PREFETCH_ROWS=5000&TRACE FILE=/tmp/go-ora.trc";
-    case "sqlserver":
-      return "app name=GoNavi&packet size=32767";
-    case "iris":
-    case "cache":
-      return "timeout=30";
-    case "clickhouse":
-      return "max_execution_time=60&compress=lz4";
-    case "trino":
-      return "session_properties=query_max_execution_time:30m&query_timeout=30s";
-    case "mongodb":
-      return "retryWrites=true&readPreference=secondaryPreferred";
-    case "chroma":
-      return "tenant=default_tenant&apiKey=...";
-    case "qdrant":
-      return "apiKey=...";
-    case "milvus":
-      return "token=...";
-    case "dameng":
-      return "schema=SYSDBA";
-    case "tdengine":
-      return "timezone=Asia%2FShanghai";
-    case "iotdb":
-      return "fetchSize=1024&timeZone=Asia%2FShanghai";
-    case "rocketmq":
-      return "groupId=gonavi&namespace=prod&tag=TagA&pullBatchSize=32&startOffset=latest";
-    case "mqtt":
-      return "topics=devices%2F%2B%2Ftelemetry,%24SYS%2F%23&clientId=gonavi-desktop&qos=1&cleanSession=true&fetchWaitMs=4000";
-    case "kafka":
-      return "groupId=gonavi&mechanism=scram-sha-256&clientId=gonavi-desktop&startOffset=latest";
-    case "rabbitmq":
-      return "defaultQueue=orders.queue&exchange=events.topic&managementPathPrefix=/rabbitmq";
-    case "nacos":
-      return "contextPath=/nacos";
-    default:
-      return "key=value&another=value";
-  }
-};
+export { getUriPlaceholder, getConnectionParamsPlaceholder } from './connectionModalPlaceholders';
 
 export const buildUriFromValues = (values: any) => {
   const type = String(values.type || "")
     .trim()
     .toLowerCase();
-  const defaultPort = getDefaultPortByType(type);
+  const defaultPort = type === "pulsar"
+    ? getPulsarDefaultPort(!!values.useSSL)
+    : getDefaultPortByType(type);
   const host = String(values.host || "localhost").trim();
   const port = Number(values.port || defaultPort);
   const user = String(values.user || "").trim();
@@ -1879,6 +1776,21 @@ export const buildUriFromValues = (values: any) => {
     query = oracleSIDMode
       ? withOracleSIDParam(query, database)
       : withoutOracleSIDParam(query);
+  }
+
+  if (type === "pulsar") {
+    const address = toAddress(host, port, defaultPort);
+    const params = new URLSearchParams();
+    if (values.useSSL) {
+      params.set("tls", "true");
+      if (String(values.sslMode || "required").toLowerCase() === "skip-verify") params.set("skip_verify", "true");
+      appendSSLPathParamsForUri(params, type, values);
+    }
+    if (Number.isFinite(timeout) && timeout > 0) params.set("timeout", String(timeout));
+    mergeConnectionParams(params, values.connectionParams);
+    const topicPath = database ? `/${encodeURIComponent(database)}` : "";
+    const query = params.toString();
+    return `${values.useSSL ? "pulsar+ssl" : "pulsar"}://${encodedAuth}${address}${topicPath}${query ? `?${query}` : ""}`;
   }
   return `${scheme}://${encodedAuth}${toAddress(host, port, defaultPort)}${dbPath}${query ? `?${query}` : ""}`;
 };

@@ -5,6 +5,7 @@ import type { FormInstance } from 'antd/es/form';
 
 import type { AIProviderConfig } from '../../types';
 import { buildProviderModelOptions, filterProviders, parseCLIModelCatalog, type CLIModelCatalog, type ProviderCheckResult } from '../../utils/aiProviderManagement';
+import { formatContextSize, parseModelContextProfile, type AIModelContextProfile } from '../../utils/aiChatRuntime';
 import AIProviderModelSelect from './AIProviderModelSelect';
 import SqlAiCompletionToggle from './SqlAiCompletionToggle';
 import { readCachedCLIModelCatalog, writeCachedCLIModelCatalog } from './cliModelCatalogCache';
@@ -25,7 +26,7 @@ import {
 } from '../../utils/aiProviderPresets';
 import { isProviderSecretRequirementSatisfied } from '../../utils/providerSecretDraft';
 import { recordFromRows } from '../../utils/aiProviderKeyValue';
-import { AIGetCLICapabilities, AIGetCLIModelCatalog } from '../../../wailsjs/go/aiservice/Service';
+import { AIGetCLICapabilities, AIGetCLIModelCatalog, AIGetModelContextProfile } from '../../../wailsjs/go/aiservice/Service';
 import { BrowserOpenURL } from '../../../wailsjs/runtime';
 import { applyCursorCLIModelEffort, parseCursorCLIModelID } from '../../utils/cursorCLIModelEffort';
 import type { ai } from '../../../wailsjs/go/models';
@@ -377,7 +378,36 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const watchedInlineCompletionModel = Form.useWatch('inlineCompletionModel', form);
   const watchedDisabledModels = Form.useWatch('disabledModels', { form, preserve: true }) || [];
   const watchedCustomModels = Form.useWatch('customModels', { form, preserve: true }) || [];
+  const watchedRemovedModels = Form.useWatch('removedModels', { form, preserve: true }) || [];
   const watchedBaseUrl = String(Form.useWatch('baseUrl', { form, preserve: true }) || '').trim();
+  // 上下文档位由后端按模型给出；前端只做投影，不维护数值副本。
+  const [contextProfile, setContextProfile] = React.useState<{ scope: string; profile: AIModelContextProfile | null }>({ scope: '', profile: null });
+  const contextProfileScope = `${editorScope}:${String(watchedModel || '').trim()}`;
+  React.useEffect(() => {
+    const model = String(watchedModel || '').trim();
+    if (!editorReady || duplicateCLI || !model) {
+      setContextProfile({ scope: contextProfileScope, profile: null });
+      return;
+    }
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => AIGetModelContextProfile({ ...(editingProvider as AIProviderConfig), model } as AIProviderConfig))
+      .then((profile) => { if (!cancelled) setContextProfile({ scope: contextProfileScope, profile: parseModelContextProfile(profile) }); })
+      .catch(() => { if (!cancelled) setContextProfile({ scope: contextProfileScope, profile: null }); });
+    return () => { cancelled = true; };
+  }, [contextProfileScope, editorReady, duplicateCLI, watchedModel, editingProvider]);
+  const activeContextProfile = contextProfile.scope === contextProfileScope ? contextProfile.profile : null;
+  // 只有支持多档位的模型才显示这一项；换模型时把不适用的旧档位清掉。
+  const contextWindowOptions = activeContextProfile?.options || [];
+  const contextWindowSelectable = contextWindowOptions.length > 1;
+  const watchedContextWindow = Number(Form.useWatch('contextWindow', { form, preserve: true }) || 0);
+  React.useEffect(() => {
+    if (!contextWindowSelectable) return;
+    const normalized = activeContextProfile?.options.includes(watchedContextWindow) ? watchedContextWindow : 0;
+    if (normalized === watchedContextWindow) return;
+    form.setFieldValue('contextWindow', normalized);
+    onValuesChange?.({ contextWindow: normalized });
+  }, [contextWindowSelectable, activeContextProfile, watchedContextWindow, form, onValuesChange]);
   const watchedApiKey = String(Form.useWatch('apiKey', { form, preserve: true }) || '');
   const watchedHeaderRows = Form.useWatch('headerRows', { form, preserve: true }) || [];
   const upstreamScope = JSON.stringify({ editorScope, type: watchedType, apiFormat: watchedApiFormat, authMode: watchedAuthMode,
@@ -416,6 +446,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     }
   };
   React.useEffect(() => () => { upstreamRequestRef.current += 1; }, []);
+  const removedModelSet = new Set<string>(watchedRemovedModels);
   const modelOptions = buildProviderModelOptions(
     modelCatalog?.models,
     upstreamModels,
@@ -424,7 +455,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     usesLocalCLI ? [] : activePresetConnection?.models,
     watchedCustomModels,
     watchedDisabledModels,
-  );
+  ).filter((option) => !removedModelSet.has(option.value));
   const disabledModels = new Set<string>(watchedDisabledModels);
   const enabledModelOptions = modelOptions.filter((option) => !disabledModels.has(option.value));
   const activeCatalogModel = String(watchedModel || modelCatalog?.defaultModel || '').trim();
@@ -790,13 +821,12 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 ]}
                 onChange={onAuthModeChange} />
             </Form.Item>}
-            <div className={`gonavi-ai-provider-field-grid gonavi-ai-provider-basic-fields${usesLocalCLI ? ' has-effort' : ''}`}>
+            <div className="gonavi-ai-provider-field-grid gonavi-ai-provider-basic-fields">
               <Form.Item label={fieldLabel('ai_settings.form.display_name')} name="name"><Input placeholder={copy('ai_settings.form.provider_name_placeholder')} size="middle" /></Form.Item>
-              <Form.Item name="model" rules={[requiredModelRule]} extra={catalogNotice ? (
-                <div role="status" className={`gonavi-ai-provider-cli-catalog-status is-${catalogNotice.tone}`}>{catalogNotice.text}</div>
-              ) : undefined} label={<span className="gonavi-ai-provider-model-label">
-                <span className="gonavi-ai-provider-model-title">{fieldLabel('ai_settings.form.default_model')}</span>
-                <span className="gonavi-ai-provider-model-meta">
+              <div className="gonavi-ai-provider-model-field">
+                <div className="gonavi-ai-provider-model-label">
+                  <span className="gonavi-ai-provider-model-title">{fieldLabel('ai_settings.form.default_model')}</span>
+                  <span className="gonavi-ai-provider-model-meta">
                   {supportsUpstreamModelSync && <button type="button" className="gonavi-ai-provider-model-sync"
                     disabled={upstreamModelsLoading} aria-busy={upstreamModelsLoading}
                     onClick={(event) => { event.preventDefault(); event.stopPropagation(); void syncUpstreamModels(); }}>
@@ -815,7 +845,11 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                     setModelManagementRequest((previous) => ({ scope: editorScope, request: previous.request + 1 }));
                   }}
                     aria-label={copy('ai_settings.models.manage')}>{copy('ai_settings.models.enabled_count', { enabled: enabledModelOptions.length, total: modelOptions.length })}</button>
-                </span></span>}>
+                  </span>
+                </div>
+                <Form.Item name="model" rules={[requiredModelRule]} extra={catalogNotice ? (
+                  <div role="status" className={`gonavi-ai-provider-cli-catalog-status is-${catalogNotice.tone}`}>{catalogNotice.text}</div>
+                ) : undefined}>
                 <AIProviderModelSelect key={`${editorScope}:default`} label={copy('ai_settings.form.default_model')}
                   placeholder={copy(usesLocalCLI || codeBuddyUsesOptionalSecret ? 'ai_settings.form.default_model_placeholder.local_cli' : 'ai_settings.form.default_model_placeholder')}
                   customLabel={copy('ai_settings.form.model_use_custom')} options={modelOptions} loading={modelsLoading || upstreamModelsLoading}
@@ -824,9 +858,30 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                     allowDefaultFallback: Boolean(usesLocalCLI || codeBuddyUsesOptionalSecret), source: copy(modelSourceKey), copy,
                     onToggle: (model, enabled) => patchModels({ disabledModels: enabled ? watchedDisabledModels.filter((item: string) => item !== model) : [...new Set([...watchedDisabledModels, model])] }),
                     onAdd: (model) => patchModels({ customModels: [...new Set([...watchedCustomModels, model])] }),
+                    // 删除：从自定义列表移除，并记入 removedModels 让内置 / 上游同步来的同名项也不再出现；
+                    // 同时清掉停用标记，避免同一个模型既被删除又被停用。
+                    onRemove: (model) => patchModels({
+                      removedModels: [...new Set([...watchedRemovedModels, model])],
+                      customModels: watchedCustomModels.filter((item: string) => item !== model),
+                      disabledModels: watchedDisabledModels.filter((item: string) => item !== model),
+                    }),
                   }} />
-              </Form.Item>
+                </Form.Item>
+              </div>
               <SqlAiCompletionToggle />
+              {contextWindowSelectable && <Form.Item label={fieldLabel('ai_settings.form.context_window')}
+                extra={<span className="gonavi-ai-provider-field-hint">{copy('ai_settings.form.context_window_hint')}</span>}
+                name="contextWindow">
+                <Select size="middle" popupMatchSelectWidth={false} className="gonavi-ai-provider-context-window"
+                  classNames={{ popup: { root: 'gonavi-ai-provider-form-popup' } }}
+                  options={contextWindowOptions.map((value) => ({
+                    value,
+                    label: value === activeContextProfile?.defaultWindow
+                      ? copy('ai_settings.form.context_window_option_default', { size: formatContextSize(value) })
+                      : formatContextSize(value),
+                  }))}
+                  placeholder={copy('ai_settings.form.context_window_option_default', { size: formatContextSize(activeContextProfile?.defaultWindow || contextWindowOptions[0]) })} />
+              </Form.Item>}
               <Form.Item name="inlineCompletionModel" rules={[requiredModelRule]} label={fieldLabel('ai_settings.form.inline_completion_model')}>
                 <AIProviderModelSelect label={copy('ai_settings.form.inline_completion_model')} placeholder={copy('ai_settings.form.inline_completion_model_placeholder')}
                   customLabel={copy('ai_settings.form.model_use_custom')} options={modelOptions} disabledModels={watchedDisabledModels} />

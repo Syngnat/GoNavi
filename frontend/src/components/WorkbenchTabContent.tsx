@@ -27,11 +27,14 @@ const JVMDiagnosticConsole = React.lazy(() => import('./JVMDiagnosticConsole'));
 const JVMMonitoringDashboard = React.lazy(() => import('./JVMMonitoringDashboard'));
 const SqlAnalysisWorkbench = React.lazy(() => import('./explain/SqlAnalysisWorkbench'));
 const SqlAuditWorkbench = React.lazy(() => import('./audit/SqlAuditWorkbench'));
+const QueryHistoryWorkbench = React.lazy(() => import('./queryHistory/QueryHistoryWorkbench'));
 const DriverManagerWorkbench = React.lazy(() => import('./DriverManagerWorkbench'));
 const SettingsCenterWorkbench = React.lazy(() => import('./settings/SettingsCenterWorkbench'));
 const RequestDiagnosticsWorkbench = React.lazy(() => import('./requestDiagnostics/RequestDiagnosticsWorkbench'));
 const DMLSnapshotWorkbench = React.lazy(() => import('./dmlSnapshot/DMLSnapshotWorkbench'));
+const UserManagementWorkbench = React.lazy(() => import('./userManagement/UserManagementWorkbench'));
 const MessageQueueWorkbench = React.lazy(() => import('./MessageQueueWorkbench'));
+const SessionWorkbench = React.lazy(() => import('./sessionWorkbench/SessionWorkbench'));
 
 const QueryWorkbenchContent: React.FC<{ tab: TabData; isActive: boolean }> = React.memo(({
   tab,
@@ -159,9 +162,13 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
   } else if (tab.type === 'sql-analysis') {
     content = <SqlAnalysisWorkbench tab={tab} />;
   } else if (tab.type === 'sql-audit') {
-    content = <SqlAuditWorkbench tab={tab} isActive={isActive} />;
+    content = tab.sqlAuditView === 'query-history'
+      ? <QueryHistoryWorkbench tab={tab} isActive={isActive} />
+      : <SqlAuditWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'dml-snapshot') {
     content = <DMLSnapshotWorkbench isActive={isActive} />;
+  } else if (tab.type === 'user-management') {
+    content = <UserManagementWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'driver-manager') {
     content = (
       <DriverManagerWorkbench
@@ -176,6 +183,8 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <RequestDiagnosticsWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'message-queue') {
     content = <MessageQueueWorkbench tab={tab} isActive={isActive} />;
+  } else if (tab.type === 'session-workbench') {
+    content = <SessionWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'jvm-overview') {
     content = <JVMOverview tab={tab} />;
   } else if (tab.type === 'jvm-resource') {

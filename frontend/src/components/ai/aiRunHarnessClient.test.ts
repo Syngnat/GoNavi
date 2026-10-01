@@ -95,6 +95,35 @@ describe('AI run harness client', () => {
     ]);
   });
 
+  it('hides harness control messages and joins a continued reply without a paragraph break', () => {
+    const messages = toAIChatMessages({
+      messages: [
+        { id: 'user-1', runId: 'run-1', role: 'user', content: 'write it', createdAt: 1 },
+        { id: 'assistant-1', runId: 'run-1', role: 'assistant', content: 'SELECT a, ', createdAt: 2 },
+        // 输出被截断后 harness 追加的内部提示：只给模型看，不进聊天记录。
+        { id: 'nudge-1', runId: 'run-1', role: 'system', content: 'Your previous reply was cut off by the output length limit.', metadata: { code: 'output_truncated' }, createdAt: 3 },
+        { id: 'assistant-2', runId: 'run-1', role: 'assistant', content: 'b FROM t', createdAt: 4 },
+        { id: 'repair-1', runId: 'run-1', role: 'system', content: 'Your previous tool call could not be executed', metadata: { code: 'malformed_tool_call' }, createdAt: 5 },
+      ],
+    });
+
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+    // 续写是从截断处接着写：直接拼接，不能在半句话或代码块中间插入空行。
+    expect(messages[1].content).toBe('SELECT a, b FROM t');
+  });
+
+  it('keeps ordinary system messages and still separates independent assistant turns', () => {
+    const messages = toAIChatMessages({
+      messages: [
+        { id: 'system-1', role: 'system', content: 'be brief', createdAt: 1 },
+        { id: 'assistant-1', runId: 'run-1', role: 'assistant', content: 'first', createdAt: 2 },
+        { id: 'assistant-2', runId: 'run-1', role: 'assistant', content: 'second', createdAt: 3 },
+      ],
+    });
+    expect(messages.map((message) => message.role)).toEqual(['system', 'assistant']);
+    expect(messages[1].content).toBe('first\n\nsecond');
+  });
+
   it('restores and aggregates encrypted message usage metadata', () => {
     expect(toAIChatMessages({
       messages: [
@@ -112,6 +141,24 @@ describe('AI run harness client', () => {
     })[0]).toMatchObject({
       tokenUsage: { promptTokens: 15, completionTokens: 5, totalTokens: 20, cachedTokens: 4 },
     });
+  });
+
+  it('shows the run active time on the merged assistant reply once the run is finished', () => {
+    const messages = toAIChatMessages({
+      runs: [
+        { runId: 'run-done', state: 'completed', activeDurationMs: 41_250 },
+        { runId: 'run-live', state: 'running_model', activeDurationMs: 9_000 },
+      ],
+      messages: [
+        { id: 'a-1', runId: 'run-done', role: 'assistant', content: 'first', createdAt: 1 },
+        { id: 'a-2', runId: 'run-done', role: 'assistant', content: 'second', createdAt: 2 },
+        { id: 'b-1', runId: 'run-live', role: 'assistant', content: 'partial', createdAt: 3 },
+      ],
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0].processingMs).toBe(41_250);
+    expect(messages[1].processingMs).toBeUndefined();
   });
 
   it('flattens nested shortcut bindings to the Go map[string]string contract', () => {

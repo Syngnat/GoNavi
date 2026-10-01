@@ -46,6 +46,7 @@ type AgentRunHarness struct {
 	contextBuilder ContextBuilder
 	tools          ToolCatalog
 	approvals      ApprovalHandler
+	autoApproval   AutoApprovalPolicy
 	events         EventSink
 	root           context.Context
 	cancel         context.CancelFunc
@@ -175,7 +176,7 @@ func NewAgentRunHarness(config HarnessConfig, options ...HarnessOption) (*AgentR
 	}
 	return &AgentRunHarness{
 		ledger: config.Ledger, model: config.Model, inputBinder: config.InputBinder, contextBuilder: contextBuilder, tools: config.Tools,
-		approvals: config.Approvals, events: config.Events, root: root,
+		approvals: config.Approvals, autoApproval: config.AutoApproval, events: config.Events, root: root,
 		cancel: cancel, ownerID: ownerID, leaseTTL: leaseTTL,
 		shutdownGrace: shutdownGrace, defaultPolicy: DefaultRunPolicy(),
 		runtime: runtime, runs: make(map[string]*runExecution),
@@ -1711,7 +1712,7 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 	}
 	execution.setToolCatalog(frozenToolDescriptors)
 	toolRounds, failedToolRounds := h.resumeToolCounters(ctx, run.ID)
-	modelRetries, malformedRetries := 0, 0
+	modelRetries, malformedRetries, outputContinuations := 0, 0, 0
 	providerState := json.RawMessage(nil)
 	conversationCursor := ""
 	if resume.Checkpoint != nil {
@@ -1996,15 +1997,23 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 			return
 		}
 		modelRetries = 0
+		// 被输出长度上限截断的一轮：工具调用参数可能只写了一半，不可信，直接丢弃；
+		// 已生成的文本照常提交，稍后追加一条提示让模型接着写。
+		droppedToolCall := false
+		if result.Truncated && len(result.ToolCalls) > 0 {
+			droppedToolCall = true
+			result.ToolCalls = nil
+		}
 		if malformed := validateRunToolIntents(result.ToolCalls, descriptors, allowToolsForTurn); malformed != nil {
 			_ = h.releaseModelReservation(h.durableContext(), run.ID, reservation.ID, execution.ownerToken())
 			h.emitError(h.durableContext(), run, "malformed_tool_call", malformed.Error(), execution)
 			if malformedRetries < 1 {
 				malformedRetries++
-				// Keep the repair signal structured and outside the tool-call
-				// transcript. A synthetic tool message/call ID can itself poison
-				// providers that validate tool-call pairing.
-				repair := Message{ID: uuid.NewString(), SessionID: run.SessionID, RunID: run.ID, Role: "system", Content: `{"error":"malformed_tool_call","action":"repair"}`, Metadata: json.RawMessage(`{"code":"malformed_tool_call"}`), CreatedAt: time.Now().UTC()}
+				// Keep the repair signal outside the tool-call transcript. A
+				// synthetic tool message/call ID can itself poison providers that
+				// validate tool-call pairing. The text names the concrete reason:
+				// a bare error code tells the model nothing about what to fix.
+				repair := Message{ID: uuid.NewString(), SessionID: run.SessionID, RunID: run.ID, Role: "system", Content: malformedToolCallRepairPrompt(malformed), Metadata: json.RawMessage(`{"code":"malformed_tool_call"}`), CreatedAt: time.Now().UTC()}
 				if appended, appendErr := h.ledger.AppendMessage(h.durableContext(), repair); appendErr == nil {
 					messages = append(messages, appended)
 				}
@@ -2074,6 +2083,24 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 		// Advance the provider cursor only after the model turn has crossed the
 		// atomic ledger boundary.
 		conversationCursor = committed.Checkpoint.ConversationCursor
+		if result.Truncated {
+			// 截断不是失败：保留已生成的部分，提示模型从中断处继续，而不是让整个对话中断。
+			// 连续多次仍被截断说明单次输出确实过长，才放弃并给出明确的错误类别。
+			if outputContinuations >= maxOutputContinuations {
+				h.failRun(h.durableContext(), run, ModelErrorOutputLimit, errOutputContinuationsExhausted, execution)
+				return
+			}
+			outputContinuations++
+			nudge := Message{ID: uuid.NewString(), SessionID: run.SessionID, RunID: run.ID, Role: "system", Content: outputContinuationPrompt(droppedToolCall), Metadata: json.RawMessage(`{"code":"output_truncated"}`), CreatedAt: time.Now().UTC()}
+			appended, appendErr := h.ledger.AppendMessage(h.durableContext(), nudge)
+			if appendErr != nil {
+				h.failRun(h.durableContext(), run, "ledger", appendErr, execution)
+				return
+			}
+			messages = append(messages, appended)
+			continue
+		}
+		outputContinuations = 0
 		if len(result.ToolCalls) == 0 {
 			h.finishTerminal(h.durableContext(), run.ID, RunStateCompleted, "completed", "", execution)
 			return
@@ -2495,25 +2522,6 @@ func (h *AgentRunHarness) listTools(ctx context.Context) ([]ToolDescriptor, erro
 	return items, nil
 }
 
-// projectModelDeltaToolIntents keeps intermediate provider fragments out of
-// the durable event envelope. A streaming provider may emit `{"query":`
-// before completing a tool call; json.RawMessage rejects that fragment during
-// event serialization. The original intent remains untouched so final-turn
-// validation still returns malformed_tool_call rather than treating it as {}.
-func projectModelDeltaToolIntents(intents []ToolIntent) []ToolIntent {
-	if len(intents) == 0 {
-		return nil
-	}
-	projected := make([]ToolIntent, len(intents))
-	copy(projected, intents)
-	for index := range projected {
-		if len(projected[index].Arguments) > 0 && !json.Valid(projected[index].Arguments) {
-			projected[index].Arguments = nil
-		}
-	}
-	return projected
-}
-
 func (h *AgentRunHarness) executeModel(ctx context.Context, request ModelTurnRequest, run RunSnapshot, execution *runExecution) (ModelTurnResult, error) {
 	if h.model == nil {
 		return ModelTurnResult{}, errors.New("model adapter is unavailable")
@@ -2669,7 +2677,7 @@ func (h *AgentRunHarness) executeModel(ctx context.Context, request ModelTurnReq
 			reasoningBuffer.WriteString(delta.Reasoning)
 		}
 		if len(delta.ToolCalls) > 0 {
-			pendingCalls = append(pendingCalls, delta.ToolCalls...)
+			pendingCalls = mergeModelDeltaToolIntents(pendingCalls, delta.ToolCalls)
 		}
 		if idleReset != nil {
 			select {
@@ -2875,7 +2883,7 @@ func (h *AgentRunHarness) awaitApproval(ctx context.Context, run RunSnapshot, in
 	argsHash := ArgsHash(approvalArgs)
 	var err error
 	if current.State != RunStateAwaitingApproval {
-		_, err = h.appendState(ctx, current, EventApproval, RunStateAwaitingApproval, newApprovalEvent(approvalID, intent.CallID, intent.ToolName, intent.Effect, argsHash, "pending"), execution, "")
+		_, err = h.appendState(ctx, current, EventApproval, RunStateAwaitingApproval, newApprovalEvent(approvalID, intent.CallID, intent.ToolName, intent.Effect, argsHash, h.initialApprovalDecision(ctx, run, intent)), execution, "")
 		if err != nil {
 			return false, err
 		}
@@ -2928,6 +2936,7 @@ func (h *AgentRunHarness) awaitApproval(ctx context.Context, run RunSnapshot, in
 			})
 			return false, ErrRunSteered
 		}
+		h.settleAutoApproval(ctx, run, intent, approval, current.Revision)
 		// Commands can arrive from a different desktop/CLI process while the
 		// approval card is open.
 		h.consumeControlCommands(ctx, execution)
@@ -2959,33 +2968,6 @@ func (h *AgentRunHarness) awaitApproval(ctx context.Context, run RunSnapshot, in
 			timer.Stop()
 		case <-timer.C:
 		}
-	}
-}
-
-// newApprovalEvent keeps the adapter-facing approval projection deliberately
-// separate from encrypted approval arguments. Its summary only communicates
-// the effect class, so a SQL statement or any other tool parameter cannot
-// cross the Wails/CLI event boundary by accident.
-func newApprovalEvent(approvalID, callID, toolName string, effect ToolEffect, argsHash, decision string) ApprovalEvent {
-	return ApprovalEvent{
-		ApprovalID: approvalID,
-		CallID:     callID,
-		ToolName:   toolName,
-		Effect:     effect,
-		ArgsHash:   argsHash,
-		Decision:   decision,
-		Summary:    approvalDisplaySummary(effect),
-	}
-}
-
-func approvalDisplaySummary(effect ToolEffect) string {
-	switch effect {
-	case ToolEffectSideEffect:
-		return "This tool can change data or external state."
-	case ToolEffectSideEffectUnknown:
-		return "This tool may change data or external state."
-	default:
-		return "This tool requires approval before it can run."
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"GoNavi-Wails/internal/ai/runharness"
 	aiservice "GoNavi-Wails/internal/ai/service"
 	"GoNavi-Wails/internal/app"
+	"GoNavi-Wails/shared/i18n"
 
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
@@ -259,6 +260,113 @@ func TestResolveWindowVisualOptions(t *testing.T) {
 				t.Fatalf("WebView2 missing-runtime message = %q", windowsOptions.Messages.Webview2NotInstalled)
 			}
 		})
+	}
+}
+
+func TestBuildMacApplicationMenuAppendsPreferencesDriversAndAboutMenus(t *testing.T) {
+	localizer, err := i18n.NewLocalizer(i18n.LanguageZhCN)
+	if err != nil {
+		t.Fatalf("NewLocalizer() error = %v", err)
+	}
+	var emitted []string
+	preferences := newMacPreferencesMenu(localizer, func(event string) {
+		emitted = append(emitted, event)
+	})
+	appMenu := buildMacApplicationMenu(nil, true, preferences.topLevelItems()...)
+
+	// AppMenu / Edit / SQL / GoNavi 设置 / 主题 / 驱动管理 / 关于（驱动管理紧贴关于左侧）
+	if len(appMenu.Items) != 7 {
+		t.Fatalf("expected 7 top-level menu items, got %d", len(appMenu.Items))
+	}
+	settingsRoot, themeRoot, driversRoot, aboutRoot := appMenu.Items[3], appMenu.Items[4], appMenu.Items[5], appMenu.Items[6]
+	if settingsRoot.Label != "设置" || themeRoot.Label != "主题" || driversRoot.Label != "驱动管理" || aboutRoot.Label != "关于" {
+		t.Fatalf("top-level labels = %q / %q / %q / %q", settingsRoot.Label, themeRoot.Label, driversRoot.Label, aboutRoot.Label)
+	}
+	// 顶层菜单必须挂子菜单，否则 macOS 菜单栏上的点击不会触发动作。
+	single := func(root *menu.MenuItem, wantLabel string) *menu.MenuItem {
+		t.Helper()
+		if root.SubMenu == nil || len(root.SubMenu.Items) != 1 || root.SubMenu.Items[0].Label != wantLabel {
+			t.Fatalf("menu %q must hold a single %q item", root.Label, wantLabel)
+		}
+		return root.SubMenu.Items[0]
+	}
+	preferencesItem := single(settingsRoot, "偏好设置")
+	// 「主题」有两个子项：切换亮暗模式（标签随当前模式变化）、打开主题设置。
+	if themeRoot.SubMenu == nil || len(themeRoot.SubMenu.Items) != 2 {
+		t.Fatalf("menu %q must hold toggle and settings items", themeRoot.Label)
+	}
+	themeItem, themeSettingsItem := themeRoot.SubMenu.Items[0], themeRoot.SubMenu.Items[1]
+	if themeItem.Label != "切换暗色模式" || themeSettingsItem.Label != "打开主题设置" {
+		t.Fatalf("theme menu items = %q / %q", themeItem.Label, themeSettingsItem.Label)
+	}
+	driversItem := single(driversRoot, "驱动管理")
+	// 「关于」有两个子项：先检查更新，再打开关于页。
+	if aboutRoot.SubMenu == nil || len(aboutRoot.SubMenu.Items) != 2 {
+		t.Fatalf("menu %q must hold check-update and about items", aboutRoot.Label)
+	}
+	checkUpdateItem, aboutItem := aboutRoot.SubMenu.Items[0], aboutRoot.SubMenu.Items[1]
+	if checkUpdateItem.Label != "检查更新" || aboutItem.Label != "关于 GoNavi" {
+		t.Fatalf("about menu items = %q / %q", checkUpdateItem.Label, aboutItem.Label)
+	}
+
+	for _, item := range []*menu.MenuItem{preferencesItem, themeItem, themeSettingsItem, driversItem, checkUpdateItem, aboutItem} {
+		// 不绑加速键：⌘, 等组合键由前端可自定义的快捷键系统负责。
+		if item.Accelerator != nil {
+			t.Fatalf("menu item %q must not bind a native accelerator", item.Label)
+		}
+		item.Click(&menu.CallbackData{MenuItem: item})
+	}
+	wantEvents := []string{nativeOpenPreferencesEvent, nativeToggleThemeEvent, nativeOpenThemeSettingsEvent, nativeOpenDriversEvent, nativeCheckUpdateEvent, nativeOpenAboutEvent}
+	if strings.Join(emitted, ",") != strings.Join(wantEvents, ",") {
+		t.Fatalf("emitted events = %v, want %v", emitted, wantEvents)
+	}
+
+	// 前端同步主题模式后，切换项的标签说明点击后会到达的模式。
+	if preferences.setTheme("light") {
+		t.Fatal("setTheme(light) should be a no-op while the menu already shows the light state")
+	}
+	if !preferences.setTheme("dark") {
+		t.Fatal("setTheme(dark) = false, want relabel")
+	}
+	if themeItem.Label != "切换亮色模式" {
+		t.Fatalf("dark mode toggle label = %q, want 切换亮色模式", themeItem.Label)
+	}
+	if preferences.setTheme(" DARK ") {
+		t.Fatal("setTheme with the same mode should be a no-op regardless of case and spaces")
+	}
+	if !preferences.setTheme("light") || themeItem.Label != "切换暗色模式" {
+		t.Fatalf("light mode toggle label = %q, want 切换暗色模式", themeItem.Label)
+	}
+	// 非法取值按亮色处理，不会把菜单卡在暗色状态。
+	preferences.setTheme("dark")
+	if !preferences.setTheme("mystery") || themeItem.Label != "切换暗色模式" {
+		t.Fatalf("unknown mode should fall back to light, got %q", themeItem.Label)
+	}
+
+	if !preferences.setLanguage("en-US") {
+		t.Fatal("setLanguage(en-US) = false, want relabel")
+	}
+	if settingsRoot.Label != "Settings" || themeRoot.Label != "Theme" || driversRoot.Label != "Driver Manager" || driversItem.Label != "Driver Manager" || themeItem.Label != "Switch to Dark Mode" || themeSettingsItem.Label != "Open Theme Settings" || aboutRoot.Label != "About" || checkUpdateItem.Label != "Check for Updates" || aboutItem.Label != "About GoNavi" {
+		t.Fatalf("relabel failed: %q / %q / %q / %q / %q / %q / %q / %q / %q", settingsRoot.Label, themeRoot.Label, themeItem.Label, themeSettingsItem.Label, driversRoot.Label, driversItem.Label, aboutRoot.Label, checkUpdateItem.Label, aboutItem.Label)
+	}
+	if preferences.setLanguage("en-US") {
+		t.Fatal("setLanguage with the same language should be a no-op")
+	}
+	if preferences.setLanguage("xx-YY") {
+		t.Fatal("setLanguage with an unsupported language should be a no-op")
+	}
+}
+
+func TestResolveStartupMenuLanguage(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "zh_CN.UTF-8")
+	if got := resolveStartupMenuLanguage(); got != i18n.LanguageZhCN {
+		t.Fatalf("LANG=zh_CN.UTF-8 -> %q, want %q", got, i18n.LanguageZhCN)
+	}
+	t.Setenv("LANG", "")
+	if got := resolveStartupMenuLanguage(); got != i18n.LanguageEnUS {
+		t.Fatalf("empty locale -> %q, want %q", got, i18n.LanguageEnUS)
 	}
 }
 

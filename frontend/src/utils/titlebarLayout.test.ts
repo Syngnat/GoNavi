@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   normalizeTitlebarRuntimePlatform,
-  resolveDockedTitleBarBandOffset,
   resolveDocumentPlatform,
   resolveTitleBarLayout,
   resolveTitlebarRuntimePlatform,
@@ -107,90 +106,71 @@ describe('titlebarLayout', () => {
     });
   });
 
-  it('uses the larger default V2 titlebar while the explorer is expanded', () => {
+  it('uses the compact V2 titlebar when the sidebar actions are not docked', () => {
     expect(resolveTitleBarLayout(1)).toEqual({
       height: 36,
       actionHeight: 30,
       dividerHeight: 14,
       upperBandHeight: 36,
-      emptyWorkbenchTopOffset: 0,
     });
   });
 
-  it('keeps the expanded V2 layout responsive to the configured UI scale', () => {
+  it('keeps the compact V2 layout responsive to the configured UI scale', () => {
     expect(resolveTitleBarLayout(0.8, false)).toEqual({
       height: 29,
       actionHeight: 24,
       dividerHeight: 11,
       upperBandHeight: 29,
-      emptyWorkbenchTopOffset: 0,
     });
     expect(resolveTitleBarLayout(1.25, false)).toEqual({
       height: 45,
       actionHeight: 38,
       dividerHeight: 18,
       upperBandHeight: 45,
-      emptyWorkbenchTopOffset: 0,
     });
     expect(resolveTitleBarLayout(1.1, false)).toEqual({
       height: 40,
       actionHeight: 33,
       dividerHeight: 15,
       upperBandHeight: 40,
-      emptyWorkbenchTopOffset: 0,
     });
   });
 
-  it('keeps the taller V2 titlebar only while collapsed actions are docked into it', () => {
+  it('reserves the taller V2 titlebar whenever the sidebar actions are docked into it', () => {
     expect(resolveTitleBarLayout(1, true)).toEqual({
       height: 59,
       actionHeight: 30,
       dividerHeight: 14,
       upperBandHeight: 31,
-      emptyWorkbenchTopOffset: 23,
     });
     expect(resolveTitleBarLayout(0.8, true)).toEqual({
       height: 52,
       actionHeight: 24,
       dividerHeight: 11,
       upperBandHeight: 29,
-      emptyWorkbenchTopOffset: 23,
     });
     expect(resolveTitleBarLayout(1.25, true)).toEqual({
       height: 70,
       actionHeight: 38,
       dividerHeight: 18,
       upperBandHeight: 35,
-      emptyWorkbenchTopOffset: 25,
     });
     expect(resolveTitleBarLayout(1.1, true)).toEqual({
       height: 64,
       actionHeight: 33,
       dividerHeight: 15,
       upperBandHeight: 33,
-      emptyWorkbenchTopOffset: 24,
     });
   });
 
-  it('reserves enough height for enlarged collapsed sidebar actions', () => {
+  it('reserves enough height for enlarged docked sidebar actions', () => {
     expect(resolveTitleBarLayout(1, true, 1.8)).toEqual({
       height: 80,
       actionHeight: 30,
       dividerHeight: 14,
       upperBandHeight: 31,
-      emptyWorkbenchTopOffset: 44,
     });
   });
-
-  it.each([0.8, 0.9, 0.95, 1, 1.1, 1.25])(
-    'keeps the empty workbench content origin stable at UI scale %s',
-    (scale) => {
-      const expanded = resolveTitleBarLayout(scale, false);
-      const collapsed = resolveTitleBarLayout(scale, true);
-
-      expect(collapsed.height - collapsed.emptyWorkbenchTopOffset).toBe(expanded.height);
-    },
-  );
 
   it.each([
     [0.8, 1],
@@ -201,23 +181,9 @@ describe('titlebarLayout', () => {
     (scale, sidebarScale) => {
       const layout = resolveTitleBarLayout(scale, true, sidebarScale);
       const upperBandBottom = layout.upperBandHeight;
-      const collapsedBandTop = layout.height - 1 - (26 * scale * sidebarScale);
+      const actionBandTop = layout.height - 1 - (26 * scale * sidebarScale);
 
-      expect(collapsedBandTop - upperBandBottom).toBeGreaterThanOrEqual(1);
+      expect(actionBandTop - upperBandBottom).toBeGreaterThanOrEqual(1);
     },
   );
-
-  it.each([
-    [0.8, 1],
-    [1, 1],
-    [1.25, 1.8],
-  ])(
-    'resolves the docked band offset independent of the collapsed state at UI scale %s and sidebar scale %s',
-    (scale, sidebarScale) => {
-      expect(resolveDockedTitleBarBandOffset(scale, sidebarScale))
-        .toBe(resolveTitleBarLayout(scale, true, sidebarScale).emptyWorkbenchTopOffset);
-      expect(resolveDockedTitleBarBandOffset(scale, sidebarScale)).toBeGreaterThan(0);
-    },
-  );
-
 });

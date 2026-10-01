@@ -136,6 +136,8 @@ func (s *Service) bindAgentProviderInput(request *runharness.AgentInputRequest) 
 	}
 	options := ai.ChatSendOptions{Model: request.Model, ThinkingIntensity: request.Thinking}
 	resolved = normalizeProviderConfig(applyChatSendOptionsToProviderConfig(resolved, options))
+	// 上下文档位是按模型选的：请求临时换了模型时，旧模型的档位不再适用。
+	resolved.ContextWindow = ai.ResolveModelContextProfile(resolved.Model).NormalizeWindow(resolved.ContextWindow)
 	if request.Temperature != nil {
 		resolved.Temperature = *request.Temperature
 	}
@@ -506,7 +508,7 @@ func (s *Service) initializeAgentHarness(ctx context.Context) error {
 			s.emitAgentRunEvent(event)
 		},
 	}
-	harness, err := runharness.NewAgentRunHarness(config)
+	harness, err := runharness.NewAgentRunHarness(config, runharness.WithAutoApprovalPolicy(serviceAutoApprovalPolicy{service: s}))
 	if err == nil {
 		err = harness.SetDefaultPolicy(policySnapshot.Policy)
 	}
@@ -664,6 +666,7 @@ func cloneAgentProviderConfig(config ai.ProviderConfig) ai.ProviderConfig {
 	clone.Models = append([]string(nil), config.Models...)
 	clone.DisabledModels = append([]string(nil), config.DisabledModels...)
 	clone.CustomModels = append([]string(nil), config.CustomModels...)
+	clone.RemovedModels = append([]string(nil), config.RemovedModels...)
 	if config.Headers != nil {
 		clone.Headers = make(map[string]string, len(config.Headers))
 		for key, value := range config.Headers {

@@ -2,6 +2,15 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 type PendingSidebarToggleFocus = 'collapsed' | 'explorer' | null;
 
+/** 折叠前让出侧栏内的焦点，避免焦点留在被隐藏 / inert 的树里。 */
+export const blurFocusInsideSidebarContent = () => {
+  if (typeof document === 'undefined') return;
+  const activeElement = document.activeElement as HTMLElement | null;
+  if (activeElement?.closest?.('[data-sidebar-content="true"]')) {
+    activeElement.blur();
+  }
+};
+
 /**
  * Owns the explorer collapse state, the titlebar host for docked collapsed
  * actions and the focus hand-off between the two toggle buttons.
@@ -25,12 +34,7 @@ export const useAppSidebarCollapse = (shouldDockCollapsedSidebarActionsInTitleba
   }, [isCollapsedSidebarActionsDocked]);
 
   const handleCollapseSidebarPanel = useCallback(() => {
-    if (typeof document !== 'undefined') {
-      const activeElement = document.activeElement as HTMLElement | null;
-      if (activeElement?.closest?.('[data-sidebar-content="true"]')) {
-        activeElement.blur();
-      }
-    }
+    blurFocusInsideSidebarContent();
     pendingSidebarToggleFocusRef.current = 'collapsed';
     setIsSidebarCollapsed(true);
   }, []);

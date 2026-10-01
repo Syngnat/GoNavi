@@ -88,8 +88,10 @@ vi.mock('@ant-design/icons', async () => {
     DeleteOutlined: makeIcon('delete'),
     DownOutlined: makeIcon('down'),
     DownloadOutlined: makeIcon('download'),
+    ExportOutlined: makeIcon('export'),
     FileSearchOutlined: makeIcon('file-search'),
     FolderOpenOutlined: makeIcon('folder-open'),
+    ImportOutlined: makeIcon('import'),
     InfoCircleFilled: makeIcon('info-circle'),
     ReloadOutlined: makeIcon('reload'),
   };
@@ -145,9 +147,29 @@ vi.mock('antd', () => {
   const Tooltip = ({ children }: any) => <>{children}</>;
   const Popover = ({ children }: any) => <>{children}</>;
   const Icon = () => <i />;
+  const Checkbox = ({ children, checked, onChange }: any) => (
+    <label>
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      {children}
+    </label>
+  );
+  const Table = ({ dataSource, columns, rowKey }: any) => (
+    <table>
+      <tbody>
+        {(dataSource || []).map((row: any, index: number) => (
+          <tr key={typeof rowKey === 'function' ? rowKey(row) : index}>
+            {(columns || []).map((column: any) => (
+              <td key={column.key}>{column.render ? column.render(row[column.dataIndex], row) : row[column.dataIndex]}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
   return {
     Alert,
     Button,
+    Checkbox,
     Collapse,
     Dropdown,
     Input,
@@ -157,6 +179,7 @@ vi.mock('antd', () => {
     Select,
     Space,
     Switch,
+    Table,
     Tag,
     Tooltip,
     Typography,

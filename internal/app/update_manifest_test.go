@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 func configureUpdateManifestHTTPTest(t *testing.T) {
@@ -563,4 +566,264 @@ func TestUpdateManifestFromGitHubRelease(t *testing.T) {
 		t.Fatalf("manifest=%#v", m)
 	}
 	_ = json.Marshal
+}
+
+func TestUpdateChecksHonorPersistedGitHubSource(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		channel updateChannel
+		silent  bool
+		refresh bool
+	}{
+		{name: "stable manual", channel: updateChannelLatest},
+		{name: "stable silent", channel: updateChannelLatest, silent: true},
+		{name: "dev manual", channel: updateChannelDev},
+		{name: "dev silent", channel: updateChannelDev, silent: true},
+		{name: "dev download refresh", channel: updateChannelDev, refresh: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configureUpdateManifestHTTPTest(t)
+			disableGlobalProxyForTest(t)
+			originalVersion := AppVersion
+			AppVersion = "0.6.5"
+			release := &githubRelease{TagName: "v0.6.5", Name: "v0.6.5"}
+			if test.channel == updateChannelDev {
+				AppVersion = "dev-fast"
+				release = &githubRelease{TagName: updateDevReleaseTag, Name: "Dev Build (dev-fast)"}
+			}
+			t.Cleanup(func() { AppVersion = originalVersion })
+			updateNetworkCheckMu.Lock()
+			previousCheck := updateLastNetworkCheck
+			updateLastNetworkCheck = updateNetworkCheckMemory{}
+			updateNetworkCheckMu.Unlock()
+			t.Cleanup(func() {
+				updateNetworkCheckMu.Lock()
+				updateLastNetworkCheck = previousCheck
+				updateNetworkCheckMu.Unlock()
+			})
+
+			configDir := t.TempDir()
+			settings := &App{configDir: configDir}
+			if _, err := settings.SaveDownloadSourceConfig(string(DownloadSourceGitHub)); err != nil {
+				t.Fatal(err)
+			}
+			if err := settings.persistUpdateChannel(test.channel); err != nil {
+				t.Fatal(err)
+			}
+			application := &App{configDir: configDir}
+			staticCalls, apiCalls := 0, 0
+			restoreStatic := swapUpdateFetchStaticManifest(func(updateChannel) (*githubRelease, error) {
+				staticCalls++
+				return release, nil
+			})
+			defer restoreStatic()
+			fetchAPI := func() (*githubRelease, error) {
+				apiCalls++
+				return release, nil
+			}
+			restoreAPI := swapUpdateFetchLatestRelease(fetchAPI)
+			if test.channel == updateChannelDev {
+				restoreAPI()
+				restoreAPI = swapUpdateFetchDevRelease(fetchAPI)
+			}
+			defer restoreAPI()
+
+			started := time.Now()
+			if test.refresh {
+				application.updateState.downloading = true
+				if _, _, _, err := application.refreshDevUpdateInfoForDownload(0, nil); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				check := application.CheckForUpdates
+				if test.silent {
+					check = application.CheckForUpdatesSilently
+				}
+				result := check()
+				if !result.Success {
+					t.Fatalf("check failed: %#v", result)
+				}
+			}
+			t.Logf("check elapsed=%s", time.Since(started))
+			if staticCalls != 1 || apiCalls != 0 {
+				t.Fatalf("GitHub source must use its static manifest before API: static=%d api=%d", staticCalls, apiCalls)
+			}
+		})
+	}
+}
+
+func TestGitHubUpdateCheckRetainsMirrorAndDiskFallbacks(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		mirrorFail bool
+		wantTag    string
+	}{
+		{name: "mirror after API failure", wantTag: "v2.0.0"},
+		{name: "disk after both network sources fail", mirrorFail: true, wantTag: "v1.0.0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("GONAVI_DATA_ROOT", t.TempDir())
+			storeDiskUpdateManifest(updateChannelLatest, &updateReleaseManifest{
+				SchemaVersion: updateManifestSchemaVersion, Channel: string(updateChannelLatest),
+				TagName: "v1.0.0", Version: "1.0.0", FetchedAt: time.Now().UTC(),
+			})
+			var calls []string
+			restoreAPI := swapUpdateFetchLatestRelease(func() (*githubRelease, error) {
+				calls = append(calls, "api")
+				return nil, errors.New("API rate limited")
+			})
+			defer restoreAPI()
+			restoreStatic := swapUpdateFetchStaticManifestURLs(func(_ updateChannel, urls []string) (*githubRelease, error) {
+				if len(urls) == 1 && urls[0] == updateGitHubLatestManifestURL {
+					calls = append(calls, "github-static")
+					return nil, errors.New("GitHub manifest unavailable")
+				}
+				if len(urls) != 2 || downloadSourceForURL(urls[0]) != DownloadSourceCst || downloadSourceForURL(urls[1]) != DownloadSourceBero {
+					t.Fatalf("mirror fallback URLs = %v", urls)
+				}
+				calls = append(calls, "mirror")
+				if test.mirrorFail {
+					return nil, errors.New("mirror unavailable")
+				}
+				return &githubRelease{TagName: "v2.0.0"}, nil
+			})
+			defer restoreStatic()
+			release, err := fetchReleaseForChannelWithSource(updateChannelLatest, true, DownloadSourceGitHub)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if release == nil || release.TagName != test.wantTag {
+				t.Fatalf("fallback release = %#v, want %s", release, test.wantTag)
+			}
+			if strings.Join(calls, ",") != "github-static,api,mirror" {
+				t.Fatalf("fallback order = %v, want GitHub static then API then mirror", calls)
+			}
+		})
+	}
+}
+
+func TestGitHubUpdateCheckFallsBackToAPIAfterStaticManifestFails(t *testing.T) {
+	configureUpdateManifestHTTPTest(t)
+	disableGlobalProxyForTest(t)
+	previousTransport := http.DefaultTransport
+	previousVersion := AppVersion
+	AppVersion = "0.6.4"
+	previousCache, hadCache := updateReleaseCache.LoadAndDelete(updateLatestAPIURL)
+	t.Cleanup(func() {
+		http.DefaultTransport = previousTransport
+		AppVersion = previousVersion
+		updateReleaseCache.Delete(updateLatestAPIURL)
+		if hadCache {
+			updateReleaseCache.Store(updateLatestAPIURL, previousCache)
+		}
+	})
+	assetName, err := expectedAssetNameForInstallMode(stdRuntime.GOOS, stdRuntime.GOARCH, "v0.6.5", updateResolveInstallMode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := updateReleaseManifest{SchemaVersion: updateManifestSchemaVersion, Channel: "latest", TagName: "v0.6.5",
+		Assets: []updateManifestAsset{{Name: assetName, URL: "https://example.test/" + assetName, Size: 123, SHA256: strings.Repeat("a", 64)}},
+	}
+	payload, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requested []string
+	http.DefaultTransport = roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		rawURL := request.URL.String()
+		requested = append(requested, rawURL)
+		status, body := http.StatusOK, string(payload)
+		if rawURL == updateGitHubLatestManifestURL {
+			status, body = http.StatusNotFound, `{"message":"manifest not found"}`
+		} else if rawURL == updateLatestAPIURL {
+			body = `{"tag_name":"v0.6.5","name":"v0.6.5","assets":[{"name":"` + assetName + `","browser_download_url":"https://example.test/` + assetName + `","digest":"sha256:` + strings.Repeat("a", 64) + `","size":123}]}`
+		} else {
+			return nil, fmt.Errorf("GitHub mode unexpectedly requested a mirror: %s", rawURL)
+		}
+		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})
+	application := &App{configDir: t.TempDir()}
+	if _, err := application.SaveDownloadSourceConfig(string(DownloadSourceGitHub)); err != nil {
+		t.Fatal(err)
+	}
+	result := application.CheckForUpdates()
+	if !result.Success {
+		t.Fatalf("check failed: %#v; requests=%v", result, requested)
+	}
+	if strings.Join(requested, "|") != updateGitHubLatestManifestURL+"|"+updateLatestAPIURL {
+		t.Fatalf("request order = %v, want GitHub manifest then API", requested)
+	}
+	info, ok := result.Data.(UpdateInfo)
+	if !ok || !info.HasUpdate || info.SHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("update package metadata lost during fallback: %#v", result.Data)
+	}
+}
+
+func TestUpdateManifestURLsHonorEachDownloadSource(t *testing.T) {
+	for _, channel := range []updateChannel{updateChannelLatest, updateChannelDev} {
+		mirrors := updateMirrorManifestURLs(channel)
+		if len(mirrors) != 2 || downloadSourceForURL(mirrors[0]) != DownloadSourceCst || downloadSourceForURL(mirrors[1]) != DownloadSourceBero {
+			t.Fatalf("channel %s mirror fallback URLs = %v, want Cst then Bero without GitHub duplication", channel, mirrors)
+		}
+		for _, source := range []DownloadSource{DownloadSourceCst, DownloadSourceBero, DownloadSourceGitHub} {
+			t.Run(string(channel)+"/"+string(source), func(t *testing.T) {
+				urls := updateManifestRemoteURLsForSource(channel, source)
+				if len(urls) == 0 || downloadSourceForURL(urls[0]) != source {
+					t.Fatalf("manifest sources = %v, want %s first", urls, source)
+				}
+				for _, fallback := range updateManifestRemoteURLs(channel) {
+					found := false
+					for _, candidate := range urls {
+						found = found || candidate == fallback
+					}
+					if !found {
+						t.Fatalf("manifest sources %v dropped existing fallback %s", urls, fallback)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGitHubSourceCheckStillRestoresAndUsesConfiguredProxy(t *testing.T) {
+	configureUpdateManifestHTTPTest(t)
+	disableGlobalProxyForTest(t)
+	originalVersion := AppVersion
+	AppVersion = "0.6.5"
+	t.Cleanup(func() { AppVersion = originalVersion })
+	var proxyHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		proxyHits.Add(1)
+		if !request.URL.IsAbs() || request.URL.Host != "api.github.invalid" {
+			t.Errorf("unexpected proxy request: %s", request.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(githubRelease{TagName: "v0.6.5"}); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer proxy.Close()
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	host, port := parseTestServerHostPort(t, proxy.URL)
+	if _, err := application.saveGlobalProxy(connection.SaveGlobalProxyInput{Enabled: true, Type: "http", Host: host, Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.SaveDownloadSourceConfig(string(DownloadSourceGitHub)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setGlobalProxyConfig(false, connection.ProxyConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	restoreStatic := swapUpdateFetchStaticManifest(func(updateChannel) (*githubRelease, error) {
+		return nil, errors.New("static manifest unavailable in proxy test")
+	})
+	defer restoreStatic()
+	restoreAPI := swapUpdateFetchLatestRelease(func() (*githubRelease, error) {
+		return fetchReleaseByURL("http://api.github.invalid/latest")
+	})
+	defer restoreAPI()
+	if result := application.CheckForUpdates(); !result.Success || proxyHits.Load() != 1 {
+		t.Fatalf("configured proxy not used exactly once: result=%#v hits=%d", result, proxyHits.Load())
+	}
 }

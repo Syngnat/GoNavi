@@ -154,9 +154,9 @@ func TestBuildWindowsPowerShellScriptSchedulesUpdatesDirectoryCleanupAfterSucces
 
 	mustContain := []string{
 		`Write-UpdateLog 'update finished'`,
-		`$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`,
 		`$CleanupWorkingDirectory = [IO.Path]::GetTempPath()`,
-		`-EncodedCommand`,
+		`Set-Location -LiteralPath $CleanupWorkingDirectory -ErrorAction Stop`,
+		`Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR -Recurse -Force -ErrorAction SilentlyContinue`,
 	}
 	for _, token := range mustContain {
 		if !strings.Contains(script, token) {
@@ -167,7 +167,7 @@ func TestBuildWindowsPowerShellScriptSchedulesUpdatesDirectoryCleanupAfterSucces
 		t.Fatalf("PowerShell updater must not route cleanup through cmd.exe\n%s", script)
 	}
 	relaunchIdx := strings.Index(script, `$NewProcess = Start-Process -FilePath $Target`)
-	cleanupIdx := strings.Index(script, `$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`)
+	cleanupIdx := strings.Index(script, `Set-Location -LiteralPath $CleanupWorkingDirectory -ErrorAction Stop`)
 	failureIdx := strings.LastIndex(script, `} catch {`)
 	if relaunchIdx < 0 || cleanupIdx < relaunchIdx || failureIdx < cleanupIdx {
 		t.Fatalf("updates cleanup must be scheduled only on the success path (relaunch=%d cleanup=%d failure=%d)\n%s", relaunchIdx, cleanupIdx, failureIdx, script)

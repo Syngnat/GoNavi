@@ -1,0 +1,11 @@
+/*
+ * 主题切换瞬间关闭过渡，见 themeSwitchTransition.ts。
+ *
+ * 项目里有不少 `transition: … !important` 的组件规则（最高到 0,3,1 优先级），
+ * :not(#gn-theme-switch-boost) 把本规则抬到 ID 级优先级，确保一律压住。
+ */
+html[data-gn-theme-switching]:not(#gn-theme-switch-boost) *,
+html[data-gn-theme-switching]:not(#gn-theme-switch-boost) *::before,
+html[data-gn-theme-switching]:not(#gn-theme-switch-boost) *::after {
+  transition: none !important;
+}

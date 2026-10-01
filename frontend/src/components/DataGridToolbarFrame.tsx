@@ -1,27 +1,29 @@
 import React from 'react';
-import { AutoComplete, Button, Checkbox, Dropdown, Input, Select, Tooltip } from 'antd';
+import { Button, Dropdown, Select, Tooltip } from 'antd';
 import type { ButtonProps, MenuProps } from 'antd';
 import {
-  ClearOutlined,
-  ControlOutlined,
-  CloseOutlined,
-  ConsoleSqlOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  ExportOutlined,
-  FilterOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  RobotOutlined,
-  SaveOutlined,
-  SelectOutlined,
-  SnippetsOutlined,
-  TableOutlined,
-  UndoOutlined,
-  VerticalAlignBottomOutlined,
-} from '@ant-design/icons';
+  GnAddRowIcon,
+  GnCellSelectIcon,
+  GnCloseIcon,
+  GnClipboardIcon,
+  GnCopyIcon,
+  GnExportIcon,
+  GnFillDownIcon,
+  GnFilterIcon,
+  GnImportIcon,
+  GnPencilIcon,
+  GnRefreshIcon,
+  GnRollbackIcon,
+  GnSaveIcon,
+  GnSigmaIcon,
+  GnSlidersIcon,
+  GnSqlDocIcon,
+  GnTableIcon,
+  GnTrashIcon,
+  GnUndoIcon,
+} from './icons/gnIcons';
+import AiSparkOutlined from './icons/AiSparkOutlined';
+import DataGridFilterPanel from './DataGridFilterPanel';
 import { hasActiveGridFilters } from './dataGridFilterActivity';
 import type { FilterCondition } from '../utils/sql';
 
@@ -362,7 +364,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
       >
         <>
             <div className="gn-v2-data-grid-toolbar-title">
-              <TableOutlined className="gn-v2-data-grid-icon" />
+              <GnTableIcon className="gn-v2-data-grid-icon" />
               <strong title={toolbarTitle}>{toolbarTitle}</strong>
               {dbName && <small title={dbName}>· {dbName}</small>}
             </div>
@@ -371,7 +373,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
         {onReload && (
           renderToolbarAction({
             label: translate('data_grid.toolbar.refresh'),
-            icon: <ReloadOutlined />,
+            icon: <GnRefreshIcon />,
             disabled: loading,
             onClick: onRefresh,
           })
@@ -382,7 +384,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             {renderToolbarDivider()}
             {renderToolbarAction({
               label: translate('data_grid.toolbar.filter'),
-              icon: <FilterOutlined />,
+              icon: <GnFilterIcon />,
               type: filterEntryActive ? 'primary' : 'default',
               'aria-pressed': filterEntryActive,
               dataGridAction: 'filter',
@@ -396,7 +398,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             {renderToolbarDivider()}
             {renderToolbarAction({
               label: translate('data_grid.toolbar.add_row'),
-              icon: <PlusOutlined />,
+              icon: <GnAddRowIcon />,
               onClick: onAddRow,
             })}
             {allSelectedAreDeleted ? (
@@ -405,7 +407,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                 tooltip: deleteTargetRowCount > 0
                   ? `${translate('data_grid.toolbar.undo_delete')} · ${translate('data_grid.toolbar.selected_count', { count: deleteTargetRowCount })}`
                   : translate('data_grid.toolbar.undo_delete'),
-                icon: <UndoOutlined />,
+                icon: <GnUndoIcon />,
                 disabled: deleteTargetRowCount === 0,
                 onClick: onUndoDeleteSelected,
               })
@@ -415,7 +417,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                 tooltip: deleteTargetRowCount > 0
                   ? `${translate('data_grid.toolbar.delete_selected')} · ${translate('data_grid.toolbar.selected_count', { count: deleteTargetRowCount })}`
                   : translate('data_grid.toolbar.delete_selected'),
-                icon: <DeleteOutlined />,
+                icon: <GnTrashIcon />,
                 danger: true,
                 disabled: deleteTargetRowCount === 0,
                 onClick: onDeleteSelected,
@@ -430,7 +432,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                 className="gn-v2-data-grid-toolbar-action"
                 aria-label={cellSelectionModeLabel}
                 aria-pressed={cellEditMode}
-                icon={<SelectOutlined />}
+                icon={<GnCellSelectIcon />}
                 type={cellEditMode ? 'primary' : 'default'}
                 onClick={onToggleCellEditMode}
               />
@@ -441,7 +443,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                 {renderToolbarAction({
                   label: translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize }),
                   dataGridAction: 'copy-selection',
-                  icon: <CopyOutlined />,
+                  icon: <GnCopyIcon />,
                   onClick: onCopySelectedCellsToClipboard,
                 })}
                 {renderToolbarAction({
@@ -449,14 +451,14 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                   tooltip: copyFillTemplateTooltip,
                   disabledReason: canCopyFillTemplate ? undefined : copyFillTemplateTooltip,
                   dataGridAction: 'copy-fill-template',
-                  icon: <SnippetsOutlined />,
+                  icon: <GnClipboardIcon />,
                   disabled: !canCopyFillTemplate,
                   onClick: onCopySelectedColumnsFromRow,
                 })}
                 {renderToolbarAction({
                   label: translate('data_grid.toolbar.batch_fill', { count: selectedCellsSize }),
                   dataGridAction: 'batch-fill',
-                  icon: <EditOutlined />,
+                  icon: <GnPencilIcon />,
                   'aria-haspopup': 'dialog',
                   onClick: onOpenBatchEditModal,
                 })}
@@ -469,7 +471,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                   tooltip: applyFillTemplateTooltip,
                   disabledReason: fillTemplateTargetRowCount === 0 ? selectFillTemplateTargetsHint : undefined,
                   dataGridAction: 'apply-fill-template',
-                  icon: <VerticalAlignBottomOutlined />,
+                  icon: <GnFillDownIcon />,
                   disabled: fillTemplateTargetRowCount === 0,
                   onClick: onPasteCopiedColumnsToSelectedRows,
                 })}
@@ -480,19 +482,19 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
               label: translate('data_grid.toolbar.commit_label'),
               tooltip: translate('data_grid.toolbar.commit', { count: pendingChangeCount }),
               className: 'gn-v2-commit-button',
-              icon: <SaveOutlined />,
+              icon: <GnSaveIcon />,
               type: 'primary',
               disabled: !hasChanges,
               onClick: onCommit,
             })}
             {hasChanges && renderToolbarAction({
                 label: translate('data_grid.toolbar.preview_sql'),
-                icon: <ConsoleSqlOutlined />,
+                icon: <GnSqlDocIcon />,
                 onClick: onPreviewChanges,
             })}
             {hasChanges && renderToolbarAction({
               label: translate('data_grid.toolbar.rollback'),
-              icon: <UndoOutlined />,
+              icon: <GnRollbackIcon />,
               onClick: onResetPendingChanges,
             })}
             <Tooltip
@@ -523,7 +525,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                       aria-label={commitModeLabel}
                       aria-haspopup="menu"
                       aria-expanded={openToolbarMenu === 'commit-mode'}
-                      icon={<ControlOutlined />}
+                      icon={<GnSlidersIcon />}
                     />
                   </Dropdown>
                 </span>
@@ -550,12 +552,12 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             {renderToolbarDivider()}
             {canImport && renderToolbarAction({
               label: translate('data_grid.toolbar.import'),
-              icon: <ImportOutlined />,
+              icon: <GnImportIcon />,
               onClick: onImport,
             })}
             {canExport && renderToolbarAction({
               label: translate('data_grid.toolbar.export'),
-              icon: <ExportOutlined />,
+              icon: <GnExportIcon />,
               onClick: onOpenExportModal,
             })}
           </>
@@ -583,7 +585,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                       aria-label={translate('data_grid.toolbar.copy')}
                       aria-haspopup="menu"
                       aria-expanded={openToolbarMenu === 'query-copy'}
-                      icon={<CopyOutlined />}
+                      icon={<GnCopyIcon />}
                       disabled={!canCopyQueryResult}
                     />
                   </Dropdown>
@@ -600,7 +602,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                 data-grid-copy-selection-action="true"
                 className="gn-v2-data-grid-toolbar-action"
                 aria-label={translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize })}
-                icon={<CopyOutlined />}
+                icon={<GnCopyIcon />}
                 onClick={onCopySelectedCellsToClipboard}
               />
             </Tooltip>
@@ -613,7 +615,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             <Button
               className="gn-v2-data-grid-toolbar-action gn-v2-ai-insight-button"
               aria-label={translate('data_grid.toolbar.ai_insight_short')}
-              icon={<RobotOutlined />}
+              icon={<AiSparkOutlined />}
               onClick={onRequestAiInsight}
             />
           </Tooltip>
@@ -639,7 +641,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                     ? (totalCountUnavailableLabel || translate('data_grid.toolbar.count_total'))
                     : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total'))}
                   disabled={Boolean(totalCountUnavailableReason) && !paginationTotalCountLoading}
-                  icon={paginationTotalCountLoading ? <CloseOutlined /> : <VerticalAlignBottomOutlined />}
+                  icon={paginationTotalCountLoading ? <GnCloseIcon /> : <GnSigmaIcon />}
                   onClick={onToggleTotalCount}
                 />
               </span>
@@ -651,274 +653,50 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
       </div>
 
       {showFilter && (
-        <div
-          ref={filterPanelRef}
-          className="gn-v2-smart-filter-panel"
-          style={{
-            padding: `${filterTopPadding}px ${panelPaddingX}px ${panelPaddingY}px ${panelPaddingX}px`,
-            background: 'transparent',
-            boxSizing: 'border-box',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <div
-            data-grid-quick-where="true"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '10px 12px',
-              marginBottom: 10,
-              borderRadius: Math.max(10, panelRadius - 2),
-              border: `1px solid ${panelFrameColor}`,
-              background: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.72)',
-              boxSizing: 'border-box',
-              minWidth: 0,
-            }}
-          >
-            <span
-              data-grid-quick-where-label="true"
-              style={{
-                flex: '0 0 auto',
-                minWidth: 0,
-                color: 'var(--gn-fg-3)',
-                fontSize: 12,
-                fontWeight: 600,
-                lineHeight: '28px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {translate('data_grid.filter.manual_query_condition')}
-            </span>
-            <AutoComplete
-              className="gn-v2-smart-filter-manual-input"
-              value={quickWhereDraft}
-              options={quickWhereSuggestionOptions}
-              onChange={onQuickWhereDraftChange}
-              onOpenChange={onQuickWhereSuggestionsOpenChange}
-              onInputKeyDown={onQuickWhereKeyDown}
-              onSelect={onQuickWhereSelect}
-              style={{ flex: '1 1 320px', minWidth: 220 }}
-              popupMatchSelectWidth={420}
-            >
-              <Input
-                {...noAutoCapInputProps}
-                allowClear
-                data-grid-quick-where-input="true"
-                onCopy={onQuickWhereCopy}
-                onCut={onQuickWhereCut}
-                onPaste={onQuickWherePaste}
-                placeholder={quickWherePlaceholder}
-              />
-            </AutoComplete>
-            <Button size="small" type="primary" onClick={onApplyQuickWhere}>
-              {translate('data_grid.filter.apply_where')}
-            </Button>
-            <Button size="small" onClick={onClearQuickWhere} disabled={!quickWhereDraft && !quickWhereCondition}>
-              {translate('data_grid.filter.clear')}
-            </Button>
-          </div>
-
-          <div style={{ maxHeight: 200, overflowY: 'auto', overflowX: 'hidden', flex: '0 1 auto' }}>
-            {filterConditions.map((cond, condIndex) => (
-              <div key={cond.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start', opacity: cond.enabled === false ? 0.58 : 1 }}>
-                <Checkbox
-                  checked={cond.enabled !== false}
-                  onChange={(event) => updateFilter(cond.id, 'enabled', event.target.checked)}
-                  style={{ marginTop: 6, flex: '0 0 auto', whiteSpace: 'nowrap' }}
-                >
-                  {translate('data_grid.filter.enabled')}
-                </Checkbox>
-                <Select
-                  style={{ width: 96, minWidth: 96, maxWidth: 96, flex: '0 0 96px' }}
-                  value={condIndex === 0 ? '__FIRST__' : (cond.logic === 'OR' ? 'OR' : 'AND')}
-                  onChange={(value) => updateFilter(cond.id, 'logic', value)}
-                  options={condIndex === 0 ? [{ value: '__FIRST__', label: translate('data_grid.filter.first_condition') }] : filterLogicOptions}
-                  disabled={condIndex === 0}
-                />
-                <Select
-                  style={filterFieldSelectStyle}
-                  value={cond.column}
-                  onChange={(value) => updateFilter(cond.id, 'column', value)}
-                  options={gridFieldSelectOptions}
-                  showSearch
-                  optionFilterProp="label"
-                  optionRender={renderGridFieldSelectOption}
-                  popupMatchSelectWidth={filterFieldPopupWidth}
-                  filterOption={(input, option) =>
-                    String(option?.label ?? '')
-                      .toLowerCase()
-                      .includes(String(input || '').trim().toLowerCase())
-                  }
-                  placeholder={translate('data_grid.filter.search_field_placeholder')}
-                  disabled={cond.op === 'CUSTOM'}
-                />
-                <Select
-                  style={{ width: 140 }}
-                  value={cond.op}
-                  onChange={(value) => updateFilter(cond.id, 'op', value)}
-                  options={filterOpOptions}
-                />
-
-                {cond.op === 'CUSTOM' ? (
-                  <Input.TextArea
-                    {...noAutoCapInputProps}
-                    style={{ flex: 1 }}
-                    autoSize={{ minRows: 1, maxRows: 4 }}
-                    value={cond.value}
-                    onChange={(event) => updateFilter(cond.id, 'value', event.target.value)}
-                    placeholder={translate('data_grid.filter.custom_where_placeholder')}
-                  />
-                ) : isListOp(cond.op) ? (
-                  <Input.TextArea
-                    {...noAutoCapInputProps}
-                    style={{ flex: 1 }}
-                    autoSize={{ minRows: 1, maxRows: 4 }}
-                    value={cond.value}
-                    onChange={(event) => updateFilter(cond.id, 'value', event.target.value)}
-                    placeholder={translate('data_grid.filter.list_values_placeholder')}
-                  />
-                ) : isBetweenOp(cond.op) ? (
-                  <>
-                    <Input
-                      {...noAutoCapInputProps}
-                      style={{ width: 220 }}
-                      value={cond.value}
-                      onChange={(event) => updateFilter(cond.id, 'value', event.target.value)}
-                      placeholder={translate('data_grid.filter.start_value_placeholder')}
-                    />
-                    <Input
-                      {...noAutoCapInputProps}
-                      style={{ width: 220 }}
-                      value={cond.value2 || ''}
-                      onChange={(event) => updateFilter(cond.id, 'value2', event.target.value)}
-                      placeholder={translate('data_grid.filter.end_value_placeholder')}
-                    />
-                  </>
-                ) : isNoValueOp(cond.op) ? (
-                  <Input {...noAutoCapInputProps} style={{ width: 220 }} value="" disabled placeholder={translate('data_grid.filter.no_value_placeholder')} />
-                ) : (
-                  <Input
-                    {...noAutoCapInputProps}
-                    style={{ width: 280 }}
-                    value={cond.value}
-                    onChange={(event) => updateFilter(cond.id, 'value', event.target.value)}
-                  />
-                )}
-
-                <Button icon={<CloseOutlined />} onClick={() => removeFilter(cond.id)} type="text" danger />
-              </div>
-            ))}
-            {enableSortControls && (
-              <div style={{ paddingTop: filterConditions.length > 0 ? 4 : 0, borderTop: filterConditions.length > 0 && sortInfo.length > 0 ? `1px dashed ${panelFrameColor}` : 'none' }}>
-                {sortInfo.map((item, index) => (
-                <div key={`${item.columnKey || 'sort'}-${index}`} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center', opacity: item.enabled === false ? 0.58 : 1 }}>
-                  <Checkbox
-                    checked={item.enabled !== false}
-                    onChange={(event) => {
-                      const next = [...sortInfo];
-                      next[index] = { ...next[index], enabled: event.target.checked };
-                      onApplySortInfo(next);
-                    }}
-                    style={{ flex: '0 0 auto' }}
-                  />
-                  <span style={{ fontSize: 12, color: 'inherit', opacity: 0.7, whiteSpace: 'nowrap', minWidth: 32 }}>
-                    {index === 0 ? translate('data_grid.filter.sort_label') : translate('data_grid.filter.then_label')}
-                  </span>
-                  <Select
-                    style={filterFieldSelectStyle}
-                    value={item.columnKey || undefined}
-                    onChange={(value) => {
-                      const next = [...sortInfo];
-                      if (!value) {
-                        next.splice(index, 1);
-                      } else {
-                        next[index] = { ...next[index], columnKey: value };
-                      }
-                      onApplySortInfo(next.filter((entry) => entry.columnKey));
-                    }}
-                    options={displayColumnNames
-                      .filter((columnName) => columnName === item.columnKey || !sortInfo.some((entry) => entry.columnKey === columnName))
-                      .map((columnName) => ({ value: columnName, label: columnName, title: columnName }))}
-                    showSearch
-                    optionFilterProp="label"
-                    optionRender={renderGridFieldSelectOption}
-                    popupMatchSelectWidth={filterFieldPopupWidth}
-                    filterOption={(input, option) =>
-                      String(option?.label ?? '')
-                        .toLowerCase()
-                        .includes(String(input || '').trim().toLowerCase())
-                    }
-                    placeholder={translate('data_grid.filter.select_sort_field_placeholder')}
-                    allowClear
-                    onClear={() => {
-                      const next = sortInfo.filter((_, itemIndex) => itemIndex !== index);
-                      onApplySortInfo(next);
-                    }}
-                  />
-                  <Select
-                    style={{ width: 110 }}
-                    value={item.order || 'ascend'}
-                    onChange={(value) => {
-                      const next = [...sortInfo];
-                      next[index] = { ...next[index], order: value };
-                      onApplySortInfo(next);
-                    }}
-                    options={[
-                      { value: 'ascend', label: `${translate('data_grid.filter.sort_asc')} ↑` },
-                      { value: 'descend', label: `${translate('data_grid.filter.sort_desc')} ↓` },
-                    ]}
-                    disabled={!item.columnKey}
-                  />
-                  <Button
-                    icon={<CloseOutlined />}
-                    type="text"
-                    danger
-                    size="small"
-                    onClick={() => onApplySortInfo(sortInfo.filter((_, itemIndex) => itemIndex !== index))}
-                  />
-                </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              flex: '0 0 auto',
-              marginTop: ((enableSortControls && sortInfo.length > 0) || filterConditions.length > 0) ? 4 : 0,
-              paddingTop: ((enableSortControls && sortInfo.length > 0) || filterConditions.length > 0) ? 6 : 0,
-              borderTop: ((enableSortControls && sortInfo.length > 0) || filterConditions.length > 0) ? `1px dashed ${panelFrameColor}` : 'none',
-            }}
-          >
-            <Button type="primary" ghost onClick={addFilter} size="small" icon={<PlusOutlined />}>{translate('data_grid.filter.add_condition')}</Button>
-            {enableSortControls && (
-              <Button
-                type="dashed"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  const nextColumn = displayColumnNames.find((columnName) => !sortInfo.some((item) => item.columnKey === columnName)) || displayColumnNames[0] || '';
-                  onApplySortInfo([...sortInfo, { columnKey: nextColumn, order: 'ascend', enabled: true }]);
-                }}
-                disabled={sortInfo.length >= displayColumnNames.length}
-              >
-                {translate('data_grid.filter.add_sort')}
-              </Button>
-            )}
-            <div style={{ width: 1, height: 16, background: panelFrameColor, margin: '0 2px', flexShrink: 0 }} />
-            <Button size="small" onClick={onEnableAllFilters}>{translate('data_grid.filter.enable_all')}</Button>
-            <Button size="small" onClick={onDisableAllFilters}>{translate('data_grid.filter.disable_all')}</Button>
-            <div style={{ width: 1, height: 16, background: panelFrameColor, margin: '0 2px', flexShrink: 0 }} />
-            <Button type="primary" onClick={onApplyFilters} size="small">{translate('data_grid.filter.apply')}</Button>
-            <Button size="small" icon={<ClearOutlined />} onClick={onClearFiltersAndSorts}>{translate('data_grid.filter.clear_all')}</Button>
-          </div>
-        </div>
+        <DataGridFilterPanel
+          translate={translate}
+          darkMode={darkMode}
+          dbType={dbType}
+          panelFrameColor={panelFrameColor}
+          panelRadius={panelRadius}
+          panelPaddingX={panelPaddingX}
+          panelPaddingY={panelPaddingY}
+          filterTopPadding={filterTopPadding}
+          filterPanelRef={filterPanelRef}
+          filterConditions={filterConditions}
+          sortInfo={sortInfo}
+          displayColumnNames={displayColumnNames}
+          quickWhereDraft={quickWhereDraft}
+          quickWhereCondition={quickWhereCondition}
+          quickWhereSuggestionOptions={quickWhereSuggestionOptions}
+          gridFieldSelectOptions={gridFieldSelectOptions}
+          filterLogicOptions={filterLogicOptions}
+          filterOpOptions={filterOpOptions}
+          renderGridFieldSelectOption={renderGridFieldSelectOption}
+          noAutoCapInputProps={noAutoCapInputProps}
+          filterFieldPopupWidth={filterFieldPopupWidth}
+          onQuickWhereDraftChange={onQuickWhereDraftChange}
+          onQuickWhereSuggestionsOpenChange={onQuickWhereSuggestionsOpenChange}
+          onQuickWhereKeyDown={onQuickWhereKeyDown}
+          onQuickWhereSelect={onQuickWhereSelect}
+          onQuickWhereCopy={onQuickWhereCopy}
+          onQuickWhereCut={onQuickWhereCut}
+          onQuickWherePaste={onQuickWherePaste}
+          onApplyQuickWhere={onApplyQuickWhere}
+          onClearQuickWhere={onClearQuickWhere}
+          updateFilter={updateFilter}
+          removeFilter={removeFilter}
+          addFilter={addFilter}
+          isListOp={isListOp}
+          isBetweenOp={isBetweenOp}
+          isNoValueOp={isNoValueOp}
+          enableSortControls={enableSortControls}
+          onApplySortInfo={onApplySortInfo}
+          onApplyFilters={onApplyFilters}
+          onEnableAllFilters={onEnableAllFilters}
+          onDisableAllFilters={onDisableAllFilters}
+          onClearFiltersAndSorts={onClearFiltersAndSorts}
+        />
       )}
     </div>
   );

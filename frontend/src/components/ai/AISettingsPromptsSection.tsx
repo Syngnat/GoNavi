@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button, Input } from 'antd';
-import { RightOutlined, RobotOutlined } from '@ant-design/icons';
+import { RightOutlined } from '@ant-design/icons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 
 import { t as catalogTranslate } from '../../i18n/catalog';
 import type { I18nParams } from '../../i18n';
@@ -170,7 +171,7 @@ const AISettingsPromptsSection: React.FC<AISettingsPromptsSectionProps> = ({
                 fontSize: 'var(--gn-settings-font-secondary, 13px)',
               }}
             >
-              <RobotOutlined style={{ color: overlayTheme.iconColor }} aria-hidden="true" />
+              <AiSparkOutlined style={{ color: overlayTheme.iconColor }} aria-hidden="true" />
               {title}
             </span>
             <RightOutlined className="gonavi-ai-settings-disclosure-icon" aria-hidden="true" />

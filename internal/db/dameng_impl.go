@@ -26,6 +26,7 @@ type DamengDB struct {
 	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
 
+var _ SessionExecerProvider = (*DamengDB)(nil)
 var _ TransactionExecerProvider = (*DamengDB)(nil)
 
 func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
@@ -254,6 +255,19 @@ func (d *DamengDB) OpenTransactionExecer(ctx context.Context) (TransactionExecer
 		return nil, err
 	}
 	return NewSQLTxStatementExecerWithConn(tx, conn), nil
+}
+
+// OpenSessionExecer pins one physical connection so SQL-file import and other
+// multi-statement workflows keep session state (temp objects, SET, PL/SQL).
+func (d *DamengDB) OpenSessionExecer(ctx context.Context) (StatementExecer, error) {
+	if d.conn == nil {
+		return nil, fmt.Errorf("连接未打开")
+	}
+	conn, err := d.conn.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return NewSQLConnStatementExecer(conn), nil
 }
 
 func (d *DamengDB) GetDatabases() ([]string, error) {

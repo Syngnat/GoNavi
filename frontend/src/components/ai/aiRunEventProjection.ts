@@ -287,15 +287,29 @@ const parsePayload = (value: unknown): Record<string, unknown> | null => {
     : null;
 };
 
-const parseToolIntentList = (value: unknown): AIRunToolIntent[] | null => {
+const parseToolIntentList = (
+  value: unknown,
+  mergeRepeatedCalls: boolean,
+): AIRunToolIntent[] | null => {
   if (value === undefined) return [];
   if (!Array.isArray(value)) return null;
-  const seen = new Set<string>();
+  const indexByCallId = new Map<string, number>();
   const intents: AIRunToolIntent[] = [];
   for (const candidate of value) {
     const intent = normalizeAIRunToolIntent(candidate);
-    if (!intent || seen.has(intent.callId)) return null;
-    seen.add(intent.callId);
+    if (!intent) return null;
+    const existing = indexByCallId.get(intent.callId);
+    if (existing !== undefined) {
+      // A streaming delta can carry several cumulative snapshots of one call
+      // (ledgers written before the Go harness merged them per call ID). The
+      // latest snapshot wins; dropping the whole event would leave a
+      // permanent sequence gap that stalls the run projection. Completed
+      // turns stay strict.
+      if (!mergeRepeatedCalls) return null;
+      intents[existing] = intent;
+      continue;
+    }
+    indexByCallId.set(intent.callId, intents.length);
     intents.push(intent);
   }
   return intents;
@@ -309,7 +323,7 @@ const parseModelPayload = (
   const reasoning = optionalStringAllowEmpty(raw.reasoning);
   const callId = completed ? undefined : optionalString(raw.callId);
   if (text === null || reasoning === null || callId === null) return null;
-  const toolCalls = parseToolIntentList(raw.toolCalls);
+  const toolCalls = parseToolIntentList(raw.toolCalls, !completed);
   if (toolCalls === null) return null;
 
   const payload: AIRunModelDeltaPayload | AIRunModelCompletedPayload = {};
@@ -496,6 +510,22 @@ export const parseAIRunEvent = (value: unknown): AIRunEvent | null => {
   };
 };
 
+/**
+ * Reads only the run/sequence envelope of a durable event that failed full
+ * validation. The Ledger is contiguous, so this is enough to let the cursor
+ * step over an unreadable event instead of waiting for it forever.
+ */
+export const readAIRunEventCursor = (value: unknown): { runId: string; sequence: number } | null => {
+  const decoded = decodeRawJSONWithStatus(value);
+  if (!decoded.valid || !decoded.value || typeof decoded.value !== 'object' || Array.isArray(decoded.value)) {
+    return null;
+  }
+  const raw = decoded.value as Record<string, unknown>;
+  const runId = requiredString(raw.runId);
+  const sequence = toNonNegativeInteger(raw.sequence);
+  return runId && sequence !== null && sequence >= 1 ? { runId, sequence } : null;
+};
+
 export type AIRunSequenceDecision =
   | { disposition: 'accepted'; event: AIRunEvent }
   | { disposition: 'duplicate' | 'late_terminal'; event: AIRunEvent }
@@ -532,6 +562,18 @@ export class AIRunEventSequenceTracker {
     const terminal = event.kind === 'terminal' || isAIRunTerminalState(event.resultingState);
     this.runs.set(event.runId, { lastSequence: event.sequence, terminal });
     return { disposition: 'accepted', event };
+  }
+
+  /**
+   * Steps the cursor over a durable event the projection cannot read. Only the
+   * next contiguous sequence of a live run advances; anything else is left to
+   * the normal duplicate/gap handling. Returns whether the cursor moved.
+   */
+  skipUnreadable(runId: string, sequence: number): boolean {
+    const current = this.runs.get(runId) || { lastSequence: 0, terminal: false };
+    if (current.terminal || sequence !== current.lastSequence + 1) return false;
+    this.runs.set(runId, { lastSequence: sequence, terminal: false });
+    return true;
   }
 
   lastSequence(runId: string): number {

@@ -1,7 +1,9 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dropdown, message, Tabs, Tooltip } from 'antd';
-import { ArrowLeftOutlined, ArrowRightOutlined, CloseCircleOutlined, CloseOutlined, ConsoleSqlOutlined, DatabaseOutlined, EditOutlined, ExportOutlined, FileTextOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, PushpinOutlined, RightOutlined, RobotOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowRightOutlined, CloseCircleOutlined, CloseOutlined, ConsoleSqlOutlined, DatabaseOutlined, EditOutlined, ExportOutlined, FileTextOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, PushpinOutlined, RightOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
+import AiSparkOutlined from './icons/AiSparkOutlined';
+import { GnNewConnectionIcon, GnNewQueryIcon, GnSearchIcon } from './icons/gnIcons';
 import type { MenuProps, TabsProps } from 'antd';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent, DragMoveEvent, DragStartEvent } from '@dnd-kit/core';
@@ -80,45 +82,10 @@ import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorTabRunningIndicator } from './queryEditor/QueryEditorTabRunningIndicator';
 import { QueryEditorRunningTabsDock } from './queryEditor/QueryEditorRunningTabsDock';
 import { useWorkbenchTabLifecyclePolicy } from './queryEditor/useWorkbenchTabLifecyclePolicy';
-
-const getTabKindLabel = (tab: TabData): string => {
-  if (tab.type === 'query') return t('tab_manager.kind_badge.query');
-  if (tab.type === 'table') return t('tab_manager.kind_badge.table');
-  if (tab.type === 'design') return t('tab_manager.kind_badge.design');
-  if (tab.type === 'table-overview') return t('tab_manager.kind_badge.table_overview');
-  if (tab.type === 'table-export') return t('tab_manager.kind_badge.table_export');
-  if (tab.type === 'data-import') return t('tab_manager.kind_badge.data_import');
-  if (tab.type === 'data-sync') {
-    return t(
-      tab.dataSyncEntryMode === 'compare' ||
-        tab.dataSyncEntryMode === 'schemaCompare' ||
-        tab.dataSyncEntryMode === 'dataCompare'
-        ? 'app.tools.entry.compare.title'
-        : 'app.tools.entry.sync.title',
-    );
-  }
-  if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
-  if (tab.type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
-  if (tab.type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
-  if (tab.type === 'dml-snapshot') return t('tab_manager.kind_badge.dml_snapshot');
-  if (tab.type === 'driver-manager') return t('tab_manager.kind_badge.driver_manager');
-  if (tab.type === 'settings-center') return t('tab_manager.kind_badge.settings_center');
-  if (tab.type === 'message-queue') return t('message_queue_workbench.tab_kind');
-  if (tab.type.startsWith('redis')) return t('tab_manager.kind_badge.redis');
-  if (tab.type.startsWith('jvm')) return t('tab_manager.kind_badge.jvm');
-  if (tab.type === 'trigger') return t('tab_manager.kind_badge.trigger');
-  if (tab.type === 'view-def') {
-    return tab.viewKind === 'materialized'
-      ? t('tab_manager.kind_badge.materialized_view')
-      : t('tab_manager.kind_badge.view');
-  }
-  if (tab.type === 'event-def') return t('tab_manager.kind_badge.event');
-  if (tab.type === 'routine-def') return t('tab_manager.kind_badge.routine');
-  if (tab.type === 'sequence-def') return t('tab_manager.kind_badge.sequence');
-  if (tab.type === 'package-def') return t('tab_manager.kind_badge.package');
-  if (tab.type === 'database-link-def') return t('tab_manager.kind_badge.database_link');
-  return t('tab_manager.kind_badge.fallback');
-};
+import {
+  getWorkbenchTabKindLabel as getTabKindLabel,
+  getWorkbenchTabKindTooltipLabel as getTabKindTooltipLabel,
+} from '../utils/workbenchTabKindLabels';
 
 export const isBackgroundTaskWorkbenchTab = (tab: Pick<TabData, 'type'>): boolean => (
   tab.type === 'table-export' || tab.type === 'data-import' || tab.type === 'data-sync'
@@ -338,53 +305,6 @@ const buildLinkedExternalSQLDirectoryShortcuts = (
 const buildWorkbenchQueryTabId = (): string =>
   `query-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const getTabKindTooltipLabel = (tab: TabData): string => {
-  if (tab.type === 'query') return t('tab_manager.hover.kind.query');
-  if (tab.type === 'table') return t('tab_manager.hover.kind.table');
-  if (tab.type === 'design') return t('tab_manager.hover.kind.design');
-  if (tab.type === 'table-overview') return t('tab_manager.hover.kind.table_overview');
-  if (tab.type === 'table-export') return t('tab_manager.hover.kind.table_export');
-  if (tab.type === 'data-import') return t('tab_manager.hover.kind.data_import');
-  if (tab.type === 'data-sync') {
-    return t(
-      tab.dataSyncEntryMode === 'compare' ||
-        tab.dataSyncEntryMode === 'schemaCompare' ||
-        tab.dataSyncEntryMode === 'dataCompare'
-        ? 'app.tools.entry.compare.title'
-        : 'app.tools.entry.sync.title',
-    );
-  }
-  if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
-  if (tab.type === 'sql-analysis') return t('tab_manager.hover.kind.sql_analysis');
-  if (tab.type === 'sql-audit') return t('tab_manager.hover.kind.sql_audit');
-  if (tab.type === 'dml-snapshot') return t('tab_manager.hover.kind.dml_snapshot');
-  if (tab.type === 'driver-manager') return t('tab_manager.hover.kind.driver_manager');
-  if (tab.type === 'settings-center') return t('tab_manager.hover.kind.settings_center');
-  if (tab.type === 'message-queue') return t('message_queue_workbench.tab_kind');
-  if (tab.type === 'redis-keys') return t('tab_manager.hover.kind.redis_keys');
-  if (tab.type === 'redis-command') return t('tab_manager.hover.kind.redis_command');
-  if (tab.type === 'redis-monitor') return t('tab_manager.hover.kind.redis_monitor');
-  if (tab.type === 'nacos-config') return t('tab_manager.hover.kind.nacos_config');
-  if (tab.type === 'nacos-services') return t('tab_manager.hover.kind.nacos_services');
-  if (tab.type === 'jvm-overview') return t('tab_manager.hover.kind.jvm_overview');
-  if (tab.type === 'jvm-resource') return t('tab_manager.hover.kind.jvm_resource');
-  if (tab.type === 'jvm-audit') return t('tab_manager.hover.kind.jvm_audit');
-  if (tab.type === 'jvm-diagnostic') return t('tab_manager.hover.kind.jvm_diagnostic');
-  if (tab.type === 'jvm-monitoring') return t('tab_manager.hover.kind.jvm_monitoring');
-  if (tab.type === 'trigger') return t('tab_manager.hover.kind.trigger');
-  if (tab.type === 'view-def') {
-    return tab.viewKind === 'materialized'
-      ? t('tab_manager.hover.kind.materialized_view')
-      : t('tab_manager.hover.kind.view');
-  }
-  if (tab.type === 'event-def') return t('tab_manager.hover.kind.event');
-  if (tab.type === 'routine-def') return t('tab_manager.hover.kind.routine');
-  if (tab.type === 'sequence-def') return t('tab_manager.hover.kind.sequence');
-  if (tab.type === 'package-def') return t('tab_manager.hover.kind.package');
-  if (tab.type === 'database-link-def') return t('tab_manager.hover.kind.database_link');
-  return t('tab_manager.hover.kind.fallback');
-};
-
 const getTabObjectLabel = (tab: TabData): string => {
   if (tab.tableName) return tab.tableName;
   if (tab.viewName) return tab.viewName;
@@ -398,7 +318,7 @@ const getTabObjectLabel = (tab: TabData): string => {
   if (tab.filePath) return tab.filePath;
   if (tab.type === 'driver-manager') return t('app.tools.entry.drivers.title');
   if (tab.type === 'settings-center') return t('app.settings.title');
-  if (tab.type === 'sql-analysis' || tab.type === 'sql-audit' || tab.type === 'dml-snapshot') return tab.title;
+  if (tab.type === 'sql-analysis' || tab.type === 'sql-audit' || tab.type === 'dml-snapshot' || tab.type === 'user-management') return tab.title;
   if (tab.type === 'message-queue') return tab.messageQueueTarget || tab.dbName || '';
   if (tab.type.startsWith('redis')) return `db${tab.redisDB ?? 0}`;
   return '';
@@ -1788,18 +1708,18 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
         <h1>{t('tab_manager.empty.hero.title')}</h1>
         <p>{t('tab_manager.empty.hero.description')}</p>
         <div className="gn-v2-empty-actions">
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenConnectionModal}>
+          <Button type="primary" icon={<GnNewConnectionIcon />} onClick={handleOpenConnectionModal}>
             {t('connection.new')}
           </Button>
-          <Button icon={<ConsoleSqlOutlined />} onClick={() => window.dispatchEvent(new CustomEvent('gonavi:create-query-tab'))}>
+          <Button icon={<GnNewQueryIcon />} onClick={() => window.dispatchEvent(new CustomEvent('gonavi:create-query-tab'))}>
             {t('query.new')}
           </Button>
           <Tooltip title={t('tab_manager.empty.quick.search.description')}>
-            <Button icon={<SearchOutlined />} onClick={handleFocusObjectSearch}>
+            <Button icon={<GnSearchIcon />} onClick={handleFocusObjectSearch}>
               {t('tab_manager.empty.quick.search.title')}
             </Button>
           </Tooltip>
-          <Button icon={<RobotOutlined />} onClick={handleOpenAI}>
+          <Button icon={<AiSparkOutlined />} onClick={handleOpenAI}>
             {t('tab_manager.empty.action.open_ai')}
           </Button>
         </div>

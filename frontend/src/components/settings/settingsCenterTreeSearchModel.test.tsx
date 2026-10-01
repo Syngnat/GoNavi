@@ -101,6 +101,10 @@ describe('settingsCenterTreeSearchModel', () => {
       '显示与<mark class="gonavi-settings-center-tree-highlight">字体</mark>',
     );
     expect(renderSettingsCenterTreeLabel('语言', '')).toBe('语言');
+    // A hit deep inside long page copy keeps a short lead-in so truncation cannot hide it.
+    expect(renderToStaticMarkup(<>{renderSettingsCenterTreeLabel('部分编辑器和系统级菜单可能需要重新打开窗口后完全生效。', '重新打开窗口')}</>)).toBe(
+      '…统级菜单可能需要<mark class="gonavi-settings-center-tree-highlight">重新打开窗口</mark>后完全生效。',
+    );
     expect(renderSettingsCenterTreeLabel('语言', '字体')).toBe('语言');
   });
 });

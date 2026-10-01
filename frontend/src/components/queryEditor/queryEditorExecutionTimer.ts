@@ -1,22 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { formatQueryDuration } from '../../utils/queryDurationFormat';
+
 const QUERY_EXECUTION_TIMER_INTERVAL_MS = 100;
 
-export const formatQueryExecutionElapsed = (elapsedMs: number): string => {
-  const totalTenths = Math.floor(Math.max(0, Number(elapsedMs) || 0) / 100);
-  const tenths = totalTenths % 10;
-  const totalSeconds = Math.floor(totalTenths / 10);
-  const seconds = totalSeconds % 60;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const minutes = totalMinutes % 60;
-  const hours = Math.floor(totalMinutes / 60);
-  const secondsText = String(seconds).padStart(2, "0");
-  const minutesText = String(minutes).padStart(2, "0");
-
-  return hours > 0
-    ? `${String(hours).padStart(2, "0")}:${minutesText}:${secondsText}.${tenths}`
-    : `${minutesText}:${secondsText}.${tenths}`;
-};
+export const formatQueryExecutionElapsed = formatQueryDuration;
 
 export const resolveReportedQueryDurationMs = (
   result: { durationMs?: unknown } | null | undefined,
@@ -36,10 +24,15 @@ export const resolveQueryExecutionSpeedIcon = (elapsedMs: number): "⚡" | "🐇
   return "🐢";
 };
 
+/**
+ * `awaitingDriverRef.current` 为 true 表示后端仍在建连（starting 阶段）：
+ * 此时计时归零并重新起算，保证界面上跳动的数字与最终的驱动侧耗时口径一致。
+ */
 export const useQueryExecutionElapsed = (
   timingActive: boolean,
   executionRunToken = 0,
   completedElapsedMs: number | null = null,
+  awaitingDriverRef?: { current: boolean },
 ): number => {
   const [elapsedMs, setElapsedMs] = useState(0);
   const startedAtRef = useRef<number | null>(null);
@@ -68,14 +61,20 @@ export const useQueryExecutionElapsed = (
       return;
     }
 
-    const startedAt = Date.now();
+    let startedAt = Date.now();
     startedAtRef.current = startedAt;
     setElapsedMs(0);
-    const updateElapsed = () => setElapsedMs(Date.now() - startedAt);
+    const updateElapsed = () => {
+      if (awaitingDriverRef?.current) {
+        startedAt = Date.now();
+        startedAtRef.current = startedAt;
+      }
+      setElapsedMs(Date.now() - startedAt);
+    };
     updateElapsed();
     const timer = globalThis.setInterval(updateElapsed, QUERY_EXECUTION_TIMER_INTERVAL_MS);
     return () => globalThis.clearInterval(timer);
-  }, [completedElapsedMs, executionRunToken, timingActive]);
+  }, [awaitingDriverRef, completedElapsedMs, executionRunToken, timingActive]);
 
   return elapsedMs;
 };

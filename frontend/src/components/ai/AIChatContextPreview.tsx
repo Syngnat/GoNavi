@@ -1,10 +1,12 @@
 import React from 'react';
 import { Tag } from 'antd';
-import { DownOutlined, PlusOutlined, TableOutlined } from '@ant-design/icons';
+import { CodeOutlined, DownOutlined } from '@ant-design/icons';
+import { GnPlusIcon, GnTableIcon } from '../icons/gnIcons';
 
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
-import type { AIContextItem } from '../../types';
+import type { AIContextItem, AIEditorSelection } from '../../types';
+import { isAIEditorSelectionContext } from './aiEditorSelectionContext';
 
 interface AIChatContextPreviewProps {
   activeContextItems: AIContextItem[];
@@ -12,6 +14,9 @@ interface AIChatContextPreviewProps {
   onToggleExpanded: () => void;
   onOpenContext: () => void;
   onRemoveContext: (dbName: string, tableName: string) => void;
+  activeEditorSelection?: AIEditorSelection | null;
+  editorSelectionBound?: boolean;
+  onBindEditorSelection?: () => void;
 }
 
 const renderContextTableChips = (
@@ -30,10 +35,17 @@ const renderContextTableChips = (
     className={className}
     style={style}
   >
-    <TableOutlined />
-    <span>{ctx.tableName}</span>
+    {isAIEditorSelectionContext(ctx) ? <CodeOutlined /> : <GnTableIcon />}
+    <span>{isAIEditorSelectionContext(ctx)
+      ? (ctx.label || tFallback('ai_chat.input.context.selector.editor_selection'))
+      : ctx.tableName}</span>
   </Tag>
 ));
+
+const tFallback = (key: string): string => {
+  const translated = catalogTranslate('en-US', key);
+  return translated === key ? 'Editor selection' : translated;
+};
 
 export const AIChatContextPreview: React.FC<AIChatContextPreviewProps> = ({
   activeContextItems,
@@ -41,12 +53,16 @@ export const AIChatContextPreview: React.FC<AIChatContextPreviewProps> = ({
   onToggleExpanded,
   onOpenContext,
   onRemoveContext,
+  activeEditorSelection,
+  editorSelectionBound = false,
+  onBindEditorSelection,
 }) => {
   const i18n = useOptionalI18n();
   const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
     catalogTranslate('en-US', key, params));
   const contextLabel = t('ai_chat.input.context.label');
   const currentContextCount = t('ai_chat.input.context.current_count', { count: activeContextItems.length });
+  const selectionTooltip = t('ai_chat.input.context.bind_selection_tooltip');
 
   return (
     <>
@@ -57,15 +73,36 @@ export const AIChatContextPreview: React.FC<AIChatContextPreviewProps> = ({
           onClick={onToggleExpanded}
           aria-expanded={contextExpanded}
         >
-          <TableOutlined />
+          <GnTableIcon />
           <span>{contextLabel}</span>
           <strong>{activeContextItems.length}</strong>
           <DownOutlined />
         </button>
-        <button type="button" className="gn-v2-ai-context-add" onClick={onOpenContext}>
-          <PlusOutlined />
+        <button
+          type="button"
+          className="gn-v2-ai-context-add"
+          onClick={onOpenContext}
+          title={t('ai_chat.input.context.add_tooltip')}
+          aria-label={t('ai_chat.input.context.add_tooltip')}
+        >
+          <GnPlusIcon />
           <span>{t('ai_chat.input.context.add')}</span>
         </button>
+        {activeEditorSelection && String(activeEditorSelection.text || '').trim() && onBindEditorSelection && (
+          <button
+            type="button"
+            className="gn-v2-ai-context-add gn-v2-ai-context-selection-add"
+            onClick={onBindEditorSelection}
+            disabled={editorSelectionBound}
+            title={selectionTooltip}
+            aria-label={selectionTooltip}
+          >
+            <CodeOutlined />
+            <span>{t(editorSelectionBound
+              ? 'ai_chat.input.context.selection_bound'
+              : 'ai_chat.input.context.bind_selection')}</span>
+          </button>
+        )}
       </div>
       {contextExpanded && activeContextItems.length > 0 && (
         <div className="gn-v2-ai-context-detail" data-ai-context-detail="true">

@@ -37,9 +37,9 @@ const buildMessageObject = (kind: string, name: string, type = 'kafka') => ({
 });
 
 describe('message queue sidebar menus', () => {
-  it('offers message actions instead of relational table actions for topics and queues', () => {
+  it.each(['kafka', 'pulsar'])('offers message actions instead of relational table actions for %s topics', (type) => {
     const context = buildContext();
-    const node = buildMessageObject('topic', 'orders.events');
+    const node = buildMessageObject('topic', 'orders.events', type);
     const items = buildSidebarNodeMenuItems(node, context) as any[];
 
     expect(itemKeys(items)).toEqual([

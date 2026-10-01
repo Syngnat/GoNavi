@@ -1,0 +1,154 @@
+/* SQL 诊断报告布局：颜色全部取应用主题变量 --gn-*，不再内联覆盖。 */
+.gn-explain-report-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gn-explain-report-loading {
+  padding: 60px 0;
+  text-align: center;
+}
+
+.gn-explain-report-alert {
+  margin-bottom: 12px;
+}
+
+.gn-explain-report-empty {
+  padding: 48px 0;
+  color: var(--gn-fg-4);
+}
+
+.gn-explain-report-spinner {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.gn-explain-report-spinner > .ant-spin-container {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.gn-explain-report-shell {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 12px;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2));
+}
+
+.gn-explain-report-switcher-row {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--gn-br-1);
+}
+
+.gn-explain-report-switcher-label {
+  display: inline-flex;
+  min-width: 72px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.gn-explain-report-switcher .ant-segmented-item-label {
+  padding: 3px 10px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.gn-explain-report-switcher-meta {
+  flex: 0 0 auto;
+  color: var(--gn-fg-4);
+  white-space: nowrap;
+}
+
+.gn-explain-report-switcher-meta-separator {
+  display: inline-block;
+  margin: 0 6px;
+}
+
+.gn-explain-report-content {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gn-explain-plan-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.gn-explain-plan-graph {
+  position: relative;
+  min-width: 320px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.gn-explain-plan-sidebar {
+  width: 340px;
+  min-height: 0;
+  flex: 0 0 340px;
+  overflow-y: auto;
+  padding: 10px;
+  border-left: 1px solid var(--gn-br-1);
+  background: color-mix(in srgb, var(--gn-fg-1) 3%, var(--gn-query-workbench-bg, var(--gn-bg-panel-2)));
+}
+
+.gn-explain-raw {
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--gn-fg-1) 3%, var(--gn-query-workbench-bg, var(--gn-bg-panel-2)));
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+@container gn-sa (max-width: 900px) {
+  .gn-explain-report-shell {
+    min-height: 720px;
+  }
+
+  .gn-explain-plan-view {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .gn-explain-plan-graph {
+    width: 100%;
+    min-width: 0;
+    min-height: 360px;
+    flex: 0 0 min(55vh, 480px);
+  }
+
+  .gn-explain-plan-sidebar {
+    width: 100%;
+    flex: 0 0 auto;
+    overflow: visible;
+    border-top: 1px solid var(--gn-br-1);
+    border-left: 0;
+  }
+}

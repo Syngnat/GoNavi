@@ -5,19 +5,22 @@ import {
   CheckOutlined,
   DatabaseOutlined,
   DiffOutlined,
-  DownOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
-  EllipsisOutlined,
   FileTextOutlined,
-  FormatPainterOutlined,
   PlayCircleOutlined,
-  RobotOutlined,
   SearchOutlined,
-  SaveOutlined,
-  SettingOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
+import AiSparkOutlined from "./icons/AiSparkOutlined";
+import {
+  GnChevronDownIcon,
+  GnFormatIcon,
+  GnMoreIcon,
+  GnSaveIcon,
+  GnSettingsIcon,
+  GnWrapIcon,
+} from "./icons/gnIcons";
 
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
@@ -34,6 +37,7 @@ import QueryEditorTransactionSettings, {
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorToolbarRunAction } from './queryEditor/QueryEditorToolbarRunAction';
 import QueryEditorToolbarMaxRowsSelect from './queryEditor/QueryEditorToolbarMaxRowsSelect';
+import { QueryEditorToolbarAnalysisAction } from './queryEditor/QueryEditorToolbarAnalysisAction';
 
 export type QueryEditorMode = "sql" | "elasticsearch";
 
@@ -72,6 +76,8 @@ export type QueryEditorToolbarProps = {
   contextSelectionDisabled?: boolean;
   runDisabled?: boolean;
   saveMoreMenuItems: MenuProps["items"];
+  /** 「历史与诊断」入口菜单项；缺省时不渲染该入口 */
+  analysisMenuItems?: MenuProps["items"];
   formatSettingsMenu: MenuProps["items"];
   formatSettingsSelectedKeys?: string[];
   templateMenuItems?: MenuProps["items"];
@@ -100,20 +106,6 @@ export type QueryEditorToolbarProps = {
 
 const FULL_NAME_TOOLTIP_DELAY_SECONDS = 1;
 
-const WrapTextIcon: React.FC = () => (
-  <svg
-    className="gn-query-toolbar-word-wrap-icon"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-    focusable="false"
-  >
-    <path
-      fill="currentColor"
-      d="M4 19h6v-2H4v2zM20 5H4v2h16V5zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z"
-    />
-  </svg>
-);
-
 type FullNameSelectOption = {
   label: string;
   value: string;
@@ -121,7 +113,7 @@ type FullNameSelectOption = {
   fullName: string;
 };
 
-type QueryToolbarMenuKey = "ai" | "more" | "format" | "templates";
+type QueryToolbarMenuKey = "ai" | "more" | "format" | "templates" | "analysis";
 
 const normalizeV2ActionMenuItems = (
   items: MenuProps["items"],
@@ -203,6 +195,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   contextSelectionDisabled = false,
   runDisabled = false,
   saveMoreMenuItems,
+  analysisMenuItems,
   formatSettingsMenu,
   formatSettingsSelectedKeys = [],
   templateMenuItems,
@@ -330,7 +323,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         {
           key: "ai-inline-completion",
           label: triggerSqlAiCompletionLabel,
-          icon: <RobotOutlined />,
+          icon: <AiSparkOutlined />,
           onClick: onTriggerSqlAiCompletion,
         },
         { type: "divider" as const },
@@ -379,8 +372,8 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         },
       ];
   const templateActionMenuItems = normalizeV2ActionMenuItems(templateMenuItems, <FileTextOutlined />);
-  const aiActionMenuItems = normalizeV2ActionMenuItems(aiMenuItems, <RobotOutlined />);
-  const moreActionMenuItems = normalizeV2ActionMenuItems(moreMenuItems, <EllipsisOutlined />);
+  const aiActionMenuItems = normalizeV2ActionMenuItems(aiMenuItems, <AiSparkOutlined />);
+  const moreActionMenuItems = normalizeV2ActionMenuItems(moreMenuItems, <GnMoreIcon />);
   const selectedFormatKeys = new Set(formatSettingsSelectedKeys);
   const markSelectedFormatItems = (items: MenuProps['items']): MenuProps['items'] => (items ?? []).map((item) => {
     if (!item || item.type === 'divider') {
@@ -395,7 +388,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
     };
   });
   const formatMenuItemsWithSelection = markSelectedFormatItems(formatSettingsMenu);
-  const formatActionMenuItems = normalizeV2ActionMenuItems(formatMenuItemsWithSelection, <FormatPainterOutlined />);
+  const formatActionMenuItems = normalizeV2ActionMenuItems(formatMenuItemsWithSelection, <GnFormatIcon />);
   const selects = (
     <div
       className="gn-v2-query-toolbar-selects"
@@ -470,7 +463,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               <Button
                 aria-label={t("query_editor.elasticsearch.action.templates")}
                 className="gn-v2-query-toolbar-icon-action"
-                icon={<DownOutlined />}
+                icon={<GnChevronDownIcon />}
                 aria-haspopup="menu"
                 aria-expanded={openToolbarMenu === "templates"}
               />
@@ -577,7 +570,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             aria-label={t("query_editor.action.save")}
             className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-save-action"
             type="default"
-            icon={<SaveOutlined />}
+            icon={<GnSaveIcon />}
             onClick={onQuickSave}
           />
         </Tooltip>
@@ -601,7 +594,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               >
                 <Button
                   className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action"
-                  icon={<RobotOutlined />}
+                  icon={<AiSparkOutlined />}
                   aria-label={aiMoreTitle}
                   aria-haspopup="menu"
                   aria-expanded={openToolbarMenu === "ai"}
@@ -617,7 +610,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 <Button
                   aria-label={triggerSqlAiCompletionLabel}
                   className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action"
-                  icon={<RobotOutlined />}
+                  icon={<AiSparkOutlined />}
                   onMouseDown={onCaptureEditorCursorPosition}
                   onClick={onTriggerSqlAiCompletion}
                 />
@@ -641,7 +634,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   >
                     <Button
                       className="gn-v2-query-toolbar-icon-action"
-                      icon={<DownOutlined />}
+                      icon={<GnChevronDownIcon />}
                       aria-label={aiMoreTitle}
                       aria-haspopup="menu"
                       aria-expanded={openToolbarMenu === "ai"}
@@ -651,6 +644,15 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 </span>
               </Tooltip>
             </div>
+            {analysisMenuItems && (
+              <QueryEditorToolbarAnalysisAction
+                items={analysisMenuItems}
+                open={openToolbarMenu === "analysis"}
+                label={t("query_editor.action.analysis")}
+                tooltip={t("query_editor.action.analysis_tooltip")}
+                onOpenChange={(open) => updateToolbarMenuOpen("analysis", open)}
+              />
+            )}
             <Tooltip
               title={t("query_editor.action.more")}
               open={openToolbarMenu === "more" ? false : undefined}
@@ -671,7 +673,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   <Button
                     aria-label={t("query_editor.action.more")}
                     className="gn-v2-query-toolbar-icon-action"
-                    icon={<EllipsisOutlined />}
+                    icon={<GnMoreIcon />}
                     aria-haspopup="menu"
                     aria-expanded={openToolbarMenu === "more"}
                   />
@@ -706,7 +708,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               <Button
                 className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-word-wrap-action"
                 type={wordWrapEnabled ? "primary" : "default"}
-                icon={<WrapTextIcon />}
+                icon={<GnWrapIcon />}
                 aria-label={t(
                   wordWrapEnabled
                     ? "query_editor.action.disable_word_wrap"
@@ -724,7 +726,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               ? "query_editor.elasticsearch.action.format"
               : "query_editor.action.format_sql")}
             className="gn-v2-query-toolbar-icon-action"
-            icon={<FormatPainterOutlined />}
+            icon={<GnFormatIcon />}
             onClick={onFormat}
           />
         </Tooltip>
@@ -753,7 +755,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 <Button
                   aria-label={formatSettingsTitle}
                   className="gn-v2-query-toolbar-icon-action"
-                  icon={<SettingOutlined />}
+                  icon={<GnSettingsIcon />}
                   aria-haspopup="menu"
                   aria-expanded={openToolbarMenu === "format"}
                 />

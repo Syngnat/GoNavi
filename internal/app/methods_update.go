@@ -235,7 +235,7 @@ func (a *App) localizedUpdateError(err error) string {
 }
 
 func (a *App) CheckForUpdates() connection.QueryResult {
-	// 用户手动检查：强制走网络（静态清单优先，API 回退）
+	// 用户手动检查：强制联网，并按下载来源设置选择元数据入口。
 	return a.checkForUpdates(true, true)
 }
 
@@ -252,7 +252,7 @@ func (a *App) checkForUpdates(logFailure bool, forceNetwork bool) connection.Que
 	currentStaged := snapshotStagedUpdate(a.updateState.staged)
 	a.updateMu.Unlock()
 
-	info, err := fetchLatestUpdateInfoWithOptions(channel, forceNetwork)
+	info, err := fetchLatestUpdateInfoWithOptions(channel, forceNetwork, a.preferredDownloadSource())
 	if err != nil {
 		if logFailure {
 			updateLogCheckError(err)
@@ -664,7 +664,7 @@ func (a *App) validateUpdateInfoForDownload(info *UpdateInfo) *connection.QueryR
 }
 
 func (a *App) refreshDevUpdateInfoForDownload(expectedRevision uint64, pendingIfNoUpdate *UpdateInfo) (*UpdateInfo, *stagedUpdate, uint64, error) {
-	info, err := fetchLatestUpdateInfoWithOptions(updateChannelDev, true)
+	info, err := fetchLatestUpdateInfoWithOptions(updateChannelDev, true, a.preferredDownloadSource())
 	if err != nil {
 		return nil, nil, expectedRevision, err
 	}
@@ -998,107 +998,6 @@ func prepareUpdateDownloadCandidate(rawURL string, primary bool) (string, bool) 
 	}
 	candidate = downloadDispatcherURLRequiringCurrentDevAsset(candidate)
 	return candidate, dispatcherURLRequiresCurrentDevAsset(candidate)
-}
-
-func fetchLatestUpdateInfo(channel updateChannel) (UpdateInfo, error) {
-	return fetchLatestUpdateInfoWithOptions(channel, true)
-}
-
-func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool) (UpdateInfo, error) {
-	if channel != updateChannelDev {
-		channel = updateChannelLatest
-	}
-	installMode := updateResolveInstallMode()
-	packageType := resolveUpdatePackageType(stdRuntime.GOOS, installMode)
-	if stdRuntime.GOOS == "windows" && packageType == "" {
-		return UpdateInfo{}, localizedUpdateError{
-			key:    "app.update.backend.error.online_update_unsupported",
-			params: map[string]any{"platform": stdRuntime.GOOS + "/" + stdRuntime.GOARCH + "/" + string(installMode)},
-		}
-	}
-
-	// 优先静态 latest.json（不占 api.github.com 配额）→ GitHub API → 磁盘缓存
-	release, err := fetchReleaseForChannelPreferringStatic(channel, forceNetwork)
-	if err != nil {
-		return UpdateInfo{}, err
-	}
-
-	currentVersion := getCurrentVersion()
-	latestVersion := resolveReleaseVersion(channel, release)
-	if latestVersion == "" {
-		return UpdateInfo{}, localizedUpdateError{key: "app.update.backend.error.latest_version_unparseable"}
-	}
-
-	hasUpdate := false
-	if channel == updateChannelDev {
-		hasUpdate = normalizeVersion(currentVersion) != latestVersion
-	} else {
-		hasUpdate = compareVersion(currentVersion, latestVersion) < 0
-	}
-	if !hasUpdate {
-		return UpdateInfo{
-			HasUpdate:          false,
-			Channel:            string(channel),
-			CurrentVersion:     currentVersion,
-			LatestVersion:      latestVersion,
-			ReleaseName:        release.Name,
-			ReleasePublishedAt: strings.TrimSpace(release.PublishedAt),
-			ReleaseNotesURL:    release.HTMLURL,
-			ReleaseNotes:       strings.TrimSpace(release.Body),
-			InstallMode:        string(installMode),
-			PackageType:        string(packageType),
-			AutoRelaunch:       true,
-		}, nil
-	}
-
-	assetVersion := strings.TrimSpace(release.TagName)
-	if assetVersion == "" || strings.EqualFold(normalizeVersion(assetVersion), updateDevReleaseTag) {
-		assetVersion = latestVersion
-	}
-	assetName, err := expectedAssetNameForInstallMode(stdRuntime.GOOS, stdRuntime.GOARCH, assetVersion, installMode)
-	if err != nil {
-		return UpdateInfo{}, err
-	}
-	asset, err := findReleaseAsset(release.Assets, assetName)
-	if err != nil {
-		return UpdateInfo{}, err
-	}
-
-	sha256Value := normalizeGitHubAssetSHA256(asset.Digest)
-	if sha256Value == "" {
-		hashMap, err := updateFetchReleaseSHA256(release.Assets)
-		if err != nil {
-			return UpdateInfo{}, err
-		}
-		sha256Value = strings.TrimSpace(hashMap[assetName])
-	}
-	if sha256Value == "" {
-		return UpdateInfo{}, localizedUpdateError{key: "app.update.backend.error.sha256_missing_current_package"}
-	}
-	assetURL := updateDispatcherAssetURL(channel, assetVersion, asset.Name)
-	if assetURL == "" {
-		// Keep legacy release metadata usable if an unexpected asset coordinate
-		// cannot be represented by the Dispatcher path validator.
-		assetURL = firstNonEmptyString(asset.BrowserDownloadURL, asset.URL)
-	}
-	return UpdateInfo{
-		HasUpdate:          hasUpdate,
-		Channel:            string(channel),
-		CurrentVersion:     currentVersion,
-		LatestVersion:      latestVersion,
-		ReleaseName:        release.Name,
-		ReleasePublishedAt: strings.TrimSpace(release.PublishedAt),
-		ReleaseNotesURL:    release.HTMLURL,
-		ReleaseNotes:       strings.TrimSpace(release.Body),
-		AssetName:          asset.Name,
-		AssetURL:           assetURL,
-		AssetAPIURL:        strings.TrimSpace(asset.URL),
-		AssetSize:          asset.Size,
-		SHA256:             sha256Value,
-		InstallMode:        string(installMode),
-		PackageType:        string(packageType),
-		AutoRelaunch:       true,
-	}, nil
 }
 
 func devUpdateDispatcherAssetURL(version string, assetName string) string {

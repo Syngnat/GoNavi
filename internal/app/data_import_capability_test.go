@@ -220,6 +220,7 @@ func TestResolveDataImportCapabilityReportsConflictPoliciesByMode(t *testing.T) 
 		{dbType: "postgres", want: []string{"stop", "skip_duplicates", "upsert"}},
 		{dbType: "sqlite", want: []string{"stop", "skip_duplicates", "upsert"}},
 		{dbType: "oracle", want: []string{"stop"}},
+		{dbType: "dameng", want: []string{"stop"}},
 		{dbType: "sqlserver", want: []string{"stop"}},
 	}
 
@@ -257,6 +258,29 @@ func TestResolveDataImportCapabilityOracle(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.SQLFileImport.SupportedClientDirectives, []string{"sqlplus-slash"}) {
 		t.Fatalf("client directives = %#v", got.SQLFileImport.SupportedClientDirectives)
+	}
+}
+
+func TestResolveDataImportCapabilityDameng(t *testing.T) {
+	got := ResolveDataImportCapability(
+		connection.ConnectionConfig{Type: "dameng"},
+		&pinnedImportDatabase{},
+	)
+
+	if !got.TableImport.Supported || !got.TableImport.SupportsTransactionalBatch {
+		t.Fatalf("Dameng table import capability = %#v", got.TableImport)
+	}
+	if !got.SQLFileImport.Supported || !got.SQLFileImport.RequiresPinnedSession {
+		t.Fatalf("Dameng SQL file import capability = %#v", got.SQLFileImport)
+	}
+	if got.SQLFileImport.SupportsTransactionalBatch {
+		t.Fatalf("Dameng SQL file import must not claim batch support: %#v", got.SQLFileImport)
+	}
+	if !reflect.DeepEqual(got.SQLFileImport.SupportedClientDirectives, []string{"sqlplus-slash"}) {
+		t.Fatalf("client directives = %#v", got.SQLFileImport.SupportedClientDirectives)
+	}
+	if !reflect.DeepEqual(got.SQLFileImport.SupportedFormats, []string{"sql"}) {
+		t.Fatalf("SQL formats = %#v", got.SQLFileImport.SupportedFormats)
 	}
 }
 

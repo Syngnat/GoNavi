@@ -203,7 +203,8 @@ func TestOpenAIProvider_RejectsMissingModel(t *testing.T) {
 	}
 }
 
-func TestOpenAIProvider_DefaultMaxTokens(t *testing.T) {
+// 输出上限默认不限制：未配置时 provider 不能替用户填一个 4096（见 output_token_budget.go）。
+func TestOpenAIProvider_DoesNotInventDefaultMaxTokens(t *testing.T) {
 	p, err := NewOpenAIProvider(ai.ProviderConfig{
 		Type: "openai", APIKey: "sk-test", Model: "gpt-4o",
 	})
@@ -211,8 +212,8 @@ func TestOpenAIProvider_DefaultMaxTokens(t *testing.T) {
 		t.Fatalf("unexpected constructor error: %v", err)
 	}
 	op := p.(*OpenAIProvider)
-	if op.config.MaxTokens != 4096 {
-		t.Fatalf("expected default max tokens 4096, got %d", op.config.MaxTokens)
+	if op.config.MaxTokens != 0 {
+		t.Fatalf("expected no default max tokens, got %d", op.config.MaxTokens)
 	}
 }
 

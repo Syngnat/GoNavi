@@ -20,7 +20,11 @@ const npmCommand = 'npm';
 // so those links are part of the install health check rather than proof of a
 // complete dependency tree.
 const requiredBuildBinaries = ['tsc', 'vite'];
+// Lockfile tarball URLs may carry the registry host of whoever last ran
+// `npm install` (e.g. a regional mirror). npm 12 refuses tarballs outside the
+// configured registry (EALLOWREMOTE), so always fetch from the user's registry.
 const commonArgs = [
+  '--replace-registry-host=always',
   '--prefer-offline',
   '--no-audit',
   '--fund=false',

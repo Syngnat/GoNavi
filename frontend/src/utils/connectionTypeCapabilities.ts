@@ -1,3 +1,8 @@
+export const PRIMARY_USERNAME_OPTIONAL_TYPES = new Set([
+  "redis", "mongodb", "elasticsearch", "chroma", "qdrant", "milvus", "nacos",
+  "rocketmq", "mqtt", "kafka", "rabbitmq", "pulsar",
+]);
+
 export const singleHostUriSchemesByType: Record<string, string[]> = {
   postgres: ["postgresql", "postgres"],
   opengauss: ["opengauss", "jdbc:opengauss", "postgresql", "postgres"],
@@ -22,6 +27,7 @@ export const singleHostUriSchemesByType: Record<string, string[]> = {
   rocketmq: ["rocketmq", "rmq"],
   mqtt: ["mqtt", "mqtts", "tcp", "ssl", "tls"],
   rabbitmq: ["rabbitmq", "http", "https"],
+  pulsar: ["pulsar", "pulsar+ssl"],
   nacos: ["http", "https", "nacos"],
 };
 
@@ -43,6 +49,9 @@ const normalizeConnectionType = (type: string) =>
         return "rocketmq";
       case "mqtts":
         return "mqtt";
+      case "apache-pulsar":
+      case "apache_pulsar":
+        return "pulsar";
       default:
         return normalized;
     }
@@ -78,6 +87,7 @@ const sslSupportedTypes = new Set([
   "mqtt",
   "kafka",
   "rabbitmq",
+  "pulsar",
   "nacos",
 ]);
 
@@ -110,6 +120,7 @@ const sslCAPathSupportedTypes = new Set([
   "mqtt",
   "kafka",
   "rabbitmq",
+  "pulsar",
 ]);
 
 const sslClientCertificateSupportedTypes = new Set([
@@ -134,6 +145,7 @@ const sslClientCertificateSupportedTypes = new Set([
   "mqtt",
   "kafka",
   "rabbitmq",
+  "pulsar",
 ]);
 
 export const supportsSSLCAPathForType = (type: string) =>
@@ -191,4 +203,5 @@ export const supportsConnectionParamsForType = (type: string) =>
   type === "mqtt" ||
   type === "kafka" ||
   type === "rabbitmq" ||
+  type === "pulsar" ||
   type === "nacos";

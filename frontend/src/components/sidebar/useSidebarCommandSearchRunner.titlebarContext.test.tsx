@@ -13,6 +13,40 @@ describe('useSidebarCommandSearchRunner title bar context', () => {
     renderer = null;
   });
 
+  it.each(['nacos-config-group', 'nacos-service-group'] as const)(
+    'opens a searched %s through the existing double-click action', (type) => {
+      const node = {
+        key: `nacos-1-${type}-ORDER_GROUP`, title: 'ORDER_GROUP', type,
+        dataRef: { id: 'nacos-1', nacosNamespaceId: 'dev', nacosGroup: 'ORDER_GROUP' },
+      };
+      const item: V2CommandSearchItem = {
+        key: `node-${node.key}`, kind: 'node', title: node.title, meta: 'Nacos · dev', icon: null, node,
+      };
+      const onDoubleClick = vi.fn();
+      const revealCommandSearchNode = vi.fn();
+      let runCommandSearchItem: ReturnType<typeof useSidebarCommandSearchRunner>['runCommandSearchItem'] | undefined;
+      const Harness = () => {
+        ({ runCommandSearchItem } = useSidebarCommandSearchRunner({
+          activeContext: null, activeTab: null, addTab: vi.fn(),
+          clearStaleHostStateOnSelection: vi.fn(), closeV2CommandSearch: vi.fn(),
+          commandSearchFlatItems: [], connectionIds: ['nacos-1'], queryCapableConnectionIds: new Set(),
+          findTreeNodeByKeyRef: { current: () => node }, locateObjectInSidebar: vi.fn(),
+          loadDatabases: vi.fn(), mergeExpandedTreeKeys: vi.fn(), onDoubleClick,
+          revealCommandSearchNode, scrollSidebarTreeToKey: vi.fn(), selectedNodesRef: { current: [] },
+          setActiveContext: vi.fn(), setSelectedKeys: vi.fn(), setV2CommandActiveIndex: vi.fn(),
+          treeDataRef: { current: [node] }, v2CommandActiveIndex: 0,
+        }));
+        return null;
+      };
+      act(() => { renderer = create(<Harness />); });
+      act(() => { runCommandSearchItem?.(item); });
+      expect(revealCommandSearchNode).toHaveBeenCalledWith(node);
+      expect(onDoubleClick).toHaveBeenCalledWith(null, node);
+      expect(revealCommandSearchNode.mock.invocationCallOrder[0])
+        .toBeLessThan(onDoubleClick.mock.invocationCallOrder[0]);
+    },
+  );
+
   it('keeps the selected sequence name when command search does not open a tab', () => {
     const setActiveContext = vi.fn();
     let runCommandSearchItem: ReturnType<typeof useSidebarCommandSearchRunner>['runCommandSearchItem'] | undefined;

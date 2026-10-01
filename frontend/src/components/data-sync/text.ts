@@ -313,7 +313,7 @@ const zhCN = {
   'delivery.performance_title': '性能与重试',
   'delivery.performance_help': '默认值适合多数任务；仅在明确了解目标端负载和幂等性时调整。',
   'delivery.structure_title': '目标结构',
-  'delivery.structure_help': '一次性迁移或结构同步可补齐目标端缺失字段；仅新增字段，不修改或删除已有字段。',
+  'delivery.structure_help': '一次性迁移、结构同步和差异同步（对账）任务可补齐目标端缺失字段；仅新增字段，不修改或删除已有字段，也不会自动建表。',
   'delivery.auto_add_columns': '自动新增缺失字段',
   'delivery.auto_add_columns_desc': '仅新增目标端缺少的字段，不修改或删除已有字段；执行 DDL 时可能短暂锁定目标表。',
   'delivery.create_indexes': '同步表附属对象',
@@ -818,7 +818,7 @@ const enUS: Record<DataSyncWorkbenchTextKey, string> = {
   'delivery.performance_title': 'Performance and retries',
   'delivery.performance_help': 'The defaults fit most tasks. Adjust only when you understand target load and retry idempotency.',
   'delivery.structure_title': 'Target schema',
-  'delivery.structure_help': 'One-time migrations and schema-sync tasks can add missing target columns; existing columns are never modified or deleted.',
+  'delivery.structure_help': 'One-time migrations, schema-sync tasks and reconcile (diff sync) tasks can add missing target columns; existing columns are never modified or deleted, and no tables are created automatically.',
   'delivery.auto_add_columns': 'Add missing target columns',
   'delivery.auto_add_columns_desc': 'Only adds columns missing from the target; existing columns are not changed or removed. DDL may briefly lock the target table.',
   'delivery.create_indexes': 'Copy table dependents',
@@ -1030,35 +1030,7 @@ export const createDataSyncWorkbenchTranslate = (
 };
 
 /**
- * Stable validation codes are the localization contract. The codes below are
- * categories whose actionable cause exists only in the backend message, so the
- * diagnostic is appended instead of dropped:
- * - CDC probing is environment-specific (replica-set setup, binlog privileges,
- *   publication state).
- * - `definition_invalid` wraps every backend ValidateDefinition failure (Cron
- *   field count, unsupported enum, batch range), so the localized sentence
- *   alone leaves the user unable to locate the fault.
+ * Stable validation codes are the localization contract; the rendering rules
+ * live in `textValidationIssue.ts` so this catalog keeps to copy only.
  */
-const BACKEND_DIAGNOSTIC_ISSUE_CODES = new Set([
-  'definition_invalid',
-  'cdc_probe_failed',
-  'cdc_adapter_not_ready',
-]);
-
-export const dataSyncValidationIssueText = (
-  issue: { code: string; message?: string },
-  t: DataSyncWorkbenchTranslate,
-): string => {
-  const key = `validation.${issue.code}` as DataSyncWorkbenchTextKey;
-  const localized = t(key);
-  if (localized !== key) {
-    if (
-      BACKEND_DIAGNOSTIC_ISSUE_CODES.has(issue.code) &&
-      String(issue.message || '').trim()
-    ) {
-      return `${localized} ${String(issue.message).trim()}`;
-    }
-    return localized;
-  }
-  return String(issue.message || '').trim() || t('validation.unknown');
-};
+export { dataSyncValidationIssueText } from './textValidationIssue';

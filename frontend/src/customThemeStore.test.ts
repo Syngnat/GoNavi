@@ -205,4 +205,72 @@ describe('custom theme store', () => {
     expect(result).toEqual({ ok: false, reason: 'storage-failed' });
     expect(useCustomThemeStore.getState().activeThemeId).toBeNull();
   });
+
+  it('remembers the last theme per light / dark mode and restores it when switching modes', async () => {
+    let module = await importThemeStore();
+    const store = () => module.useCustomThemeStore.getState();
+    store().selectCustomTheme('builtin-warm-paper');
+    store().selectCustomTheme('builtin-nord-slate');
+    expect(store().rememberedThemeIds).toEqual({ light: 'builtin-warm-paper', dark: 'builtin-nord-slate' });
+
+    expect(store().activateRememberedCustomTheme('light')).toEqual(expect.objectContaining({ ok: true }));
+    expect(store().activeThemeId).toBe('builtin-warm-paper');
+
+    vi.resetModules();
+    module = await importThemeStore();
+    expect(store().rememberedThemeIds).toEqual({ light: 'builtin-warm-paper', dark: 'builtin-nord-slate' });
+    store().activateRememberedCustomTheme('dark');
+    expect(store().activeThemeId).toBe('builtin-nord-slate');
+
+    store().activateRememberedCustomTheme('system');
+    expect(store().activeThemeId).toBeNull();
+    expect(store().rememberedThemeIds).toEqual({ light: 'builtin-warm-paper', dark: 'builtin-nord-slate' });
+  });
+
+  it('forgets a theme when the user explicitly returns to the base theme', async () => {
+    const { useCustomThemeStore } = await importThemeStore();
+    const store = () => useCustomThemeStore.getState();
+    store().selectCustomTheme('builtin-warm-paper');
+    store().selectCustomTheme('builtin-nord-slate');
+
+    expect(store().deactivateCustomTheme()).toEqual({ ok: true });
+    expect(store().activeThemeId).toBeNull();
+    expect(store().rememberedThemeIds).toEqual({ light: 'builtin-warm-paper', dark: null });
+
+    store().activateRememberedCustomTheme('dark');
+    expect(store().activeThemeId).toBeNull();
+  });
+
+  it('corrects the memory when a remembered user theme is re-moded or removed', async () => {
+    const { useCustomThemeStore } = await importThemeStore();
+    const store = () => useCustomThemeStore.getState();
+    const imported = store().importCustomTheme({
+      name: 'Night',
+      sourceFileName: 'night.css',
+      baseMode: 'dark',
+      css: 'body[data-custom-theme] { --gn-titlebar-icon-primary: #ff00aa; }',
+    });
+    const themeId = imported.ok ? imported.theme!.id : '';
+    store().selectCustomTheme(themeId);
+    expect(store().rememberedThemeIds.dark).toBe(themeId);
+
+    store().updateCustomTheme(themeId, { baseMode: 'system' });
+    expect(store().rememberedThemeIds.dark).toBeNull();
+
+    store().updateCustomTheme(themeId, { baseMode: 'dark' });
+    store().selectCustomTheme(themeId);
+    store().removeCustomTheme(themeId);
+    expect(store().rememberedThemeIds).toEqual({ light: null, dark: null });
+  });
+
+  it('drops persisted memory entries that no longer match an available theme mode', async () => {
+    storage.setItem('gonavi-custom-themes-v1', JSON.stringify({
+      version: 1,
+      activeThemeId: null,
+      themes: [],
+      rememberedThemeIds: { light: 'builtin-nord-slate', dark: 'missing' },
+    }));
+    const { useCustomThemeStore } = await importThemeStore();
+    expect(useCustomThemeStore.getState().rememberedThemeIds).toEqual({ light: null, dark: null });
+  });
 });

@@ -133,6 +133,7 @@ export const SQL_AUDIT_SOURCES = [
   'table_designer',
   'object_editor',
   'message_publish',
+  'user_management',
   'ai_action',
   'application_api',
   'audit_control',

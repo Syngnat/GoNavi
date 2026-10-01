@@ -44,6 +44,35 @@ describe('connectionReadOnly', () => {
     expect(supportsConnectionKeepAliveSQL(config)).toBe(false);
   });
 
+  it.each([
+    ['dm', { type: 'dm' }],
+    ['dm8', { type: 'dm8' }],
+    ['custom dm8', { type: 'custom', driver: 'dm8' }],
+    ['kingbasees', { type: 'kingbasees' }],
+    ['custom kingbasees', { type: 'custom', driver: 'kingbasees' }],
+    ['greatdb', { type: 'greatdb' }],
+    ['gdb', { type: 'gdb' }],
+    ['custom greatdb', { type: 'custom', driver: 'greatdb' }],
+    ['apache-iotdb', { type: 'apache-iotdb' }],
+    ['apache_iotdb', { type: 'apache_iotdb' }],
+    ['custom apache-iotdb', { type: 'custom', driver: 'apache-iotdb' }],
+    ['OceanBase Oracle tenant', { type: 'oceanbase', oceanBaseProtocol: 'oracle' }],
+    ['custom OceanBase Oracle tenant', {
+      type: 'custom',
+      driver: 'oceanbase',
+      oceanBaseProtocol: 'oracle',
+    }],
+  ])('recognizes read-only protection alias: %s', (_name, config) => {
+    expect(supportsConnectionReadOnlyMode(config as any)).toBe(true);
+  });
+
+  it('supports IoTDB production protection and SQL keepalive checks', () => {
+    const config = { type: 'iotdb' } as any;
+
+    expect(supportsConnectionReadOnlyMode(config)).toBe(true);
+    expect(supportsConnectionKeepAliveSQL(config)).toBe(true);
+  });
+
   it('supports Caché production protection and SQL keepalive checks', () => {
     const config = { type: 'cache' } as any;
 

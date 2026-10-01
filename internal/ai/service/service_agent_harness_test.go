@@ -498,6 +498,39 @@ func TestServiceAgentLedgerStatusDoesNotProbeSecretStore(t *testing.T) {
 	}
 }
 
+func TestServiceSubmitBindsSelectedContextWindowForTheRunModel(t *testing.T) {
+	service, _ := newInitializedAgentHarnessService(t)
+	service.providers = []ai.ProviderConfig{{
+		ID: "provider-a", Type: "openai", Name: "Provider", APIKey: "key",
+		BaseURL: "http://127.0.0.1:1/v1", Model: "gpt-5", ContextWindow: 500_000,
+	}}
+	service.activeProvider = "provider-a"
+
+	frozenWindow := func(requestID, model string) int {
+		t.Helper()
+		receipt, err := service.AISubmitAgentInput(runharness.AgentInputRequest{RequestID: requestID, Content: "hello", Model: model})
+		if err != nil {
+			t.Fatalf("AISubmitAgentInput(%s): %v", requestID, err)
+		}
+		binding, err := service.agentLedger.GetProviderBinding(context.Background(), receipt.RunID)
+		if err != nil {
+			t.Fatalf("get durable provider binding: %v", err)
+		}
+		var frozen ai.ProviderConfig
+		if err := json.Unmarshal(binding.Config, &frozen); err != nil {
+			t.Fatalf("decode durable provider binding: %v", err)
+		}
+		return frozen.ContextWindow
+	}
+
+	if got := frozenWindow("window-selected", ""); got != 500_000 {
+		t.Fatalf("run on the selected model must freeze the chosen tier, got %d", got)
+	}
+	if got := frozenWindow("window-other-model", "gpt-4o"); got != 0 {
+		t.Fatalf("a request that switches model must not inherit the previous model's tier, got %d", got)
+	}
+}
+
 func TestServiceSubmitBindsActiveProviderToDurableRun(t *testing.T) {
 	service, emitter := newInitializedAgentHarnessService(t)
 	base := ai.ProviderConfig{

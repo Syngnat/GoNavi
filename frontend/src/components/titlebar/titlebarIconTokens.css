@@ -1,0 +1,26 @@
+/*
+ * 标题栏 / 工具条彩色图标的配色 token（gonaviTitlebarIcons.tsx 通过 var() 读取）。
+ *
+ * 内置 GoNavi 主题会在 body[data-custom-theme] 上覆盖 4 个核心色（primary / accent / badge / warm）；用户自定义 CSS 主题
+ * 同样可以覆盖任意一个 --gn-titlebar-icon-*。primary-soft / highlight 由 primary 派生，
+ * 只改 primary 时二者会自动跟随；需要精确控制时也可以单独覆盖。
+ */
+
+body[data-ui-version='v2'][data-theme='light'] {
+  --gn-titlebar-icon-primary: #3b82f6;
+  --gn-titlebar-icon-accent: #4c3fd6;
+  --gn-titlebar-icon-badge: #3bb54a;
+  --gn-titlebar-icon-warm: #f59e0b;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] {
+  --gn-titlebar-icon-primary: #60a5fa;
+  --gn-titlebar-icon-accent: #a78bfa;
+  --gn-titlebar-icon-badge: #4ade80;
+  --gn-titlebar-icon-warm: #fbbf24;
+}
+
+body[data-ui-version='v2'] {
+  --gn-titlebar-icon-primary-soft: color-mix(in srgb, var(--gn-titlebar-icon-primary) 60%, transparent);
+  --gn-titlebar-icon-highlight: color-mix(in srgb, var(--gn-titlebar-icon-primary) 78%, #ffffff);
+}

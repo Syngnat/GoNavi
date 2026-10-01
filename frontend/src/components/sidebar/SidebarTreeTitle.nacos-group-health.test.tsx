@@ -30,6 +30,13 @@ const healthEntry = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('SidebarTreeTitle / Nacos 分组在线状态徽标', () => {
+  it('shows the persisted pin indicator on a pinned Nacos namespace', () => {
+    const markup = renderNode({
+      type: 'nacos-namespace', key: 'conn-1-nacos-ns-dev', title: 'Development',
+      dataRef: { id: 'conn-1', nacosNamespaceId: 'dev', pinnedSidebarDatabase: true },
+    });
+    expect(markup).toContain('data-v2-sidebar-database-pin-indicator="true"');
+  });
   it('渲染服务数计数胶囊，且不占用 gn-v2-tree-count 类', () => {
     const markup = renderGroupNode({ nacosServiceCount: 7, nacosHealthAvailable: false });
 

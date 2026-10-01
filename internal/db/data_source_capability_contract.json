@@ -34,6 +34,7 @@
                                                                    "supported":  true
                                                                },
                                        "ui":  {
+                                                               "userManagement":  true,
                                                                "parameterBinding":  true,
                                                   "explainDiagnosis":  true,
                                                   "sqlQueryExport":  true,
@@ -222,6 +223,7 @@
                                                                       "supported":  true
                                                                   },
                                           "ui":  {
+                                                                  "userManagement":  true,
                                                                   "parameterBinding":  true,
                                                      "explainDiagnosis":  true,
                                                      "sqlQueryExport":  true,
@@ -271,6 +273,7 @@
                                                                                  "supported":  true
                                                                              },
                                                      "ui":  {
+                                                                             "userManagement":  true,
                                                                              "parameterBinding":  true,
                                                                 "explainDiagnosis":  true,
                                                                 "sqlQueryExport":  true,
@@ -319,6 +322,7 @@
                                                                        "supported":  true
                                                                    },
                                            "ui":  {
+                                                                   "userManagement":  true,
                                                                    "parameterBinding":  true,
                                                       "explainDiagnosis":  true,
                                                       "sqlQueryExport":  true,
@@ -501,6 +505,7 @@
                                                                     "supported":  true
                                                                 },
                                         "ui":  {
+                                                                "userManagement":  true,
                                                                 "parameterBinding":  true,
                                                    "explainDiagnosis":  true,
                                                    "sqlQueryExport":  true,
@@ -548,6 +553,7 @@
                                                                     "supported":  true
                                                                 },
                                         "ui":  {
+                                                                "userManagement":  true,
                                                                 "parameterBinding":  true,
                                                    "sqlQueryExport":  true,
                                                    "copyInsert":  true
@@ -595,6 +601,7 @@
                                                                       "supported":  true
                                                                   },
                                           "ui":  {
+                                                                  "userManagement":  true,
                                                                   "parameterBinding":  true,
                                                      "sqlQueryExport":  true,
                                                      "copyInsert":  true,
@@ -645,6 +652,7 @@
                                                                         "supported":  true
                                                                     },
                                             "ui":  {
+                                                                    "userManagement":  true,
                                                                     "parameterBinding":  true,
                                                        "explainDiagnosis":  true,
                                                        "sqlQueryExport":  true,
@@ -888,6 +896,7 @@
                                                                                      "supported":  true
                                                                                  },
                                                          "ui":  {
+                                                                    "userManagement":  true,
                                                                     "forceReadOnlyStructureDesigner":  true
                                                                 },
                                                          "navigation":  {
@@ -989,6 +998,7 @@
                                                                "supported":  true
                                                            },
                                    "ui":  {
+                                              "userManagement":  true,
                                               "forceReadOnlyStructureDesigner":  true
                                           },
                                    "navigation":  {
@@ -1331,6 +1341,7 @@
                     "mqtt":  "message-manual-total",
                     "kafka":  "message",
                     "rabbitmq":  "message-vhost",
+                    "pulsar":  "message",
                     "mariadb":  "sql-mysql",
                     "oceanbase":  "sql-mysql",
                     "diros":  "sql-doris",

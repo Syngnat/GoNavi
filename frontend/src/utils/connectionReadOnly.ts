@@ -62,6 +62,7 @@ const CONNECTION_READ_ONLY_TYPES = new Set([
   "oracle",
   "dameng",
   "tdengine",
+  "iotdb",
   "clickhouse",
   "trino",
   "mongodb",

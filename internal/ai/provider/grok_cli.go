@@ -215,7 +215,7 @@ func (p *GrokCLIProvider) streamAttempt(ctx context.Context, req ai.ChatRequest,
 	}
 
 	cmd := newGrokCLICommand(ctx, command, args...)
-	cmdEnv, cleanupAuthHome := withGrokCLIAPIKeyAuth(MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv))
+	cmdEnv, cleanupAuthHome := withGrokCLIAuth(MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv), p.config.Model)
 	defer cleanupAuthHome()
 	cmd.Env = cmdEnv
 	stdout, err := cmd.StdoutPipe()
@@ -426,7 +426,7 @@ func (p *GrokCLIProvider) runAttempt(ctx context.Context, req ai.ChatRequest) (g
 	}
 
 	cmd := newGrokCLICommand(ctx, command, args...)
-	cmdEnv, cleanupAuthHome := withGrokCLIAPIKeyAuth(MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv))
+	cmdEnv, cleanupAuthHome := withGrokCLIAuth(MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv), p.config.Model)
 	defer cleanupAuthHome()
 	cmd.Env = cmdEnv
 	var stdout, stderr bytes.Buffer

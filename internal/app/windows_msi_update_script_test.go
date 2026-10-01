@@ -60,7 +60,7 @@ func TestBuildWindowsMSIUpdatePowerShellScriptInstallsRelaunchesAndCleans(t *tes
 	if releaseIndex < repairIndex || releaseIndex > relaunchIndex {
 		t.Fatalf("maintenance lock must be released after install repair and before relaunch\n%s", script)
 	}
-	cleanupIndex := strings.Index(script, `$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`)
+	cleanupIndex := strings.Index(script, `Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR -Recurse -Force -ErrorAction SilentlyContinue`)
 	failureIndex := strings.LastIndex(script, `} catch {`)
 	if cleanupIndex < relaunchIndex || failureIndex < cleanupIndex {
 		t.Fatalf("MSI updates cleanup must be scheduled only after relaunch on the success path\n%s", script)

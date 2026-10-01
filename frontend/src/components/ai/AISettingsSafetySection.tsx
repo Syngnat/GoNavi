@@ -6,6 +6,7 @@ import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
 import type { AIResultMaskingSettings, AISafetyLevel } from '../../types';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
+import AISettingsAutoApprovalPanel from './AISettingsAutoApprovalPanel';
 import AISettingsChoiceGroup from './AISettingsChoiceGroup';
 
 const SAFETY_OPTIONS: {
@@ -78,6 +79,7 @@ const AISettingsSafetySection: React.FC<AISettingsSafetySectionProps> = ({
         cardBorder={cardBorder}
         onChange={onChange}
       />
+      <AISettingsAutoApprovalPanel overlayTheme={overlayTheme} cardBorder={cardBorder} />
       <div style={{ borderTop: `1px solid ${cardBorder}`, marginTop: 20, paddingTop: 18 }}>
         <div style={{ fontSize: 'var(--gn-font-size-sm, 12px)', fontWeight: 600, color: overlayTheme.titleText }}>
           {copy('ai_settings.result_masking.title')}

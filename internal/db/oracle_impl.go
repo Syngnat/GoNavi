@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
@@ -26,6 +27,10 @@ type OracleDB struct {
 	pingTimeout time.Duration
 	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 	scanDialect string
+
+	// metadataMu 保护 metadataCache 的惰性初始化。
+	metadataMu    sync.Mutex
+	metadataCache *oracleMetadataCache
 }
 
 var _ SessionExecerProvider = (*OracleDB)(nil)
@@ -310,6 +315,8 @@ func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
 		configureSQLConnectionPool(db, "oracle")
 		o.conn = db
 		o.pingTimeout = getConnectTimeout(attempt)
+		// 新连接可能指向另一个库实例，旧的名称解析与能力探测结果全部作废。
+		o.resetOracleMetadataCache()
 		if err := o.Ping(); err != nil {
 			_ = db.Close()
 			o.conn = nil
@@ -538,34 +545,56 @@ func (o *OracleDB) GetCreateStatement(dbName, tableName string) (string, error) 
 }
 
 func (o *OracleDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	for _, candidate := range oracleMetadataNamePairs(dbName, tableName) {
-		query := buildOracleColumnsQuery(candidate.schema, candidate.table)
-		data, _, err := o.Query(query)
+	for _, candidate := range o.oracleMetadataNameCandidates(dbName, tableName) {
+		data, _, err := o.Query(o.buildOracleColumnsQueryFor(candidate.schema, candidate.table))
 		if err != nil {
 			return nil, err
 		}
 		if len(data) == 0 {
 			continue
 		}
-
-		return o.applyOracleIdentityMetadata(candidate.schema, candidate.table, parseOracleColumns(data)), nil
+		o.rememberOracleMetadataNamePair(dbName, tableName, candidate)
+		return o.assembleOracleColumns(candidate.schema, candidate.table, data), nil
 	}
 	for _, target := range o.lookupOracleSynonymTargets(dbName, tableName) {
-		query := buildOracleColumnsQuery(target.schema, target.table)
-		data, _, err := o.Query(query)
+		data, _, err := o.Query(o.buildOracleColumnsQueryFor(target.schema, target.table))
 		if err != nil {
 			return nil, err
 		}
 		if len(data) == 0 {
 			continue
 		}
-
-		return o.applyOracleIdentityMetadata(target.schema, target.table, parseOracleColumns(data)), nil
+		return o.assembleOracleColumns(target.schema, target.table, data), nil
 	}
 	if columns, err := o.inferOracleColumnsFromSelect(dbName, tableName); err == nil && len(columns) > 0 {
 		return columns, nil
 	}
 	return []connection.ColumnDefinition{}, nil
+}
+
+// buildOracleColumnsQueryFor 在 identity 视图可用时选用带 identity 标记的变体，
+// 使每张表只需一次往返；否则退回基础查询，再由 assembleOracleColumns 补一次
+// identity 查询（旧版本 Oracle 与受限账号的行为与改动前一致）。
+func (o *OracleDB) buildOracleColumnsQueryFor(schema, table string) string {
+	if o.oracleIdentityViewAvailable(schema) {
+		return buildOracleColumnsQueryWithIdentity(schema, table)
+	}
+	return buildOracleColumnsQuery(schema, table)
+}
+
+// assembleOracleColumns 解析列定义，并补齐 identity 标记。
+//
+// 合并查询已经在结果里带出 IDENTITY_COLUMN，直接复用解析结果即可；基础查询没有
+// 该列，才需要单独查一次。判定依据是「结果里是否存在该投影」，而不是能力探测的
+// 缓存值 —— 后者可能在负结果未缓存时与实际查询路径不一致。
+func (o *OracleDB) assembleOracleColumns(schema, table string, data []map[string]interface{}) []connection.ColumnDefinition {
+	columns := parseOracleColumns(data)
+	if len(data) > 0 {
+		if _, ok := data[0]["IDENTITY_COLUMN"]; ok {
+			return applyOracleIdentityColumns(columns, oracleIdentityRowsFromColumnsData(data))
+		}
+	}
+	return o.applyOracleIdentityMetadata(schema, table, columns)
 }
 
 func (o *OracleDB) inferOracleColumnsFromSelect(dbName string, tableName string) ([]connection.ColumnDefinition, error) {
@@ -962,49 +991,6 @@ WHERE synonym_name = '%s'
   AND db_link IS NULL
   AND owner IN ('%s', 'PUBLIC')
 ORDER BY CASE WHEN owner = '%s' THEN 0 WHEN owner = 'PUBLIC' THEN 1 ELSE 2 END`, metadataTableName, metadataSchemaName, metadataSchemaName)
-}
-
-func buildOracleColumnsQuery(schema string, table string) string {
-	metadataTableName := escapeOracleMetadataLiteralExact(table)
-	metadataSchemaName := escapeOracleMetadataLiteralExact(schema)
-	if strings.TrimSpace(schema) == "" {
-		return fmt.Sprintf(`SELECT c.column_name AS "COLUMN_NAME", c.data_type AS "DATA_TYPE", c.data_length AS "DATA_LENGTH", c.char_length AS "CHAR_LENGTH", c.data_precision AS "DATA_PRECISION", c.data_scale AS "DATA_SCALE", c.nullable AS "NULLABLE", c.data_default AS "DATA_DEFAULT",
-			CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "COLUMN_KEY",
-			cc.comments AS "COMMENT"
-			FROM user_tab_columns c
-			LEFT JOIN user_col_comments cc
-			  ON cc.table_name = c.table_name AND cc.column_name = c.column_name
-			LEFT JOIN (
-				SELECT cols.table_name, cols.column_name
-				FROM user_constraints cons
-				JOIN user_cons_columns cols USING (constraint_name)
-				WHERE cons.constraint_type = 'P'
-				  AND cons.table_name = '%s'
-				  AND cols.table_name = '%s'
-			) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
-			WHERE c.table_name = '%s'
-			ORDER BY c.column_id`, metadataTableName, metadataTableName, metadataTableName)
-	}
-
-	return fmt.Sprintf(`SELECT c.column_name AS "COLUMN_NAME", c.data_type AS "DATA_TYPE", c.data_length AS "DATA_LENGTH", c.char_length AS "CHAR_LENGTH", c.data_precision AS "DATA_PRECISION", c.data_scale AS "DATA_SCALE", c.nullable AS "NULLABLE", c.data_default AS "DATA_DEFAULT",
-		CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "COLUMN_KEY",
-		cc.comments AS "COMMENT"
-		FROM all_tab_columns c
-		LEFT JOIN all_col_comments cc
-		  ON cc.owner = c.owner AND cc.table_name = c.table_name AND cc.column_name = c.column_name
-		LEFT JOIN (
-			SELECT cols.owner, cols.table_name, cols.column_name
-			FROM all_constraints cons
-			JOIN all_cons_columns cols
-			  ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name
-			WHERE cons.constraint_type = 'P'
-			  AND cons.owner = '%s'
-			  AND cons.table_name = '%s'
-			  AND cols.owner = '%s'
-			  AND cols.table_name = '%s'
-		) pk ON c.owner = pk.owner AND c.table_name = pk.table_name AND c.column_name = pk.column_name
-		WHERE c.owner = '%s' AND c.table_name = '%s'
-		ORDER BY c.column_id`, metadataSchemaName, metadataTableName, metadataSchemaName, metadataTableName, metadataSchemaName, metadataTableName)
 }
 
 func parseOracleColumns(data []map[string]interface{}) []connection.ColumnDefinition {

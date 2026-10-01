@@ -16,6 +16,8 @@ func methodsDriverSource(t *testing.T) string {
 		"methods_driver_optional_update.go",
 		"methods_driver_assets.go",
 		"methods_driver_download.go",
+		// zip 解压原语已抽到独立文件，源码扫描型测试需一并聚合。
+		"methods_driver_zip.go",
 	}
 	parts := make([]string, 0, len(paths))
 	for _, path := range paths {
@@ -25,6 +27,9 @@ func methodsDriverSource(t *testing.T) string {
 		}
 		parts = append(parts, string(content))
 	}
+	// 末尾哨兵：多处调用方按 "\nfunc " 切分函数体，若目标函数恰好是最后一个，
+	// 切分会因找不到边界而失败。补一个空函数给它们一个可停靠的边界。
+	parts = append(parts, "\nfunc methodsDriverSourceSentinel() {}")
 	return strings.Join(parts, "\n\n")
 }
 

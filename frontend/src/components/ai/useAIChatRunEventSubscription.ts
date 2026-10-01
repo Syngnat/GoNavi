@@ -35,6 +35,7 @@ import {
   type AIRunUsagePayload,
 } from './aiRunEventProjection';
 import { projectAIRunActivities } from './aiRunActivityTimeline';
+import { buildAIRunSnapshotTerminalEvent, parseAIRunRecoveryPage } from './aiRunEventRecoveryPage';
 
 export interface UseAIChatRunEventSubscriptionOptions {
   sid: string;
@@ -1116,11 +1117,14 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
           // in flight. Do not project replayed events into a stale store view.
           if (disposed) return;
           const events = Array.isArray(result?.events) ? result!.events : [];
-          const parsed = events
-            .map(parseAIRunEvent)
-            .filter((event): event is AIRunEvent => Boolean(event))
-            .sort((left, right) => left.sequence - right.sequence);
-          for (const event of parsed) accept(event, replay);
+          const items = parseAIRunRecoveryPage(events, runId);
+          for (const item of items) {
+            if (item.event) {
+              accept(item.event, replay);
+            } else if (tracker.skipUnreadable(runId, item.sequence)) {
+              console.warn('Skipped unreadable AI run event', runId, item.sequence);
+            }
+          }
           const snapshot = result?.run;
           const snapshotState = String(snapshot?.state || '').trim() as AIRunState;
           if (snapshotState) latestSnapshotState = snapshotState;
@@ -1130,38 +1134,18 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
             ).trim();
             const run = projectedRuns.get(runId);
             if (sessionId && !run?.terminalHandled) {
-              const revision = Number(snapshot?.revision);
-              const attempt = Number(snapshot?.attempt);
-              const sessionGeneration = Number(snapshot?.sessionGeneration);
-              const terminalEvent: AIRunEvent = {
-                schemaVersion: 1,
+              const terminalEvent = buildAIRunSnapshotTerminalEvent({
                 runId,
                 sessionId,
-                sessionGeneration: Number.isSafeInteger(sessionGeneration) && sessionGeneration >= 0
-                  ? sessionGeneration
-                  : 0,
-                // A snapshot is authoritative but has no durable event payload
-                // to consume. Advance the local cursor by one so delayed
-                // runtime callbacks remain late after the terminal projection.
-                sequence: tracker.lastSequence(runId) + 1,
-                runRevision: Number.isSafeInteger(revision) && revision >= 0
-                  ? revision
-                  : tracker.lastSequence(runId),
-                attempt: Number.isSafeInteger(attempt) && attempt >= 0 ? attempt : 0,
-                timestamp: typeof snapshot?.updatedAt === 'string' || typeof snapshot?.updatedAt === 'number'
-                  ? snapshot.updatedAt
-                  : Date.now(),
-                kind: 'terminal',
-                resultingState: snapshotState,
-                payload: {
-                  reason: String(snapshot?.terminalReason || snapshotState),
-                },
-              };
+                snapshot,
+                state: snapshotState,
+                lastSequence: tracker.lastSequence(runId),
+              });
               accept(terminalEvent, replay);
             }
           }
-          const lastReadSequence = parsed.length > 0
-            ? parsed[parsed.length - 1].sequence
+          const lastReadSequence = items.length > 0
+            ? items[items.length - 1].sequence
             : before;
           if (replay) replayAfter = lastReadSequence;
           hasMore = result?.hasMore === true && lastReadSequence > before;

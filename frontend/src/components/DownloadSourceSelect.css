@@ -1,0 +1,104 @@
+/* 下载镜像源下拉选择器：色点、当前值、下拉项与说明气泡的排版。 */
+
+/*
+ * 嵌在镜像条里的下拉框（is-borderless）：不画自己的底色和描边，直接透出条的底色。
+ * v2 主题对所有 .ant-select-selector 强制了输入框底色 + 描边（!important），
+ * 会盖掉 antd 的 borderless 变体，所以这里必须用更高优先级的选择器同样 !important 覆盖。
+ * 悬停 / 展开 / 聚焦时给一层浅底，既保留「可点击」的提示，也让键盘聚焦可见。
+ */
+.gn-download-source-select.is-borderless .ant-select-selector,
+body[data-ui-version="v2"] .gn-download-source-select.is-borderless .ant-select-selector {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.gn-download-source-select.is-borderless:hover .ant-select-selector,
+.gn-download-source-select.is-borderless.ant-select-open .ant-select-selector,
+.gn-download-source-select.is-borderless.ant-select-focused .ant-select-selector,
+body[data-ui-version="v2"] .gn-download-source-select.is-borderless:hover .ant-select-selector,
+body[data-ui-version="v2"] .gn-download-source-select.is-borderless.ant-select-open .ant-select-selector,
+body[data-ui-version="v2"] .gn-download-source-select.is-borderless.ant-select-focused .ant-select-selector {
+  background: var(--gn-bg-hover, rgba(127, 127, 127, 0.12)) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.gn-download-source-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+/* 选中态：色点 + 名称，名称过长时截断，不撑开外层工具条。 */
+.gn-download-source-value {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-download-source-value-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 下拉项：名称 + 定位标签 + 右侧说明图标。 */
+.gn-download-source-option {
+  display: flex;
+  min-width: 220px;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-download-source-option-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gn-download-source-option-tag {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 12px;
+  opacity: 0.65;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-download-source-option-info {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 2px;
+  color: var(--ant-color-text-tertiary, #8c8c8c);
+  cursor: help;
+  transition: color 0.15s ease;
+}
+
+.gn-download-source-option-info:hover {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+/* 说明气泡：先讲怎么选，再讲和其他源的差异。 */
+.gn-download-source-tip {
+  display: flex;
+  max-width: 280px;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.gn-download-source-tip-guide {
+  font-weight: 600;
+}
+
+.gn-download-source-tip-desc {
+  opacity: 0.85;
+}

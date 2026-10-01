@@ -1,0 +1,26 @@
+/* Brief highlight on the setting a search result points at. */
+.gonavi-settings-entry-flash {
+  border-radius: 6px;
+  animation: gonavi-settings-entry-flash 2.2s ease-out;
+}
+
+@keyframes gonavi-settings-entry-flash {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--gn-accent, #6d5dfc) 26%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--gn-accent, #6d5dfc) 40%, transparent);
+  }
+
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gonavi-settings-entry-flash {
+    animation-duration: 0.01ms;
+    outline: 2px solid var(--gn-accent, #6d5dfc);
+    outline-offset: 2px;
+  }
+}

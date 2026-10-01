@@ -107,7 +107,7 @@ describe('TitleBarPrimaryActions', () => {
     expect(appSource).toMatch(
       /--gn-titlebar-native-content-offset[^\n]*getMacNativeTitlebarContentOffset\(titleBarHeight, useNativeMacWindowControls\)/,
     );
-    expect(appSource).toContain("isCollapsedSidebarActionsDocked ? 'gn-v2-titlebar-collapsed-docked' : ''");
+    expect(appSource).toContain("dockActionsInTitlebarBand ? 'gn-v2-titlebar-collapsed-docked' : ''");
     const collapsedActionBandRule = v2ThemeCss.match(
       /\.gn-v2-titlebar-collapsed-docked \.gn-v2-collapsed-sidebar-actions\s*\{(?<body>[^}]*)\}/s,
     );
@@ -147,7 +147,7 @@ describe('TitleBarPrimaryActions', () => {
     expect(v2ThemeCss).not.toContain('.gn-v2-titlebar-live');
   });
 
-  it('shows both labels in query-first order and invokes their actions', () => {
+  it('shows both labels in connection-first order and invokes their actions', () => {
     const onNewQuery = vi.fn();
     const onNewConnection = vi.fn();
     const onConnectionGroupManagement = vi.fn();
@@ -168,19 +168,23 @@ describe('TitleBarPrimaryActions', () => {
     const actions = renderer.root.findByProps({ 'data-titlebar-primary-actions': 'true' });
     const buttons = actions.findAllByType('button');
     expect(actions.props['data-no-titlebar-toggle']).toBe('true');
-    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['新建查询', '新建连接', '管理连接分组']);
+    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['新建连接', '新建查询', '管理连接分组']);
     expect(buttons.map((button) => button.props.className)).toEqual([
       'gonavi-titlebar-primary-action',
       'gonavi-titlebar-primary-action',
       'gonavi-titlebar-primary-action',
     ]);
     expect(buttons.map((button) => button.props['data-titlebar-action-kind'])).toEqual([undefined, undefined, undefined]);
+    // 标题栏纯图标模式只能靠悬浮提示识别，「管理连接分组」同样带完整名称。
     expect(buttons.map((button) => button.props.title)).toEqual([
-      '新建查询 · ⌘N',
       '新建连接 · ⌘⇧N',
-      undefined,
+      '新建查询 · ⌘N',
+      '管理连接分组',
     ]);
-    expect(buttons.map((button) => button.children[button.children.length - 1])).toEqual(['新建查询', '新建连接', '管理连接分组']);
+    // 按钮内容是 [图标, 文案] 两段，文案永远是最后一个子节点。
+    expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-label' })[0].children))
+      .toEqual([['新建连接'], ['新建查询'], ['管理连接分组']]);
+    expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-icon' }))).toHaveLength(3);
 
     buttons[0].props.onClick();
     buttons[1].props.onClick();
@@ -205,12 +209,12 @@ describe('TitleBarPrimaryActions', () => {
 
     const buttons = renderer.root.findAllByType('button');
     expect(buttons.map((button) => button.props.title)).toEqual([
-      'New Query · Ctrl+N',
       'New Connection · Ctrl+Shift+N',
+      'New Query · Ctrl+N',
     ]);
   });
 
-  it('renders every primary titlebar action as text only', () => {
+  it('renders every primary toolbar action with an icon above its label', () => {
     const renderer = create(
       <TitleBarPrimaryActions
         newQueryLabel="消息工作台"
@@ -224,12 +228,11 @@ describe('TitleBarPrimaryActions', () => {
 
     const buttons = renderer.root.findAllByType('button');
     expect(buttons).toHaveLength(3);
-    expect(buttons.flatMap((button) => button.findAllByProps({ 'data-icon': 'true' }))).toHaveLength(0);
-    expect(buttons.map((button) => button.children)).toEqual([
-      ['消息工作台'],
-      ['新建连接'],
-      ['管理连接分组'],
-    ]);
+    // 图标走工具条自己的标记，不占用「快捷入口图标」的 data-titlebar-icon。
+    expect(buttons.flatMap((button) => button.findAllByProps({ 'data-titlebar-icon': 'true' }))).toHaveLength(0);
+    expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-icon' }))).toHaveLength(3);
+    expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-label' })[0].children))
+      .toEqual([['新建连接'], ['消息工作台'], ['管理连接分组']]);
   });
 
   it('uses current platform custom bindings and hides disabled shortcuts', () => {
@@ -257,10 +260,10 @@ describe('TitleBarPrimaryActions', () => {
 
     const buttons = renderer.root.findAllByType('button');
     expect(buttons.map((button) => button.props.title)).toEqual([
-      '新建查询 · ⌘⌥Q',
       '新建连接',
+      '新建查询 · ⌘⌥Q',
     ]);
-    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['新建查询', '新建连接']);
+    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['新建连接', '新建查询']);
     expect(buttons.every((button) => button.props.disabled !== true)).toBe(true);
   });
 });

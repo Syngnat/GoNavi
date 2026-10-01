@@ -939,6 +939,30 @@ func (a *App) localizedDriverNeedsUpdateTexts(actual string, expected string, af
 }
 
 func (a *App) SelectDriverPackageFile(currentPath string) connection.QueryResult {
+	return a.selectDriverPackageFile(currentPath, false)
+}
+
+// SelectDriverPackageZipFile 只用于「导入驱动包（ZIP）」。
+// 单驱动的本地文件选择仍走 SelectDriverPackageFile，因为那里还要能选非 Jar 的二进制。
+func (a *App) SelectDriverPackageZipFile(currentPath string) connection.QueryResult {
+	return a.selectDriverPackageFile(currentPath, true)
+}
+
+func driverPackageFileDialogOptions(title string, defaultDir string, zipOnly bool) runtime.OpenDialogOptions {
+	options := runtime.OpenDialogOptions{
+		Title:            title,
+		DefaultDirectory: defaultDir,
+	}
+	if zipOnly {
+		options.Filters = []runtime.FileFilter{{
+			DisplayName: "ZIP (*.zip)",
+			Pattern:     "*.zip",
+		}}
+	}
+	return options
+}
+
+func (a *App) selectDriverPackageFile(currentPath string, zipOnly bool) connection.QueryResult {
 	defaultDir := strings.TrimSpace(currentPath)
 	if defaultDir == "" {
 		defaultDir = defaultDriverDownloadDirectory()
@@ -952,10 +976,15 @@ func (a *App) SelectDriverPackageFile(currentPath string) connection.QueryResult
 		}
 	}
 
-	selection, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:            a.appText("driver_manager.backend.dialog.select_package_file", nil),
-		DefaultDirectory: defaultDir,
-	})
+	titleKey := "driver_manager.backend.dialog.select_package_file"
+	if zipOnly {
+		titleKey = "driver_manager.backend.dialog.select_package_zip"
+	}
+	selection, err := runtime.OpenFileDialog(a.ctx, driverPackageFileDialogOptions(
+		a.appText(titleKey, nil),
+		defaultDir,
+		zipOnly,
+	))
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -965,6 +994,12 @@ func (a *App) SelectDriverPackageFile(currentPath string) connection.QueryResult
 
 	if abs, err := filepath.Abs(selection); err == nil {
 		selection = abs
+	}
+	if zipOnly && !strings.EqualFold(filepath.Ext(selection), ".zip") {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("driver_manager.backend.error.package_not_zip", nil),
+		}
 	}
 	if err := a.localizeLocalDriverPackagePathError(validateLocalDriverPackagePath(selection)); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -1208,6 +1243,11 @@ func (a *App) GetDriverStatusList(downloadDir string, manifestURL string) connec
 	items := make([]driverStatusItem, 0, len(definitions))
 	for _, definition := range definitions {
 		engine := effectiveDriverEngine(definition)
+		// 先清失效元数据再求 runtimeAvailable：后者内部会把 installed.json 当作
+		// 安装标记，顺序反了会让同一次返回里两个字段源自不同磁盘状态。
+		if staleMetaPath := probeOptionalDriverInstall(resolvedDir, definition.Type).StaleMetaPath; staleMetaPath != "" {
+			removeStaleInstalledDriverMeta(staleMetaPath)
+		}
 		runtimeAvailable, runtimeReason := db.DriverRuntimeSupportStatus(definition.Type)
 		pkg, packageMetaExists := readInstalledDriverPackage(resolvedDir, definition.Type)
 		needsUpdate, optionalUpdate, updateReason, expectedRevision := optionalDriverPackageUpdateStatus(definition, pkg, packageMetaExists)
@@ -1437,8 +1477,9 @@ func (a *App) checkDriverNetworkStatusWithProbe(probe driverNetworkProbeFunc) co
 }
 
 func (a *App) InstallLocalDriverPackage(driverType string, filePath string, downloadDir string, version string) connection.QueryResult {
-	a.driverInstallMu.Lock()
-	defer a.driverInstallMu.Unlock()
+	// 按驱动类型加锁：本地导入的不同驱动可并行。
+	release := a.driverInstallLock.lockDriver(normalizeDriverType(driverType))
+	defer release()
 
 	definition, ok := resolveDriverDefinition(driverType)
 	if !ok {
@@ -1462,7 +1503,8 @@ func (a *App) InstallLocalDriverPackage(driverType string, filePath string, down
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	db.SetExternalDriverDownloadDirectory(resolvedDir)
+	// resolvedDir 全程显式传参（installOptionalDriverAgentFromLocalPath /
+	// writeInstalledDriverPackage / driverInstallDir），无需写全局目录。
 
 	a.emitDriverDownloadProgress(definition.Type, "start", 0, 100, a.appText("driver_manager.progress.local_package_start", nil))
 	selectedVersion := resolveDriverInstallVersion(version, "local://manual", definition)
@@ -1504,8 +1546,9 @@ func (a *App) DownloadDriverPackage(driverType string, version string, downloadU
 	return a.downloadDriverPackage(context.Background(), driverType, version, downloadURL, downloadDir)
 }
 func (a *App) RemoveDriverPackage(driverType string, downloadDir string) connection.QueryResult {
-	a.driverInstallMu.Lock()
-	defer a.driverInstallMu.Unlock()
+	// 按驱动类型加锁：删除不同类型驱动可并行。
+	release := a.driverInstallLock.lockDriver(normalizeDriverType(driverType))
+	defer release()
 
 	definition, ok := resolveDriverDefinition(driverType)
 	if !ok {
@@ -1519,7 +1562,7 @@ func (a *App) RemoveDriverPackage(driverType string, downloadDir string) connect
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	db.SetExternalDriverDownloadDirectory(resolvedDir)
+	// 同上：删除只用到 resolvedDir 拼出的 driverDir，不必改全局目录。
 
 	driverDir := driverInstallDir(resolvedDir, definition.Type)
 	if err := os.RemoveAll(driverDir); err != nil {
@@ -1778,6 +1821,8 @@ func normalizeDriverType(driverType string) string {
 		return "mqtt"
 	case "kafka", "apache-kafka", "apache_kafka":
 		return "kafka"
+	case "pulsar", "apache-pulsar", "apache_pulsar":
+		return "pulsar"
 	case "rabbitmq", "rabbit-mq", "rabbit_mq":
 		return "rabbitmq"
 	case "intersystems", "intersystemsiris", "inter-systems-iris", "inter-systems":
@@ -1847,17 +1892,7 @@ func resolveDriverDefinitionWithPackages(driverType string, packages map[string]
 }
 
 func allDriverDefinitionsWithPackages(packages map[string]pinnedDriverPackage) []driverDefinition {
-	return []driverDefinition{
-		{Type: "mysql", Name: "MySQL", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "goldendb", Name: "GoldenDB", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "oracle", Name: "Oracle", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "redis", Name: "Redis", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "postgres", Name: "PostgreSQL", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "rocketmq", Name: "RocketMQ", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "mqtt", Name: "MQTT", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "kafka", Name: "Kafka", Engine: driverEngineGo, BuiltIn: true},
-		{Type: "rabbitmq", Name: "RabbitMQ", Engine: driverEngineGo, BuiltIn: true},
-
+	return append(builtInDriverDefinitions(), []driverDefinition{
 		// 其他数据源需要先在驱动管理中“安装启用”。
 		buildOptionalGoDriverDefinition("mariadb", "MariaDB", packages),
 		buildOptionalGoDriverDefinition("oceanbase", "OceanBase", packages),
@@ -1881,7 +1916,7 @@ func allDriverDefinitionsWithPackages(packages map[string]pinnedDriverPackage) [
 		buildOptionalGoDriverDefinition("clickhouse", "ClickHouse", packages),
 		buildOptionalGoDriverDefinition("elasticsearch", "Elasticsearch", packages),
 		buildOptionalGoDriverDefinition("trino", "Trino", packages),
-	}
+	}...)
 }
 
 func buildOptionalGoDriverDefinition(driverType string, driverName string, packages map[string]pinnedDriverPackage) driverDefinition {
@@ -3770,94 +3805,6 @@ func resolveLocalDriverAgentFromLocalDirectory(directoryPath string, driverType 
 		"assetCandidates": strings.Join(assetNameCandidates, " | "),
 		"baseCandidates":  strings.Join(baseNameCandidates, " | "),
 	}, nil)
-}
-
-func installOptionalDriverAgentFromLocalZip(zipPath string, definition driverDefinition, executablePath string, selectedVersion string) (string, error) {
-	driverType := normalizeDriverType(definition.Type)
-	displayName := resolveDriverDisplayName(definition)
-	reader, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.open_local_package_failed", nil, err)
-	}
-	defer reader.Close()
-
-	entryPath := optionalDriverBundleEntryPathForVersion(driverType, selectedVersion)
-	entryPaths := optionalDriverBundleEntryPathsForVersion(driverType, selectedVersion)
-	expectedBaseNames := optionalDriverReleaseAssetNamesForVersion(driverType, selectedVersion)
-	findEntry := func() *zip.File {
-		for _, file := range reader.File {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			for _, expectedPath := range entryPaths {
-				if name == expectedPath {
-					return file
-				}
-			}
-		}
-		for _, file := range reader.File {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			for _, expectedPath := range entryPaths {
-				if strings.EqualFold(name, expectedPath) {
-					return file
-				}
-			}
-		}
-		for _, file := range reader.File {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			for _, expectedName := range expectedBaseNames {
-				if strings.EqualFold(filepath.Base(name), expectedName) {
-					return file
-				}
-			}
-		}
-		return nil
-	}
-
-	entry := findEntry()
-	if entry == nil {
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.local_package_entry_missing", map[string]any{"name": displayName, "path": entryPath}, nil)
-	}
-
-	src, err := entry.Open()
-	if err != nil {
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.read_local_package_entry_failed", nil, err)
-	}
-	defer src.Close()
-
-	tempPath := executablePath + ".tmp"
-	_ = os.Remove(tempPath)
-	dst, err := os.Create(tempPath)
-	if err != nil {
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.create_agent_temp_file_failed", nil, err)
-	}
-	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
-		_ = os.Remove(tempPath)
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.write_agent_failed", nil, err)
-	}
-	if err := dst.Sync(); err != nil {
-		dst.Close()
-		_ = os.Remove(tempPath)
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.sync_agent_failed", nil, err)
-	}
-	if err := dst.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.close_agent_file_failed", nil, err)
-	}
-	if chmodErr := os.Chmod(tempPath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
-		_ = os.Remove(tempPath)
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.chmod_agent_failed", nil, chmodErr)
-	}
-	if err := os.Rename(tempPath, executablePath); err != nil {
-		_ = os.Remove(tempPath)
-		return "", wrapDriverInstallReplaceErrorOr(err, "driver_manager.backend.error.replace_agent_failed")
-	}
-	if chmodErr := os.Chmod(executablePath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
-		return "", newLocalizedDriverBackendError("driver_manager.backend.error.chmod_agent_failed", nil, chmodErr)
-	}
-	if supportErr := extractOptionalDriverSupportFilesFromZip(reader.File, driverType, entry.Name, filepath.Dir(executablePath)); supportErr != nil {
-		return "", supportErr
-	}
-	return filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(entry.Name), "./")), nil
 }
 
 func localizedDriverProgressText(text func(string, map[string]any) string, key string, params map[string]any) string {

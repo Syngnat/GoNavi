@@ -1105,45 +1105,6 @@ func copyAgentBinary(sourcePath, targetPath string) error {
 	return nil
 }
 
-func extractZipFileToPath(file *zip.File, targetPath string) error {
-	if file == nil {
-		return newLocalizedDriverBackendError("driver_manager.backend.error.zip_entry_empty", nil, nil)
-	}
-	src, err := file.Open()
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	tempPath := targetPath + ".tmp"
-	_ = os.Remove(tempPath)
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return err
-	}
-	dst, err := os.Create(tempPath)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
-		_ = os.Remove(tempPath)
-		return err
-	}
-	if err := dst.Sync(); err != nil {
-		dst.Close()
-		_ = os.Remove(tempPath)
-		return err
-	}
-	if err := dst.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return err
-	}
-	if err := renameTempFileOverTarget(tempPath, targetPath); err != nil {
-		_ = os.Remove(tempPath)
-		return err
-	}
-	return nil
-}
-
 func copyOptionalDriverSupportFile(sourcePath, targetPath string) error {
 	src, err := os.Open(sourcePath)
 	if err != nil {
@@ -1272,62 +1233,6 @@ func copyOptionalDriverSupportFilesFromDirectory(driverType string, sourceDir st
 		targetPath := filepath.Join(targetRoot, name)
 		if err := copyOptionalDriverSupportFile(sourcePath, targetPath); err != nil {
 			return newLocalizedDriverBackendError("driver_manager.backend.error.copy_runtime_dependency_entry_failed", map[string]any{"name": name}, err)
-		}
-	}
-	return nil
-}
-
-func findOptionalDriverSupportFileInZip(files []*zip.File, agentEntryName string, supportName string) *zip.File {
-	normalizedAgent := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(agentEntryName), "./"))
-	agentDir := filepath.ToSlash(filepath.Dir(normalizedAgent))
-	if agentDir == "." {
-		agentDir = ""
-	}
-	candidatePaths := []string{}
-	if agentDir != "" {
-		candidatePaths = append(candidatePaths, filepath.ToSlash(filepath.Join(agentDir, supportName)))
-	}
-	candidatePaths = append(candidatePaths, supportName)
-
-	for _, candidate := range candidatePaths {
-		for _, file := range files {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			if name == candidate {
-				return file
-			}
-		}
-		for _, file := range files {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			if strings.EqualFold(name, candidate) {
-				return file
-			}
-		}
-	}
-	for _, file := range files {
-		name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-		if strings.EqualFold(filepath.Base(name), supportName) {
-			return file
-		}
-	}
-	return nil
-}
-
-func extractOptionalDriverSupportFilesFromZip(files []*zip.File, driverType string, agentEntryName string, targetDir string) error {
-	names := optionalDriverSupportFileNames(driverType)
-	if len(names) == 0 {
-		return nil
-	}
-	targetRoot := strings.TrimSpace(targetDir)
-	if targetRoot == "" {
-		return newLocalizedDriverBackendError("driver_manager.backend.error.runtime_dependency_target_directory_empty", nil, nil)
-	}
-	for _, name := range names {
-		entry := findOptionalDriverSupportFileInZip(files, agentEntryName, name)
-		if entry == nil {
-			return newLocalizedDriverBackendError("driver_manager.backend.error.runtime_dependency_entry_missing", map[string]any{"name": name}, nil)
-		}
-		if err := extractZipFileToPath(entry, filepath.Join(targetRoot, name)); err != nil {
-			return newLocalizedDriverBackendError("driver_manager.backend.error.extract_runtime_dependency_failed", map[string]any{"name": name}, err)
 		}
 	}
 	return nil

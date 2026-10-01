@@ -37,6 +37,7 @@ export const normalizeDriverType = (value: string): string => {
   if (normalized === "apache-iotdb" || normalized === "apache_iotdb")
     return "iotdb";
   if (normalized === "mqtts") return "mqtt";
+  if (normalized === "apache-pulsar" || normalized === "apache_pulsar") return "pulsar";
   if (normalized === "apache-kafka" || normalized === "apache_kafka")
     return "kafka";
   if (normalized === "rabbit-mq" || normalized === "rabbit_mq")

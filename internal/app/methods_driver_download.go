@@ -32,8 +32,9 @@ func (a *App) downloadDriverPackage(ctx context.Context, driverType string, vers
 		return a.driverDownloadCanceledResult()
 	}
 
-	a.driverInstallMu.Lock()
-	defer a.driverInstallMu.Unlock()
+	// 按驱动类型加锁：不同类型可并行，同类型串行（见 driver_install_lock.go）。
+	release := a.driverInstallLock.lockDriver(normalizeDriverType(driverType))
+	defer release()
 	if ctx.Err() != nil {
 		return a.driverDownloadCanceledResult()
 	}
@@ -42,7 +43,10 @@ func (a *App) downloadDriverPackage(ctx context.Context, driverType string, vers
 	if failure != nil {
 		return *failure
 	}
-	db.SetExternalDriverDownloadDirectory(plan.resolvedDir)
+	// 刻意不在此写 db.SetExternalDriverDownloadDirectory：plan.resolvedDir 会作为
+	// 显式参数贯穿整条安装链路（installOptionalDriverAgentPackage / writeInstalledDriverPackage
+	// 等），链路内部没有空串回落，因此这次写入既无必要，又会在并发安装时把
+	// 进程级全局目录改成「最后一次安装的目录」，污染同时进行的连接解析。
 	if db.IsOptionalGoDriver(plan.definition.Type) {
 		return a.installOptionalGoDriverPackage(ctx, plan)
 	}

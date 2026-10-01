@@ -70,7 +70,7 @@ var connectionExcelTypeValues = []string{
 	"mongodb", "redis", "elasticsearch",
 	"chroma", "qdrant", "milvus",
 	"tdengine", "iotdb",
-	"rocketmq", "mqtt", "kafka", "rabbitmq",
+	"rocketmq", "mqtt", "kafka", "rabbitmq", "pulsar",
 	"nacos", "jvm", "custom",
 }
 

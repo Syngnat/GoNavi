@@ -111,6 +111,37 @@ describe('V2 workbench theme surfaces', () => {
     expect(dividerRule).not.toContain('grid-row: 1 / 3;');
   });
 
+  it('keeps Nacos config-list and detail vertical tracks independent', () => {
+    const css = readWorkbenchCss();
+    const nacosCss = readSection(
+      css,
+      '/* ─── V2 Nacos workbench',
+      '/* ─── Nacos service discovery:',
+    );
+    const rootRule = readRule(nacosCss, 'body[data-ui-version="v2"] .gn-v2-nacos-split');
+    const listPaneRule = readRule(nacosCss, 'body[data-ui-version="v2"] .gn-v2-nacos-list-pane');
+    const detailPaneRule = readRule(nacosCss, 'body[data-ui-version="v2"] .gn-v2-nacos-detail-pane');
+    const headerRule = readRule(nacosCss, 'body[data-ui-version="v2"] .gn-v2-nacos-pane-header');
+    const dividerRule = readRule(
+      nacosCss,
+      'body[data-ui-version="v2"] .gn-v2-nacos-split > .redis-resizable-divider',
+    );
+
+    // A shared subgrid row let the config toolbar's wrapping drive the detail
+    // header's height, so dragging the divider moved the other pane's header.
+    expect(rootRule).toContain('grid-template-rows: minmax(0, 1fr);');
+    expect(rootRule).not.toContain('grid-template-rows: max-content minmax(0, 1fr);');
+    expect(listPaneRule).toContain('grid-row: 1;');
+    expect(listPaneRule).toContain('grid-template-rows: max-content minmax(0, 1fr);');
+    expect(listPaneRule).not.toContain('grid-template-rows: subgrid;');
+    expect(detailPaneRule).toContain('grid-row: 1;');
+    expect(detailPaneRule).toContain('grid-template-rows: max-content minmax(0, 1fr);');
+    expect(detailPaneRule).not.toContain('grid-template-rows: subgrid;');
+    expect(headerRule).not.toContain('height: 100%;');
+    expect(dividerRule).toContain('grid-row: 1;');
+    expect(dividerRule).not.toContain('grid-row: 1 / 3;');
+  });
+
   it('insets V2 query results from the workbench edges', () => {
     const css = readWorkbenchCss();
     const queryResultsRule = readRule(

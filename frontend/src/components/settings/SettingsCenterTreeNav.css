@@ -151,3 +151,10 @@ body[data-theme='dark'] .gonavi-settings-center-tree-branch {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* A search hit for a setting inside a page (not a menu). */
+.gonavi-settings-center-tree-node.is-entry .gonavi-settings-center-tree-label {
+  font-size: var(--gn-font-size-sm, 13px);
+  font-weight: 400;
+  color: var(--gn-fg-5, rgba(15, 23, 42, 0.62));
+}

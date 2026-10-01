@@ -16,7 +16,6 @@ import (
 
 const (
 	defaultOpenAIBaseURL     = "https://api.openai.com/v1"
-	defaultOpenAIMaxTokens   = 4096
 	defaultOpenAITemperature = 0.7
 	openAIHTTPTimeout        = 120 * time.Second
 )
@@ -47,10 +46,6 @@ func NewOpenAIProvider(config ai.ProviderConfig) (Provider, error) {
 	if model == "" {
 		return nil, fmt.Errorf("model ID is required; select or enter a model in Settings")
 	}
-	maxTokens := config.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultOpenAIMaxTokens
-	}
 	temperature := config.Temperature
 	if temperature <= 0 {
 		temperature = defaultOpenAITemperature
@@ -59,7 +54,6 @@ func NewOpenAIProvider(config ai.ProviderConfig) (Provider, error) {
 	normalized := config
 	normalized.BaseURL = baseURL
 	normalized.Model = model
-	normalized.MaxTokens = maxTokens
 	normalized.Temperature = temperature
 	profile := ResolveThinkingProfile(config.Type, config.APIFormat, baseURL, model)
 	normalized.ThinkingIntensity = string(clampThinkingIntensityToProfile(config.ThinkingIntensity, profile))
@@ -160,13 +154,15 @@ func (p *OpenAIProvider) Validate() error {
 
 // openAIChatRequest OpenAI API 请求体
 type openAIChatRequest struct {
-	Model         string               `json:"model"`
-	Messages      []openAIChatMessage  `json:"messages"`
-	Temperature   float64              `json:"temperature,omitempty"`
-	MaxTokens     int                  `json:"max_tokens,omitempty"`
-	Stream        bool                 `json:"stream,omitempty"`
-	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
-	Tools         []ai.Tool            `json:"tools,omitempty"`
+	Model       string              `json:"model"`
+	Messages    []openAIChatMessage `json:"messages"`
+	Temperature float64             `json:"temperature,omitempty"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	// implicitMaxTokens 标记 MaxTokens 是默认值而非用户显式给的；只有默认值被上游拒绝时才允许自动调整。
+	implicitMaxTokens bool
+	Stream            bool                 `json:"stream,omitempty"`
+	StreamOptions     *openAIStreamOptions `json:"stream_options,omitempty"`
+	Tools             []ai.Tool            `json:"tools,omitempty"`
 	// ReasoningEffort OpenAI GPT/o 系列：none|minimal|low|medium|high|xhigh
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// Thinking DeepSeek 等 OpenAI 兼容接口的思考开关：{"type":"enabled"|"disabled"}
@@ -468,6 +464,23 @@ type openAIStreamChunk struct {
 	} `json:"error,omitempty"`
 }
 
+// chatMaxTokens resolves the output budget under the "no limit by default"
+// policy (see output_token_budget.go). The second result reports that the
+// value is a default rather than a user choice. Native DeepSeek endpoints
+// need the documented maximum sent explicitly because omitting it means 8K/64K.
+func (p *OpenAIProvider) chatMaxTokens(req ai.ChatRequest) (int, bool) {
+	if explicit, ok := explicitOutputTokens(req.MaxTokens, p.config.MaxTokens); ok {
+		return explicit, false
+	}
+	if learned, ok := learnedOutputTokenCap(p.baseURL, p.config.Model); ok {
+		return learned, false
+	}
+	if isDeepSeekHost(p.baseURL) {
+		return deepSeekMaxOutputTokens, true
+	}
+	return 0, false
+}
+
 func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
@@ -481,13 +494,15 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 		temperature = p.config.Temperature
 	}
 
+	maxTokens, implicitMaxTokens := p.chatMaxTokens(req)
 	body := openAIChatRequest{
-		Model:       p.config.Model,
-		Messages:    messages,
-		Temperature: temperature,
-		MaxTokens:   req.MaxTokens,
-		Stream:      false,
-		Tools:       req.Tools,
+		Model:             p.config.Model,
+		Messages:          messages,
+		Temperature:       temperature,
+		MaxTokens:         maxTokens,
+		implicitMaxTokens: implicitMaxTokens,
+		Stream:            false,
+		Tools:             req.Tools,
 	}
 	p.applyThinkingToRequest(&body)
 
@@ -532,14 +547,16 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		temperature = p.config.Temperature
 	}
 
+	maxTokens, implicitMaxTokens := p.chatMaxTokens(req)
 	body := openAIChatRequest{
-		Model:         p.config.Model,
-		Messages:      messages,
-		Temperature:   temperature,
-		MaxTokens:     req.MaxTokens,
-		Stream:        true,
-		StreamOptions: &openAIStreamOptions{IncludeUsage: true},
-		Tools:         req.Tools,
+		Model:             p.config.Model,
+		Messages:          messages,
+		Temperature:       temperature,
+		MaxTokens:         maxTokens,
+		implicitMaxTokens: implicitMaxTokens,
+		Stream:            true,
+		StreamOptions:     &openAIStreamOptions{IncludeUsage: true},
+		Tools:             req.Tools,
 	}
 	p.applyThinkingToRequest(&body)
 
@@ -553,6 +570,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 	defer respBody.Close()
 
 	receivedContent := false
+	truncated := false
 	var activeToolCalls []ai.ToolCall
 	var streamUsage *ai.TokenUsage
 
@@ -574,6 +592,10 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			if truncated && req.ReportOutputLimit {
+				callback(ai.StreamChunk{Usage: streamUsage})
+				return &ai.OutputLimitError{Message: "OpenAI response incomplete: finish_reason=length"}
+			}
 			callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 			return nil
 		}
@@ -636,6 +658,9 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 				if *choice.FinishReason == "tool_calls" {
 					callback(ai.StreamChunk{ToolCalls: activeToolCalls})
 				}
+				if *choice.FinishReason == "length" {
+					truncated = true
+				}
 			}
 		}
 	}
@@ -650,6 +675,10 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		return nil
 	}
 
+	if truncated && req.ReportOutputLimit {
+		callback(ai.StreamChunk{Usage: streamUsage})
+		return &ai.OutputLimitError{Message: "OpenAI response incomplete: finish_reason=length"}
+	}
 	callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 	return nil
 }
@@ -657,6 +686,23 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 func (p *OpenAIProvider) retryClientRejectedChatRequest(ctx context.Context, req ai.ChatRequest, body openAIChatRequest, err error) (io.ReadCloser, error) {
 	if !isHTTP400Error(err) {
 		return nil, err
+	}
+	if body.implicitMaxTokens && body.MaxTokens > 0 && isOutputTokenLimitRejection(err) {
+		// 默认填的上限超过了该模型的能力：用上游报错里给出的上限重试；
+		// 报错里没有可用数字就不再发送上限，交给上游自己的默认值。
+		capValue, _ := outputTokenCapFromRejection(err, body.MaxTokens)
+		rememberOutputTokenCap(p.baseURL, p.config.Model, capValue)
+		body.MaxTokens = capValue
+		body.implicitMaxTokens = false
+		fmt.Printf("[OpenAI] 默认输出上限被上游拒绝，改用 %d 重试（0 表示不发送上限）\n", capValue)
+		respBody, retryErr := p.doRequest(ctx, body)
+		if retryErr == nil {
+			return respBody, nil
+		}
+		if !isHTTP400Error(retryErr) {
+			return nil, retryErr
+		}
+		err = retryErr
 	}
 	if body.StreamOptions != nil {
 		// Usage reporting is optional. Preserve model capabilities by retrying

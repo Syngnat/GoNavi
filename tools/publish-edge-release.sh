@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publish one prepared generation to the Cst static edge and Bero origin.
+# Publish one prepared generation to the Bero origin, then the Cst static edge.
 # Secrets are consumed only from the environment and are never printed.
 
 require_value() {
@@ -340,15 +340,6 @@ PY
   printf 'immutable\n' > "${status_root}/${node}.status"
 )
 
-for node in cst bero; do
-  echo "[${node}] staging generation ${PUB_GENERATION}"
-  stage_node "${node}"
-  [[ "$(cat "${status_root}/${node}.status" 2>/dev/null || true)" == immutable ]] || {
-    echo "${node} did not pass immutable verification" >&2
-    exit 1
-  }
-done
-
 probe_path="/$(jq -r '.probePath' "${stage_dir}/deployment.json")"
 probe_size="$(jq -r '.probeSize' "${stage_dir}/deployment.json")"
 probe_sha="$(jq -r '.probeSha256' "${stage_dir}/deployment.json")"
@@ -425,31 +416,54 @@ activate_node() (
   printf 'ready\n' > "${status_root}/${node}.status"
 )
 
-for node in cst bero; do
-  echo "[${node}] activating generation ${PUB_GENERATION}"
-  activate_node "${node}"
-  [[ "$(cat "${status_root}/${node}.status" 2>/dev/null || true)" == ready ]] || {
-    echo "${node} did not pass mutable activation" >&2
-    exit 1
+publish_prepared_edges() {
+  echo "[bero] staging generation ${PUB_GENERATION}"
+  stage_node bero
+  [[ "$(cat "${status_root}/bero.status" 2>/dev/null || true)" == immutable ]] || {
+    echo "Bero did not pass immutable verification" >&2
+    return 1
   }
-done
+  echo "[bero] activating generation ${PUB_GENERATION}"
+  activate_node bero
+  [[ "$(cat "${status_root}/bero.status" 2>/dev/null || true)" == ready ]] || {
+    echo "Bero did not pass mutable activation" >&2
+    return 1
+  }
+  bero_driver_tag="$(cat "${status_root}/bero.driver-tag")"
+  if [[ "${PUB_DRIVER_ENABLED}" == true && "${bero_driver_tag}" != "${PUB_DRIVER_TAG}" ]]; then
+    echo "Bero driver tag does not match the published driver tag" >&2
+    return 1
+  fi
 
-cst_driver_tag="$(cat "${status_root}/cst.driver-tag")"
-bero_driver_tag="$(cat "${status_root}/bero.driver-tag")"
-# An app-only publication inherits each node's existing driver state. Those
-# states may legitimately differ when no driver payload was published.
-if [[ "${PUB_DRIVER_ENABLED}" == true && "${cst_driver_tag}" != "${bero_driver_tag}" ]]; then
-  echo "Activated edge driver tags disagree: cst=${cst_driver_tag} bero=${bero_driver_tag}" >&2
-  exit 1
-fi
-if [[ "${PUB_DRIVER_ENABLED}" == true && "${cst_driver_tag}" != "${PUB_DRIVER_TAG}" ]]; then
-  echo "Activated edge driver tag does not match the published driver tag" >&2
-  exit 1
-fi
-if [[ "${PUB_DRIVER_ENABLED}" == true ]]; then
-  effective_driver_tag="${cst_driver_tag}"
-else
-  effective_driver_tag=""
-fi
+  # Keep Cst failures visible without blocking an already verified Bero release.
+  # Run each optional function asynchronously so its internal errexit remains
+  # active; calling it directly in an if condition would suppress errexit.
+  local cst_ready=false cst_error="" cst_pid
+  echo "[cst] staging generation ${PUB_GENERATION}"
+  stage_node cst &
+  cst_pid=$!
+  if ! wait "${cst_pid}"; then
+    cst_error="staging failed"
+  elif [[ "$(cat "${status_root}/cst.status" 2>/dev/null || true)" != immutable ]]; then
+    cst_error="immutable verification did not complete"
+  else
+    echo "[cst] activating generation ${PUB_GENERATION}"
+    activate_node cst &
+    cst_pid=$!
+    if ! wait "${cst_pid}"; then
+      cst_error="activation failed"
+    elif [[ "$(cat "${status_root}/cst.status" 2>/dev/null || true)" != ready ]]; then
+      cst_error="mutable verification did not complete"
+    elif [[ "${PUB_DRIVER_ENABLED}" == true && "$(cat "${status_root}/cst.driver-tag")" != "${bero_driver_tag}" ]]; then
+      cst_error="driver tag differs from Bero"
+    else
+      cst_ready=true
+    fi
+  fi
+  if [[ -n "${cst_error}" ]]; then
+    echo "::warning::Cst publication ${cst_error}; Bero release ${PUB_GENERATION} is ready" >&2
+  fi
+  echo "Published generation ${PUB_GENERATION}: cst=${cst_ready} bero=true (static dispatcher)"
+}
 
-echo "Published generation ${PUB_GENERATION}: cst=true bero=true (static dispatcher)"
+publish_prepared_edges

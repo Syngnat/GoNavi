@@ -7,9 +7,9 @@
 链接哪套 WebKitGTK，必须由构建方在构建前显式校准。
 
 wails.json 不支持环境变量插值，preBuildHook 又晚于 tags 解析（tags 在
-`build.Build` 之前就已固化），所以无法在构建过程中自动探测——只能由调用方
-在构建前改写配置。默认值取空（兼容大多数发行版现装的 4.0），需要 4.1 的
-任务显式传 `4.1`。
+`build.Build` 之前就已固化），当次构建无法改标签：本机构建由 preBuildHook
+按已装的 WebKitGTK 改写 wails.json 并提示重跑，CI 则用本脚本在构建前显式
+校准。默认值为 `webkit2_41`，4.0 任务显式传 `4.0`。
 """
 
 from __future__ import annotations

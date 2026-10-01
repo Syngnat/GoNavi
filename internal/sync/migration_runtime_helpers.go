@@ -68,6 +68,10 @@ func buildAddColumnSQLForPair(sourceType string, targetType string, targetQueryT
 		sourceCol, warnings = buildCrossDialectIntermediateColumn(source, targetType, sourceCol)
 		source = "mysql"
 	}
+	// 目标按字节计字符列长度（openGauss 系）时放宽 varchar/char，与建表路径保持一致。
+	byteLengthWidener := newByteLengthWidener(sourceType, targetType)
+	sourceCol = byteLengthWidener.Adapt(sourceCol)
+	warnings = append(warnings, byteLengthWidener.Warnings()...)
 	// 所有目标分支的 ADD COLUMN 都不携带自增子句（要么各方言语法不允许，
 	// 要么需要键约束前置），自增语义统一在此丢弃并告警，避免逐分支判定遗漏。
 	// 判定放在归一之后：归一层可能因类型降级剥掉自增标记，剥掉后不应告警。

@@ -10,6 +10,7 @@ import {
 } from '../../utils/aiThinkingIntensity';
 import type { CLIModelCatalog } from '../../utils/aiProviderManagement';
 import type { CLIThinkingCapability } from './useAIChatRuntimeResources';
+import { aiPx } from './aiScale';
 
 interface AIChatThinkingIntensitySelectProps {
   activeProvider?: AIProviderConfig | null;
@@ -39,6 +40,16 @@ const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps
     value: item.value,
     label: t(item.labelKey),
   }));
+  // 宽度按最长的档位名称算（中日文字宽约 1em，其余约 0.62em），再加左内边距与箭头位，
+  // 这样「不推理 / 特高 / Extra high」都能完整显示，切换档位时宽度也不抖动。
+  const longestLabelUnits = options.reduce((longest, option) => {
+    const units = Array.from(option.label).reduce(
+      (sum, char) => sum + ((char.codePointAt(0) ?? 0) >= 0x2e80 ? 12 : 7.5),
+      0,
+    );
+    return Math.max(longest, units);
+  }, 0);
+  const widthUnits = Math.max(52, Math.ceil(longestLabelUnits) + 8 + 22 + 4);
 
   return (
     <Select
@@ -49,6 +60,7 @@ const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps
       styles={{ popup: { root: { minWidth: 160 } } }}
       placeholder={t('ai_chat.input.thinking_intensity.placeholder')}
       className="gn-v2-ai-thinking-select"
+      style={{ '--gn-ai-thinking-width': aiPx(widthUnits) } as React.CSSProperties}
       suffixIcon={<DownOutlined />}
     />
   );

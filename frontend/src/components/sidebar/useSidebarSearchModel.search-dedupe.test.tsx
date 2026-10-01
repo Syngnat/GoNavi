@@ -3,6 +3,8 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { SavedConnection } from '../../types';
+import { t } from '../../i18n';
+import type { SidebarTreeNode } from '../sidebarV2Utils';
 import { useSidebarSearchModel } from './useSidebarSearchModel';
 
 const collectTreeNodes = (nodes: Array<{ key: string; title: string; children?: any[] }>) => {
@@ -23,6 +25,61 @@ describe('useSidebarSearchModel search filtering', () => {
   afterEach(() => {
     act(() => renderer?.unmount());
     renderer = null;
+  });
+
+  it('finds loaded Nacos config and service groups by name in command and object searches', () => {
+    const connection = {
+      id: 'nacos-1', name: 'Nacos', config: { type: 'nacos', host: '127.0.0.1', port: 8848 },
+    } as SavedConnection;
+    const groups: SidebarTreeNode[] = [
+      { key: 'config-group', title: 'CONFIG_GROUP', type: 'nacos-config-group', isLeaf: true,
+        dataRef: { ...connection, nacosNamespaceId: 'dev', nacosNamespaceName: 'Development', nacosGroup: 'CONFIG_GROUP' } },
+      { key: 'service-group', title: 'SERVICE_GROUP', type: 'nacos-service-group', isLeaf: true,
+        dataRef: { ...connection, nacosNamespaceId: 'dev', nacosNamespaceName: 'Development', nacosGroup: 'SERVICE_GROUP' } },
+    ];
+    const treeData: SidebarTreeNode[] = [{ key: connection.id, title: connection.name, type: 'connection', dataRef: connection,
+      children: [{ key: 'namespace-dev', title: 'Development', type: 'nacos-namespace', dataRef: { ...connection, nacosNamespaceId: 'dev' },
+        children: [{ key: 'configs', title: 'Configs', type: 'nacos-config-entry', dataRef: connection, children: [groups[0]] },
+          { key: 'services', title: 'Services', type: 'nacos-services-entry', dataRef: connection, children: [groups[1]] }] }],
+    }];
+    const renderSearch = (keyword: string, scopes: Array<'smart' | 'object'>) => {
+      let model: ReturnType<typeof useSidebarSearchModel> | undefined;
+      const Harness = () => {
+        model = useSidebarSearchModel({
+          searchScopes: scopes, setSearchScopes: () => undefined, setSearchValue: () => undefined,
+          deferredSearchValue: keyword.replace(/^@/, ''), deferredV2CommandSearchValue: keyword,
+          v2CommandSearchValue: keyword, setV2CommandActiveIndex: () => undefined,
+          v2ExplorerFilter: 'all', treeData, treeHeight: 400, isV2CommandSearchOpen: true,
+          connections: [connection], connectionIds: [connection.id], selectedKeys: [],
+          selectedNodesRef: useRef<any[]>([]), activeContext: null, activeTab: null,
+          recentSqlLogs: [], shortcutOptions: {}, activeShortcutPlatform: 'mac',
+          overlayTheme: { sectionBorder: '1px solid #ddd', mutedText: '#666', titleText: '#111', shellBg: '#fff', divider: '#eee' },
+          darkMode: false, setAIPanelVisible: () => undefined, extractObjectName: (name) => name,
+        });
+        return null;
+      };
+      act(() => { renderer = create(<Harness />); });
+      const result = {
+        treeKeys: collectTreeNodes(model?.displayTreeData || []).map((node) => node.key),
+        items: model?.filteredCommandSearchTreeItems || [],
+      };
+      act(() => renderer?.unmount());
+      renderer = null;
+      return result;
+    };
+
+    for (const group of groups) {
+      const defaultSearch = renderSearch(group.title.toLowerCase(), ['smart']);
+      expect(defaultSearch.treeKeys).toContain(group.key);
+      expect(defaultSearch.items.map((item) => item.key)).toContain(`node-${group.key}`);
+      expect(defaultSearch.items.find((item) => item.key === `node-${group.key}`)?.meta).toContain('Development');
+      expect(defaultSearch.items.find((item) => item.key === `node-${group.key}`)?.meta)
+        .toContain(t(group.type === 'nacos-config-group'
+          ? 'sidebar.command_search.object_kind.nacos_configs'
+          : 'sidebar.command_search.object_kind.nacos_services'));
+      expect(renderSearch(`@${group.title}`, ['object']).items.map((item) => item.key)).toContain(`node-${group.key}`);
+      expect(renderSearch(group.title, ['object']).treeKeys).toContain(group.key);
+    }
   });
 
   it('does not repeat a table when the filtered tree contains duplicate keys', () => {

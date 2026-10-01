@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button, Checkbox, Input, Popover, Select, Table, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { FilterOutlined, LinkOutlined, PushpinOutlined, SearchOutlined } from '@ant-design/icons';
+import { LinkOutlined, PushpinOutlined, SearchOutlined } from '@ant-design/icons';
+import { GnFilterIcon } from './icons/gnIcons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
 import {
   sortGridColumnValueCounts,
@@ -619,7 +620,7 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
             color: mutedColor,
           }}
         >
-          <FilterOutlined />
+          <GnFilterIcon />
         </button>
       </Popover>
     </span>

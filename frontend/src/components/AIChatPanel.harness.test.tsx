@@ -91,7 +91,10 @@ vi.mock('./ai/useAIWorkspaceSnapshot', () => ({
 vi.mock('../utils/connectionRpcConfig', () => ({ buildRpcConnectionConfig: () => undefined }));
 vi.mock('../utils/aiComposerNotice', () => ({ buildAIComposerNotice: () => null }));
 vi.mock('../utils/aiChatSendShortcut', () => ({ consumeAIChatSendShortcutOnKeyDown: () => undefined }));
-vi.mock('../utils/aiChatRuntime', () => ({ getDynamicMaxContextChars: () => 100_000 }));
+vi.mock('../utils/aiChatRuntime', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../utils/aiChatRuntime')>()),
+  resolveEffectiveContextWindow: () => 100_000,
+}));
 vi.mock('../utils/shortcuts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/shortcuts')>();
   return {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/internal/syncjob"
 )
 
@@ -81,5 +82,56 @@ func TestPreflightUnsupportedTargetSchemaIssuesBlocksOnlyUnrepairableMigrationDi
 	)
 	if len(issues) != 1 || issues[0].Code != "schema_unsupported_difference" || issues[0].Severity != DataSyncJobPreflightBlocker {
 		t.Fatalf("schema diff issues = %#v", issues)
+	}
+}
+
+// 对账任务开启「自动补字段」后与运行时保持一致：补列被预检视为将自动处理，类型不一致仍然拦截；
+// 没开时缺字段仍是阻塞项；显式字段映射继续走仅数据路径，不被结构差异拦截。
+func TestPreflightReconcileAutoAddColumnsMatchesRuntime(t *testing.T) {
+	sourceColumns := []connection.ColumnDefinition{
+		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+		{Name: "remark", Type: "varchar(120)", Nullable: "YES"},
+	}
+	targetMissing := []connection.ColumnDefinition{{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"}}
+	reconcile := func(autoAdd *bool) syncjob.JobDefinition {
+		return syncjob.JobDefinition{
+			Kind:    syncjob.JobKindReconcile,
+			Options: syncjob.ExecutionOptions{Content: "data", AutoAddColumns: autoAdd},
+		}
+	}
+	mapping := syncjob.TableMapping{SourceTable: "orders", TargetTable: "orders", Enabled: true, KeyColumns: []string{"id"}}
+	capability := sync.MigrationCapability{SupportsAutoAddColumns: true}
+
+	issues := preflightImplicitTargetColumnIssues(reconcile(boolPtr(true)), mapping, sourceColumns, targetMissing, capability, "orders")
+	if len(issues) != 1 || issues[0].Code != "target_columns_will_be_added" || issues[0].Severity != DataSyncJobPreflightInfo {
+		t.Fatalf("opted-in reconcile must report columns will be added, got %#v", issues)
+	}
+	// 没开自动补字段时，带识别列的映射走显式投影，预检保持原有语义（不检查缺字段）。
+	if issues := preflightImplicitTargetColumnIssues(reconcile(nil), mapping, sourceColumns, targetMissing, capability, "orders"); len(issues) != 0 {
+		t.Fatalf("default reconcile keeps the explicit-projection route, got %#v", issues)
+	}
+	plain := syncjob.TableMapping{SourceTable: "orders", TargetTable: "orders", Enabled: true}
+	issues = preflightImplicitTargetColumnIssues(reconcile(nil), plain, sourceColumns, targetMissing, capability, "orders")
+	if len(issues) != 1 || issues[0].Code != "target_columns_missing_for_sync" || issues[0].Severity != DataSyncJobPreflightBlocker {
+		t.Fatalf("missing columns without auto-add must stay a blocker, got %#v", issues)
+	}
+
+	typeDrift := []connection.ColumnDefinition{
+		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+		{Name: "remark", Type: "int", Nullable: "YES"},
+	}
+	issues = preflightUnsupportedTargetSchemaIssues(reconcile(boolPtr(true)), mapping, sourceColumns, typeDrift, "mysql", "mysql", "orders -> orders")
+	if len(issues) != 1 || issues[0].Code != "schema_unsupported_difference" {
+		t.Fatalf("opted-in reconcile must block unrepairable type drift like runtime, got %#v", issues)
+	}
+	if issues := preflightUnsupportedTargetSchemaIssues(reconcile(nil), mapping, sourceColumns, typeDrift, "mysql", "mysql", "orders -> orders"); len(issues) != 0 {
+		t.Fatalf("data-only reconcile must not be blocked by type drift, got %#v", issues)
+	}
+	explicit := syncjob.TableMapping{
+		SourceTable: "orders", TargetTable: "orders", Enabled: true,
+		Columns: []syncjob.ColumnMapping{{Source: "id", Target: "id"}},
+	}
+	if issues := preflightUnsupportedTargetSchemaIssues(reconcile(boolPtr(true)), explicit, sourceColumns, typeDrift, "mysql", "mysql", "orders -> orders"); len(issues) != 0 {
+		t.Fatalf("explicit projections run data-only and must not be blocked, got %#v", issues)
 	}
 }

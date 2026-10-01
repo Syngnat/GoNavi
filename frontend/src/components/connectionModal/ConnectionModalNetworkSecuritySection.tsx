@@ -126,7 +126,7 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
       enabled: effectiveUseHttpTunnel,
       disabledHint: t("connection.modal.network.httpTunnel.disabledHint"),
     },
-  ];
+  ].filter(item => dbType !== "pulsar" || item.key === "ssl") as typeof networkItems;
 
   const resolvedNetworkConfig =
     activeNetworkConfig === "ssl" && !effectiveUseSSL

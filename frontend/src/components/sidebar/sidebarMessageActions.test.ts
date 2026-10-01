@@ -29,6 +29,7 @@ describe('resolveSidebarMessageActionTarget', () => {
     ['mqtt', 'topics'],
     ['kafka', 'topics'],
     ['rocketmq', 'topics'],
+    ['pulsar', 'topics'],
     ['rabbitmq', '/'],
   ])('uses one synthetic namespace for a connection-level %s workbench', (type, dbName) => {
     expect(resolveSidebarMessageActionTarget({
@@ -57,6 +58,7 @@ describe('resolveSidebarMessageActionTarget', () => {
   it.each([
     ['kafka', 'topic', 'orders.events'],
     ['rocketmq', 'topic', 'billing.events'],
+    ['pulsar', 'topic', 'persistent://public/default/orders.events'],
     ['rabbitmq', 'queue', 'orders.ready'],
   ])('prefills the exact %s %s for publish and consume actions', (type, kind, name) => {
     const target = resolveSidebarMessageActionTarget({

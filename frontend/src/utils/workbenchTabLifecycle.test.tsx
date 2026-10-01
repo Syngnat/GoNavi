@@ -45,8 +45,8 @@ describe('workbench tab lifecycle', () => {
     delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
   });
 
-  it('destroys hidden query tabs but keeps non-query and pending-transaction tabs mounted', () => {
-    expect(shouldDestroyHiddenWorkbenchTab(buildQueryTab('query-1'), {})).toBe(true);
+  it('keeps hidden query editors mounted so Monaco scroll and undo survive', () => {
+    expect(shouldDestroyHiddenWorkbenchTab(buildQueryTab('query-1'), {})).toBe(false);
     expect(shouldDestroyHiddenWorkbenchTab(buildTableTab('table-1'), {})).toBe(false);
     expect(shouldDestroyHiddenWorkbenchTab(buildQueryTab('query-pending'), {
       'query-pending': { id: 'tx-1' },
@@ -60,7 +60,7 @@ describe('workbench tab lifecycle', () => {
     expect(shouldBlockWorkbenchTabDetach({ type: 'table' }, true)).toBe(false);
   });
 
-  it('keeps one query probe and one listener set mounted after visiting twenty query tabs', async () => {
+  it('keeps every visited query editor mounted after switching across twenty tabs', async () => {
     const queryTabs = Array.from({ length: 20 }, (_, index) => buildQueryTab(`query-${index + 1}`));
     const mounted = new Set<string>();
     let activeGlobalListeners = 0;
@@ -100,8 +100,8 @@ describe('workbench tab lifecycle', () => {
 
     for (const tab of queryTabs) {
       await renderActive(tab.id);
-      expect(mounted).toEqual(new Set([tab.id]));
-      expect(activeGlobalListeners).toBe(globalEventNames.length);
     }
+    expect(mounted).toEqual(new Set(queryTabs.map((tab) => tab.id)));
+    expect(activeGlobalListeners).toBe(queryTabs.length * globalEventNames.length);
   });
 });

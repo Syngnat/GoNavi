@@ -106,7 +106,10 @@ const assertSourceDoesNotInlineCatalogValues = (
     ignoreEnglishBaseline?: boolean;
   },
 ): void => {
-  const executableSource = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  // 只剥离整行 // 注释：行尾注释可能与字符串里的 "//"（如 URL）混淆，不处理。
+  const executableSource = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
   for (const language of SUPPORTED_LANGUAGES) {
     for (const key of keys) {
       const value = catalogs[language][key];
@@ -1900,17 +1903,17 @@ describe("i18n catalog", () => {
       ),
       sliceBetween(
         source,
-        "      const binding = duplicateCurrentLineShortcutBinding;",
+        "      duplicateCurrentLineActionRef.current = registerQueryEditorShortcutAction({",
         "  }, [activeShortcutPlatform, duplicateCurrentLineShortcutBinding, handleDuplicateCurrentLine, languagePreference]);",
       ),
       sliceBetween(
         source,
-        "      const binding = saveQueryShortcutBinding;",
+        "      saveQueryActionRef.current = registerQueryEditorShortcutAction({",
         "  }, [activeShortcutPlatform, languagePreference, saveQueryShortcutBinding]);",
       ),
       sliceBetween(
         source,
-        "      const binding = saveQueryAsShortcutBinding;",
+        "      saveQueryAsActionRef.current = registerQueryEditorShortcutAction({",
         "  }, [activeShortcutPlatform, currentSavedQuery, languagePreference, saveQueryAsShortcutBinding, tab.filePath]);",
       ),
     ].join("\n");

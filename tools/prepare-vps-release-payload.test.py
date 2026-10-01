@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -540,13 +542,89 @@ class PrepareVPSReleasePayloadTest(unittest.TestCase):
         source = PUBLISH_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn(
-            'if [[ "${PUB_DRIVER_ENABLED}" == true && "${cst_driver_tag}" != "${bero_driver_tag}" ]]; then',
+            'if [[ "${PUB_DRIVER_ENABLED}" == true && "${bero_driver_tag}" != "${PUB_DRIVER_TAG}" ]]; then',
             source,
         )
         self.assertIn(
-            'if [[ "${PUB_DRIVER_ENABLED}" == true && "${cst_driver_tag}" != "${PUB_DRIVER_TAG}" ]]; then',
+            'elif [[ "${PUB_DRIVER_ENABLED}" == true && "$(cat "${status_root}/cst.driver-tag")" != "${bero_driver_tag}" ]]; then',
             source,
         )
+
+    def test_publication_requires_bero_but_allows_cst_failure(self) -> None:
+        source = PUBLISH_SCRIPT.read_text(encoding="utf-8")
+        start = source.index("publish_prepared_edges() {")
+        end = source.index("\npublish_prepared_edges\n", start)
+        orchestration = source[start:end]
+        bash = shutil.which("bash")
+        if os.name == "nt":
+            git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+            bash = str(git_bash) if git_bash.exists() else None
+        if not bash:
+            self.skipTest("Bash is required for edge publication")
+
+        cases = [
+            ("all-ready", "true", True, "cst=true bero=true", ["stage:bero", "activate:bero", "stage:cst", "activate:cst"]),
+            ("cst-stage-fails", "true", True, "cst=false bero=true", ["stage:bero", "activate:bero", "stage:cst"]),
+            ("cst-activation-fails", "true", True, "cst=false bero=true", ["stage:bero", "activate:bero", "stage:cst", "activate:cst"]),
+            ("cst-driver-mismatch", "true", True, "cst=false bero=true", ["stage:bero", "activate:bero", "stage:cst", "activate:cst"]),
+            ("cst-driver-mismatch", "false", True, "cst=true bero=true", ["stage:bero", "activate:bero", "stage:cst", "activate:cst"]),
+            ("bero-stage-fails", "true", False, "", ["stage:bero"]),
+            ("bero-activation-fails", "true", False, "", ["stage:bero", "activate:bero"]),
+            ("bero-driver-mismatch", "true", False, "", ["stage:bero", "activate:bero"]),
+        ]
+        for scenario, driver_enabled, success, summary, expected_events in cases:
+            with self.subTest(scenario=scenario, driver_enabled=driver_enabled), tempfile.TemporaryDirectory() as temporary_directory:
+                root = Path(temporary_directory)
+                status_root = root.as_posix()
+                if os.name == "nt":
+                    status_root = f"/{root.drive[0].lower()}{root.as_posix()[2:]}"
+                shell = f"""set -euo pipefail
+{orchestration}
+stage_node() (
+  set -e
+  echo "stage:$1" >> "${{EVENTS}}"
+  if [[ "${{SCENARIO}}" == "$1-stage-fails" ]]; then
+    false
+    echo "continued-after-error" >> "${{EVENTS}}"
+  fi
+  printf 'immutable\\n' > "${{status_root}}/$1.status"
+)
+activate_node() (
+  set -e
+  echo "activate:$1" >> "${{EVENTS}}"
+  if [[ "${{SCENARIO}}" == "$1-activation-fails" ]]; then
+    false
+    echo "continued-after-error" >> "${{EVENTS}}"
+  fi
+  printf 'ready\\n' > "${{status_root}}/$1.status"
+  if [[ "${{SCENARIO}}" == "$1-driver-mismatch" ]]; then
+    printf 'wrong\\n' > "${{status_root}}/$1.driver-tag"
+  else
+    printf 'expected\\n' > "${{status_root}}/$1.driver-tag"
+  fi
+)
+publish_prepared_edges
+"""
+                result = subprocess.run(
+                    [bash, "-s"], input=shell, text=True, capture_output=True,
+                    timeout=20,
+                    env={**os.environ, "status_root": status_root,
+                         "EVENTS": f"{status_root}/events", "SCENARIO": scenario,
+                         "PUB_GENERATION": "dev-test", "PUB_DRIVER_ENABLED": driver_enabled,
+                         "PUB_DRIVER_TAG": "expected"},
+                )
+                events = (root / "events").read_text(encoding="utf-8").splitlines()
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+                self.assertEqual(events, expected_events)
+                self.assertNotIn("continued-after-error", events)
+                if success:
+                    self.assertIn(summary, result.stdout)
+                else:
+                    self.assertNotIn("Published generation", result.stdout)
+                if scenario.startswith("cst-") and "cst=false" in summary:
+                    self.assertIn("::warning::Cst publication", result.stderr)
+                if "cst=true" in summary:
+                    self.assertNotIn("::warning::Cst publication", result.stderr)
 
     def test_workflows_pass_explicit_driver_mode(self) -> None:
         dev_source = DEV_WORKFLOW.read_text(encoding="utf-8")

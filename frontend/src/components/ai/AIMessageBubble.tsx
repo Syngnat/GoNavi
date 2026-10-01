@@ -8,9 +8,9 @@ import {
   FileTextOutlined,
   ReloadOutlined,
   WarningOutlined,
-  RobotOutlined,
   UserOutlined,
 } from '@ant-design/icons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 
 import type { AIChatMessage } from '../../types';
 import { useStore } from '../../store';
@@ -25,10 +25,12 @@ import {
 } from '../../utils/jvmDiagnosticPlan';
 import { AIMessageMarkdown } from './messageBubble/AIMessageMarkdown';
 import { AIActivityTimeline } from './messageBubble/AIActivityTimeline';
+import { AIMessageFooter } from './messageBubble/AIMessageFooter';
 import { AIThinkingBlock, AIToolCallingBlock } from './messageBubble/AIMessageStatusBlocks';
 import { formatAIChatAttachmentSize } from './aiChatAttachments';
 import type { AIToolResultIndex } from './aiToolResultIndex';
 import { useAIChatTypewriter } from './useAIChatTypewriter';
+import { aiPx } from './aiScale';
 
 interface AIMessageBubbleProps {
   msg: AIChatMessage;
@@ -85,7 +87,7 @@ const AIMessageAttachmentSummary: React.FC<{
             border: overlayTheme.shellBorder,
             color: overlayTheme.titleText,
             background: 'rgba(0,0,0,0.03)',
-            fontSize: 12,
+            fontSize: aiPx(12),
           }}
         >
           <FileTextOutlined />
@@ -181,7 +183,7 @@ const AIRawErrorButton: React.FC<{
       }}
       id={`raw-err-btn-${messageId}`}
       style={{
-        fontSize: 12,
+        fontSize: aiPx(12),
         padding: '3px 10px',
         borderRadius: 6,
         cursor: 'pointer',
@@ -195,18 +197,6 @@ const AIRawErrorButton: React.FC<{
     </button>
   </div>
 );
-
-const formatTokenCount = (value: number | undefined): string => {
-  if (value === undefined || !Number.isFinite(value) || value < 0) return '—';
-  return String(Math.floor(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-};
-
-const formatCacheRate = (cachedTokens: number | undefined, promptTokens: number | undefined): string => {
-  if (cachedTokens === undefined || promptTokens === undefined) return '—';
-  if (promptTokens <= 0) return cachedTokens === 0 ? '0%' : '—';
-  const percentage = Math.min(100, Math.max(0, (cachedTokens / promptTokens) * 100));
-  return `${Number(percentage.toFixed(1))}%`;
-};
 
 export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   msg,
@@ -305,7 +295,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
               <div className="ai-wave-pulse">
                 <span /> <span /> <span />
               </div>
-              <span style={{ fontSize: 13, opacity: 0.8 }}>{msg.content || waitStatus}</span>
+              <span style={{ fontSize: aiPx(13), opacity: 0.8 }}>{msg.content || waitStatus}</span>
             </div>
           )}
 
@@ -338,11 +328,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
 
   return (
     <div className="ai-ide-message" style={{ borderBottom: 'none', padding: '8px 16px' }}>
-      <div style={{
-        background: isUser ? (darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : (darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)'),
-        borderRadius: 12,
-        padding: '14px 16px',
-      }}>
+      <div className={`ai-ide-message-card ${isUser ? 'is-user' : 'is-assistant'}`}>
         <div className="ai-ide-message-header" style={{
           color: isUser ? overlayTheme.mutedText : overlayTheme.titleText,
           marginBottom: isUser ? 6 : 10,
@@ -353,7 +339,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
           <div>
             {isUser
               ? <><UserOutlined /> <span>{copy('ai_chat.message.role.user')}</span></>
-              : <><RobotOutlined style={{ color: overlayTheme.iconColor }} /> <span>GoNavi AI</span></>}
+              : <><AiSparkOutlined style={{ color: overlayTheme.iconColor }} /> <span>GoNavi AI</span></>}
           </div>
           <AIMessageActionBar
             msg={msg}
@@ -404,7 +390,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
           )}
 
           {isUser ? (
-            <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{msg.content}</div>
+            <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: aiPx(13) }}>{msg.content}</div>
           ) : (
             <AIMessageMarkdown
               content={displayContent}
@@ -515,28 +501,15 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
             <span className="ai-blinking-cursor" style={{ background: overlayTheme.iconColor }} />
           )}
 
-          {!isUser && !msg.loading && !typewriter.isAnimating && !msg.rawError && !msg.excludeFromAIContext && (
-            <div
-              className="ai-message-token-usage"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                flexWrap: 'wrap',
-                marginTop: 10,
-                paddingTop: 8,
-                borderTop: overlayTheme.shellBorder,
-                color: overlayTheme.mutedText,
-                fontSize: 11,
-                lineHeight: 1.4,
-              }}
-            >
-              <span>{copy('ai_chat.message.usage.input')} {formatTokenCount(msg.tokenUsage?.promptTokens)}</span>
-              <span aria-hidden="true">·</span>
-              <span>{copy('ai_chat.message.usage.output')} {formatTokenCount(msg.tokenUsage?.completionTokens)}</span>
-              <span aria-hidden="true">·</span>
-              <span>{copy('ai_chat.message.usage.cache_rate')} {formatCacheRate(msg.tokenUsage?.cachedTokens, msg.tokenUsage?.promptTokens)}</span>
-            </div>
+          {!msg.loading && !typewriter.isAnimating && (
+            <AIMessageFooter
+              msg={msg}
+              isUser={isUser}
+              showUsage={!isUser && !msg.rawError && !msg.excludeFromAIContext}
+              language={i18n?.language ?? 'en-US'}
+              overlayTheme={overlayTheme}
+              copy={copy}
+            />
           )}
         </div>
       </div>

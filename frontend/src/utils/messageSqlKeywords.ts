@@ -1,0 +1,42 @@
+export const ROCKETMQ_KEYWORDS = [
+  'SHOW TOPICS',
+  'DESCRIBE TOPIC',
+  'CONSUME',
+  'FROM',
+  'LIMIT',
+  'OFFSET',
+];
+
+export const MQTT_KEYWORDS = [
+  'SHOW TOPICS',
+  'DESCRIBE TOPIC',
+  'CONSUME',
+  'FROM',
+  'LIMIT',
+  'OFFSET',
+];
+
+export const KAFKA_KEYWORDS = [
+  'SHOW TOPICS',
+  'SHOW TOPIC',
+  'DESCRIBE TOPIC',
+  'CONSUME',
+  'GROUP',
+  'FROM',
+  'LIMIT',
+  'OFFSET',
+];
+
+export const RABBITMQ_KEYWORDS = [
+  'SHOW VHOSTS',
+  'SHOW QUEUES',
+  'SHOW EXCHANGES',
+  'DESCRIBE QUEUE',
+  'DESCRIBE EXCHANGE',
+  'CONSUME',
+  'FROM',
+  'LIMIT',
+  'OFFSET',
+];
+
+export const PULSAR_KEYWORDS = ['SELECT', 'FROM', 'SHOW TOPICS', 'DESCRIBE TOPIC', 'CONSUME', 'EARLIEST', 'LATEST', 'LIMIT'];

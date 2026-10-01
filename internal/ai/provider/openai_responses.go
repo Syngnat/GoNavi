@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,10 +43,6 @@ func NewOpenAIResponsesProvider(config ai.ProviderConfig) (Provider, error) {
 		return nil, fmt.Errorf("model ID is required; select or enter a model in Settings")
 	}
 
-	maxTokens := config.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = openAIResponsesDefaultMaxOutputTokens(model)
-	}
 	temperature := config.Temperature
 	if temperature <= 0 {
 		temperature = defaultOpenAITemperature
@@ -54,7 +51,6 @@ func NewOpenAIResponsesProvider(config ai.ProviderConfig) (Provider, error) {
 	normalized := config
 	normalized.BaseURL = baseURL
 	normalized.Model = model
-	normalized.MaxTokens = maxTokens
 	normalized.Temperature = temperature
 	profile := ResolveThinkingProfile(config.Type, config.APIFormat, baseURL, model)
 	normalized.ThinkingIntensity = string(clampThinkingIntensityToProfile(config.ThinkingIntensity, profile))
@@ -117,15 +113,18 @@ func (p *OpenAIResponsesProvider) Validate() error {
 }
 
 type openAIResponsesRequest struct {
-	Model           string                    `json:"model"`
-	Input           []json.RawMessage         `json:"input"`
-	Temperature     float64                   `json:"temperature,omitempty"`
-	MaxOutputTokens int                       `json:"max_output_tokens,omitempty"`
-	Stream          bool                      `json:"stream"`
-	Store           *bool                     `json:"store,omitempty"`
-	Include         []string                  `json:"include,omitempty"`
-	Tools           []openAIResponsesTool     `json:"tools,omitempty"`
-	Reasoning       *openAIResponsesReasoning `json:"reasoning,omitempty"`
+	Model           string            `json:"model"`
+	Input           []json.RawMessage `json:"input"`
+	Temperature     float64           `json:"temperature,omitempty"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	// implicitMaxOutputTokens 标记 MaxOutputTokens 是默认值而非用户显式给的；
+	// 只有默认值被上游拒绝时才允许自动调整，显式值从不改写。
+	implicitMaxOutputTokens bool
+	Stream                  bool                      `json:"stream"`
+	Store                   *bool                     `json:"store,omitempty"`
+	Include                 []string                  `json:"include,omitempty"`
+	Tools                   []openAIResponsesTool     `json:"tools,omitempty"`
+	Reasoning               *openAIResponsesReasoning `json:"reasoning,omitempty"`
 }
 
 type openAIResponsesSessionState struct {
@@ -228,16 +227,17 @@ type openAIResponsesUsage struct {
 }
 
 type openAIResponsesStreamEvent struct {
-	Type        string                    `json:"type"`
-	Code        string                    `json:"code,omitempty"`
-	Message     string                    `json:"message,omitempty"`
-	Delta       string                    `json:"delta,omitempty"`
-	Arguments   string                    `json:"arguments,omitempty"`
-	Name        string                    `json:"name,omitempty"`
-	OutputIndex int                       `json:"output_index,omitempty"`
-	Item        openAIResponsesOutputItem `json:"item,omitempty"`
-	Response    openAIResponsesResponse   `json:"response,omitempty"`
-	Error       json.RawMessage           `json:"error,omitempty"`
+	Type         string                    `json:"type"`
+	Code         string                    `json:"code,omitempty"`
+	Message      string                    `json:"message,omitempty"`
+	Delta        string                    `json:"delta,omitempty"`
+	Arguments    string                    `json:"arguments,omitempty"`
+	Name         string                    `json:"name,omitempty"`
+	OutputIndex  int                       `json:"output_index,omitempty"`
+	SummaryIndex int                       `json:"summary_index,omitempty"`
+	Item         openAIResponsesOutputItem `json:"item,omitempty"`
+	Response     openAIResponsesResponse   `json:"response,omitempty"`
+	Error        json.RawMessage           `json:"error,omitempty"`
 }
 
 func decodeOpenAIResponsesStreamError(raw json.RawMessage) openAIResponsesError {
@@ -595,31 +595,22 @@ func (p *OpenAIResponsesProvider) buildRequest(req ai.ChatRequest, stream bool) 
 	if temperature <= 0 {
 		temperature = p.config.Temperature
 	}
-	maxOutputTokens := req.MaxTokens
-	if maxOutputTokens <= 0 {
-		maxOutputTokens = p.config.MaxTokens
-	}
 	body := openAIResponsesRequest{
 		Model:           p.config.Model,
 		Input:           marshalOpenAIResponsesInput(buildOpenAIResponsesInput(requestMessages, p.baseURL)),
 		Temperature:     temperature,
-		MaxOutputTokens: maxOutputTokens,
+		MaxOutputTokens: openAIResponsesRequestMaxOutputTokens(p.config.Model, p.baseURL, req.MaxTokens, p.config.MaxTokens),
 		Stream:          stream,
 		Tools:           buildOpenAIResponsesTools(req.Tools),
+		Reasoning:       openAIResponsesRequestReasoning(p.config.Model, p.baseURL, p.config.ThinkingIntensity),
 	}
+	_, explicit := explicitOutputTokens(req.MaxTokens, p.config.MaxTokens)
+	body.implicitMaxOutputTokens = !explicit && body.MaxOutputTokens > 0
 	if !isDeepSeekResponsesBaseURL(p.baseURL) {
 		body.Store = boolPointer(false)
 	}
 	if !isDeepSeekResponsesBaseURL(p.baseURL) {
 		body.Include = []string{"reasoning.encrypted_content"}
-	}
-	if intensity := NormalizeThinkingIntensity(p.config.ThinkingIntensity); intensity != "" {
-		if effort := openAIReasoningEffort(intensity); effort != "" {
-			body.Reasoning = &openAIResponsesReasoning{Effort: effort}
-			if !isDeepSeekResponsesBaseURL(p.baseURL) {
-				body.Reasoning.Summary = "auto"
-			}
-		}
 	}
 	return body
 }
@@ -646,7 +637,7 @@ func parseOpenAIResponsesOutput(result openAIResponsesResponse) *ai.ChatResponse
 		case "reasoning":
 			for _, part := range item.Summary {
 				if part.Text != "" {
-					reasoning.WriteString(part.Text)
+					writeReasoningSummaryPart(&reasoning, part.Text)
 				}
 			}
 			for _, part := range item.Content {
@@ -773,7 +764,11 @@ func openAIResponsesIncompleteError(result openAIResponsesResponse) error {
 	if reason == "" {
 		return fmt.Errorf("OpenAI Responses response incomplete")
 	}
-	return fmt.Errorf("OpenAI Responses response incomplete: %s", reason)
+	message := fmt.Sprintf("OpenAI Responses response incomplete: %s", reason)
+	if strings.EqualFold(reason, "max_output_tokens") {
+		return &ai.OutputLimitError{Message: message}
+	}
+	return errors.New(message)
 }
 
 // openAIResponsesTerminalError validates the final response envelope before
@@ -862,6 +857,15 @@ func (p *OpenAIResponsesProvider) ChatWithState(
 	state json.RawMessage,
 	req ai.ChatRequest,
 ) (*ai.ChatResponse, json.RawMessage, error) {
+	response, next, err := p.chatWithState(ctx, state, req)
+	return response, next, outputLimitErrorForRequest(err, req)
+}
+
+func (p *OpenAIResponsesProvider) chatWithState(
+	ctx context.Context,
+	state json.RawMessage,
+	req ai.ChatRequest,
+) (*ai.ChatResponse, json.RawMessage, error) {
 	if err := p.Validate(); err != nil {
 		return nil, state, err
 	}
@@ -923,6 +927,27 @@ func (p *OpenAIResponsesProvider) ChatStream(ctx context.Context, req ai.ChatReq
 }
 
 func (p *OpenAIResponsesProvider) ChatStreamWithState(
+	ctx context.Context,
+	state json.RawMessage,
+	req ai.ChatRequest,
+	callback func(ai.StreamChunk),
+) (json.RawMessage, error) {
+	next, err := p.chatStreamWithState(ctx, state, req, callback)
+	return next, outputLimitErrorForRequest(err, req)
+}
+
+// outputLimitErrorForRequest keeps the typed truncation error only for callers
+// that asked for it (agent runs that can continue). Everyone else keeps the
+// plain error text they always got.
+func outputLimitErrorForRequest(err error, req ai.ChatRequest) error {
+	var limit *ai.OutputLimitError
+	if err != nil && !req.ReportOutputLimit && errors.As(err, &limit) {
+		return errors.New(limit.Message)
+	}
+	return err
+}
+
+func (p *OpenAIResponsesProvider) chatStreamWithState(
 	ctx context.Context,
 	state json.RawMessage,
 	req ai.ChatRequest,
@@ -1015,6 +1040,12 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 				receivedText = true
 				streamedContent.WriteString(event.Delta)
 				callback(ai.StreamChunk{Content: event.Delta})
+			}
+		case "response.reasoning_summary_part.added":
+			// Parts of one summary are separate nodes; keep a blank line between them.
+			if event.SummaryIndex > 0 && streamedReasoning.Len() > 0 {
+				streamedReasoning.WriteString(reasoningSummaryPartSeparator)
+				callback(ai.StreamChunk{Thinking: reasoningSummaryPartSeparator, ReasoningContent: reasoningSummaryPartSeparator})
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			if event.Delta != "" {
@@ -1145,6 +1176,16 @@ func (p *OpenAIResponsesProvider) retryClientRejectedRequest(
 	imagesStripped := false
 	for {
 		switch {
+		case body.implicitMaxOutputTokens && body.MaxOutputTokens > 0 && isOutputTokenLimitRejection(err):
+			// 默认填的上限超过了该模型的能力：用上游报错里给出的上限重试；
+			// 报错里没有可用数字就不再发送上限，交给上游自己的默认值。
+			capValue, _ := outputTokenCapFromRejection(err, body.MaxOutputTokens)
+			rememberOutputTokenCap(p.baseURL, p.config.Model, capValue)
+			body.MaxOutputTokens = capValue
+			body.implicitMaxOutputTokens = false
+			fmt.Printf("[OpenAI Responses] 默认输出上限被上游拒绝，改用 %d 重试（0 表示不发送上限）\n", capValue)
+		case downgradeUnsupportedReasoningSummary(&body, err):
+			fmt.Println("[OpenAI Responses] 上游不支持 detailed 推理摘要，自动降级为 auto")
 		case len(body.Include) > 0 && isOpenAIResponsesUnsupportedIncludeError(err):
 			body.Include = nil
 			fmt.Println("[OpenAI Responses] 上游不支持 include，自动降级为不请求加密推理内容")
@@ -1172,34 +1213,6 @@ func (p *OpenAIResponsesProvider) retryClientRejectedRequest(
 		}
 		err = retryErr
 	}
-}
-
-func isOpenAIResponsesUnsupportedIncludeError(err error) bool {
-	return isOpenAIResponsesUnsupportedCapabilityError(err, "include")
-}
-
-func isOpenAIResponsesUnsupportedToolsError(err error) bool {
-	return isOpenAIResponsesUnsupportedCapabilityError(
-		err,
-		"tools",
-		"functions",
-		"function calling",
-		"function-calling",
-		"tool calling",
-		"tool-calling",
-		"tool use",
-	)
-}
-
-func isOpenAIResponsesUnsupportedImagesError(err error) bool {
-	return isOpenAIResponsesUnsupportedCapabilityError(
-		err,
-		"images",
-		"image input",
-		"input_image",
-		"image_url",
-		"vision",
-	)
 }
 
 func isOpenAIResponsesUnsupportedCapabilityError(err error, capabilityTerms ...string) bool {

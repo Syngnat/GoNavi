@@ -1,10 +1,21 @@
 import React from 'react';
 import { Button, Tooltip } from 'antd';
-import { HistoryOutlined, RobotOutlined, ClearOutlined, SettingOutlined, CloseOutlined, ExportOutlined, PlusOutlined, ThunderboltOutlined, ExpandOutlined, CompressOutlined } from '@ant-design/icons';
+import {
+  GnCloseIcon,
+  GnDockIcon,
+  GnExportIcon,
+  GnHistoryIcon,
+  GnInsightIcon,
+  GnNewChatIcon,
+  GnPopoutIcon,
+  GnSettingsIcon,
+} from '../icons/gnIcons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import type { AIChatMessage } from '../../types';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
+import { aiPx } from './aiScale';
 
 interface AIChatHeaderProps {
     darkMode: boolean;
@@ -93,36 +104,36 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
         >
             <div className="gn-v2-ai-header-top">
                 <div className="ai-chat-header-left gn-v2-ai-brand" style={{ gap: 8 }}>
-                    <div className="ai-logo" style={{ background: overlayTheme.iconBg, color: overlayTheme.iconColor, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 6, fontSize: 12 }}>
-                        <RobotOutlined />
+                    <div className="ai-logo" style={{ background: overlayTheme.iconBg, color: overlayTheme.iconColor, display: 'flex', alignItems: 'center', justifyContent: 'center', width: aiPx(20), height: aiPx(20), borderRadius: 6, fontSize: aiPx(12) }}>
+                        <AiSparkOutlined />
                     </div>
                     <div className="ai-title-stack">
-                        <span className="ai-title" style={{ color: textColor, fontSize: 13, fontWeight: 600 }}>GoNavi AI</span>
+                        <span className="ai-title" style={{ color: textColor, fontSize: aiPx(13), fontWeight: 600 }}>GoNavi AI</span>
                         <small>{t('ai_chat.header.session.connected', { title: resolvedSessionTitle })}</small>
                     </div>
                 </div>
                 <div className="ai-chat-header-right gn-v2-ai-header-actions" onPointerDown={(event) => event.stopPropagation()}>
                     <Tooltip title={t('ai_chat.header.tooltip.new_chat')}>
-                        <Button type="text" size="small" icon={<PlusOutlined />} onClick={onClear} style={{ color: mutedColor }} />
+                        <Button type="text" size="small" icon={<GnNewChatIcon />} onClick={onClear} style={{ color: mutedColor }} />
                     </Tooltip>
                     <Tooltip title={t('ai_chat.header.tooltip.history')}>
-                        <Button type="text" size="small" icon={<HistoryOutlined />} onClick={onHistoryClick} style={{ color: mutedColor }} />
+                        <Button type="text" size="small" icon={<GnHistoryIcon />} onClick={onHistoryClick} style={{ color: mutedColor }} />
                     </Tooltip>
                     <Tooltip title={t('ai_chat.header.tooltip.settings')}>
-                        <Button type="text" size="small" icon={<SettingOutlined />} onClick={onSettingsClick} style={{ color: mutedColor }} />
+                        <Button type="text" size="small" icon={<GnSettingsIcon />} onClick={onSettingsClick} style={{ color: mutedColor }} />
                     </Tooltip>
                     {presentation === 'dock' && onDetach && (
                         <Tooltip title={t('ai_chat.detached.action.popout')}>
-                            <Button type="text" size="small" icon={<ExpandOutlined />} onClick={onDetach} style={{ color: mutedColor }} />
+                            <Button type="text" size="small" icon={<GnPopoutIcon />} onClick={onDetach} style={{ color: mutedColor }} />
                         </Tooltip>
                     )}
                     {presentation === 'detached' && onAttach && (
                         <Tooltip title={t('ai_chat.detached.action.dock')}>
-                            <Button type="text" size="small" icon={<CompressOutlined />} onClick={onAttach} style={{ color: mutedColor }} />
+                            <Button type="text" size="small" icon={<GnDockIcon />} onClick={onAttach} style={{ color: mutedColor }} />
                         </Tooltip>
                     )}
                     <Tooltip title={t('ai_chat.header.tooltip.close')}>
-                        <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} style={{ color: mutedColor }} />
+                        <Button type="text" size="small" icon={<GnCloseIcon />} onClick={onClose} style={{ color: mutedColor }} />
                     </Tooltip>
                 </div>
             </div>
@@ -137,7 +148,7 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
                     className={activeMode === 'chat' ? 'is-active' : undefined}
                     onClick={() => onModeChange?.('chat')}
                 >
-                    <RobotOutlined />
+                    <AiSparkOutlined />
                     <span>{t('ai_chat.header.mode.chat')}</span>
                 </button>
                 <button
@@ -145,7 +156,7 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
                     className={activeMode === 'insights' ? 'is-active' : undefined}
                     onClick={() => onModeChange?.('insights')}
                 >
-                    <ThunderboltOutlined />
+                    <GnInsightIcon />
                     <span>{t('ai_chat.header.mode.insights')}</span>
                 </button>
                 <button
@@ -153,7 +164,7 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
                     className={activeMode === 'history' ? 'is-active' : undefined}
                     onClick={() => onModeChange?.('history')}
                 >
-                    <HistoryOutlined />
+                    <GnHistoryIcon />
                     <span>{t('ai_chat.header.mode.history')}</span>
                 </button>
             </div>
@@ -161,7 +172,7 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
             {messages.length > 0 && (
                 <div className="gn-v2-ai-session-row">
                     <button type="button" className="gn-v2-ai-export-button" onClick={exportMarkdown}>
-                        <ExportOutlined />
+                        <GnExportIcon />
                         <span>{t('ai_chat.header.action.export')}</span>
                     </button>
                 </div>

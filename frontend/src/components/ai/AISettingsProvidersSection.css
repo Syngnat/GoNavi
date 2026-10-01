@@ -324,6 +324,9 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-ai-provider-hint-body .gonavi-ai-provider-density { width: max-content; }
 .gonavi-ai-provider-hint-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .gonavi-ai-provider-editor .gonavi-ai-provider-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 0 12px; }
+/* 名称 / 默认模型 / （CLI 才有的）推理档位 固定三列：预设与自定义供应商的选择框宽度完全一致。
+   窄容器下由下面的容器查询降级为单列。 */
+.gonavi-ai-provider-editor .gonavi-ai-provider-basic-fields { grid-template-columns: minmax(120px, .85fr) minmax(240px, 1.6fr) minmax(96px, .7fr); }
 .gonavi-ai-provider-editor .gonavi-sql-ai-completion-toggle { grid-column: 1 / -1; display: grid; justify-items: start; gap: 2px; margin-bottom: 8px; }
 .gonavi-ai-provider-editor .gonavi-sql-ai-completion-toggle-title { display: flex; align-items: center; gap: 8px; }
 .gonavi-ai-provider-editor .gonavi-ai-provider-field-grid > .ant-form-item { margin-bottom: 8px; min-width: 0; }
@@ -405,15 +408,27 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 }
 .gonavi-ai-provider-editor .gonavi-ai-provider-auth-method { width: min(100%, 240px); margin-bottom: 8px; }
 .gonavi-ai-provider-editor .ant-form-item-extra { font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)); }
+.gonavi-ai-provider-model-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
 .gonavi-ai-provider-model-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  flex: 1 1 auto;
+  flex-wrap: nowrap;
   min-width: 0;
   width: 100%;
+  /* 与相邻字段的 label 行等高，保证两列的控件在同一水平线上 */
+  min-height: 32px;
 }
+
+/* 标题吃掉剩余宽度并省略号截断；按钮组按内容定宽贴右，右边缘与下方控件对齐 */
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-meta { flex: 0 0 auto; }
 .gonavi-ai-provider-model-label button {
   display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 5px 11px;
   border: 1px solid transparent; border-radius: 6px; color: var(--provider-active); background: transparent;
@@ -533,8 +548,9 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
   .gonavi-provider-settings-host .gonavi-ai-provider-heading-copy { display: none; }
   .gonavi-provider-settings-host .gonavi-settings-center-pane-heading > div > div:last-child { display: none; }
 }
-@container provider-editor (min-width: 510px) {
-  .gonavi-ai-provider-editor .gonavi-ai-provider-basic-fields.has-effort { grid-template-columns: minmax(130px, 1fr) minmax(190px, 1.35fr) minmax(100px, .75fr); }
+/* 容器太窄时堆成单列，避免三列被压到挤不出内容 */
+@container provider-editor (max-width: 509px) {
+  .gonavi-ai-provider-editor .gonavi-ai-provider-basic-fields { grid-template-columns: 1fr; }
 }
 /* Default stacks URL and API key so the values stay fully readable. Side-by-side
    is opt-in from the heading hint. Blurred fields already show compressed values
@@ -582,7 +598,7 @@ body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
   background: var(--gn-bg-panel-2, var(--gn-bg-input, var(--ant-color-bg-container))) !important;
   border-color: var(--gn-br-2, var(--ant-color-border)) !important;
 }
-.gonavi-ai-model-management { color: inherit; font-size: 12px; }
+.gonavi-ai-model-management { color: inherit; font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px)); }
 .gonavi-ai-model-management button { cursor: pointer; font: inherit; border: 0; background: transparent; color: inherit; border-radius: 5px; transition: background-color .12s ease, color .12s ease, transform .06s ease; }
 /* Press feedback is local to the button, so a click reads as handled even before the form round-trip re-renders the row. */
 .gonavi-ai-model-management-actions button:hover, .gonavi-ai-model-management .gonavi-ai-model-add:hover { background: var(--gn-bg-hover, #edf7f0); }
@@ -591,8 +607,8 @@ body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
 .gonavi-ai-model-management-head > div { display: flex; gap: 3px; }
 .gonavi-ai-model-management-head button { border-radius: 5px; padding: 4px 8px; color: var(--gn-fg-3, #61776c); }
 .gonavi-ai-model-management-head button[aria-pressed='true'] { background: var(--gn-bg-hover, #edf7f0); color: var(--gn-primary, #00984a); }
-.gonavi-ai-model-management-head > span { color: var(--gn-fg-3, #61776c); font-size: 10px; white-space: nowrap; }
-.gonavi-ai-model-management-body > .ant-input { flex: 0 0 auto; width: calc(100% - 12px); margin: 0 6px 6px; font-size: 12px; }
+.gonavi-ai-model-management-head > span { color: var(--gn-fg-3, #61776c); font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)); white-space: nowrap; }
+.gonavi-ai-model-management-body > .ant-input { flex: 0 0 auto; width: calc(100% - 12px); margin: 0 6px 6px; font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)); }
 /* A single API format keeps the input frame so the row lines up with URL and key,
    but reads as fixed: muted text, no caret, no dropdown arrow. */
 .gonavi-ai-provider-fixed-value.ant-input, .gonavi-ai-provider-fixed-value.ant-input:hover, .gonavi-ai-provider-fixed-value.ant-input:focus {
@@ -600,13 +616,29 @@ body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
 }
 .gonavi-ai-model-management-row.is-default { background: var(--gn-bg-hover, #edf7f0); }
 .gonavi-ai-model-management-actions button:not([role='switch']) {
-  border: 1px solid var(--gn-br-2, #e8eeeb); padding: 3px 8px; font-size: 11px;
+  border: 1px solid var(--gn-br-2, #e8eeeb); padding: 3px 8px;
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
 }
 .gonavi-ai-hint-choice { display: grid; gap: 8px; }
 .gonavi-ai-hint-choice-copy { font-size: 11px; line-height: 1.5; }
 .gonavi-ai-hint-choice-row { display: flex; align-items: center; gap: 8px; }
-.gonavi-ai-provider-model-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
-.gonavi-ai-provider-model-meta { display: inline-flex; align-items: center; gap: 7px; flex: none; margin-left: auto; }
+.gonavi-ai-provider-model-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gonavi-ai-provider-model-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
 /* The body grows with its list up to MODEL_MANAGEMENT_BODY_HEIGHT (from
    AIProviderModelSelect.tsx via --gn-model-management-body-height) and scrolls
    beyond it; a short list drops the cap so one or two models do not leave a gap. */
@@ -614,10 +646,10 @@ body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
 .gonavi-ai-model-management-body.is-short { max-height: none; }
 .gonavi-ai-model-management-body > * { min-height: 0; }
 .gonavi-ai-model-management-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.gonavi-ai-model-management-row { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 3px 8px; border-top: 1px solid var(--gn-br-2, #e8eeeb); flex-wrap: nowrap; white-space: nowrap; }
+.gonavi-ai-model-management-row { display: flex; align-items: center; gap: 8px; min-height: calc(1.6em + 10px); padding: 4px 8px; border-top: 1px solid var(--gn-br-2, #e8eeeb); flex-wrap: nowrap; white-space: nowrap; }
 .gonavi-ai-model-management-name { min-width: 0; flex: 1; display: flex; flex-direction: row; align-items: center; gap: 8px; }
-.gonavi-ai-model-management-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 11px; }
-.gonavi-ai-model-management-name small { color: var(--gn-primary, #00984a); font-size: 10px; }
+.gonavi-ai-model-management-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)); }
+.gonavi-ai-model-management-name small { color: var(--gn-primary, #00984a); font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)); }
 /* A disabled model reads as greyed out as a whole row: name, badge and the
    switch label all drop to the muted tone, not just the name. */
 .gonavi-ai-model-management-row.is-disabled { color: var(--gn-fg-3, #61776c); }
@@ -625,10 +657,28 @@ body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
 .gonavi-ai-model-management-row.is-disabled .gonavi-ai-model-management-name small { color: inherit; }
 /* Row feedback is a short-lived popover beside the switch (see MODEL_ROW_FLASH_MS);
    it is tinted like a confirmation, not like a hover hint. */
-.gonavi-ai-model-flash .ant-tooltip-inner { color: var(--gn-primary, #00984a); background: var(--gn-bg-1, #fff); box-shadow: 0 4px 14px rgba(0, 0, 0, .16), 0 0 0 1px var(--gn-br-2, #e8eeeb); font-size: 11px; padding: 4px 8px; min-height: 0; }
+.gonavi-ai-model-flash .ant-tooltip-inner { color: var(--gn-primary, #00984a); background: var(--gn-bg-1, #fff); box-shadow: 0 4px 14px rgba(0, 0, 0, .16), 0 0 0 1px var(--gn-br-2, #e8eeeb); font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px)); padding: 4px 8px; min-height: 0; }
 .gonavi-ai-model-flash .ant-tooltip-arrow::before, .gonavi-ai-model-flash .ant-tooltip-arrow::after { background: var(--gn-bg-1, #fff); }
 .gonavi-ai-model-management-actions { flex-shrink: 0; display: flex; align-items: center; gap: 5px; }
-.gonavi-ai-model-management-actions button { padding: 3px 6px; font-size: 10px; }
+
+/* 删除：低饱和的次级动作，悬停才显警示色，避免和开关抢注意力 */
+.gonavi-ai-model-remove {
+  border: 1px solid transparent; padding: 3px 7px;
+  border-radius: 5px; color: var(--gn-fg-4, #61776c);
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+}
+.gonavi-ai-model-remove:not(:disabled):hover { background: var(--gn-bg-hover, #edf7f0); color: var(--gn-danger, #c2410c); }
+.gonavi-ai-model-remove:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 已停用 / 已移除分组的展开条 */
+.gonavi-ai-model-inactive-toggle {
+  display: block; width: 100%; margin-top: 4px; padding: 6px 8px;
+  text-align: left; color: var(--gn-fg-4, #61776c);
+  border-top: 1px solid var(--gn-br-2, #e8eeeb);
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+}
+.gonavi-ai-model-inactive-toggle:hover { background: var(--gn-bg-hover, #edf7f0); }
+.gonavi-ai-model-management-actions button { padding: 3px 6px; font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)); }
 .gonavi-ai-model-management-actions [role='switch'] { display: inline-flex; align-items: center; gap: 4px; }
 .gonavi-ai-model-switch { display: inline-block; width: 24px; height: 13px; position: relative; border-radius: 20px; background: var(--gn-br-2, #c8d7ce); transition: background-color .12s ease; }
 .gonavi-ai-model-switch::after { content: ''; position: absolute; width: 9px; height: 9px; top: 2px; left: 2px; background: #fff; border-radius: 50%; transition: transform .1s; }
@@ -794,4 +844,13 @@ body[data-ui-version] .gonavi-ai-provider-form-popup .ant-select-item-option-sel
   .gonavi-ai-model-switch, .gonavi-ai-model-switch::after, .gonavi-ai-model-management button { transition: none; }
   .gonavi-ai-model-management button:active { transform: none; }
   .gonavi-ai-provider-chip-remove:hover, .gonavi-ai-provider-chip-remove:focus-visible { animation: none; transform: scale(1.2); }
+}
+
+/* 供应商编辑页里字段下方的补充说明（如上下文档位） */
+.gonavi-ai-provider-field-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--gn-fg-4);
+  font-size: var(--gn-font-size-xs, 11px);
+  line-height: 1.5;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     createIdleQueryEditorExecutionLifecycle,
+    isQueryEditorAwaitingDriver,
     isQueryEditorCancelledRpcError,
     markQueryEditorExecutionStalled,
     queryEditorExecutionStatusI18nKey,
@@ -182,6 +183,28 @@ describe('query editor execution lifecycle', () => {
         };
         expect(queryEditorExecutionTimerStatusI18nKey(false, leaked)).toBe('');
         expect(queryEditorExecutionTimerStatusI18nKey(true, leaked)).toBe('query_editor.execution.status.running');
+    });
+
+    it('holds the timer and shows connecting only while the backend reports the starting stage', () => {
+        const starting = reduceQueryEditorExecutionLifecycle(
+            createIdleQueryEditorExecutionLifecycle(),
+            { queryId: 'query-1', status: 'running', stage: 'starting' },
+            1_000,
+        );
+        expect(isQueryEditorAwaitingDriver(starting)).toBe(true);
+        expect(queryEditorExecutionTimerStatusI18nKey(true, starting)).toBe('query_editor.execution.status.connecting');
+
+        const executing = reduceQueryEditorExecutionLifecycle(
+            starting,
+            { queryId: 'query-1', status: 'running', stage: 'executing' },
+            2_000,
+        );
+        expect(isQueryEditorAwaitingDriver(executing)).toBe(false);
+        expect(queryEditorExecutionTimerStatusI18nKey(true, executing)).toBe('query_editor.execution.status.running');
+
+        // 没有任何后端事件的执行路径不能被误判为建连中，否则计时会一直停在 0。
+        expect(isQueryEditorAwaitingDriver(createIdleQueryEditorExecutionLifecycle())).toBe(false);
+        expect(isQueryEditorAwaitingDriver(null)).toBe(false);
     });
 
     // 原第 12 个用例读 QueryEditor.tsx 源码断言 shouldRetainQueryEditorRunAfterRpc /

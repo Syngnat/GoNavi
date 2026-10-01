@@ -1,7 +1,8 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ConfigProvider, Input, Tooltip } from 'antd';
-import { CloseOutlined, CopyOutlined, SearchOutlined, TableOutlined, RobotOutlined } from '@ant-design/icons';
+import { CloseOutlined, CopyOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import { t } from '../../i18n';
 import { APP_COMMAND_PALETTE_Z_INDEX } from '../../utils/overlayZIndex';
@@ -42,6 +43,10 @@ export interface SidebarSearchPanelProps<TItem extends V2CommandSearchItemLike =
   sections: {
     goTo: TItem[];
     ai: TItem[];
+    /** Open tabs, saved queries and settings; empty for a blank query. */
+    tabs?: TItem[];
+    savedQueries?: TItem[];
+    settings?: TItem[];
     actions: TItem[];
     recent: TItem[];
   };
@@ -264,6 +269,9 @@ const SidebarSearchPanel = <TItem extends V2CommandSearchItemLike>({
         <div className="gn-v2-command-list">
           {renderSection(t('sidebar.command_search.section.goto'), sections.goTo)}
           {renderSection(t('sidebar.command_search.section.ai'), sections.ai)}
+          {renderSection(t('sidebar.command_search.section.tabs'), sections.tabs ?? [])}
+          {renderSection(t('sidebar.command_search.section.saved_queries'), sections.savedQueries ?? [])}
+          {renderSection(t('sidebar.command_search.section.settings'), sections.settings ?? [])}
           {renderSection(t('sidebar.command_search.section.actions'), sections.actions)}
           {renderSection(t('sidebar.command_search.section.recent'), sections.recent, true)}
           {flatItems.length === 0 ? (
@@ -274,7 +282,7 @@ const SidebarSearchPanel = <TItem extends V2CommandSearchItemLike>({
           <span><kbd>↑</kbd><kbd>↓</kbd>{t('sidebar.command_search.footer.navigate')}</span>
           <span><kbd>↵</kbd>{t('sidebar.command_search.footer.select')}</span>
           <span><TableOutlined /> <kbd>@</kbd>{t('sidebar.command_search.footer.object_only')}</span>
-          <span><RobotOutlined /> <kbd>?</kbd>{t('sidebar.command_search.footer.ask_ai')}</span>
+          <span><AiSparkOutlined /> <kbd>?</kbd>{t('sidebar.command_search.footer.ask_ai')}</span>
         </div>
       </div>
     </div>

@@ -32,6 +32,7 @@ import {
     parseAIRunEvent,
 } from '../ai/aiRunEventProjection';
 import { getAIWorkspaceSourceInstanceID } from '../ai/useAIWorkspaceSnapshot';
+import { buildQueryEditorAgentProviderOptions } from './queryEditorAgentRequestOptions';
 import { ensureQueryEditorAiContextServerVersion } from './queryEditorServerVersion';
 
 export type QueryEditorAiApplyMode = 'insert' | 'replaceSelection' | 'replaceAll';
@@ -561,8 +562,7 @@ const requestQueryEditorAgentOutput = async ({
         dispatchMode: 'queue',
         contextSourceId: 'desktop',
         contextSourceInstanceId: getAIWorkspaceSourceInstanceID(),
-        provider: String(provider.id || '').trim() || undefined,
-        model: String(model || '').trim() || undefined,
+        ...buildQueryEditorAgentProviderOptions(provider, model, maxTokens === INLINE_COMPLETION_MAX_TOKENS),
         temperature,
         maxTokens,
         taskKind: 'query_editor_generation',

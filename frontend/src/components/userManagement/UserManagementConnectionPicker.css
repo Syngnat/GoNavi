@@ -1,0 +1,84 @@
+/* 连接选择器 */
+.gn-user-mgmt-picker {
+  gap: 14px;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.gn-user-mgmt-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gn-user-mgmt-picker-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.gn-user-mgmt-picker-head p {
+  margin: 2px 0 0;
+  color: var(--gn-fg-3);
+  font-size: 12.5px;
+}
+
+.gn-user-mgmt-picker-search {
+  max-width: 360px;
+}
+
+.gn-user-mgmt-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.gn-user-mgmt-picker-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 10px;
+  background: var(--gn-bg-hover);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gn-user-mgmt-picker-item:hover:not(:disabled) {
+  border-color: var(--gn-accent);
+  background: var(--gn-bg-hover);
+}
+
+.gn-user-mgmt-picker-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.gn-user-mgmt-picker-icon {
+  grid-row: span 2;
+}
+
+.gn-user-mgmt-picker-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-user-mgmt-picker-meta {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--gn-fg-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-user-mgmt-picker-item .ant-tag {
+  grid-row: 1;
+  grid-column: 3;
+}
+

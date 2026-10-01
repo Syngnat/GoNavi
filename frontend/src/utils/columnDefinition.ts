@@ -1,12 +1,7 @@
 import type { ColumnDefinition } from '../types';
 import { resolveSqlDialect } from './sqlDialect';
 
-export const COMMON_COLUMN_DEFAULT_OPTIONS = [
-  { value: 'CURRENT_TIMESTAMP' },
-  { value: 'NULL' },
-  { value: '0' },
-  { value: "''" },
-];
+export { COMMON_COLUMN_DEFAULT_OPTIONS, resolveColumnDefaultOptions } from './columnDefaultOptions';
 
 const MYSQL_UNSIGNED_DIALECTS = new Set(['mysql', 'mariadb', 'tidb', 'oceanbase']);
 const MYSQL_UNSIGNED_INTEGER_TYPE_PATTERN = /^(?:tinyint|smallint|mediumint|int|integer|bigint)\b/i;

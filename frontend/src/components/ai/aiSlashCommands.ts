@@ -164,3 +164,18 @@ export const getFeaturedAISlashCommands = (
   translate: AISlashCommandTranslate = defaultTranslate,
 ): AISlashCommandDefinition[] =>
   buildAISlashCommands(translate).filter((command) => command.featured);
+
+/**
+ * Labels start with an emoji ("🔍 Natural language query"). Split it off so the
+ * menu can give every icon its own column instead of letting it shift the text.
+ */
+export const splitAISlashCommandIcon = (label: string): { icon: string; text: string } => {
+  const match = /^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s*([\s\S]*)$/u.exec(String(label || '').trim());
+  return match ? { icon: match[1], text: match[2] } : { icon: '', text: String(label || '') };
+};
+
+/** Commands in the order the menu draws them (grouped), which is the order arrow keys walk. */
+export const orderAISlashCommandsForDisplay = (
+  commands: AISlashCommandDefinition[],
+  translate: AISlashCommandTranslate = defaultTranslate,
+): AISlashCommandDefinition[] => groupAISlashCommands(commands, translate).flatMap((group) => group.commands);

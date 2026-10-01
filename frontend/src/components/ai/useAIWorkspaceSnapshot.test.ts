@@ -100,6 +100,45 @@ describe('buildDesktopWorkspaceSnapshot', () => {
     resetDatabaseServerVersionCache();
     setDatabaseServerVersionQuery(null);
   });
+
+  it('keeps explicitly attached editor selections in the active context envelope', () => {
+    const snapshot = buildDesktopWorkspaceSnapshot({
+      tabs: [{
+        id: 'query-1',
+        title: 'Orders query',
+        type: 'query',
+        connectionId: 'conn-1',
+        dbName: 'analytics',
+        query: 'select * from orders',
+      }],
+      activeTabId: 'query-1',
+      activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
+      aiContexts: {
+        'conn-1:analytics': [{
+          kind: 'editor_selection',
+          dbName: 'analytics',
+          tableName: '__gonavi_editor_selection__',
+          ddl: 'select * from orders where status = \'paid\'',
+          content: 'select * from orders where status = \'paid\'',
+          label: 'Orders query',
+          source: { tabId: 'query-1', tabTitle: 'Orders query', connectionId: 'conn-1', dbName: 'analytics' },
+        }],
+      },
+      savedQueries: [],
+      sqlSnippets: [],
+      externalSQLDirectories: [],
+      sqlLogs: [],
+      shortcutOptions: {},
+    }, 4, 'desktop-main', 'instance-1');
+
+    expect(snapshot.activeContext).toEqual(expect.objectContaining({
+      attachedItems: [expect.objectContaining({
+        kind: 'editor_selection',
+        content: 'select * from orders where status = \'paid\'',
+        source: expect.objectContaining({ tabId: 'query-1' }),
+      })],
+    }));
+  });
 });
 
 describe('useAIWorkspaceSnapshot lease renewal', () => {

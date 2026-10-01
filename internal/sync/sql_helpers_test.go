@@ -114,6 +114,89 @@ func TestNormalizeSyncTargetSchemaAndTable_KeepsQualifiedTargetTableInSourceQuer
 	}
 }
 
+// Oracle/达梦的 GetTables 恒定返回 OWNER.TABLE_NAME，选中的 owner 会以点号
+// 前缀出现在表名前。目标 schema 未显式给出时，这个前缀绝不能当成目标 schema：
+// 否则会下发 CREATE TABLE "CLOUD_SHOW"."ACT_BUSINESS"，在海量/PostgreSQL 系
+// 目标上以 3F001（schema 不存在）失败，且发生在建表阶段、不产生可重试错误行。
+func TestNormalizeSyncTargetSchemaAndTable_DropsSourceQualifierWhenTargetSchemaEmpty(t *testing.T) {
+	t.Parallel()
+
+	config := SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "oracle", Database: "ORCLPDB1"},
+		TargetConfig:   connection.ConnectionConfig{Type: "vastbase", Database: "cloudshow"},
+		SourceDatabase: "CLOUD_SHOW",
+		TargetDatabase: "cloudshow",
+		TargetSchema:   "",
+	}
+
+	schema, table := normalizeSyncTargetSchemaAndTable(config, "CLOUD_SHOW.ACT_BUSINESS")
+	if schema != "public" || table != "ACT_BUSINESS" {
+		t.Fatalf("source-qualified table must not leak into target schema, got %q.%q", schema, table)
+	}
+}
+
+// 判据必须收窄：只有点号前缀与该连接显式选中的源 schema/owner 一致时，才认定
+// 它是源端限定符。前缀不匹配时不得据此改写表名 —— 否则"表名本身含点"的方言会
+// 被误伤。这里直接钉住判定函数本身，避免后续把判据放宽。
+func TestIsSelectedSyncSourceOwner_RequiresMatchWithSelectedSourceOwner(t *testing.T) {
+	t.Parallel()
+
+	config := SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "oracle", Database: "ORCLPDB1"},
+		SourceDatabase: "CLOUD_SHOW",
+	}
+
+	if !isSelectedSyncSourceOwner(config, "cloud_show") {
+		t.Fatal("大小写不同但确为选中 owner 时必须认定为源端限定符")
+	}
+	if isSelectedSyncSourceOwner(config, "legacy_parts") {
+		t.Fatal("与选中 owner 不一致的前缀不得被认定为源端限定符")
+	}
+	if isSelectedSyncSourceOwner(config, "") {
+		t.Fatal("空前缀不得被认定为源端限定符")
+	}
+}
+
+func TestNormalizeSyncTargetSchemaAndTable_ExplicitAndEmptySchemaAgreeOnQualifiedSourceTable(t *testing.T) {
+	t.Parallel()
+
+	base := SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "oracle", Database: "ORCLPDB1"},
+		TargetConfig:   connection.ConnectionConfig{Type: "vastbase", Database: "cloudshow"},
+		SourceDatabase: "CLOUD_SHOW",
+		TargetDatabase: "cloudshow",
+	}
+
+	emptySchema := base
+	emptySchema.TargetSchema = ""
+	fromEmpty, fromEmptyTable := normalizeSyncTargetSchemaAndTable(emptySchema, "CLOUD_SHOW.ACT_BUSINESS")
+
+	explicitSchema := base
+	explicitSchema.TargetSchema = "public"
+	fromExplicit, fromExplicitTable := normalizeSyncTargetSchemaAndTable(explicitSchema, "CLOUD_SHOW.ACT_BUSINESS")
+
+	if fromEmpty != fromExplicit || fromEmptyTable != fromExplicitTable {
+		t.Fatalf("两条路径必须一致：空 schema=%q.%q 显式 schema=%q.%q",
+			fromEmpty, fromEmptyTable, fromExplicit, fromExplicitTable)
+	}
+}
+
+// source-query 模式下 tableName 是用户手写的目标对象名，前缀是用户意图，必须保留。
+func TestNormalizeSyncTargetSchemaAndTable_SourceQueryKeepsUserTargetQualifier(t *testing.T) {
+	t.Parallel()
+
+	config := SyncConfig{
+		TargetConfig:   connection.ConnectionConfig{Type: "vastbase", Database: "cloudshow"},
+		TargetDatabase: "cloudshow",
+		SourceQuery:    "select * from ACT_BUSINESS",
+	}
+
+	schema, table := normalizeSyncTargetSchemaAndTable(config, "reporting.ACT_BUSINESS")
+	if schema != "reporting" || table != "ACT_BUSINESS" {
+		t.Fatalf("source-query target qualifier must be preserved, got %q.%q", schema, table)
+	}
+}
+
 func TestNormalizeSyncTargetSchemaAndTable_UsesQualifiedTableForSQLServerExplicitSchema(t *testing.T) {
 	t.Parallel()
 

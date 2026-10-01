@@ -1,11 +1,6 @@
 import React from 'react';
 import { Select, Tooltip } from 'antd';
-import {
-  ClockCircleOutlined,
-  ControlOutlined,
-  SyncOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
+import { GnBoltIcon, GnClockIcon, GnRefreshIcon, GnSlidersIcon } from './icons/gnIcons';
 
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
@@ -76,7 +71,7 @@ const QueryEditorTransactionSettings: React.FC<QueryEditorTransactionSettingsPro
           }}
           labelRender={(option) => (
             <span className="gn-v2-query-toolbar-select-icon" aria-hidden="true">
-              {option.value === 'auto' ? <SyncOutlined /> : <ControlOutlined />}
+              {option.value === 'auto' ? <GnRefreshIcon /> : <GnSlidersIcon />}
             </span>
           )}
           options={[
@@ -102,7 +97,7 @@ const QueryEditorTransactionSettings: React.FC<QueryEditorTransactionSettingsPro
             }}
             labelRender={() => (
               <span className="gn-v2-query-toolbar-select-icon" aria-hidden="true">
-                {autoCommitDelayMs === 0 ? <ThunderboltOutlined /> : <ClockCircleOutlined />}
+                {autoCommitDelayMs === 0 ? <GnBoltIcon /> : <GnClockIcon />}
               </span>
             )}
             options={autoCommitDelayOptions}

@@ -474,6 +474,32 @@ describe('useAIChatRunEventSubscription', () => {
     await act(async () => renderer?.unmount());
   });
 
+  it('steps over an unreadable Ledger event so later events still project', async () => {
+    const unreadable = makeEvent(2, {
+      payload: { toolCalls: [{ callId: 'call-1', toolName: 'execute_sql', effect: 'write_everything' }] },
+    });
+    const AIReadAgentRun = vi.fn().mockResolvedValue({
+      events: [makeEvent(1), unreadable, makeEvent(3)],
+      hasMore: false,
+    });
+    vi.stubGlobal('window', { go: { aiservice: { Service: { AIReadAgentRun } } } });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness />);
+    });
+    // Sequence 2 never parses, so the live stream sees a gap before 3.
+    await emit(makeEvent(3));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledWith({ runId: 'run-event-1', afterSequence: 0, limit: 500 });
+    expect(useStore.getState().aiChatHistory[SESSION_ID][0].content).toBe('chunk-1chunk-3');
+    await act(async () => renderer?.unmount());
+  });
+
   it('settles once on terminal and ignores late provider callbacks', async () => {
     let renderer: ReactTestRenderer | undefined;
     await act(async () => {

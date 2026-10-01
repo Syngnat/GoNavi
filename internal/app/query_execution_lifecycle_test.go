@@ -116,6 +116,43 @@ func TestQueryExecutionLifecycleEmitsHeartbeatAndDone(t *testing.T) {
 	}
 }
 
+func TestQueryExecutionLifecycleKeepsStartingStageUntilConnectionReady(t *testing.T) {
+	originalInterval := queryExecutionHeartbeatInterval
+	queryExecutionHeartbeatInterval = 10 * time.Millisecond
+	t.Cleanup(func() { queryExecutionHeartbeatInterval = originalInterval })
+
+	recorder := &queryProgressEventRecorder{}
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.ctx = uievents.WithEmitter(context.Background(), recorder)
+
+	lifecycle := application.beginQueryExecutionLifecycleWithConnection("query-connecting-1")
+	time.Sleep(60 * time.Millisecond)
+	for _, event := range recorder.snapshot() {
+		if event.Stage == queryExecutionStageExecuting {
+			t.Fatalf("heartbeat must stay in starting while connecting: %#v", event)
+		}
+	}
+
+	lifecycle.markExecuting()
+	lifecycle.markExecuting() // 幂等：不重复上报
+	time.Sleep(30 * time.Millisecond)
+	lifecycle.complete(connection.QueryResult{Success: true, QueryID: "query-connecting-1"})
+
+	firstExecuting := -1
+	for index, event := range recorder.snapshot() {
+		if event.Stage == queryExecutionStageExecuting {
+			firstExecuting = index
+			break
+		}
+	}
+	if firstExecuting < 0 {
+		t.Fatalf("markExecuting must emit an executing event: %#v", recorder.snapshot())
+	}
+	if event := recorder.snapshot()[firstExecuting]; event.Status != queryExecutionStatusRunning {
+		t.Fatalf("unexpected executing event: %#v", event)
+	}
+}
+
 func TestCancelQueryEmitsCancellingProgress(t *testing.T) {
 	recorder := &queryProgressEventRecorder{}
 	application := NewAppWithSecretStore(newFakeAppSecretStore())

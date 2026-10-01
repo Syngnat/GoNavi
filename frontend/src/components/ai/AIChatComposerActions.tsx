@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Segmented, Tooltip } from 'antd';
-import { CodeOutlined, PictureOutlined, SendOutlined, StopOutlined, TableOutlined } from '@ant-design/icons';
+import { GnAttachIcon, GnSendIcon, GnSlashCommandIcon, GnStopIcon, GnTableIcon } from '../icons/gnIcons';
 
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
@@ -68,7 +68,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
       <Tooltip title={t('ai_chat.input.tooltip.upload_attachment')}>
         <Button
           type="text"
-          icon={<PictureOutlined />}
+          icon={<GnAttachIcon />}
           onClick={() => fileInputRef.current?.click()}
           style={v2IconButtonStyle}
         />
@@ -76,7 +76,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
       <Tooltip title={t('ai_chat.input.tooltip.attach_table_context')}>
         <Button
           type="text"
-          icon={<TableOutlined />}
+          icon={<GnTableIcon />}
           onClick={onOpenContext}
           style={v2IconButtonStyle}
         />
@@ -84,7 +84,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
       <Tooltip title={t('ai_chat.input.tooltip.slash_command')}>
         <Button
           type="text"
-          icon={<CodeOutlined />}
+          icon={<GnSlashCommandIcon />}
           onClick={onOpenSlashMenu}
           style={v2IconButtonStyle}
         />
@@ -113,7 +113,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
           aria-busy={stopRequestPending}
           title={t('ai_chat.input.action.stop')}
         >
-          <StopOutlined />
+          <GnStopIcon />
         </button>
       )}
       {(!sending || (hasActiveRun && canSend)) && (
@@ -126,7 +126,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
             ? t(dispatchMode === 'steer' ? 'ai_chat.input.dispatch.send_steer' : 'ai_chat.input.dispatch.send_queue')
             : t('ai_chat.input.action.send')}
         >
-          <SendOutlined />
+          <GnSendIcon />
         </button>
       )}
     </div>

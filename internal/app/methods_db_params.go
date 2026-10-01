@@ -164,7 +164,7 @@ func (a *App) dbQueryMultiWithParams(
 		true,
 		optionalDriverTypeForConnectionConfig(runConfig),
 	)
-	lifecycle := a.beginQueryExecutionLifecycle(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
 	var queryExecutionDuration time.Duration
 	defer func() {
 		lifecycle.complete(result)
@@ -181,6 +181,7 @@ func (a *App) dbQueryMultiWithParams(
 	if err != nil {
 		return buildQueryConnectionFailure(err, queryID, auditOptions.classifyConnectionErrors)
 	}
+	lifecycle.markExecuting()
 	defer func() {
 		if result.Success {
 			a.markCachedDatabaseHealthy(dbInst, time.Now())

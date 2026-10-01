@@ -732,7 +732,8 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.providerProps.testResult).toBeNull();
     expect(mocks.providerProps.testing).toBe(false);
     await act(async () => { await mocks.providerProps.onSaveProvider(); });
-    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ type: 'openai', baseUrl: 'https://api.minimaxi.com/v1', model: 'pinned-model', name: 'My model alias', models: [], maxTokens: 0, contextWindow: 0, temperature: 0.2 }));
+    // 上下文档位由供应商编辑页持有，这里原样提交；是否能落到该模型的档位由 Go 侧按模型校验。
+    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ type: 'openai', baseUrl: 'https://api.minimaxi.com/v1', model: 'pinned-model', name: 'My model alias', models: [], maxTokens: 0, contextWindow: 32000, temperature: 0.2 }));
   });
 
   it('retains a saved Bailian Chat endpoint instead of silently converting it to Messages', async () => {

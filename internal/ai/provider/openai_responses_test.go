@@ -146,7 +146,7 @@ func TestOpenAIResponsesProviderChatUsesResponsesRequestAndParsesOutputItems(t *
 		t.Fatalf("unexpected generation options: %#v", received)
 	}
 	reasoning, _ := received["reasoning"].(map[string]any)
-	if reasoning["effort"] != "high" || reasoning["summary"] != "auto" {
+	if reasoning["effort"] != "high" || reasoning["summary"] != "detailed" {
 		t.Fatalf("unexpected reasoning config: %#v", reasoning)
 	}
 	tools, _ := received["tools"].([]any)

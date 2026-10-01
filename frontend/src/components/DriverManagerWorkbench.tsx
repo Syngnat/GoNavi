@@ -1,17 +1,17 @@
-import { Button, message, theme } from 'antd';
+import { message, theme } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '../i18n/provider';
 import { useStore } from '../store';
 import type { TabData } from '../types';
 import {
   DOWNLOAD_SOURCE_CHANGED_EVENT,
-  getNextDownloadSource,
   normalizeDownloadSource,
   notifyDownloadSourceChanged,
   requestGlobalProxySettings,
   type DownloadSourceId,
 } from '../utils/driverManagerTab';
 import DriverManagerModal from './DriverManagerModal';
+import DownloadSourceSelect from './DownloadSourceSelect';
 import './DriverManagerWorkbench.css';
 
 interface DriverManagerWorkbenchProps {
@@ -28,6 +28,7 @@ export default function DriverManagerWorkbench({
   const { t } = useI18n();
   const { token } = theme.useToken();
   const closeTab = useStore((state) => state.closeTab);
+  const darkMode = useStore((state) => state.theme === 'dark');
   const [downloadSource, setDownloadSource] = useState<DownloadSourceId>('cst');
   const [downloadSourceSwitching, setDownloadSourceSwitching] = useState(false);
   const loadDownloadSource = useCallback(async () => {
@@ -58,14 +59,16 @@ export default function DriverManagerWorkbench({
     };
   }, [loadDownloadSource]);
 
-  const handleSwitchDownloadSource = useCallback(async () => {
+  const handleSelectDownloadSource = useCallback(async (value: DownloadSourceId) => {
     if (downloadSourceSwitching) return;
+    const nextSource = normalizeDownloadSource(value);
     const previousSource = downloadSource;
-    const nextSource = getNextDownloadSource(downloadSource);
     setDownloadSource(nextSource);
     notifyDownloadSourceChanged(nextSource);
     const backendApp = (window as any).go?.app?.App;
-    if (typeof backendApp?.SaveDownloadSourceConfig !== 'function') return;
+    if (typeof backendApp?.SaveDownloadSourceConfig !== 'function') {
+      return;
+    }
 
     setDownloadSourceSwitching(true);
     try {
@@ -105,19 +108,14 @@ export default function DriverManagerWorkbench({
               {t('app.tools.entry.drivers.description')}
             </div>
           </div>
-          <Button
-            className="preview-settings-source"
-            type="text"
+          <DownloadSourceSelect
+            className="preview-settings-source-select"
+            value={downloadSource}
+            darkMode={darkMode}
+            saving={downloadSourceSwitching}
+            onChange={(source) => void handleSelectDownloadSource(source)}
             size="small"
-            onClick={() => void handleSwitchDownloadSource()}
-            loading={downloadSourceSwitching}
-            disabled={downloadSourceSwitching}
-            aria-label={`${t('driver_manager.mirror_source.label')}: ${t(`app.download_source.option.${downloadSource}`)}. ${t('driver_manager.mirror_source.switch')}`}
-          >
-            <span className="preview-settings-source-dot" data-download-source={downloadSource} aria-hidden="true" />
-            <span className="preview-settings-source-name" title={t(`app.download_source.option.${downloadSource}`)}>{t(`app.download_source.option.${downloadSource}`)}</span>
-            <span className="preview-settings-source-action">{t('driver_manager.mirror_source.switch')}</span>
-          </Button>
+          />
         </header>
 
         <div className="gn-driver-manager-workbench-content">
@@ -126,7 +124,7 @@ export default function DriverManagerWorkbench({
             open={isActive}
             onClose={() => (onRequestClose ? onRequestClose() : closeTab(tab.id))}
             onOpenGlobalProxySettings={requestGlobalProxySettings}
-            onSwitchDownloadSource={() => void handleSwitchDownloadSource()}
+            onChangeDownloadSource={(source) => void handleSelectDownloadSource(source)}
             downloadSourceSwitching={downloadSourceSwitching}
             downloadSource={downloadSource}
           />

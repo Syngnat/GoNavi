@@ -79,6 +79,11 @@ import {
   type SqlEditorTypographySettings,
 } from "./utils/sqlEditorTypography";
 import {
+  DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS,
+  sanitizeTitlebarActionsPlacementSettings,
+  type TitlebarActionsPlacementSettings,
+} from "./utils/titlebarActionsPlacement";
+import {
   normalizeOceanBaseProtocol,
   resolveOceanBaseProtocolFromConfig,
   resolveOceanBaseProtocolFromQueryText,
@@ -146,6 +151,10 @@ import {
 } from "./utils/queryEditorSplitLayout";
 import { sanitizeSidebarWidth } from "./utils/sidebarLayout";
 import {
+  DEFAULT_AI_PANEL_WIDTH,
+  sanitizeAIPanelWidth,
+} from "./utils/aiPanelLayout";
+import {
   DEFAULT_SIDEBAR_TABLE_METADATA_FIELDS,
   applySidebarTableMetadataFieldOrder,
   resolveSidebarTableMetadataFieldOrder,
@@ -200,16 +209,13 @@ export type ThemePreference = ThemeMode | "system";
 /** AI 聊天默认打开形态：侧栏 / 独立浮动窗 */
 export type AIChatOpenMode = "dock" | "detached";
 
-export type TitlebarMenuStyle = 'classic' | 'view-menu';
-
 export interface AppearanceSettings
-  extends DataGridDisplaySettings, SqlEditorTypographySettings {
+  extends DataGridDisplaySettings, SqlEditorTypographySettings, TitlebarActionsPlacementSettings {
   enabled: boolean;
   opacity: number;
   blur: number;
   tableDoubleClickAction: TableDoubleClickAction;
   queryTableCtrlClickAction: QueryTableCtrlClickAction;
-  titlebarMenuStyle: TitlebarMenuStyle;
   v2SidebarSearchMode: "command" | "filter";
   v2SidebarPersistedFilter: string;
   v2SidebarRailScale: number;
@@ -240,7 +246,6 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   blur: 0,
   tableDoubleClickAction: "open-data",
   queryTableCtrlClickAction: "open-design",
-  titlebarMenuStyle: "classic",
   v2SidebarSearchMode: "command",
   v2SidebarPersistedFilter: "",
   v2SidebarRailScale: DEFAULT_V2_SIDEBAR_RAIL_SCALE,
@@ -258,6 +263,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   redisDbAliases: DEFAULT_REDIS_DB_ALIASES,
   ...DEFAULT_DATA_GRID_DISPLAY_SETTINGS,
   ...DEFAULT_SQL_EDITOR_TYPOGRAPHY_SETTINGS,
+  ...DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS,
 };
 const DEFAULT_UI_SCALE = 1.0;
 const MIN_UI_SCALE = 0.8;
@@ -296,11 +302,6 @@ const sanitizeQueryTableCtrlClickAction = (
   value: unknown,
 ): QueryTableCtrlClickAction => {
   return value === "locate" ? "locate" : DEFAULT_APPEARANCE.queryTableCtrlClickAction;
-};
-
-/** 未知值一律回退经典模式，保证老配置升级后标题栏外观不变。 */
-export const sanitizeTitlebarMenuStyle = (value: unknown): TitlebarMenuStyle => {
-  return value === "view-menu" ? "view-menu" : DEFAULT_APPEARANCE.titlebarMenuStyle;
 };
 
 const sanitizeV2SidebarPersistedFilter = (value: unknown): string => {
@@ -2060,6 +2061,8 @@ interface AppState {
 
   // AI 运行时投影。会话和消息的持久化由 Agent Run Harness Ledger 管理。
   aiPanelVisible: boolean;
+  /** AI 面板停靠宽度：拖拽后记住，重启保持。 */
+  aiPanelWidth: number;
   /** 打开 AI 时的默认形态：侧栏 dock 或独立窗口 detached（持久化） */
   aiChatOpenMode: AIChatOpenMode;
   aiChatHistory: Record<string, AIChatMessage[]>; // sessionId -> messages
@@ -2314,6 +2317,7 @@ interface AppState {
   }) => void;
   setWindowState: (state: "normal" | "fullscreen" | "maximized") => void;
   setSidebarWidth: (width: number) => void;
+  setAIPanelWidth: (width: number) => void;
 
   // AI actions
   toggleAIPanel: () => void;
@@ -3361,9 +3365,6 @@ const sanitizeAppearance = (
     queryTableCtrlClickAction: sanitizeQueryTableCtrlClickAction(
       appearance.queryTableCtrlClickAction,
     ),
-    titlebarMenuStyle: sanitizeTitlebarMenuStyle(
-      appearance.titlebarMenuStyle,
-    ),
     v2SidebarSearchMode: sanitizeV2SidebarSearchMode(
       appearance.v2SidebarSearchMode,
     ),
@@ -3401,19 +3402,10 @@ const sanitizeAppearance = (
       ? sanitizeTabDisplaySettings(DEFAULT_TAB_DISPLAY_SETTINGS)
       : sanitizeTabDisplaySettings(appearance.tabDisplay),
     redisDbAliases: sanitizeRedisDbAliases(appearance.redisDbAliases),
-    showDataTableVerticalBorders:
-      dataGridDisplaySettings.showDataTableVerticalBorders,
-    showDataTableRowNumber: dataGridDisplaySettings.showDataTableRowNumber,
-    dataTableDensity: dataGridDisplaySettings.dataTableDensity,
-    dataTableFontSize: dataGridDisplaySettings.dataTableFontSize,
-    dataTableFontSizeFollowGlobal:
-      dataGridDisplaySettings.dataTableFontSizeFollowGlobal,
-    sqlEditorFontSize: sqlEditorTypographySettings.sqlEditorFontSize,
-    sqlEditorFontSizeFollowGlobal:
-      sqlEditorTypographySettings.sqlEditorFontSizeFollowGlobal,
-    sidebarTreeFontSize: dataGridDisplaySettings.sidebarTreeFontSize,
-    sidebarTreeFontSizeFollowGlobal:
-      dataGridDisplaySettings.sidebarTreeFontSizeFollowGlobal,
+    // 各设置分片的归一化函数只返回自身字段，直接展开。
+    ...dataGridDisplaySettings,
+    ...sqlEditorTypographySettings,
+    ...sanitizeTitlebarActionsPlacementSettings(appearance),
   };
   if (version < 2 && isLegacyDefaultAppearance(appearance)) {
     return { ...DEFAULT_APPEARANCE };
@@ -3666,6 +3658,7 @@ const PERSISTED_STATE_DEPENDENCY_KEYS = [
   "windowBounds",
   "windowState",
   "sidebarWidth",
+  "aiPanelWidth",
   "connections",
 ] as const satisfies readonly (keyof AppState)[];
 
@@ -3738,6 +3731,7 @@ const buildPersistedStateProjection = (
     windowBounds: state.windowBounds,
     windowState: state.windowState,
     sidebarWidth: state.sidebarWidth,
+    aiPanelWidth: sanitizeAIPanelWidth(state.aiPanelWidth),
   };
 
   if (hasLegacyConnectionSecrets(state.connections)) {
@@ -3887,6 +3881,7 @@ export const useStore = create<AppState>()(
       windowBounds: null,
       windowState: "normal" as const,
       sidebarWidth: 330,
+      aiPanelWidth: DEFAULT_AI_PANEL_WIDTH,
 
       // AI 运行状态
       aiPanelVisible: false,
@@ -5874,6 +5869,8 @@ export const useStore = create<AppState>()(
 
       setSidebarWidth: (width) =>
         set({ sidebarWidth: sanitizeSidebarWidth(width) }),
+      setAIPanelWidth: (width: number) =>
+        set({ aiPanelWidth: sanitizeAIPanelWidth(width) }),
 
       // AI actions
       toggleAIPanel: () =>
@@ -6394,6 +6391,7 @@ export const useStore = create<AppState>()(
         nextState.windowBounds = sanitizeWindowBounds(state.windowBounds);
         nextState.windowState = sanitizeWindowState(state.windowState);
         nextState.sidebarWidth = sanitizeSidebarWidth(state.sidebarWidth);
+        nextState.aiPanelWidth = sanitizeAIPanelWidth(state.aiPanelWidth);
         nextState.aiChatOpenMode = sanitizeAIChatOpenMode(state.aiChatOpenMode);
         nextState.aiChatDetachedBoundsMemory = sanitizeAIChatDetachedBoundsMemory(
           state.aiChatDetachedBoundsMemory,
@@ -6509,6 +6507,7 @@ export const useStore = create<AppState>()(
           windowBounds: sanitizeWindowBounds(state.windowBounds),
           windowState: sanitizeWindowState(state.windowState),
           sidebarWidth: sanitizeSidebarWidth(state.sidebarWidth),
+          aiPanelWidth: sanitizeAIPanelWidth(state.aiPanelWidth),
           aiChatOpenMode: sanitizeAIChatOpenMode(state.aiChatOpenMode),
           aiChatDetachedBoundsMemory: sanitizeAIChatDetachedBoundsMemory(
             state.aiChatDetachedBoundsMemory,

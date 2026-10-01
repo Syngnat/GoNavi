@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button, Tooltip } from 'antd';
-import { AimOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons';
+import { AimOutlined, CloseOutlined } from '@ant-design/icons';
+import AiSparkOutlined from '../icons/AiSparkOutlined';
 
 import { t as defaultTranslate } from '../../i18n';
 import { useOptionalI18n } from '../../i18n/provider';
@@ -76,7 +77,7 @@ const QueryEditorExecutionErrorCardComponent: React.FC<QueryEditorExecutionError
                     >
                         <Button
                             type="primary"
-                            icon={<RobotOutlined />}
+                            icon={<AiSparkOutlined />}
                             className="gn-query-execution-error-diagnose"
                             onClick={onDiagnose}
                         >

@@ -26,6 +26,7 @@ var startupDriverModuleNames = map[string]string{
 	"github.com/HuaweiCloudDeveloper/gaussdb-go": "gaussdb",
 	"github.com/apache/iotdb-client-go":          "iotdb",
 	"github.com/apache/rocketmq-client-go/v2":    "rocketmq",
+	"github.com/apache/pulsar-client-go":         "pulsar",
 	"github.com/caretdev/go-irisnative":          "iris",
 	"github.com/duckdb/duckdb-go/v2":             "duckdb",
 	"github.com/eclipse/paho.mqtt.golang":        "mqtt",

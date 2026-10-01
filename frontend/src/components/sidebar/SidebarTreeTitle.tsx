@@ -257,7 +257,7 @@ export const renderSidebarV2TreeTitle = ({
   ].filter(Boolean).join(' ');
   const pinnedNodeType = node.type === 'table' && node?.dataRef?.pinnedSidebarTable
     ? 'table'
-    : node.type === 'database' && node?.dataRef?.pinnedSidebarDatabase
+    : (node.type === 'database' || node.type === 'nacos-namespace' || node.type === 'nacos-config-group') && node?.dataRef?.pinnedSidebarDatabase
       ? 'database'
       : null;
   const pinIndicator = pinnedNodeType ? (

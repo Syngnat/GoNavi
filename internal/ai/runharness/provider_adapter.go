@@ -78,6 +78,8 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 		Tools:       toAITools(request.Tools),
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
+		// 没有显式上限时，截断是需要续写的事故；显式上限（行内补全等）本来就期望截断。
+		ReportOutputLimit: maxTokens <= 0,
 	}
 	if a.ResolveImagePrompts != nil {
 		prompts, err := a.ResolveImagePrompts(ctx, request)
@@ -247,6 +249,13 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ModelTurnResult{}, ctxErr
 	}
+	// 输出被长度上限截断不是失败：已流出的内容照常返回并标记 Truncated，
+	// 由 harness 保留这部分内容并要求模型续写。
+	var outputLimit *ai.OutputLimitError
+	truncated := errors.As(stream.err, &outputLimit)
+	if truncated {
+		stream.err = nil
+	}
 	// A provider's context/sentinel error describes cancellation/deadline more
 	// authoritatively than a callback diagnostic. For other errors preserve both
 	// details while keeping the callback error first (legacy providers often
@@ -266,13 +275,13 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 	if callbackErr != nil {
 		return ModelTurnResult{}, callbackErr
 	}
-	if !completed && !hasOutput {
+	if !completed && !hasOutput && !truncated {
 		return ModelTurnResult{}, errors.New("model provider returned empty response")
 	}
 	result := ModelTurnResult{
 		Text: text, Reasoning: reasoningText,
 		ToolCalls: convertedToolCalls, Usage: resultUsage,
-		ProviderState: cloneRaw(stream.state), Completed: true,
+		ProviderState: cloneRaw(stream.state), Completed: true, Truncated: truncated,
 	}
 	return result, nil
 }

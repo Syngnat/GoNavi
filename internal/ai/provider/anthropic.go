@@ -100,6 +100,40 @@ type AnthropicProvider struct {
 	client  *http.Client
 }
 
+// resolveMaxTokens resolves the output budget. Anthropic's Messages API makes
+// max_tokens mandatory, so "no limit" is expressed as the largest current
+// model limit (see output_token_budget.go). The second result reports that the
+// value is a default rather than a user choice.
+func (p *AnthropicProvider) resolveMaxTokens(req ai.ChatRequest) (int, bool) {
+	if explicit, ok := explicitOutputTokens(req.MaxTokens, p.config.MaxTokens); ok {
+		return explicit, false
+	}
+	if learned, ok := learnedOutputTokenCap(p.baseURL, p.config.Model); ok && learned > 0 {
+		return learned, false
+	}
+	return anthropicDefaultMaxTokens, true
+}
+
+// doRequestAdaptingOutputCap sends the request and, when the upstream rejects a
+// *default* max_tokens as above the model's limit, retries once with the limit
+// the error states (or the historical 4096 when none can be parsed) and
+// remembers it for this endpoint and model. Explicit budgets are never rewritten.
+func (p *AnthropicProvider) doRequestAdaptingOutputCap(ctx context.Context, body *anthropicRequest) (io.ReadCloser, error) {
+	respBody, err := p.doRequest(ctx, *body)
+	if err == nil || !body.implicitMaxTokens || !isOutputTokenLimitRejection(err) {
+		return respBody, err
+	}
+	capValue, ok := outputTokenCapFromRejection(err, body.MaxTokens)
+	if !ok {
+		capValue = legacyOutputTokenFallback
+	}
+	rememberOutputTokenCap(p.baseURL, p.config.Model, capValue)
+	fmt.Printf("[Anthropic] 默认输出上限 %d 被上游拒绝，改用 %d 重试\n", body.MaxTokens, capValue)
+	body.MaxTokens = capValue
+	body.implicitMaxTokens = false
+	return p.doRequest(ctx, *body)
+}
+
 // NewAnthropicProvider 创建 Anthropic Provider 实例
 func NewAnthropicProvider(config ai.ProviderConfig) (Provider, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
@@ -111,10 +145,6 @@ func NewAnthropicProvider(config ai.ProviderConfig) (Provider, error) {
 	if model == "" {
 		return nil, fmt.Errorf("model ID is required; select or enter a model in Settings")
 	}
-	maxTokens := config.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultOpenAIMaxTokens
-	}
 	temperature := config.Temperature
 	if temperature <= 0 {
 		temperature = defaultOpenAITemperature
@@ -123,7 +153,6 @@ func NewAnthropicProvider(config ai.ProviderConfig) (Provider, error) {
 	normalized := config
 	normalized.BaseURL = baseURL
 	normalized.Model = model
-	normalized.MaxTokens = maxTokens
 	normalized.Temperature = temperature
 	profile := ResolveThinkingProfile(config.Type, config.APIFormat, baseURL, model)
 	normalized.ThinkingIntensity = string(clampThinkingIntensityToProfile(config.ThinkingIntensity, profile))
@@ -161,6 +190,9 @@ type anthropicRequest struct {
 	Tools        []anthropicTool        `json:"tools,omitempty"`
 	Thinking     *anthropicThinking     `json:"thinking,omitempty"`
 	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
+
+	// implicitMaxTokens 标记 MaxTokens 是默认值而非用户显式给的；只有默认值被上游拒绝时才允许自动调整。
+	implicitMaxTokens bool
 }
 
 // anthropicThinking Anthropic / DeepSeek Anthropic 兼容思考开关。
@@ -362,6 +394,7 @@ type anthropicStreamEvent struct {
 		Text        string `json:"text,omitempty"`
 		Thinking    string `json:"thinking,omitempty"`
 		PartialJSON string `json:"partial_json,omitempty"`
+		StopReason  string `json:"stop_reason,omitempty"`
 	} `json:"delta,omitempty"`
 	Message *struct {
 		Usage anthropicUsage `json:"usage"`
@@ -420,10 +453,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.C
 	if temperature <= 0 {
 		temperature = p.config.Temperature
 	}
-	maxTokens := req.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = p.config.MaxTokens
-	}
+	maxTokens, implicitMaxTokens := p.resolveMaxTokens(req)
 
 	body := anthropicRequest{
 		Model:       p.config.Model,
@@ -432,10 +462,12 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.C
 		MaxTokens:   maxTokens,
 		Temperature: temperature,
 		Tools:       convertToolsToAnthropic(req.Tools),
+
+		implicitMaxTokens: implicitMaxTokens,
 	}
 	p.applyThinkingToRequest(&body)
 
-	respBody, err := p.doRequest(ctx, body)
+	respBody, err := p.doRequestAdaptingOutputCap(ctx, &body)
 	if err != nil {
 		if len(req.Tools) > 0 && isHTTP400Error(err) {
 			body.Tools = nil
@@ -509,10 +541,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 	if temperature <= 0 {
 		temperature = p.config.Temperature
 	}
-	maxTokens := req.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = p.config.MaxTokens
-	}
+	maxTokens, implicitMaxTokens := p.resolveMaxTokens(req)
 
 	body := anthropicRequest{
 		Model:       p.config.Model,
@@ -522,10 +551,12 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 		Temperature: temperature,
 		Stream:      true,
 		Tools:       convertToolsToAnthropic(req.Tools),
+
+		implicitMaxTokens: implicitMaxTokens,
 	}
 	p.applyThinkingToRequest(&body)
 
-	respBody, err := p.doRequest(ctx, body)
+	respBody, err := p.doRequestAdaptingOutputCap(ctx, &body)
 	if err != nil {
 		if len(req.Tools) > 0 && isHTTP400Error(err) {
 			body.Tools = nil
@@ -547,6 +578,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 	}
 	activeBlocks := make(map[int]*activeToolUse) // index -> block
 	var streamUsage *ai.TokenUsage
+	truncated := false
 	mergeUsage := func(raw anthropicUsage) {
 		normalized := normalizeAnthropicUsage(raw)
 		if streamUsage == nil {
@@ -588,6 +620,9 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 		case "message_delta":
 			if event.Usage != nil {
 				mergeUsage(*event.Usage)
+			}
+			if event.Delta != nil && event.Delta.StopReason == "max_tokens" {
+				truncated = true
 			}
 
 		case "content_block_start":
@@ -643,6 +678,10 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 			}
 
 		case "message_stop":
+			if truncated && req.ReportOutputLimit {
+				callback(ai.StreamChunk{Usage: streamUsage})
+				return &ai.OutputLimitError{Message: "Anthropic response incomplete: stop_reason=max_tokens"}
+			}
 			callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 			return nil
 		}
@@ -650,6 +689,10 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 
 	if err := scanner.Err(); err != nil {
 		return err
+	}
+	if truncated && req.ReportOutputLimit {
+		callback(ai.StreamChunk{Usage: streamUsage})
+		return &ai.OutputLimitError{Message: "Anthropic response incomplete: stop_reason=max_tokens"}
 	}
 	callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 	return nil

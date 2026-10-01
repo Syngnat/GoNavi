@@ -91,6 +91,22 @@ describe('buildRpcConnectionConfig', () => {
     expect((result as any).oceanBaseProtocol).toBeUndefined();
   });
 
+  it('injects the OceanBase protocol for a legacy custom-driver connection', () => {
+    const result = buildRpcConnectionConfig({
+      id: 'conn-custom-oceanbase-oracle',
+      type: 'custom',
+      driver: 'oceanbase',
+      host: 'ob.local',
+      port: 2881,
+      user: 'sys@oracle001',
+      database: 'ORCL',
+      oceanBaseProtocol: 'oracle',
+    } as any);
+
+    expect(result.connectionParams).toBe('protocol=oracle');
+    expect((result as any).oceanBaseProtocol).toBeUndefined();
+  });
+
   it('keeps OceanBase URI protocol when no form override exists', () => {
     const result = buildRpcConnectionConfig({
       id: 'conn-oceanbase-uri',

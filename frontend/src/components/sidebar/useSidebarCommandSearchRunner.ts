@@ -147,6 +147,10 @@ export const useSidebarCommandSearchRunner = ({
       scrollSidebarTreeToKey(node.key, 'center');
       return;
     }
+    if (node.type === 'nacos-namespace' || node.type === 'nacos-config-group' || node.type === 'nacos-service-group') {
+      onDoubleClick(null, node);
+      return;
+    }
     if (node.type === 'object-group' && dataRef.groupKey === 'schema') {
       publishTitlebarSelectionForNode?.(node);
       setActiveContext({

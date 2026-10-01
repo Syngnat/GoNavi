@@ -124,6 +124,7 @@ import {
   supportsSSLCAPathForType,
   supportsSSLClientCertificateForType,
   supportsSSLForType,
+  PRIMARY_USERNAME_OPTIONAL_TYPES,
 } from "../utils/connectionTypeCapabilities";
 import { supportsRedisSshTunnel } from "../utils/redisTopologySsh";
 import {
@@ -187,19 +188,6 @@ type ChoiceCardOption = {
 };
 const MAX_TIMEOUT_SECONDS = 3600;
 const DEFAULT_KEEPALIVE_INTERVAL_MINUTES = 240;
-const PRIMARY_USERNAME_OPTIONAL_TYPES = new Set([
-  "redis",
-  "mongodb",
-  "elasticsearch",
-  "chroma",
-  "qdrant",
-  "milvus",
-  "nacos",
-  "rocketmq",
-  "mqtt",
-  "kafka",
-  "rabbitmq",
-]);
 /** Step1/Step2 弹窗宽度统一为 760，centered 定位下切换步骤不再跳动；
  * Step2 密排表单本身仍保持 ~600 视觉宽度（见 .gn-conn-form-layout 的 max-width），避免右侧空洞或输入框被拉超长，
  * 只是在更宽的弹窗内居中显示。 */
@@ -513,6 +501,7 @@ const ConnectionModal: React.FC<{
   const isMQTT = dbType === "mqtt";
   const isKafka = dbType === "kafka";
   const isRabbitMQ = dbType === "rabbitmq";
+  const isPulsar = dbType === "pulsar";
   const supportsConnectionParams = supportsConnectionParamsForType(dbType);
   const isSSLType = supportsSSLForType(dbType);
   const supportsSSLCAPath = supportsSSLCAPathForType(dbType);
@@ -3301,6 +3290,7 @@ const ConnectionModal: React.FC<{
         isOceanBaseOracle,
         isRedis,
         isRocketMQ,
+        isPulsar,
         isSSLType,
         jvmDiagnosticEnabled,
         jvmDiagnosticTransport,

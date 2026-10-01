@@ -14,6 +14,8 @@ import {
   type SQLAuditBackend,
 } from './sqlAuditRpc';
 
+import './SqlAuditHealthAlert.css';
+
 const { Text } = Typography;
 const SQL_AUDIT_HEALTH_POLL_INTERVAL_MS = 30_000;
 
@@ -21,9 +23,11 @@ interface SqlAuditHealthAlertProps {
   backend?: SQLAuditBackend;
   refreshKey: number;
   isActive?: boolean;
+  /** 紧凑模式：健康/已恢复时只保留标题一行，详情放进悬停提示，异常状态仍完整展示。 */
+  compact?: boolean;
 }
 
-export default function SqlAuditHealthAlert({ backend: backendOverride, refreshKey, isActive = true }: SqlAuditHealthAlertProps) {
+export default function SqlAuditHealthAlert({ backend: backendOverride, refreshKey, isActive = true, compact = false }: SqlAuditHealthAlertProps) {
   const { t, language } = useI18n();
   const backend = backendOverride ?? resolveSQLAuditBackend();
   const [health, setHealth] = useState<SQLAuditHealth | null>(null);
@@ -114,7 +118,7 @@ export default function SqlAuditHealthAlert({ backend: backendOverride, refreshK
         type="info"
         showIcon
         message={t('sql_audit.health.checking.title')}
-        description={t('sql_audit.health.checking.description')}
+        description={compact ? undefined : t('sql_audit.health.checking.description')}
         action={loadingAction}
       />
     );
@@ -138,6 +142,17 @@ export default function SqlAuditHealthAlert({ backend: backendOverride, refreshK
   }
 
   const count = numberFormatter.format(health.droppedEvents);
+  if (compact && (phase === 'healthy' || phase === 'recovered')) {
+    return (
+      <Alert
+        className="gn-sql-audit-health-alert"
+        type="success"
+        showIcon
+        message={<span title={t(`sql_audit.health.${phase}.description`, { count })}>{t(`sql_audit.health.${phase}.title`)}</span>}
+        action={loadingAction}
+      />
+    );
+  }
   const description = (
     <div>
       <div className="gn-sql-audit-health-summary">{t(`sql_audit.health.${phase}.description`, { count })}</div>

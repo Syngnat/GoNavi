@@ -169,7 +169,7 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 		ctx = db.ContextWithRowBudget(ctx, budget)
 	}
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
-	lifecycle := a.beginQueryExecutionLifecycle(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
 	defer func() {
 		lifecycle.complete(result)
 		cancel()
@@ -181,6 +181,7 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 		logger.Error(err, "DBQueryMultiTransactional 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 	}
+	lifecycle.markExecuting()
 
 	var (
 		sessionExecer        db.StatementExecer

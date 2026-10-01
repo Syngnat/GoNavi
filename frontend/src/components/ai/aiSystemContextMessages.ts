@@ -17,6 +17,7 @@ import {
   type AIInspectionTranslator,
 } from './aiInspectionI18n';
 import { peekDatabaseServerVersion } from '../queryEditor/queryEditorServerVersion';
+import { isAIEditorSelectionContext, isAITableSchemaContext } from './aiEditorSelectionContext';
 
 export interface AISystemContextMessage {
   role: 'system';
@@ -388,7 +389,13 @@ Response rules:
     const connection = connections.find((item) => item.id === targetConnId);
     const dbDisplayType = resolveDatabaseDisplayType(connection?.config);
     const databaseVersion = resolveDatabaseVersionLabel(targetConnId, translate);
-    const ddlChunks = activeContextItems.map((item) => `-- Table: ${item.dbName}.${item.tableName}\n${item.ddl}`).join('\n\n');
+    const tableChunks = activeContextItems
+      .filter(isAITableSchemaContext)
+      .map((item) => `-- Table: ${item.dbName}.${item.tableName}\n${item.ddl}`);
+    const selectionChunks = activeContextItems
+      .filter(isAIEditorSelectionContext)
+      .map((item) => `-- Editor selection: ${item.label || item.source?.tabTitle || 'current editor'}\n${item.content || item.ddl}`);
+    const ddlChunks = [...tableChunks, ...selectionChunks].join('\n\n');
     systemMessages.push({
       role: 'system',
       content: contextCopy(

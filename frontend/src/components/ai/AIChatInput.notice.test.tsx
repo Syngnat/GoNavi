@@ -222,9 +222,9 @@ describe('AIChatInput notice layout', () => {
     const markup = renderAIChatInput({ input: 'select 1' });
 
     expect(markup).toContain('gn-v2-ai-input-actions');
-    expect(markup).toContain('aria-label="picture"');
+    expect(markup).toContain('aria-label="attach"');
     expect(markup).toContain('aria-label="table"');
-    expect(markup).toContain('aria-label="code"');
+    expect(markup).toContain('aria-label="slash-command"');
   });
 
   it('renders an actionable composer notice button when the notice provides an action', () => {

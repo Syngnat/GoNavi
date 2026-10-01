@@ -3,6 +3,7 @@ package i18n
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -140,4 +141,41 @@ func readFileFromZip(file *zip.File) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// TestCatalogJSONHasNoDuplicateKeys 拦截语言 JSON 中的重复 key。
+//
+// encoding/json 解码到 map 时后出现的值会静默覆盖先出现的，重复 key 不会让任何
+// 现有测试失败，却会让目录里出现两份相同条目；并行提交时很容易重复追加同一批 key。
+func TestCatalogJSONHasNoDuplicateKeys(t *testing.T) {
+	for _, lang := range supportedLanguageOrder {
+		name := string(lang) + ".json"
+		payload, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("读取 %s 失败: %v", name, err)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(payload))
+		if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+			t.Fatalf("%s 应是 JSON 对象, token=%v err=%v", name, token, err)
+		}
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				t.Fatalf("解析 %s 的 key 失败: %v", name, err)
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				t.Fatalf("%s 出现非字符串 key: %v", name, keyToken)
+			}
+			if _, duplicated := seen[key]; duplicated {
+				t.Errorf("%s 中的 key 重复出现: %s", name, key)
+			}
+			seen[key] = struct{}{}
+			var value json.RawMessage
+			if err := decoder.Decode(&value); err != nil {
+				t.Fatalf("解析 %s 中 %s 的值失败: %v", name, key, err)
+			}
+		}
+	}
 }

@@ -187,6 +187,21 @@ type TableExistsChecker interface {
 	TableExists(dbName, tableName string) (bool, error)
 }
 
+// TableColumnsBatcher is an optional bulk read of column metadata for several
+// tables of one schema in a single round trip.
+//
+// 动机：逐表读字段在大库上是预检的主要成本 —— N 张表就是 N 次往返，每次都要
+// 走一遍字典视图与注释/主键连接。批量版把同 schema 的表合并成一条查询。
+//
+// 契约：
+//   - 返回的 map 以调用方传入的表名为键（原样，不做大小写改写），未命中的表
+//     直接缺席，而不是给一个空切片 —— 缺席让调用方能够区分「确实是空表」与
+//     「这个驱动/查询没找到它」，从而决定是否回退到逐表查询。
+//   - 驱动可以假设所有表名属于同一个 schema；跨 schema 的批量请求由调用方分组。
+type TableColumnsBatcher interface {
+	GetColumnsBatch(dbName string, tableNames []string) (map[string][]connection.ColumnDefinition, error)
+}
+
 // TableRowCounter is an optional metadata interface for drivers that can
 // provide exact table row counts alongside a table list.
 type TableRowCounter interface {
@@ -1139,21 +1154,10 @@ var databaseFactories = map[string]databaseFactory{
 	"milvus": func() Database {
 		return &MilvusDB{}
 	},
-	"rocketmq": func() Database {
-		return &RocketMQDB{}
-	},
-	"mqtt": func() Database {
-		return &MQTTDB{}
-	},
-	"kafka": func() Database {
-		return &KafkaDB{}
-	},
-	"rabbitmq": func() Database {
-		return &RabbitMQDB{}
-	},
 }
 
 func init() {
+	registerMessageDatabaseFactories()
 	registerOptionalDatabaseFactories()
 }
 
@@ -1203,6 +1207,8 @@ func normalizeDatabaseType(dbType string) string {
 		return "kafka"
 	case "rabbitmq", "rabbit-mq", "rabbit_mq":
 		return "rabbitmq"
+	case "pulsar", "apache-pulsar", "apache_pulsar":
+		return "pulsar"
 	default:
 		return normalized
 	}

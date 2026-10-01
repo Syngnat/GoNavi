@@ -272,6 +272,15 @@ export const queryEditorExecutionStatusI18nKey = (
   }
 };
 
+/** 后端已确认仍在建连、尚未把 SQL 交给驱动；没有后端事件的执行路径返回 false。 */
+export const isQueryEditorAwaitingDriver = (
+  lifecycle: QueryEditorExecutionLifecycleState | null | undefined,
+): boolean => Boolean(
+  lifecycle
+  && lifecycle.status === 'running'
+  && lifecycle.stage === 'starting',
+);
+
 export const queryEditorExecutionTimerStatusI18nKey = (
   timingActive: boolean,
   lifecycle: QueryEditorExecutionLifecycleState | null | undefined,
@@ -281,6 +290,9 @@ export const queryEditorExecutionTimerStatusI18nKey = (
   }
   if (isActiveQueryEditorExecutionStatus(lifecycle.status) && !timingActive) {
     return '';
+  }
+  if (isQueryEditorAwaitingDriver(lifecycle)) {
+    return 'query_editor.execution.status.connecting';
   }
   return queryEditorExecutionStatusI18nKey(lifecycle.status);
 };

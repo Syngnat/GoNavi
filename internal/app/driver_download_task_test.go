@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,10 +12,12 @@ import (
 func TestStartDriverPackageDownloadRunsAfterStarterReturns(t *testing.T) {
 	app := NewApp()
 	started := make(chan struct{})
+	var startedOnce sync.Once
 	release := make(chan struct{})
 	app.driverDownloadTaskRunner = func(_ context.Context, driverType string, _ string, _ string, _ string) connection.QueryResult {
 		app.emitDriverDownloadProgress(driverType, "downloading", 45, 100, "downloading driver")
-		close(started)
+		// 不同类型可并行后 runner 会被多次调用，只关一次。
+		startedOnce.Do(func() { close(started) })
 		<-release
 		app.emitDriverDownloadProgress(driverType, "done", 100, 100, "driver installed")
 		return connection.QueryResult{Success: true, Message: "driver installed"}
@@ -52,7 +55,8 @@ func TestStartDriverPackageDownloadRunsAfterStarterReturns(t *testing.T) {
 		t.Fatalf("running task snapshot = %#v, want active 45%% download", task)
 	}
 
-	duplicate := app.StartDriverPackageDownload("mongodb", "1.17.9", "builtin://activate/mongodb", t.TempDir())
+	// 去重按驱动类型：同类型重复启动应复用既有任务。
+	duplicate := app.StartDriverPackageDownload("duckdb", "2.5.6", "builtin://activate/duckdb", t.TempDir())
 	if !duplicate.Success {
 		t.Fatalf("duplicate start should return the running task: %#v", duplicate)
 	}
@@ -60,14 +64,42 @@ func TestStartDriverPackageDownloadRunsAfterStarterReturns(t *testing.T) {
 	if !ok || duplicateData["alreadyRunning"] != true {
 		t.Fatalf("duplicate start did not report the existing task: %#v", duplicate.Data)
 	}
+	if duplicateTask, ok := duplicateData["task"].(DriverDownloadTaskStatus); !ok || duplicateTask.TaskID != startedTask.TaskID {
+		t.Fatalf("duplicate start did not reuse the running task: %#v", duplicateData["task"])
+	}
+	// 不同类型必须能并行启动：这是驱动并行安装的前提。
+	concurrent := app.StartDriverPackageDownload("mongodb", "1.17.9", "builtin://activate/mongodb", t.TempDir())
+	if !concurrent.Success {
+		t.Fatalf("different driver type should start concurrently: %#v", concurrent)
+	}
+	concurrentData, ok := concurrent.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected concurrent data: %#v", concurrent.Data)
+	}
+	if concurrentData["alreadyRunning"] == true {
+		t.Fatalf("different driver type was blocked by a global task gate: %#v", concurrentData)
+	}
+	if concurrentTask, ok := concurrentData["task"].(DriverDownloadTaskStatus); !ok || concurrentTask.TaskID == startedTask.TaskID {
+		t.Fatalf("concurrent start reused the other type's task: %#v", concurrentData["task"])
+	}
 
 	close(release)
-	deadline := time.Now().Add(time.Second)
+	// 两个任务（duckdb + mongodb）都要跑到终态。
+	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		completed := app.ListDriverDownloadTasks()
 		tasks, ok := completed.Data.([]DriverDownloadTaskStatus)
-		if completed.Success && ok && len(tasks) == 1 && !tasks[0].Running && tasks[0].Status == "done" {
-			return
+		if completed.Success && ok && len(tasks) == 2 {
+			allFinished := true
+			for _, task := range tasks {
+				if task.Running {
+					allFinished = false
+					break
+				}
+			}
+			if allFinished {
+				return
+			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

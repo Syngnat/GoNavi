@@ -34,6 +34,7 @@ import {
   normalizeConnectionParamsText,
   normalizeFileDbPath,
   normalizeMongoSrvHostList,
+  getPulsarDefaultPort,
   normalizeOceanBaseConnectionParamsText,
   normalizeOceanBaseProtocolValue,
   parseClickHouseHTTPUriToValues,
@@ -555,7 +556,9 @@ export const buildConnectionConfig = async ({
   }
 
   const type = String(mergedValues.type || "").toLowerCase();
-  const defaultPort = getDefaultPortByType(type);
+  const defaultPort = type === "pulsar"
+    ? getPulsarDefaultPort(!!mergedValues.useSSL)
+    : getDefaultPortByType(type);
   const selectedOceanBaseProtocol =
     type === "oceanbase"
       ? normalizeOceanBaseProtocolValue(mergedValues.oceanBaseProtocol)
@@ -792,7 +795,8 @@ export const buildConnectionConfig = async ({
     mergedValues.redisDB = redisDraft.redisDB;
   }
 
-  const sshConfig = mergedValues.useSSH
+  const effectiveUseSSH = type !== "pulsar" && !!mergedValues.useSSH;
+  const sshConfig = effectiveUseSSH
     ? {
         host: mergedValues.sshHost,
         port: Number(mergedValues.sshPort),
@@ -814,9 +818,12 @@ export const buildConnectionConfig = async ({
         hostKeyFingerprint: "",
       };
   const effectiveUseHttpTunnel =
-    !isFileDbType && !!mergedValues.useHttpTunnel;
+    !isFileDbType && type !== "pulsar" && !!mergedValues.useHttpTunnel;
   const effectiveUseProxy =
-    !isFileDbType && !!mergedValues.useProxy && !effectiveUseHttpTunnel;
+    !isFileDbType &&
+    type !== "pulsar" &&
+    !!mergedValues.useProxy &&
+    !effectiveUseHttpTunnel;
   const proxyTypeRaw = String(
     mergedValues.proxyType || "socks5",
   ).toLowerCase();
@@ -996,7 +1003,7 @@ export const buildConnectionConfig = async ({
     sslCAPath: sslCAPath,
     sslCertPath: sslCertPath,
     sslKeyPath: sslKeyPath,
-    useSSH: !!mergedValues.useSSH,
+    useSSH: effectiveUseSSH,
     ssh: sshConfig,
     useProxy: effectiveUseProxy,
     proxy: proxyConfig,

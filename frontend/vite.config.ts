@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { searchForWorkspaceRoot } from 'vite'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
@@ -78,6 +80,14 @@ export default defineConfig({
     // Let Wails discover the next available port when another Vite instance
     // is already listening on the default development port.
     strictPort: false,
+    fs: {
+      // Worktrees may share node_modules through a directory junction. Vite's
+      // CSS asset URLs use its real path, including Monaco's codicon font.
+      allow: [
+        searchForWorkspaceRoot(fileURLToPath(new URL('.', import.meta.url))),
+        realpathSync(fileURLToPath(new URL('./node_modules', import.meta.url))),
+      ],
+    },
   },
   build: {
     outDir: 'dist', // Standard Wails output directory

@@ -1,0 +1,26 @@
+/*
+ * 工作台通用主题桥：把应用主题变量 --gn-*（自定义主题会改写）映射成 --wb-*，
+ * 仅在主题变量缺失时回落到 antd token（--wb-tk-*，由 useWorkbenchThemeStyle 内联注入）。
+ * 新工作台的面板、边框、文字颜色都应取 --wb-*，这样改主题时整页一起变。
+ */
+.gn-wb-theme {
+  --wb-bg: var(--gn-bg-app, var(--wb-tk-bg));
+  /* 面板取查询工作台同款表面（--gn-query-workbench-bg，缺省即 --gn-bg-panel-2），与 SQL 编辑器、结果区、日志面板保持一致；
+     --gn-bg-panel 在多数主题里近乎纯白，会让整页看起来没有主题色。 */
+  --wb-panel: var(--gn-query-workbench-bg, var(--gn-bg-panel-2, var(--wb-tk-panel)));
+  /* 面板内的下沉块（SQL 代码块、分组标题）：在面板色上叠一层前景色，亮暗主题都成立。 */
+  --wb-panel-2: color-mix(in srgb, var(--wb-text) 4%, var(--wb-panel));
+  --wb-input: var(--gn-bg-input, var(--wb-panel));
+  --wb-hover: var(--gn-bg-hover, var(--wb-tk-subtle));
+  --wb-selected: var(--gn-bg-selected, color-mix(in srgb, var(--wb-primary) 14%, transparent));
+  --wb-border: var(--gn-br-1, var(--wb-tk-border));
+  --wb-border-strong: var(--gn-br-2, var(--wb-tk-border));
+  --wb-text: var(--gn-fg-1, var(--wb-tk-text));
+  --wb-muted: var(--gn-fg-4, var(--wb-tk-muted));
+  --wb-primary: var(--gn-accent, var(--wb-tk-primary));
+  --wb-success: var(--gn-status-connected, var(--wb-tk-success));
+  --wb-error: var(--gn-danger, var(--wb-tk-error));
+  --wb-warning: var(--gn-warn, var(--wb-tk-warning));
+  --wb-info: var(--gn-info, var(--wb-tk-primary));
+  --wb-mono: var(--gn-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+}

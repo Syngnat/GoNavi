@@ -237,12 +237,13 @@ func TestDesktopPreflightReturnsWhenTheDriverBlocks(t *testing.T) {
 		done <- application.preflightDataSyncJob(definition, time.Now())
 	}()
 
+	budget := dataSyncJobPreflightTimeoutFor(definition)
 	select {
 	case result := <-done:
 		if result.Success {
 			t.Fatal("preflight reported success while the driver never returned")
 		}
-	case <-time.After(dataSyncJobPreflightTimeout + 10*time.Second):
-		t.Fatalf("desktop preflight never returned within %s", dataSyncJobPreflightTimeout)
+	case <-time.After(budget + 10*time.Second):
+		t.Fatalf("desktop preflight never returned within %s", budget)
 	}
 }

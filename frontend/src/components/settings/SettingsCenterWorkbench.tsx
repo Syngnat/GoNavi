@@ -2,6 +2,8 @@ import React from 'react';
 import { Spin } from 'antd';
 import type { TabData } from '../../types';
 import { useSettingsCenterWorkbenchRenderer } from './SettingsCenterWorkbenchBridge';
+import { useSettingsCenterEntryFocus } from './settingsCenterEntryFocus';
+import './settingsCenterEntryFocus.css';
 
 interface SettingsCenterWorkbenchProps {
   tab: TabData;
@@ -14,9 +16,13 @@ const SettingsCenterWorkbench: React.FC<SettingsCenterWorkbenchProps> = ({
 }) => {
   const renderer = useSettingsCenterWorkbenchRenderer();
   const content = renderer ? renderer() : null;
+  const hostRef = React.useRef<HTMLDivElement>(null);
+  // Scrolls to and highlights a setting picked from the search results.
+  useSettingsCenterEntryFocus(hostRef);
 
   return (
     <div
+      ref={hostRef}
       className="gonavi-settings-center-workbench-host"
       style={{
         height: '100%',

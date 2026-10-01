@@ -3,7 +3,7 @@
   height: 100%;
   min-height: 280px;
   color: var(--gn-fg-2);
-  background: var(--gn-bg-panel);
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2));
 }
 
 .gn-explain-graph .react-flow__controls {

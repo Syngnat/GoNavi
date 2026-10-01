@@ -1339,6 +1339,11 @@ if (
                     mockActiveProviderId = id;
                 },
                 AIGetCLICapabilities: async () => [],
+                AIGetModelContextProfile: async (provider: { model?: string }) => (
+                    String(provider?.model || '').toLowerCase().includes('gpt-5')
+                        ? { defaultWindow: 1000000, options: [500000, 1000000] }
+                        : { defaultWindow: 258000, options: [128000, 200000, 258000, 500000, 1000000, 2000000] }
+                ),
                 AIGetCLIModelCatalog: async () => ({ models: [], source: 'none', stale: false }),
                 AIListCLIModels: async () => [],
                 AIGetSafetyLevel: async () => mockAISafetyLevel,

@@ -127,7 +127,14 @@ vi.mock('./MessagePublishModal', () => ({
   },
 }));
 
-import MessageQueueWorkbench from './MessageQueueWorkbench';
+import MessageQueueWorkbench, { resolveMessageRowIdentity } from './MessageQueueWorkbench';
+
+it('keeps different Pulsar messages on the same topic and deduplicates replays', () => {
+  const first = { topic: 'persistent://public/default/orders', message_id: '1:2:0' };
+  const second = { ...first, message_id: '1:3:0' };
+  expect(resolveMessageRowIdentity('pulsar', first)).not.toBe(resolveMessageRowIdentity('pulsar', second));
+  expect(resolveMessageRowIdentity('pulsar', first)).toBe(resolveMessageRowIdentity('pulsar', { ...first }));
+});
 
 type Deferred<T> = {
   promise: Promise<T>;

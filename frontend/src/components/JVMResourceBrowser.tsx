@@ -15,8 +15,8 @@ import {
 import {
   FileSearchOutlined,
   ReloadOutlined,
-  RobotOutlined,
-} from "@ant-design/icons";
+  } from "@ant-design/icons";
+import AiSparkOutlined from "./icons/AiSparkOutlined";
 
 import { useStore } from "../store";
 import type {
@@ -826,7 +826,7 @@ const JVMResourceBrowser: React.FC<JVMResourceBrowserProps> = ({ tab }) => {
               </Button>
               <Button
                 size="small"
-                icon={<RobotOutlined />}
+                icon={<AiSparkOutlined />}
                 onClick={handleAskAIForPlan}
               >
                 {tr("jvm_resource.action.generate_ai_plan")}
@@ -1098,7 +1098,7 @@ const JVMResourceBrowser: React.FC<JVMResourceBrowserProps> = ({ tab }) => {
                   >
                     {tr("jvm_resource.action.preview_change")}
                   </Button>
-                  <Button icon={<RobotOutlined />} onClick={handleAskAIForPlan}>
+                  <Button icon={<AiSparkOutlined />} onClick={handleAskAIForPlan}>
                     {tr("jvm_resource.action.ask_ai_plan")}
                   </Button>
                 </Space>

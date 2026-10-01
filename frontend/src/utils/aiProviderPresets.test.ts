@@ -169,7 +169,7 @@ describe('ai provider preset helpers', () => {
 
   it('uses the current DeepSeek Responses endpoint and model as the preset defaults', () => {
     expect(DEEPSEEK_RESPONSES_BASE_URL).toBe('https://api.deepseek.com');
-    expect(DEEPSEEK_DEFAULT_MODEL).toBe('deepseek-v4-flash');
+    expect(DEEPSEEK_DEFAULT_MODEL).toBe('deepseek-flash');
   });
 
   it('maps Coding Plan Claude CLI config back to the dedicated Coding Plan preset', () => {

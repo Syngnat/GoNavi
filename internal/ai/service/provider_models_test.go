@@ -74,6 +74,64 @@ func TestProviderModelPreferencesFilterEveryListSource(t *testing.T) {
 	}
 }
 
+func TestProviderModelPreferencesHideRemovedModelsFromEverySource(t *testing.T) {
+	originalFetch := fetchModelsFunc
+	t.Cleanup(func() { fetchModelsFunc = originalFetch })
+	fetchModelsFunc = func(ai.ProviderConfig, *i18n.Localizer) ([]string, error) {
+		return []string{"default", "removed", "kept"}, nil
+	}
+	service := newProviderManagementTestService(t)
+	config := ai.ProviderConfig{
+		ID: "one", Type: "openai", APIFormat: "openai", BaseURL: "https://fixture.invalid/v1", Model: "default",
+		Models: []string{"default", "removed", "kept"}, RemovedModels: []string{" removed ", "removed"},
+		CustomModels: []string{"removed", "mine"}, DisabledModels: []string{"removed", "kept"},
+	}
+	service.providers, service.activeProvider = []ai.ProviderConfig{config}, config.ID
+
+	result := service.AIListModels()
+	got := result["models"].([]string)
+	// 删除的模型既不来自列表、也不来自自定义；停用只影响可选择项；
+	// 未被删除也未被停用的自定义模型（mine）仍然保留。
+	if !reflect.DeepEqual(got, []string{"default", "mine"}) {
+		t.Fatalf("removed models must disappear from every source: %v", got)
+	}
+}
+
+func TestProviderModelPreferencesNormalizeRemovedAgainstOtherLists(t *testing.T) {
+	config := normalizeProviderModelPreferences(ai.ProviderConfig{
+		Model: "default",
+		RemovedModels: []string{" gone ", "gone", ""},
+		DisabledModels: []string{"gone", " parked "},
+		CustomModels:   []string{"gone", "mine", "mine"},
+	})
+	if !reflect.DeepEqual(config.RemovedModels, []string{"gone"}) {
+		t.Fatalf("removed list = %v, want [gone]", config.RemovedModels)
+	}
+	if !reflect.DeepEqual(config.DisabledModels, []string{"parked"}) {
+		t.Fatalf("a removed model must not stay disabled as well: %v", config.DisabledModels)
+	}
+	if !reflect.DeepEqual(config.CustomModels, []string{"mine"}) {
+		t.Fatalf("a removed model must not stay custom as well: %v", config.CustomModels)
+	}
+
+	// 没有删除项时三个名单各自归一化，不新增字段。
+	plain := normalizeProviderModelPreferences(ai.ProviderConfig{CustomModels: []string{" b ", "b", ""}})
+	if plain.RemovedModels != nil || !reflect.DeepEqual(plain.CustomModels, []string{"b"}) {
+		t.Fatalf("plain normalization = %+v", plain)
+	}
+}
+
+func TestProviderModelPreferencesRejectRemovingRequiredModel(t *testing.T) {
+	service := newProviderManagementTestService(t)
+	err := service.AISaveProvider(ai.ProviderConfig{
+		ID: "one", Type: "openai", APIFormat: "openai", BaseURL: "https://fixture.invalid/v1",
+		Model: "default", RemovedModels: []string{"default"},
+	})
+	if err == nil {
+		t.Fatal("removing the default model must be rejected")
+	}
+}
+
 func TestAIListProviderModelsRefreshesDraftWithoutChangingSavedState(t *testing.T) {
 	originalFetch := fetchModelsFunc
 	t.Cleanup(func() { fetchModelsFunc = originalFetch })

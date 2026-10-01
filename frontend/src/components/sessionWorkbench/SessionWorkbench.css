@@ -1,0 +1,356 @@
+.gn-session-workbench {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 18px 22px;
+  gap: 14px;
+  background: var(--gn-bg-panel-2);
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-font-size, 14px);
+}
+
+body[data-ui-version="v2"] .gn-session-workbench,
+body[data-ui-version="v2"] .gn-session-workbench .ant-table,
+body[data-ui-version="v2"] .gn-session-workbench .ant-btn,
+body[data-ui-version="v2"] .gn-session-workbench .ant-tag,
+body[data-ui-version="v2"] .gn-session-workbench .ant-input,
+body[data-ui-version="v2"] .gn-session-workbench .ant-select,
+body[data-ui-version="v2"] .gn-session-workbench .ant-typography,
+body[data-ui-version="v2"] .gn-session-workbench .ant-pagination {
+  font-family: var(--gn-font-sans) !important;
+}
+
+.gn-session-workbench .ant-typography,
+.gn-session-workbench-modal .ant-typography {
+  color: var(--gn-fg-1) !important;
+}
+
+.gn-session-workbench .ant-typography.ant-typography-secondary,
+.gn-session-workbench-modal .ant-typography.ant-typography-secondary {
+  color: var(--gn-fg-4) !important;
+}
+
+.gn-session-workbench-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.gn-session-workbench-header {
+  gap: 16px;
+}
+
+.gn-session-workbench-header .ant-typography {
+  margin: 0;
+}
+
+.gn-session-workbench .gn-session-workbench-description.ant-typography {
+  display: block;
+  max-width: 760px;
+  margin-top: 4px;
+  line-height: 1.6;
+}
+
+.gn-session-workbench-engine.ant-tag {
+  flex: none;
+  margin-inline-end: 0;
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+}
+
+.gn-session-workbench .gn-session-workbench-summary.ant-typography {
+  display: block;
+  margin-bottom: 8px;
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
+.gn-session-workbench-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 8px;
+  background: var(--gn-bg-panel-2);
+  color: var(--gn-fg-1);
+}
+
+.gn-session-workbench-toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gn-session-workbench .gn-session-workbench-toolbar-label.ant-typography {
+  color: var(--gn-fg-2) !important;
+  white-space: nowrap;
+}
+
+.gn-session-workbench-connection-select.gn-data-sync-connection-tree-select {
+  width: 280px;
+  min-width: 220px;
+}
+
+.gn-session-workbench-database-select.ant-select {
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.gn-session-workbench-filter {
+  display: flex;
+  align-items: center;
+  min-width: 280px;
+}
+
+.gn-session-workbench-filter .ant-input {
+  max-width: 420px;
+}
+
+/* 全局输入框用 --gn-bg-input，浅色主题里它是纯白，和页面的 panel-2 对不上。 */
+body[data-ui-version="v2"] .gn-session-workbench .ant-select-selector,
+body[data-ui-version="v2"] .gn-session-workbench .ant-input,
+body[data-ui-version="v2"] .gn-session-workbench .ant-input-affix-wrapper,
+body[data-ui-version="v2"] .gn-session-workbench .ant-input-number {
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .ant-input-affix-wrapper > input.ant-input,
+body[data-ui-version="v2"] .gn-session-workbench .ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+}
+
+.gn-session-workbench-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.gn-session-workbench-loading {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+}
+
+.gn-session-workbench-table,
+.gn-session-workbench-table .ant-spin-nested-loading,
+.gn-session-workbench-table .ant-spin-container,
+.gn-session-workbench-table .ant-table,
+.gn-session-workbench-table .ant-table-container,
+.gn-session-workbench-table .ant-table-content,
+.gn-session-workbench-table .ant-table-body,
+.gn-session-workbench-table .ant-table-tbody > tr > td,
+.gn-session-workbench-table .ant-table-tbody > tr > .ant-table-cell,
+.gn-session-workbench-table .ant-table-placeholder,
+.gn-session-workbench-table .ant-table-cell-fix-left,
+.gn-session-workbench-table .ant-table-cell-fix-right {
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+.gn-session-workbench-table,
+.gn-session-workbench-table .ant-table,
+.gn-session-workbench-table table {
+  width: 100%;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .ant-table-thead > tr > th,
+body[data-ui-version="v2"] .gn-session-workbench .ant-table-tbody > tr > td {
+  font-family: var(--gn-font-sans) !important;
+  text-align: left;
+  vertical-align: middle;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .ant-table-thead > tr > th {
+  overflow: hidden;
+  font-size: var(--gn-font-size-sm, 12px) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .ant-table-tbody > tr > td {
+  font-size: var(--gn-font-size, 14px) !important;
+}
+
+.gn-session-statement-cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The duration column carries two different meanings, so its header advertises
+   the explanation instead of relying on the reader to hover by accident. */
+.gn-session-duration-header {
+  cursor: help;
+  border-bottom: 1px dotted var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-state-tag.ant-tag {
+  margin-inline-end: 0;
+  border-style: solid !important;
+  border-width: 1px !important;
+  font-family: var(--gn-font-sans) !important;
+  font-size: var(--gn-font-size-sm, 12px) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-state-tag.is-idle.ant-tag {
+  color: var(--gn-info) !important;
+  background: var(--gn-info-soft) !important;
+  border-color: color-mix(in srgb, var(--gn-info) 42%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-state-tag.is-active.ant-tag {
+  color: var(--gn-accent-2, var(--gn-accent)) !important;
+  background: var(--gn-accent-soft) !important;
+  border-color: color-mix(in srgb, var(--gn-accent) 42%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-state-tag.is-busy.ant-tag {
+  color: var(--gn-warn) !important;
+  background: var(--gn-warn-soft) !important;
+  border-color: color-mix(in srgb, var(--gn-warn) 42%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-state-tag.is-danger.ant-tag {
+  color: var(--gn-danger) !important;
+  background: color-mix(in srgb, var(--gn-danger) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--gn-danger) 42%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-state-tag.is-neutral.ant-tag {
+  color: var(--gn-purple, var(--gn-fg-2)) !important;
+  background: var(--gn-purple-soft, var(--gn-bg-active)) !important;
+  border-color: color-mix(in srgb, var(--gn-purple, var(--gn-fg-4)) 42%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.ant-btn {
+  font-family: var(--gn-font-sans) !important;
+  font-size: var(--gn-font-size-sm, 12px) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-choose.ant-btn,
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-terminate.ant-btn {
+  color: var(--gn-danger) !important;
+  background: color-mix(in srgb, var(--gn-danger) 12%, var(--gn-bg-panel-2)) !important;
+  border-color: color-mix(in srgb, var(--gn-danger) 48%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-choose.ant-btn:hover,
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-terminate.ant-btn:hover {
+  color: var(--gn-on-danger, #fff) !important;
+  background: var(--gn-danger) !important;
+  border-color: var(--gn-danger) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-cancel.ant-btn {
+  color: var(--gn-warn) !important;
+  background: var(--gn-warn-soft) !important;
+  border-color: color-mix(in srgb, var(--gn-warn) 48%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-cancel.ant-btn:hover {
+  color: var(--gn-fg-1) !important;
+  background: color-mix(in srgb, var(--gn-warn) 28%, var(--gn-bg-panel-2)) !important;
+  border-color: var(--gn-warn) !important;
+}
+
+.gn-session-workbench .ant-pagination-item a,
+.gn-session-workbench .ant-pagination-options,
+.gn-session-workbench .ant-pagination-total-text {
+  color: var(--gn-fg-2) !important;
+}
+
+.gn-session-workbench-confirm-grid {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  align-items: start;
+}
+
+.gn-session-workbench-statement-value {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gn-session-workbench-modal .ant-typography code {
+  background: var(--gn-bg-input) !important;
+  border: 1px solid var(--gn-br-1);
+  color: var(--gn-fg-1) !important;
+}
+
+.gn-session-workbench-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.gn-session-workbench-action-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.gn-session-workbench-action-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--gn-br-2);
+  border-radius: 8px;
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-font-size, 14px);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.gn-session-workbench-action-option:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 2px;
+}
+
+.gn-session-workbench-action-option.is-cancel:hover {
+  border-color: var(--gn-warn);
+  background: var(--gn-warn-soft);
+}
+
+.gn-session-workbench-action-option.is-terminate:hover {
+  border-color: var(--gn-danger);
+  background: color-mix(in srgb, var(--gn-danger) 10%, var(--gn-bg-panel));
+}
+
+.gn-session-workbench-action-option-title {
+  font-weight: 600;
+}
+
+.gn-session-workbench-action-option-helper {
+  color: var(--gn-fg-4);
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
+@media (max-width: 840px) {
+  .gn-session-workbench {
+    padding: 12px;
+  }
+
+  .gn-session-workbench-connection-select.gn-data-sync-connection-tree-select {
+    min-width: min(100%, 320px);
+    max-width: 100%;
+  }
+
+  .gn-session-workbench-confirm-grid {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

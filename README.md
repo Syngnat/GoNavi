@@ -101,19 +101,52 @@ Most database GUIs are Electron shells with megabytes of tax. GoNavi takes a dif
 
 ### Product screenshots
 
-Each image is a **full GoNavi application window**, scaled proportionally for README display.
+Each image is a **full GoNavi application window** (1440×900) captured from the latest dev build, scaled proportionally for README display.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/01-home-workbench.png" alt="GoNavi full window — connections, queries, and workbench" width="560" />
-  &nbsp;
-  <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/04-ai-assistant.png" alt="GoNavi full window — AI assistant with schema context" width="560" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/01-home-workbench.png" alt="GoNavi full window — workbench with connections, saved queries, and quick actions" width="100%" />
+      <br /><sub><b>Workbench</b> — connections, saved queries, quick actions</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/02-query-editor.png" alt="GoNavi full window — SQL editor with result grid and object tree" width="100%" />
+      <br /><sub><b>SQL editor</b> — highlighting, result grid, object tree</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/04-ai-assistant.png" alt="GoNavi full window — AI assistant with schema context and generated SQL" width="100%" />
+      <br /><sub><b>AI assistant</b> — schema-aware chat, insert / run / preview generated SQL</sub>
+    </td>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/05-ai-settings.png" alt="GoNavi full window — AI settings, built-in tools and recommended flows" width="100%" />
+      <br /><sub><b>AI settings</b> — built-in tools and recommended inspection flows</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/06-new-connection.png" alt="GoNavi full window — new connection data-source selector" width="100%" />
+      <br /><sub><b>New connection</b> — searchable, categorized data-source picker</sub>
+    </td>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/08-sql-execution-history.png" alt="GoNavi full window — SQL execution history with filters and detail panel" width="100%" />
+      <br /><sub><b>SQL execution history</b> — filter, inspect, refill into the editor</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/09-sql-audit.png" alt="GoNavi full window — SQL audit center" width="100%" />
+      <br /><sub><b>SQL audit center</b> — desensitized SQL evidence across connections</sub>
+    </td>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/07-settings-themes.png" alt="GoNavi full window — settings center with built-in themes" width="100%" />
+      <br /><sub><b>Settings</b> — built-in themes, fonts, workspace, and more</sub>
+    </td>
+  </tr>
+</table>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/06-new-connection.png" alt="GoNavi full window — new connection data-source selector" width="560" />
-</p>
-
-<p align="center"><sub>Real desktop captures · full window</sub></p>
+<p align="center"><sub>Sample data from a local lab database · connection addresses, keys, and provider configuration are not shown</sub></p>
 
 ---
 
@@ -280,9 +313,10 @@ Elasticsearch connections reuse the query workspace as a version-aware REST cons
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.21+
+- [Go](https://go.dev/dl/) 1.25+
 - [Node.js](https://nodejs.org/) 18+
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- Linux only: a C compiler, pkg-config, and the GTK3 / WebKitGTK development packages
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
@@ -307,6 +341,21 @@ wails build -clean   # clean build before release
 ```
 
 Artifacts → `build/bin`.
+
+On Linux, install the build dependencies first (pick one):
+
+```bash
+# Debian 12+ / Ubuntu 22.04+
+sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+# Fedora / OpenCloudOS 9
+sudo dnf install -y gcc pkgconf-pkg-config gtk3-devel webkit2gtk4.1-devel
+# RHEL / Rocky / AlmaLinux 9 (WebKitGTK 4.0 only)
+sudo dnf install -y gcc pkgconf-pkg-config gtk3-devel webkit2gtk3-devel
+# Arch Linux
+sudo pacman -S --needed base-devel gtk3 webkit2gtk-4.1
+```
+
+The build detects whether WebKitGTK 4.1 or 4.0 is installed. The frontend build peaks at about 3 GB of memory.
 
 ### Prefer a binary?
 

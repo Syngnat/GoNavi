@@ -102,10 +102,10 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 	}
 
 	normalizedType := normalizeDriverType(config.Type)
-	if normalizedType == "nacos" {
-		// Nacos is HTTP-based and must keep its remote authority for the Host
-		// header and TLS SNI/certificate verification. Its transport dials the
-		// normalized proxy directly instead of using a local TCP forwarder.
+	if normalizedType == "nacos" || normalizedType == "pulsar" {
+		// Nacos needs the original authority for its proxy-aware HTTP transport.
+		// Pulsar discovers brokers and cannot reuse one forwarded endpoint;
+		// preserve the setting so its driver rejects the unsupported route.
 		return config, nil
 	}
 	if normalizedType == "rocketmq" || normalizedType == "rocket-mq" || normalizedType == "rocket_mq" || normalizedType == "apache-rocketmq" || normalizedType == "apache_rocketmq" || normalizedType == "rmq" {

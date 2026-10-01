@@ -1193,7 +1193,6 @@ func (a *App) buildCancellationUnsupportedExecutionResult(result connection.Quer
 	return result
 }
 
-
 // writeExecutionOutcomeUnknown covers both a driver-level ambiguous response
 // and a caller cancellation observed while a write was in flight. The latter
 // must be treated as unknown even when a driver returns an opaque error rather
@@ -1407,7 +1406,7 @@ func (a *App) dbQueryWithCancel(
 		true,
 		optionalDriverTypeForConnectionConfig(runConfig),
 	)
-	lifecycle := a.beginQueryExecutionLifecycle(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
 	defer func() {
 		lifecycle.complete(result)
 		cancel()
@@ -1425,6 +1424,7 @@ func (a *App) dbQueryWithCancel(
 		logger.Error(err, "DBQuery 获取连接失败：%s", formatConnSummary(runConfig))
 		return buildQueryConnectionFailure(err, queryID, auditOptions.classifyConnectionErrors)
 	}
+	lifecycle.markExecuting()
 
 	isReadQuery := isReadOnlySQLQuery(runConfig.Type, query)
 	tryQueryFirst := shouldTryQueryResultFirst(runConfig.Type, query)
@@ -1674,7 +1674,7 @@ func (a *App) dbQueryMulti(
 		true,
 		optionalDriverTypeForConnectionConfig(runConfig),
 	)
-	lifecycle := a.beginQueryExecutionLifecycle(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
 	defer func() {
 		lifecycle.complete(result)
 		cancel()
@@ -1692,6 +1692,7 @@ func (a *App) dbQueryMulti(
 		logger.Error(err, "DBQueryMulti 获取连接失败：%s", formatConnSummary(runConfig))
 		return buildQueryConnectionFailure(err, queryID, auditOptions.classifyConnectionErrors)
 	}
+	lifecycle.markExecuting()
 	defer func() {
 		// A successful SQL round trip is at least as strong a health signal as Ping.
 		if result.Success && queryExecuted {
@@ -2849,8 +2850,7 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 		}
 	}
 	if err != nil {
-		logger.Error(err, "DBGetTables 获取表列表失败：%s", formatConnSummary(runConfig))
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return a.tableMetadataErrorResult(runConfig, tables, err)
 	}
 	tables = dedupeMetadataTableNames(tables)
 

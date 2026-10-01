@@ -1,0 +1,210 @@
+/* SQL 分析工作台（慢 SQL / SQL 诊断）：颜色取自通用主题桥 workbenchTheme.css。 */
+.gn-sa {
+  container: gn-sa / inline-size;
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px 16px;
+  background: var(--wb-bg);
+  color: var(--wb-text);
+}
+
+.gn-sa-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gn-sa-title-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.gn-sa-title-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--gn-accent-soft, var(--wb-panel-2));
+  color: var(--gn-accent-2, var(--wb-primary));
+  font-size: 16px;
+}
+
+.gn-sa-title-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.gn-sa-title-copy .ant-typography {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-sa-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.gn-sa-context strong {
+  overflow: hidden;
+  color: var(--wb-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-sa-chip {
+  padding: 0 6px;
+  border: 1px solid var(--wb-border);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.gn-sa-view-switcher.ant-segmented {
+  flex: 0 0 auto;
+  background: var(--wb-hover);
+  color: var(--wb-muted);
+}
+
+.gn-sa-view-switcher .ant-segmented-thumb,
+.gn-sa-view-switcher .ant-segmented-item-selected {
+  background: var(--wb-panel);
+  color: var(--wb-text);
+}
+
+.gn-sa-view-label {
+  display: inline-flex;
+  min-width: 72px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.gn-sa-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.gn-sa-diagnose {
+  display: flex;
+  min-height: 520px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gn-sa-report {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+/* ───────── SQL 输入卡片 ───────── */
+
+.gn-sa-sql {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--wb-border);
+  border-radius: 12px;
+  background: var(--wb-panel);
+}
+
+.gn-sa-sql.is-collapsed {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+}
+
+.gn-sa-sql-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--wb-text);
+  font-family: var(--wb-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-sa-sql-textarea.ant-input {
+  border-color: var(--wb-border-strong);
+  background: var(--wb-input);
+  color: var(--wb-text);
+  font-family: var(--wb-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.gn-sa-sql-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gn-sa-sql-hint {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-sa-sql-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.gn-sa .ant-btn-default {
+  border-color: var(--wb-border-strong);
+  background: var(--wb-input);
+  color: var(--wb-text);
+}
+
+.gn-sa .ant-alert .ant-alert-message,
+.gn-sa .ant-alert .ant-alert-description {
+  color: var(--wb-text);
+}
+
+.gn-sa .ant-alert-error {
+  border-color: color-mix(in srgb, var(--wb-error) 30%, transparent);
+  background: color-mix(in srgb, var(--wb-error) 9%, var(--wb-panel));
+}
+
+@container gn-sa (max-width: 620px) {
+  .gn-sa-header {
+    flex-wrap: wrap;
+  }
+
+  .gn-sa-sql-hint {
+    display: none;
+  }
+}

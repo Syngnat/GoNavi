@@ -17,6 +17,8 @@ COPY shared/ /src/shared/
 # The frontend also imports the backend-owned capability registry so both
 # runtimes use the same support matrix.
 COPY internal/db/data_source_capability_contract.json /src/internal/db/data_source_capability_contract.json
+# 用户管理选项契约同理：前端标签覆盖测试直接引用后端的选项 ID 清单，tsc 会编译测试文件。
+COPY internal/dbuser/option_contract.json /src/internal/dbuser/option_contract.json
 # wailsjs 绑定已入库；容器内只构建静态前端
 RUN npm run build
 

@@ -154,9 +154,10 @@ const resolveDefaultDestination = (config: ConnectionLike, explicitDestination: 
   const resolvedType = resolveDataSourceType(config as any);
   const params = resolveConnectionParams(config);
 
-  if (resolvedType === 'kafka') {
+  if (resolvedType === 'kafka' || resolvedType === 'pulsar') {
     return String(config?.database || '').trim();
   }
+
   if (resolvedType === 'rocketmq') {
     return String(config?.database || params.get('defaultTopic') || params.get('topic') || '').trim();
   }
@@ -251,21 +252,22 @@ export const getMessagePublishPresentation = (
     };
   }
 
+  const pulsar = resolvedType === 'pulsar';
   return {
-    transportLabel: tr('message_publish.presentation.transport.kafka_topic'),
+    transportLabel: pulsar ? 'Apache Pulsar' : tr('message_publish.presentation.transport.kafka_topic'),
     destinationLabel: tr('message_publish.presentation.destination.topic'),
     destinationPlaceholder: tr('message_publish.presentation.kafka.destination_placeholder'),
     destinationRequiredMessage: tr('message_publish.presentation.topic_required'),
-    alertMessage: tr('message_publish.presentation.kafka.alert'),
-    successHint: tr('message_publish.presentation.kafka.success_hint'),
+    alertMessage: tr(`message_publish.presentation.${pulsar ? 'pulsar' : 'kafka'}.alert`),
+    successHint: tr(`message_publish.presentation.${pulsar ? 'pulsar' : 'kafka'}.success_hint`),
     showKey: true,
-    showKeyMode: true,
+    showKeyMode: !pulsar,
     keyLabel: tr('message_publish.presentation.key_label'),
     keyPlaceholder: tr('message_publish.presentation.kafka.key_placeholder'),
     showExchange: false,
     showRoutingKey: false,
-    showHeaders: true,
-    showProperties: false,
+    showHeaders: !pulsar,
+    showProperties: pulsar,
     showTag: false,
     tagPlaceholder: '',
     showDelayLevel: false,
@@ -351,6 +353,17 @@ export const buildMessagePublishCommand = (
   const destination = String(draft.destination || '').trim();
   if (!destination && resolvedType !== 'rabbitmq') {
     throw new Error(tr('message_publish.error.destination_required'));
+  }
+
+  if (resolvedType === 'pulsar') {
+    const command: Record<string, unknown> = {
+      publish: destination,
+      value: parseRequiredPayload(draft.body, normalizeMode(draft.bodyMode, 'json'), bodyFieldLabel, tr),
+    };
+    if (String(draft.key || '').trim()) command.key = String(draft.key).trim();
+    const properties = parseOptionalJSONObject(draft.properties, propertiesFieldLabel, tr);
+    if (properties) command.properties = properties;
+    return { commandText: JSON.stringify(command, null, 2), destinationLabel: destination, transportLabel: 'Apache Pulsar' };
   }
 
   if (resolvedType === 'mqtt') {

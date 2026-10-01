@@ -49,6 +49,8 @@ type DataSourceUICapabilities struct {
 	SupportsApproximateTableCount  bool `json:"supportsApproximateTableCount"`
 	SupportsApproximateTotalPages  bool `json:"supportsApproximateTotalPages"`
 	ParameterBinding               bool `json:"parameterBinding"`
+	// UserManagement 开启账号/角色/权限管理入口；同时作为该功能的总开关（kill switch）。
+	UserManagement bool `json:"userManagement"`
 }
 
 // DataSourceCapability is the shared, generated data-source contract returned

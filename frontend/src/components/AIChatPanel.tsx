@@ -17,6 +17,7 @@ import { collectBusyAISessionIds } from './ai/AIChatSessionSwitcher';
 import AIChatRunControls, {
     type AIRunRecoveryAction,
 } from './ai/AIChatRunControls';
+import { useAIChatApprovalDecision } from './ai/useAIChatApprovalDecision';
 import { useAIChatRunEventSubscription } from './ai/useAIChatRunEventSubscription';
 import {
     controlAgentRun,
@@ -48,7 +49,7 @@ import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import type { AIComposerNoticeDescriptor } from '../utils/aiComposerNotice';
 import { buildAIComposerNotice } from '../utils/aiComposerNotice';
 import { consumeAIChatSendShortcutOnKeyDown } from '../utils/aiChatSendShortcut';
-import { getDynamicMaxContextChars } from '../utils/aiChatRuntime';
+import { resolveEffectiveContextWindow } from '../utils/aiChatRuntime';
 import { getShortcutPlatform, resolveShortcutBinding } from '../utils/shortcuts';
 import { isMacLikePlatform } from '../utils/appearance';
 import {
@@ -63,6 +64,7 @@ import { buildAIChatReadinessSnapshot } from './ai/aiChatReadiness';
 import { useAIInjectedPrompt } from './ai/useAIInjectedPrompt';
 import { useAIChatRuntimeResources } from './ai/useAIChatRuntimeResources';
 import { useAIChatAutoContext } from './ai/useAIChatAutoContext';
+import { useAIEditorSelection } from './ai/aiEditorSelectionContext';
 import { useAIChatPanelResize } from './ai/useAIChatPanelResize';
 import { useAIChatSessionState } from './ai/useAIChatSessionState';
 import { useWorkbenchTabs } from '../hooks/useWorkbenchTabs';
@@ -167,6 +169,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         handleProviderModelChange,
         handleOpenSettingsFromPanel,
         loadingModels,
+        modelContextProfile,
         providers,
         providerModels,
         providerCatalogs,
@@ -204,6 +207,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const connections = useStore(state => state.connections);
     const tabs = useWorkbenchTabs();
     const activeTabId = useStore(state => state.activeTabId);
+    const activeEditorSelection = useAIEditorSelection(activeTabId);
     const sqlLogs = useStore(state => state.sqlLogs);
     const setAIActiveSessionId = useStore(state => state.setAIActiveSessionId);
     const aiPanelVisible = useStore(state => state.aiPanelVisible);
@@ -656,21 +660,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         }
     }, [addAIChatMessage, refreshRunProjection, resolveRunRevision, sid, t]);
 
-    const handleApprovalDecision = useCallback((
-        approval: AIRunApprovalState,
-        decision: 'approved' | 'denied',
-    ) => {
-        void handleRunControl(
-            approval.runId,
-            decision === 'approved' ? 'approve' : 'deny',
-            {
-                approvalId: approval.approvalId,
-                callId: approval.callId,
-                argsHash: approval.argsHash,
-                busyKey: `${approval.runId}:${decision === 'approved' ? 'approve' : 'deny'}:${approval.approvalId}`,
-            },
-        );
-    }, [handleRunControl]);
+    const handleApprovalDecision = useAIChatApprovalDecision(handleRunControl);
 
     const handleRecoveryAction = useCallback((
         recovery: AIRunRecoveryState,
@@ -1255,6 +1245,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 handleKeyDown={handleKeyDown}
                 activeConnName={activeConnName}
                 activeContext={activeContext}
+                activeEditorSelection={activeEditorSelection}
                 activeProvider={activeProvider}
                 providers={providers}
                 providerModels={providerModels}
@@ -1282,7 +1273,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 mutedColor={mutedColor}
                 overlayTheme={overlayTheme}
                 contextUsageChars={contextUsageChars}
-                maxContextChars={getDynamicMaxContextChars(activeProvider?.model)}
+                maxContextChars={resolveEffectiveContextWindow(modelContextProfile, activeProvider?.contextWindow)}
             />
 
             <AIHistoryDrawer

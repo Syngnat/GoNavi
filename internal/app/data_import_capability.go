@@ -88,12 +88,12 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 		capability.SQLFileImport.Reason = DataImportReasonRestricted
 		return capability
 	}
-	if dbType == "dameng" || dbType == "tdengine" || dbType == "clickhouse" {
+	if dbType == "tdengine" || dbType == "clickhouse" {
 		capability.TableImport.Reason = DataImportReasonTableRuntimeUnavailable
 		if _, ok := runtime.(db.BatchApplierContext); ok {
 			capability.TableImport = DataImportModeCapability{
 				Supported:                  true,
-				SupportsTransactionalBatch: dbType == "dameng" && runtimeSupportsBatchApply(runtime),
+				SupportsTransactionalBatch: false,
 				SupportsContinue:           true,
 				SupportedFormats:           []string{"csv", "json", "xlsx"},
 				SupportedEncodings:         []string{"auto", "utf-8", "utf-16le", "utf-16be", "gb18030"},
@@ -110,7 +110,7 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 		return capability
 	}
 
-	if !isDataImportMySQLFamilyDialect(dbType) && dbType != "postgres" && dbType != "sqlite" && dbType != "oracle" && dbType != "sqlserver" {
+	if !isDataImportSQLDialect(dbType) {
 		return capability
 	}
 	capability.TableImport.Reason = DataImportReasonTableRuntimeUnavailable
@@ -141,7 +141,7 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 	clientDirectives := []string{}
 	if isDataImportMySQLFamilyDialect(dbType) {
 		clientDirectives = []string{"delimiter"}
-	} else if dbType == "oracle" {
+	} else if dbType == "oracle" || dbType == "dameng" {
 		clientDirectives = []string{"sqlplus-slash"}
 	} else if dbType == "sqlserver" {
 		clientDirectives = []string{"go"}
@@ -208,13 +208,17 @@ func isDataImportMySQLFamilyDialect(dbType string) bool {
 	}
 }
 
-func isDataImportSQLDialectSupported(config connection.ConnectionConfig) bool {
-	switch normalizeDataImportDatabaseType(config) {
-	case "mysql", "mariadb", "oceanbase", "postgres", "sqlite", "oracle", "sqlserver":
+func isDataImportSQLDialect(dbType string) bool {
+	switch dbType {
+	case "mysql", "mariadb", "oceanbase", "postgres", "sqlite", "oracle", "sqlserver", "dameng":
 		return true
 	default:
 		return false
 	}
+}
+
+func isDataImportSQLDialectSupported(config connection.ConnectionConfig) bool {
+	return isDataImportSQLDialect(normalizeDataImportDatabaseType(config))
 }
 
 func sqlFileImportCapabilityRestricted(config connection.ConnectionConfig) bool {

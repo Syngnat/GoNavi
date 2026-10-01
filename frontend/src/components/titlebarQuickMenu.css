@@ -1,0 +1,6 @@
+/* The About popup contains only two short actions; keep it from inheriting the
+   wider context-menu surface used by data and query workbench menus. */
+body[data-ui-version="v2"] .gn-v2-titlebar-about-dropdown .gn-v2-action-menu-surface {
+  width: 180px;
+  min-width: 0;
+}

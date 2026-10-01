@@ -5,6 +5,7 @@ import { createRenderer as createShallowRenderer } from 'react-test-renderer/sha
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readV2ThemeCss } from '../test/readV2ThemeCss';
 
+import { GnSqlDocIcon } from './icons/gnIcons';
 import Sidebar, {
   applySidebarDatabasePinning,
   buildAllSavedQueriesTreeNode,
@@ -787,6 +788,8 @@ describe('Sidebar locate toolbar', () => {
       title: 'Orders',
       type: 'saved-query',
     });
+    // 与连接下「已存查询」共用同一枚 SQL 文档图标，避免两处长得不一样。
+    expect((tree?.children?.[0].children?.[0].children?.[0].icon as React.ReactElement).type).toBe(GnSqlDocIcon);
     const unmatchedGroup = tree?.children?.find((child) => child.key === 'all-saved-queries-unmatched');
     expect(unmatchedGroup?.title).toBe('未匹配');
     expect(unmatchedGroup?.children?.[0]).toMatchObject({
@@ -1128,7 +1131,7 @@ describe('Sidebar locate toolbar', () => {
     expect(css).not.toContain('.gn-v2-active-connection-header');
   });
 
-  it('places driver management in the titlebar and does not render a More overflow', () => {
+  it('moves driver management next to about as trailing titlebar actions and does not render a More overflow', () => {
     const source = readSourceFile('./Sidebar.tsx');
     const actionsStart = source.indexOf('const v2TitlebarQuickActions: TitleBarQuickAction[] = [');
     const actionsEnd = source.indexOf('\n  ];', actionsStart);
@@ -1137,7 +1140,6 @@ describe('Sidebar locate toolbar', () => {
     expect(actionsEnd).toBeGreaterThan(actionsStart);
 
     const actionsSource = source.slice(actionsStart, actionsEnd);
-    const driverIndex = actionsSource.indexOf("key: 'drivers'");
 
     expect(actionsSource).toContain("key: 'data-workflow'");
     expect(actionsSource).toContain('label: v2DataWorkflowLabel');
@@ -1152,27 +1154,28 @@ describe('Sidebar locate toolbar', () => {
     expect(actionsSource).toContain("action: 'sync'");
     expect(actionsSource).not.toContain("key: 'batch-actions'");
     expect(actionsSource).toContain("key: 'sql-tools'");
-    expect(driverIndex).toBeGreaterThan(actionsSource.indexOf("key: 'sql-tools'"));
+    expect(actionsSource).not.toContain("key: 'drivers'");
     expect(actionsSource).not.toContain("key: 'settings-about'");
     expect(actionsSource).not.toContain("key: 'settings-workspace'");
     expect(actionsSource).not.toContain("key: 'settings-preferences'");
     expect(actionsSource).not.toContain("key: 'open-external-sql-file'");
     expect(actionsSource).not.toContain("priority: 'secondary'");
-    expect(actionsSource).toContain("label: t('app.tools.entry.drivers.title')");
-    expect(actionsSource).toContain("action: 'drivers'");
 
-    const aboutActionsStart = source.indexOf('const v2TitlebarAboutActions: TitleBarQuickAction[] = [');
-    const aboutActionsEnd = source.indexOf('\n  ];', aboutActionsStart);
-    expect(aboutActionsStart).toBeGreaterThan(actionsEnd);
-    expect(aboutActionsEnd).toBeGreaterThan(aboutActionsStart);
+    // The trailing entries (drivers, about) are built in their own module.
+    const trailingActionsSource = readSourceFile('./sidebar/titlebarTrailingActions.tsx');
+    expect(trailingActionsSource.indexOf("key: 'drivers'")).toBeGreaterThanOrEqual(0);
+    expect(trailingActionsSource.indexOf("key: 'drivers'")).toBeLessThan(trailingActionsSource.indexOf("key: 'about-go-navi'"));
+    expect(trailingActionsSource).toContain("label: t('app.tools.entry.drivers.title')");
+    expect(trailingActionsSource).toContain("action: 'drivers'");
+    expect(trailingActionsSource).toContain("label: t('app.settings.group.about.title')");
+    expect(trailingActionsSource).toContain("{ group: 'about', pane: 'about-go-navi' }");
+    expect(trailingActionsSource).toContain("action.key !== 'about-go-navi'");
+    expect(trailingActionsSource).toContain("action.key !== 'drivers'");
 
-    const aboutActionsSource = source.slice(aboutActionsStart, aboutActionsEnd);
-    expect(aboutActionsSource).toContain("key: 'about-go-navi'");
-    expect(aboutActionsSource).toContain("label: t('app.settings.group.about.title')");
-    expect(aboutActionsSource).toContain("{ group: 'about', pane: 'about-go-navi' }");
-
-    const renderSource = source.slice(aboutActionsEnd);
-    expect(renderSource).toContain('trailingActions={v2TitlebarAboutActions}');
+    const trailingCallStart = source.indexOf('const v2TitlebarVisibleTrailingActions = buildTitlebarTrailingActions({');
+    expect(trailingCallStart).toBeGreaterThan(actionsEnd);
+    const renderSource = source.slice(trailingCallStart);
+    expect(renderSource).toContain('trailingActions={v2TitlebarVisibleTrailingActions}');
     expect(renderSource).not.toContain('moreLabel=');
 
     const titlebarQuickActionsSource = readSourceFile('./TitleBarQuickActions.tsx');
@@ -1200,7 +1203,7 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('data-v2-command-search-icon-only="true"');
     expect(markup).not.toContain('gn-v2-explorer-filter-action');
     expect(markup).not.toContain('重置侧栏筛选');
-    expect(markup).not.toContain('搜索表、连接、动作... 或问 AI');
+    expect(markup).not.toContain(t('sidebar.command_search.placeholder'));
     expect(markup).not.toContain('gn-v2-search-shortcut');
     expect(markup).not.toContain('<kbd>⌘</kbd>');
     expect(markup).not.toContain('<kbd>K</kbd>');
@@ -1231,6 +1234,7 @@ describe('Sidebar locate toolbar', () => {
     expect(source).toContain("app.tools.group.workflow.title");
     expect(source).toContain("key: 'sql-tools'");
     expect(source).toContain("sidebar.action.sql_tools");
+    expect(source).toContain('sessionWorkbenchAction');
     expect(source).toContain("key: 'compare'");
     expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'compare' })");
     expect(source).not.toContain("key: 'schema-compare'");

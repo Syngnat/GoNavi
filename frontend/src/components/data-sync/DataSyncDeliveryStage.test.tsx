@@ -224,6 +224,81 @@ describe('DataSyncTaskEditor delivery stage', () => {
     });
   });
 
+  it('lets keyed reconcile (diff sync) tasks opt into adding missing columns without creating tables', async () => {
+    const mapping = {
+      ...createDataSyncTableMapping('reconcile:mapping:1', 'public.orders', 'public.orders'),
+      keyColumns: ['id'],
+    };
+    const base = createDataSyncTaskDraft({ id: 'reconcile-columns', kind: 'reconcile' });
+    // 默认关闭：差异同步任务不改目标结构，行为与之前一致。
+    expect(base.delivery.autoAddColumns).toBe(false);
+    const task = reviseDataSyncTask(base, {
+      source: endpoint('source'),
+      target: endpoint('target'),
+      mappings: [mapping],
+    });
+
+    const { renderer, onPatch } = await renderDelivery(task);
+    expect(
+      renderer.root.findAllByProps({ 'data-structure-option': 'auto-add-columns' }),
+    ).toHaveLength(1);
+    // 只补字段，不建表，也就没有「创建索引」。
+    expect(
+      renderer.root.findAllByProps({ 'data-structure-option': 'create-indexes' }),
+    ).toHaveLength(0);
+
+    const optedIn = reviseDataSyncTask(task, {
+      delivery: { ...task.delivery, autoAddColumns: true },
+    });
+    const enabled = await renderDelivery(optedIn);
+    expect(
+      enabled.renderer.root.findAllByProps({ 'data-structure-option': 'auto-add-columns' }),
+    ).toHaveLength(1);
+    expect(enabled.onPatch).not.toHaveBeenCalledWith({
+      delivery: expect.objectContaining({ autoAddColumns: false }),
+    });
+  });
+
+  it('hides reconcile auto-add for explicit field mappings and unsupported routes, and resets a saved value', async () => {
+    const mapping = {
+      ...createDataSyncTableMapping('reconcile:mapping:2', 'public.orders', 'public.orders'),
+      keyColumns: ['id'],
+    };
+    const base = createDataSyncTaskDraft({ id: 'reconcile-explicit', kind: 'reconcile' });
+    const withFields = reviseDataSyncTask(base, {
+      source: endpoint('source'),
+      target: endpoint('target'),
+      mappings: [{
+        ...mapping,
+        fields: [{
+          id: 'f1', sourceField: 'name', targetField: 'full_name',
+          sourceType: 'varchar', targetType: 'varchar', transform: 'none', nullable: true,
+        }],
+      }],
+    });
+    const explicit = await renderDelivery(withFields);
+    expect(
+      explicit.renderer.root.findAllByProps({ 'data-structure-option': 'auto-add-columns' }),
+    ).toHaveLength(0);
+
+    const unsupportedRoute = reviseDataSyncTask(base, {
+      source: endpoint('source'),
+      target: endpoint('target'),
+      mappings: [mapping],
+      delivery: { ...base.delivery, autoAddColumns: true },
+    });
+    const unsupported = await renderDelivery(unsupportedRoute, vi.fn(), {
+      ...supportedCapability,
+      supportsAutoAddColumns: false,
+    });
+    expect(
+      unsupported.renderer.root.findAllByProps({ 'data-structure-option': 'auto-add-columns' }),
+    ).toHaveLength(0);
+    expect(unsupported.onPatch).toHaveBeenCalledWith({
+      delivery: expect.objectContaining({ autoAddColumns: false }),
+    });
+  });
+
   it('keeps migration schema controls for an identity object rename', async () => {
     const mapping = {
       ...createDataSyncTableMapping('migration:rename', 'public.test', 'public.test1'),

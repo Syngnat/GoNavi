@@ -95,7 +95,7 @@ export default function CustomThemeStyleHost({
   const themes = useCustomThemeStore((state) => state.themes);
   const activeThemeId = useCustomThemeStore((state) => state.activeThemeId);
   const reloadCustomThemes = useCustomThemeStore((state) => state.reloadCustomThemes);
-  const selectCustomTheme = useCustomThemeStore((state) => state.selectCustomTheme);
+  const deactivateCustomTheme = useCustomThemeStore((state) => state.deactivateCustomTheme);
   const activeThemeFromStore = useMemo(
     () => resolveAvailableCustomTheme(themes, activeThemeId),
     [activeThemeId, themes],
@@ -118,8 +118,9 @@ export default function CustomThemeStyleHost({
 
   useEffect(() => {
     if (!activeTheme) return undefined;
-    return installCustomThemeRecoveryShortcut(() => { selectCustomTheme(null); });
-  }, [activeTheme, selectCustomTheme]);
+    // 恢复快捷键同时忘掉该主题，避免之后一键切换明暗又把出问题的主题套回来。
+    return installCustomThemeRecoveryShortcut(() => { deactivateCustomTheme(); });
+  }, [activeTheme, deactivateCustomTheme]);
 
   useEffect(() => {
     if (!activeTheme || typeof window === 'undefined') {

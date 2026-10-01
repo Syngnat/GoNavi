@@ -2900,6 +2900,72 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
     line-height: 1.5;
 }
 
+/* ── 网络提示条 ──
+   antd Alert 默认内边距与图标尺寸是为「独立消息卡」设计的，放在驱动页顶部
+   会占掉整屏高度的一截。这里收窄为一行摘要 + 内联明细的紧凑形态。 */
+.driver-manager-network-notice.ant-alert {
+    padding: 8px 12px;
+    border-radius: 8px;
+    align-items: flex-start;
+}
+
+.driver-manager-network-notice.ant-alert .ant-alert-icon {
+    margin-inline-end: 8px;
+    font-size: 15px;
+    line-height: 22px;
+}
+
+.driver-manager-network-notice.ant-alert .ant-alert-message {
+    font-size: var(--driver-manager-font-body, 14px);
+    line-height: 22px;
+}
+
+.driver-manager-network-notice.ant-alert .ant-alert-description {
+    font-size: var(--driver-manager-font-secondary);
+    line-height: 20px;
+}
+
+/* 明细折叠器嵌在 Alert 内：去掉 antd Collapse 自带的外框与背景，
+   让它读起来像「一行可展开文案」而不是嵌了第二个卡片。 */
+.driver-manager-network-notice.ant-alert .ant-collapse {
+    background: transparent;
+    border: none;
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse > .ant-collapse-item {
+    border-bottom: none;
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse-header {
+    padding: 2px 0 !important;
+    font-size: var(--driver-manager-font-secondary);
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse-content {
+    background: transparent;
+    border-top: none;
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse-content-box {
+    padding: 4px 0 0 !important;
+}
+
+/* 关闭按钮默认低对比度，悬停才明显：避免它和提示内容抢注意力。 */
+.driver-manager-network-notice.ant-alert .ant-alert-close-icon {
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
+}
+
+.driver-manager-network-notice.ant-alert:hover .ant-alert-close-icon,
+.driver-manager-network-notice.ant-alert .ant-alert-close-icon:focus-visible {
+    opacity: 0.85;
+}
+
+/* 窄容器下明细行允许换行，否则长 host 列表会撑破提示条。 */
+.driver-manager-network-notice.ant-alert .ant-alert-description .ant-typography {
+    word-break: break-word;
+}
+
 /* ── 批量操作条 ── */
 .driver-manager-bulkbar {
     display: flex;
@@ -2921,7 +2987,8 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    margin-left: auto;
+    /* 紧跟主按钮组排列，不推到最右 —— 按钮独占一行时那会在中间留大片空白。 */
+    margin-left: 0;
 }
 
 /* 设置中心内嵌：浅底工具条，不加描边，避免与设置内容区边框套边框 */
@@ -2949,6 +3016,15 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
     flex-shrink: 0;
 }
 
+/* antd 的 Dropdown.Button 内部是 Space.Compact block，自带 width: 100%。
+   工具条按内容定宽，这个 100% 会被解析成整条工具条的宽度，把同排后面的
+   按钮顶出可视区（实测「导入驱动包」右边界超出容器 125px 后被裁掉）。
+   这里改回按内容定宽，让它只占按钮本身的位置。 */
+.driver-manager-bulkbar-dir .driver-manager-import-directory-dropdown {
+    width: auto;
+    flex: 0 0 auto;
+}
+
 /* Mirror-source chip (Driver Manager + About) — accent bar + hover */
 .driver-manager-mirror-chip,
 .gonavi-about-download-source {
@@ -2973,29 +3049,10 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
     box-sizing: border-box;
 }
 
-.gonavi-about-download-source-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    flex-shrink: 0;
-}
-
-.gonavi-about-download-source-label,
-.gonavi-about-download-source-value {
+.gonavi-about-download-source-label {
     font-size: 13px;
     line-height: 1.2;
     white-space: nowrap;
-}
-
-.gonavi-about-download-source-value {
-    font-weight: 600;
-}
-
-.gonavi-about-download-source-switch.ant-btn {
-    padding: 0;
-    height: auto;
-    font-weight: 600;
-    flex-shrink: 0;
 }
 
 /* 弹窗内的镜像源条：无描边的浅底色条，仅保留左侧来源色条。 */
@@ -3065,20 +3122,8 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     white-space: nowrap;
 }
 
-.driver-manager-mirror-chip-source {
-    min-width: 0;
-    flex: 0 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.driver-manager-mirror-chip-switch.ant-btn {
-    flex-shrink: 0;
-}
-
-.driver-manager-mirror-chip.is-compact > .ant-btn,
-.gonavi-about-download-source > .ant-btn {
+.driver-manager-mirror-chip.is-compact > .ant-select,
+.gonavi-about-download-source > .ant-select {
     margin-left: auto;
 }
 
@@ -3528,7 +3573,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 
 .driver-manager-progress-value {
     flex: 0 0 auto;
-    font-size: var(--driver-manager-font-secondary);
+    font-size: var(--driver-manager-font-body);
     font-variant-numeric: tabular-nums;
 }
 
@@ -3537,6 +3582,15 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
+}
+
+/* 进度块内的取消按钮此前落在放大规则之外（那条只覆盖 .driver-manager-card-actions），
+   于是退回 antd size="small" 的固定值，不跟随主题字号与控件高度。 */
+body[data-ui-version] .driver-manager-progress-side .ant-btn {
+    min-height: var(--gn-control-height, 32px);
+    height: var(--gn-control-height, 32px) !important;
+    padding-inline: 12px !important;
+    font-size: var(--driver-manager-font-body, var(--gn-font-size, 14px)) !important;
 }
 
 .driver-manager-control-label,
@@ -3615,7 +3669,9 @@ body[data-ui-version] .gonavi-settings-center-modal .driver-manager-card-actions
 }
 
 .driver-manager-progress-lg .ant-progress-bg {
-  height: 8px !important;
+  /* 跟随主题缩放：8px 是 14px 基准字号下的观感值，用户调大字号时同步变粗，
+     否则大字号界面里进度条细得看不见。 */
+  height: calc(8px * var(--gn-ui-scale, 1)) !important;
 }
 
 .driver-manager-card-progress-done {
@@ -3858,28 +3914,66 @@ body[data-ui-version] .gonavi-settings-center-modal .driver-manager-card-actions
     color: #cf1322;
 }
 
+/* 小屏固定左右双栏：只压缩左栏与控件密度，不折叠成上下两段。
+   左栏 46% 在 960px 处约合调外档位的 440px 上限，窗口缩放时宽度连续；
+   下限 150px 保住驱动名可读宽度，右栏吃掉剩余宽度。 */
 @container (max-width: 960px) {
     .driver-manager-columns {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: clamp(150px, 46%, 440px) minmax(0, 1fr);
     }
 
-    /* 嵌入态高度被压满：栈叠时列表行自适应、详情行吃掉剩余高度内部滚动，
-       避免隐式行被拉伸出大片空白。 */
+    /* 嵌入态高度被压满：双栏共用一行，行高由容器决定，详情栏内部滚动。 */
     .driver-manager-shell.is-embedded .driver-manager-columns {
-        grid-template-rows: auto minmax(0, 1fr);
-    }
-
-    .driver-manager-list-pane {
-        border-right: 0;
-        padding-right: 0;
+        grid-template-rows: minmax(0, 1fr);
     }
 
     .driver-manager-detail {
-        padding-left: 0;
+        padding-left: 16px;
     }
 
-    .driver-manager-shell.is-embedded .driver-manager-list {
-        max-height: 300px;
+    /* 左栏收窄：筛选由一行 4 格改 2×2，列表头与镜像源允许换行。 */
+    .driver-manager-filterbar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .driver-manager-list-head {
+        flex-wrap: wrap;
+    }
+
+    .driver-manager-list-head .driver-manager-list-search.is-in-head {
+        min-width: 120px;
+    }
+
+    .driver-manager-list-head-right {
+        margin-left: auto;
+    }
+
+    /* 刷新 / 网络检测 在收窄后的左栏内换行，避免撑出横向滚动。 */
+    .driver-manager-list-search-row.is-embedded .driver-manager-list-search-row-left {
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    .driver-manager-mirror-chip.is-compact {
+        margin-left: 0;
+    }
+
+    /* 工具条按钮组在窄容器内换行，避免横向溢出。 */
+    .driver-manager-bulkbar.is-embedded-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-primary,
+    .driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-dir {
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    /* 长安装路径在窄详情栏内折行，不撑破布局。 */
+    .driver-manager-detail-path {
+        overflow-wrap: anywhere;
     }
 
     .driver-manager-batch-bar {

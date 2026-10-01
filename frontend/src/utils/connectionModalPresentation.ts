@@ -316,6 +316,12 @@ export const resolveConnectionConfigLayout = (
       ],
     };
   }
+  if (type === 'pulsar') {
+    return {
+      kind: 'generic-sql',
+      sections: ['identity', 'uri', 'target', 'service', 'credentials', 'databaseScope'],
+    };
+  }
   if (type === 'trino') {
     return {
       kind: 'generic-sql',

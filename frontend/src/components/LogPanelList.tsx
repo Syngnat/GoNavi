@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import type { SqlLog } from '../store';
+import { formatQueryDuration } from '../utils/queryDurationFormat';
 
 const INITIAL_ROWS = 12;
 const ROW_PAGE = 20;
@@ -41,7 +42,7 @@ const LogPanelRow = React.memo(function LogPanelRow({
         {log.status === 'success' ? 'OK' : 'ERR'}
       </span>
       <span className="log-panel-row-duration" style={{ color: log.duration > 1000 ? 'orange' : 'inherit' }}>
-        {log.duration}ms
+        {formatQueryDuration(log.duration)}
       </span>
       <div
         className="log-panel-row-sql"

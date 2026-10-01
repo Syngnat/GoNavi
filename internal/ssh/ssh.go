@@ -43,6 +43,7 @@ func dialContext(ctx context.Context, client *ssh.Client, network, addr string) 
 	ch := make(chan result, 1)
 	go func() {
 		c, err := client.Dial(network, addr)
+		retireIfChannelRejected(client, err)
 		ch <- result{conn: c, err: err}
 	}()
 
@@ -471,64 +472,6 @@ type LocalForwarder struct {
 	refCount  int // guarded by forwarderMu; meaningful only on the cached forwarder
 }
 
-// RemoteDialFailure describes a failed connection from the SSH jump host to
-// the configured remote endpoint. The local listener can only report a reset
-// to its client, so retaining this detail makes tunnel verification errors
-// actionable to database drivers.
-type RemoteDialFailure struct {
-	RemoteAddr string
-	Err        error
-	OccurredAt time.Time
-}
-
-func (f *LocalForwarder) diagnosticOwner() *LocalForwarder {
-	if f == nil {
-		return nil
-	}
-	if f.shared != nil {
-		return f.shared
-	}
-	return f
-}
-
-// LastRemoteDialFailure returns the latest failed remote dial in the current
-// diagnostic window, if one occurred.
-func (f *LocalForwarder) LastRemoteDialFailure() (RemoteDialFailure, bool) {
-	return f.RemoteDialFailureSince(time.Time{})
-}
-
-// RemoteDialFailureSince returns the latest remote dial failure after since.
-// A zero since value returns the latest retained failure.
-func (f *LocalForwarder) RemoteDialFailureSince(since time.Time) (RemoteDialFailure, bool) {
-	owner := f.diagnosticOwner()
-	if owner == nil {
-		return RemoteDialFailure{}, false
-	}
-	owner.remoteDialFailureMu.RLock()
-	failure := owner.remoteDialFailure
-	owner.remoteDialFailureMu.RUnlock()
-	if failure == nil || failure.Err == nil {
-		return RemoteDialFailure{}, false
-	}
-	if !since.IsZero() && !failure.OccurredAt.After(since) {
-		return RemoteDialFailure{}, false
-	}
-	return *failure, true
-}
-
-func (f *LocalForwarder) recordRemoteDialFailure(err error) {
-	if f == nil || err == nil {
-		return
-	}
-	owner := f.diagnosticOwner()
-	if owner == nil {
-		return
-	}
-	owner.remoteDialFailureMu.Lock()
-	owner.remoteDialFailure = &RemoteDialFailure{RemoteAddr: owner.RemoteAddr, Err: err, OccurredAt: time.Now()}
-	owner.remoteDialFailureMu.Unlock()
-}
-
 // NewLocalForwarder creates a new local port forwarder
 // It listens on a random local port and forwards all connections through SSH tunnel
 func NewLocalForwarder(sshConfig connection.SSHConfig, remoteHost string, remotePort int) (*LocalForwarder, error) {
@@ -815,6 +758,7 @@ func getOrCreateSSHClient(config connection.SSHConfig, key sshClientCacheKey) (*
 		logger.Warnf("SSH 连接已断开，重新建立：%s (错误: %v)", formatSSHClientKeyForLog(key), err)
 		sshClientCacheMu.Lock()
 		delete(sshClientCache, key)
+		delete(sshClientBornAt, client)
 		sshClientCacheMu.Unlock()
 		// Try to close the dead client
 		_ = client.Close()
@@ -829,6 +773,7 @@ func getOrCreateSSHClient(config connection.SSHConfig, key sshClientCacheKey) (*
 	// Cache the client
 	sshClientCacheMu.Lock()
 	sshClientCache[key] = client
+	sshClientBornAt[client] = time.Now()
 	sshClientCacheMu.Unlock()
 
 	logger.Infof("已缓存 SSH 连接：%s", formatSSHClientKeyForLog(key))
@@ -849,6 +794,7 @@ func DialThroughSSH(config connection.SSHConfig, network, address string) (net.C
 
 	conn, err := client.Dial(network, address)
 	if err != nil {
+		retireIfChannelRejected(client, err)
 		return nil, fmt.Errorf("failed to connect to %s through SSH tunnel: %w", address, err)
 	}
 
@@ -869,4 +815,5 @@ func CloseAllSSHClients() {
 		}
 	}
 	sshClientCache = make(map[sshClientCacheKey]*ssh.Client)
+	resetSSHClientBookkeepingLocked()
 }

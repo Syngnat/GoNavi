@@ -17,6 +17,10 @@ import type {
 } from '../../types';
 import {
   ATLAS_CLOUD_BASE_URL,
+  CLAUDE_MODELS,
+  DEEPSEEK_MODELS,
+  OPENAI_MODELS,
+  ZHIPU_MODELS,
   ATLAS_CLOUD_DEFAULT_MODEL,
   DEEPSEEK_DEFAULT_MODEL,
   DEEPSEEK_RESPONSES_BASE_URL,
@@ -85,10 +89,10 @@ export const QWEN_BAILIAN_ENDPOINTS: ProviderPresetEndpoint[] = [
 ];
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
-  { key: 'openai', label: 'OpenAI', labelKey: 'ai_settings.provider_preset.openai.label', icon: <ApiOutlined />, desc: 'GPT-5.6 series', descKey: 'ai_settings.provider_preset.openai.desc', color: '#10b981', backendType: 'openai', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.6', models: [] },
+  { key: 'openai', label: 'OpenAI', labelKey: 'ai_settings.provider_preset.openai.label', icon: <ApiOutlined />, desc: 'GPT-6.1 series', descKey: 'ai_settings.provider_preset.openai.desc', color: '#10b981', backendType: 'openai', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-6.1-sol', models: OPENAI_MODELS },
   { key: 'atlascloud', label: 'Atlas Cloud', labelKey: 'ai_settings.provider_preset.atlascloud.label', icon: <CloudOutlined />, desc: 'Qwen3.8 Max / OpenAI-compatible', descKey: 'ai_settings.provider_preset.atlascloud.desc', color: '#0891b2', backendType: 'openai', defaultBaseUrl: ATLAS_CLOUD_BASE_URL, defaultModel: ATLAS_CLOUD_DEFAULT_MODEL, models: [] },
   { key: 'orcarouter', label: 'OrcaRouter', labelKey: 'ai_settings.provider_preset.orcarouter.label', icon: <CloudOutlined />, desc: 'Smart routing to 200+ models / OpenAI-compatible', descKey: 'ai_settings.provider_preset.orcarouter.desc', color: '#0e7490', backendType: 'openai', defaultBaseUrl: ORCAROUTER_BASE_URL, defaultModel: ORCAROUTER_DEFAULT_MODEL, models: [] },
-  { key: 'deepseek', label: 'DeepSeek', labelKey: 'ai_settings.provider_preset.deepseek.label', icon: <ThunderboltOutlined />, desc: 'DeepSeek-V4-Flash / Responses and Chat APIs', descKey: 'ai_settings.provider_preset.deepseek.desc', color: '#3b82f6', backendType: 'openai', defaultApiFormat: 'openai-responses', defaultBaseUrl: DEEPSEEK_RESPONSES_BASE_URL, defaultModel: DEEPSEEK_DEFAULT_MODEL, models: [] },
+  { key: 'deepseek', label: 'DeepSeek', labelKey: 'ai_settings.provider_preset.deepseek.label', icon: <ThunderboltOutlined />, desc: 'DeepSeek-V4.1-Flash / Responses and Chat APIs', descKey: 'ai_settings.provider_preset.deepseek.desc', color: '#3b82f6', backendType: 'openai', defaultApiFormat: 'openai-responses', defaultBaseUrl: DEEPSEEK_RESPONSES_BASE_URL, defaultModel: DEEPSEEK_DEFAULT_MODEL, models: DEEPSEEK_MODELS },
   {
     key: 'qwen-bailian', label: 'Qwen', labelKey: 'ai_settings.provider_preset.qwen_bailian.label', icon: <CloudOutlined />, desc: 'Bailian General / Coding Plan', descKey: 'ai_settings.provider_preset.qwen_bailian.desc', color: '#6366f1',
     backendType: 'anthropic', defaultBaseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL, endpoints: QWEN_BAILIAN_ENDPOINTS, defaultModel: '', models: [],
@@ -97,19 +101,19 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       { key: 'coding-plan', label: 'Qwen (Coding Plan)', labelKey: 'ai_settings.provider_preset.qwen_coding_plan.label', legacyPresetKey: 'qwen-coding-plan', backendType: 'custom', fixedApiFormat: 'claude-cli', defaultBaseUrl: QWEN_CODING_PLAN_ANTHROPIC_BASE_URL, endpoints: [], defaultModel: '', models: QWEN_CODING_PLAN_MODELS },
     ],
   },
-  { key: 'zhipu', label: 'Zhipu GLM', labelKey: 'ai_settings.provider_preset.zhipu.label', icon: <ExperimentOutlined />, desc: 'GLM-5.2 models', descKey: 'ai_settings.provider_preset.zhipu.desc', color: '#0ea5e9', backendType: 'openai', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.2', models: [] },
+  { key: 'zhipu', label: 'Zhipu GLM', labelKey: 'ai_settings.provider_preset.zhipu.label', icon: <ExperimentOutlined />, desc: 'GLM-5.3 models', descKey: 'ai_settings.provider_preset.zhipu.desc', color: '#0ea5e9', backendType: 'openai', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', models: ZHIPU_MODELS },
   { key: 'moonshot', label: 'Kimi', labelKey: 'ai_settings.provider_preset.moonshot.label', icon: <ExperimentOutlined />, desc: 'Kimi K3 / OpenAI-compatible', descKey: 'ai_settings.provider_preset.moonshot.desc', color: '#0d9488', backendType: 'openai', defaultBaseUrl: MOONSHOT_OPENAI_BASE_URL, endpoints: MOONSHOT_ENDPOINTS, defaultModel: 'kimi-k3', models: [] },
   { key: 'xiaomi-mimo', label: 'Xiaomi MiMo', labelKey: 'ai_settings.provider_preset.xiaomi_mimo.label', icon: <ExperimentOutlined />, desc: 'MiMo-V2.5 series / OpenAI and Anthropic compatible', descKey: 'ai_settings.provider_preset.xiaomi_mimo.desc', color: '#ff6900', backendType: 'openai', defaultBaseUrl: XIAOMI_MIMO_OPENAI_BASE_URL, endpoints: XIAOMI_MIMO_ENDPOINTS, defaultModel: XIAOMI_MIMO_DEFAULT_MODEL, models: [] },
   {
     key: 'anthropic', label: 'Claude', labelKey: 'ai_settings.provider_preset.anthropic.label', icon: <ExperimentOutlined />, desc: 'Claude API / local subscription', descKey: 'ai_settings.provider_preset.anthropic.desc', color: '#d97706',
-    backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5', models: [],
+    backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5-5', models: CLAUDE_MODELS,
     modeLabelKey: 'ai_settings.form.connection_method', defaultModeKey: 'api', modes: [
-      { key: 'api', label: 'API Key', labelKey: 'ai_settings.form.auth_api_key', legacyPresetKey: 'anthropic', backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5', models: [] },
+      { key: 'api', label: 'API Key', labelKey: 'ai_settings.form.auth_api_key', legacyPresetKey: 'anthropic', backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5-5', models: CLAUDE_MODELS },
       { key: 'subscription', label: 'Claude Subscription', labelKey: 'ai_settings.provider_preset.claude_subscription.label', legacyPresetKey: 'claude-subscription', backendType: 'custom', fixedApiFormat: 'claude-cli', authMode: 'local-cli', defaultBaseUrl: '', endpoints: [], defaultModel: '', models: [] },
     ],
   },
   { key: 'grok', label: 'Grok Subscription', labelKey: 'ai_settings.provider_preset.grok.label', icon: <ThunderboltOutlined />, desc: 'Local Grok CLI / Grok subscription login', descKey: 'ai_settings.provider_preset.grok.desc', color: '#0f172a', backendType: 'custom', fixedApiFormat: 'grok-cli', authMode: 'local-cli', defaultBaseUrl: '', defaultModel: '', models: [] },
-  { key: 'gemini', label: 'Gemini', labelKey: 'ai_settings.provider_preset.gemini.label', icon: <CloudOutlined />, desc: 'Gemini 3.6 Flash', descKey: 'ai_settings.provider_preset.gemini.desc', color: '#059669', backendType: 'gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com', defaultModel: 'gemini-3.6-flash', models: [] },
+  { key: 'gemini', label: 'Gemini', labelKey: 'ai_settings.provider_preset.gemini.label', icon: <CloudOutlined />, desc: 'Gemini 3.8 Flash', descKey: 'ai_settings.provider_preset.gemini.desc', color: '#059669', backendType: 'gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com', defaultModel: 'gemini-3.8-flash', models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'] },
   {
     key: 'volcengine-ark', label: 'Volcengine Ark', labelKey: 'ai_settings.provider_preset.volcengine_ark.label', icon: <CloudOutlined />, desc: 'Ark general inference / Coding Plan', descKey: 'ai_settings.provider_preset.volcengine_ark.desc', color: '#0ea5e9',
     backendType: 'openai', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: '', models: [],

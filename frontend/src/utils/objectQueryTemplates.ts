@@ -3,7 +3,7 @@ import { getColumnDefinitionName } from './columnDefinition';
 import { buildRpcConnectionConfig } from './connectionRpcConfig';
 import { quoteIdentPart, quoteQualifiedIdent } from './sql';
 
-const MESSAGE_QUEUE_DB_TYPES = new Set(['rocketmq', 'mqtt', 'kafka', 'rabbitmq']);
+const MESSAGE_QUEUE_DB_TYPES = new Set(['rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'pulsar']);
 
 const isMessageQueueDbType = (dbType: string): boolean => (
   MESSAGE_QUEUE_DB_TYPES.has(String(dbType || '').trim().toLowerCase())

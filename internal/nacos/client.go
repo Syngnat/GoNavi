@@ -1496,11 +1496,10 @@ func (c *ClientImpl) doRequestRawWithHeadersResult(
 		}
 	}
 
+	startedAt := time.Now()
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return result, localizedNacosBackendError("nacos.backend.error.request_failed", map[string]any{
-			"detail": redactNacosAccessToken(err.Error(), token),
-		})
+		return result, c.requestFailedError(err, token, startedAt)
 	}
 	defer resp.Body.Close()
 	result.status = resp.StatusCode

@@ -100,19 +100,52 @@
 
 ### 产品截图
 
-每张均为 **完整 GoNavi 应用窗口**，再通过 README 宽度控件等比例缩小展示。
+每张均为 **完整 GoNavi 应用窗口**（1440×900），取自最新 dev 构建，再通过 README 宽度控件等比例缩小展示。
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/01-home-workbench.png" alt="GoNavi 全窗口 — 连接、查询与工作台" width="560" />
-  &nbsp;
-  <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/04-ai-assistant.png" alt="GoNavi 全窗口 — 带表结构上下文的 AI 助手" width="560" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/01-home-workbench.png" alt="GoNavi 全窗口 — 连接、已存查询与快捷操作的工作台" width="100%" />
+      <br /><sub><b>工作台</b> — 连接、已存查询、快捷操作</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/02-query-editor.png" alt="GoNavi 全窗口 — SQL 编辑器、结果表格与对象树" width="100%" />
+      <br /><sub><b>SQL 编辑器</b> — 语法高亮、结果表格、对象树</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/04-ai-assistant.png" alt="GoNavi 全窗口 — 带表结构上下文并生成 SQL 的 AI 助手" width="100%" />
+      <br /><sub><b>AI 助手</b> — 感知表结构的对话，生成 SQL 可插入 / 执行 / 预览</sub>
+    </td>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/05-ai-settings.png" alt="GoNavi 全窗口 — AI 设置中的内置工具与推荐流程" width="100%" />
+      <br /><sub><b>AI 设置</b> — 内置工具与推荐排查流程</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/06-new-connection.png" alt="GoNavi 全窗口 — 新建连接的数据源选择器" width="100%" />
+      <br /><sub><b>新建连接</b> — 可搜索、分类的数据源选择器</sub>
+    </td>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/08-sql-execution-history.png" alt="GoNavi 全窗口 — 带筛选与详情面板的 SQL 执行历史" width="100%" />
+      <br /><sub><b>SQL 执行历史</b> — 筛选、查看详情、一键填回编辑器</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/09-sql-audit.png" alt="GoNavi 全窗口 — SQL 审计中心" width="100%" />
+      <br /><sub><b>SQL 审计中心</b> — 跨连接的脱敏 SQL 审计证据</sub>
+    </td>
+    <td align="center">
+      <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/07-settings-themes.png" alt="GoNavi 全窗口 — 含内置主题的设置中心" width="100%" />
+      <br /><sub><b>设置中心</b> — 内置主题、字体、工作区等</sub>
+    </td>
+  </tr>
+</table>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/06-new-connection.png" alt="GoNavi 全窗口 — 新建连接的数据源选择器" width="560" />
-</p>
-
-<p align="center"><sub>真实桌面全窗口截图</sub></p>
+<p align="center"><sub>演示数据来自本地实验库 · 连接地址、密钥与供应商配置均未展示</sub></p>
 
 ---
 
@@ -279,9 +312,10 @@ Elasticsearch 连接复用查询工作区，并按服务端版本提供受控 RE
 
 ### 前置要求
 
-- [Go](https://go.dev/dl/) 1.21+
+- [Go](https://go.dev/dl/) 1.25+
 - [Node.js](https://nodejs.org/) 18+
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- 仅 Linux：C 编译器、pkg-config，以及 GTK3 / WebKitGTK 开发包
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
@@ -306,6 +340,21 @@ wails build -clean   # 发布前推荐
 ```
 
 产物位于 `build/bin`。
+
+Linux 上请先安装构建依赖（按发行版任选其一）：
+
+```bash
+# Debian 12+ / Ubuntu 22.04+
+sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+# Fedora / OpenCloudOS 9
+sudo dnf install -y gcc pkgconf-pkg-config gtk3-devel webkit2gtk4.1-devel
+# RHEL / Rocky / AlmaLinux 9（仅提供 WebKitGTK 4.0）
+sudo dnf install -y gcc pkgconf-pkg-config gtk3-devel webkit2gtk3-devel
+# Arch Linux
+sudo pacman -S --needed base-devel gtk3 webkit2gtk-4.1
+```
+
+构建会自动识别本机装的是 WebKitGTK 4.1 还是 4.0。前端编译峰值约需 3 GB 内存。
 
 ### 只想直接用？
 

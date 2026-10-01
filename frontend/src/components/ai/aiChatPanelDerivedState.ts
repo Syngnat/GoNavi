@@ -1,5 +1,6 @@
 import type { SqlLog } from '../../store';
 import type { AIChatMessage, AIContextItem } from '../../types';
+import { isAITableSchemaContext } from './aiEditorSelectionContext';
 import { t as translateCatalog, type I18nParams } from '../../i18n';
 import type { AIChatInlineHistorySession, AIChatInsightItem, AIChatPanelMode } from './AIChatPanelModeContent';
 
@@ -46,7 +47,9 @@ export const collectAIChatContextTableNames = ({
   activeDbName,
 }: CollectAIChatContextTableNamesArgs) => {
   const contextKey = activeConnectionId ? `${activeConnectionId}:${activeDbName || ''}` : 'default';
-  return (aiContexts[contextKey] || []).map((item) => `${item.dbName}.${item.tableName}`);
+  return (aiContexts[contextKey] || [])
+    .filter(isAITableSchemaContext)
+    .map((item) => `${item.dbName}.${item.tableName}`);
 };
 
 export const buildAIChatInsights = ({

@@ -43,6 +43,7 @@ import {
 import ConnectionModalMongoSections from "../ConnectionModalMongoSections";
 import ConnectionModalKafkaAuth, { ConnectionModalAdditionalParams, ConnectionModalKafkaCredentials, readKafkaSecurityProtocol, readKafkaAuthMechanism, writeKafkaSecurityProtocol, useKafkaSecuritySync } from "./ConnectionModalKafkaAuth";
 import { t } from "../../i18n";
+import { PRIMARY_USERNAME_OPTIONAL_TYPES } from "../../utils/connectionTypeCapabilities";
 import {
   supportsConnectionReadOnlyMode,
 } from "../../utils/connectionReadOnly";
@@ -58,6 +59,7 @@ import {
 } from "../../utils/jvmConnectionConfig";
 import { resolveJVMModeMeta } from "../../utils/jvmRuntimePresentation";
 import {
+  getPulsarPortAfterSSLChange,
   getConnectionParamsPlaceholder,
   getUriPlaceholder,
 } from "./connectionModalUri";
@@ -87,18 +89,6 @@ const OCEANBASE_PROTOCOL_OPTIONS: Array<{
   { value: "oracle", label: "Oracle" },
 ];
 
-const PRIMARY_USERNAME_OPTIONAL_TYPES = new Set([
-  "mongodb",
-  "elasticsearch",
-  "chroma",
-  "qdrant",
-  "milvus",
-  "rocketmq",
-  "mqtt",
-  "kafka",
-  "rabbitmq",
-  "nacos",
-]);
 
 // URI 操作反馈统一保留 4 秒，便于用户读取后自动回收空间。
 const URI_FEEDBACK_AUTO_DISMISS_MS = 4000;
@@ -145,6 +135,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     isOceanBaseOracle,
     isRedis,
     isRocketMQ,
+    isPulsar,
     isSSLType,
     jvmDiagnosticEnabled,
     jvmDiagnosticTransport,
@@ -211,6 +202,19 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     useSSL,
   } = props;
   useKafkaSecuritySync(form, isKafka, setUseSSL);
+  const pulsarPortEditedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    pulsarPortEditedRef.current = false;
+  }, [dbType, initialValues?.id]);
+
+  React.useEffect(() => {
+    if (!isPulsar) return;
+    form.setFieldsValue({ useSSH: false, useProxy: false, useHttpTunnel: false });
+    setUseSSH(false);
+    setUseProxy(false);
+    setUseHttpTunnel(false);
+  }, [form, isPulsar, setUseHttpTunnel, setUseProxy, setUseSSH]);
 
   // 默认折叠生产保护，避免默认表单内容溢出触发滚动条；保留用户按需展开的交互。
   const [readOnlyProtectionExpanded, setReadOnlyProtectionExpanded] =
@@ -1323,18 +1327,18 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
               </div>
             )}
 
-            {dbType === "kafka" && (
+            {(dbType === "kafka" || isPulsar) && (
               <div className="gn-conn-f-row">
                 {denseLabel(
                   t("connection.modal.dense.topic"),
-                  t("connection.modal.messageQueue.kafka.defaultTopic.label"),
+                  t(isPulsar ? "connection_modal.pulsar.defaultTopic.label" : "connection.modal.messageQueue.kafka.defaultTopic.label"),
                 )}
                 <div className="gn-conn-f-ctrl">
                   <Form.Item name="database" style={{ marginBottom: 0 }}>
                     <Input
                       {...noAutoCapInputProps}
                       placeholder={t(
-                        "connection.modal.messageQueue.kafka.defaultTopic.placeholder",
+                        isPulsar ? "connection_modal.pulsar.defaultTopic.placeholder" : "connection.modal.messageQueue.kafka.defaultTopic.placeholder",
                       )}
                     />
                   </Form.Item>
@@ -1657,7 +1661,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
             )}
 
             {/* 固定库范围保留精确匹配语义，避免历史下划线库名被通配符规则放宽。 */}
-            {!isFileDb && !isRedis && !isKafka && (
+            {!isFileDb && !isRedis && !isKafka && !isPulsar && (
               <>
                 <div className="gn-conn-f-row">
                   {denseLabel(
@@ -2844,6 +2848,9 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
         jvmJmxPassword: "",
       }}
       onValuesChange={(changed) => {
+        if (isPulsar && changed.port !== undefined) {
+          pulsarPortEditedRef.current = true;
+        }
         if (testResult) {
           setTestResult(null);
           setTestErrorLogOpen(false);
@@ -2857,6 +2864,17 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
           setUriFeedback(null);
         }
         if (changed.useSSL !== undefined) {
+          if (isPulsar) {
+            const currentPort = Number(form.getFieldValue("port"));
+            const nextPort = getPulsarPortAfterSSLChange(
+              currentPort,
+              !!changed.useSSL,
+              pulsarPortEditedRef.current,
+            );
+            if (Number.isFinite(currentPort) && nextPort !== currentPort) {
+              form.setFieldValue("port", nextPort);
+            }
+          }
           if (isKafka) {
             const params = form.getFieldValue("connectionParams");
             const uri = form.getFieldValue("uri");

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Input, Tooltip } from 'antd';
-import { DatabaseOutlined } from '@ant-design/icons';
+import { GnDatabaseIcon } from '../icons/gnIcons';
 import { useStore } from '../../store';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import type { AIComposerNotice, AIComposerNoticeAction } from '../../utils/aiComposerNotice';
@@ -24,8 +24,10 @@ import { buildAIChatReadinessSnapshot } from './aiChatReadiness';
 import { useAIChatContextBinding } from './useAIChatContextBinding';
 import { useAIChatDraftAttachments } from './useAIChatDraftAttachments';
 import { useAISlashCommandMenu } from './useAISlashCommandMenu';
-import type { AIChatAttachment } from '../../types';
+import type { AIChatAttachment, AIEditorSelection } from '../../types';
 import type { AIRunDispatchMode } from './aiRunHarnessClient';
+import { AIChatContextMeter } from './AIChatContextMeter';
+import { isAIEditorSelectionContext } from './aiEditorSelectionContext';
 
 interface AIChatInputProps {
     input: string;
@@ -42,6 +44,7 @@ interface AIChatInputProps {
     handleKeyDown: (e: React.KeyboardEvent) => void;
     activeConnName: string;
     activeContext: { connectionId?: string | null; dbName?: string | null } | null;
+    activeEditorSelection?: AIEditorSelection | null;
     activeProvider: AIProviderConfig | null;
     providers?: AIProviderConfig[];
     providerModels?: Record<string, string[]>;
@@ -73,12 +76,12 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
     input, setInput, draftAttachments, setDraftAttachments, sending, dispatchMode = 'queue', hasActiveRun = false,
     stopRequestPending = false,
     onDispatchModeChange, onSend, onStop, handleKeyDown,
-    activeConnName, activeContext, activeProvider, providers, providerModels, dynamicModels, loadingModels,
+    activeConnName, activeContext, activeEditorSelection, activeProvider, providers, providerModels, dynamicModels, loadingModels,
     sendShortcutBinding, shortcutPlatform = 'windows', composerNotice, onComposerAction,
     onModelChange, onProviderModelChange, onManageProvider, onFetchModels, onFetchProviderModels, thinkingIntensity, onThinkingIntensityChange,
     cliCapability, cliCatalog,
     textareaRef, darkMode, textColor, mutedColor, overlayTheme,
-    contextUsageChars, maxContextChars
+    contextUsageChars, maxContextChars,
 }) => {
     const i18n = useOptionalI18n();
     const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
@@ -88,6 +91,13 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
     const removeAIContext = useStore(state => state.removeAIContext);
 
     const connectionKey = activeContext?.connectionId ? `${activeContext.connectionId}:${activeContext.dbName || ''}` : 'default';
+    const editorSelectionForContext = activeEditorSelection
+        && (!activeContext?.connectionId || !activeEditorSelection.connectionId
+            || activeEditorSelection.connectionId === activeContext.connectionId)
+        && (!activeContext?.dbName || !activeEditorSelection.dbName
+            || activeEditorSelection.dbName === activeContext.dbName)
+        ? activeEditorSelection
+        : null;
     const activeContextItems = aiContexts[connectionKey] || [];
     const composerReadiness = React.useMemo(() => buildAIChatReadinessSnapshot({
         activeProvider,
@@ -105,24 +115,32 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
         dbList,
         filteredTables,
         handleAppendContext,
+        handleBindEditorSelection,
         handleDbChange,
         handleOpenContext,
         handleRemoveContextItem,
         searchText,
         selectedDbName,
+        selectedEditorSelection,
         selectedTableKeys,
         setContextExpanded,
         setContextOpen,
         setSearchText,
+        setSelectedEditorSelection,
         setSelectedTableKeys,
     } = useAIChatContextBinding({
         activeContext,
+        activeEditorSelection: editorSelectionForContext,
         activeContextItems,
         connectionKey,
         addAIContext,
         removeAIContext,
         translate: t,
     });
+    const editorSelectionBound = Boolean(editorSelectionForContext)
+        && activeContextItems.some((item) => isAIEditorSelectionContext(item)
+            && item.source?.tabId === editorSelectionForContext?.tabId
+            && String(item.content || item.ddl || '') === editorSelectionForContext?.text);
 
     const {
         fileInputRef,
@@ -135,10 +153,13 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
     });
 
     const {
+        activeSlashCmd,
         filteredSlashCmds,
         handleComposerInputChange,
         handleOpenSlashMenu,
         handleSelectSlashCommand,
+        handleSlashKeyDown,
+        setActiveSlashCmd,
         showSlashMenu,
     } = useAISlashCommandMenu({
         setInput,
@@ -161,12 +182,6 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
         });
     }, [sendShortcutBinding?.combo, sendShortcutBinding?.enabled, shortcutPlatform, t]);
     const connectionTooltipLabel = t('ai_chat.input.context.connection_tooltip');
-    const memoryLimitLabel = maxContextChars !== undefined
-        ? `${(maxContextChars / 1000).toFixed(0)}k`
-        : '';
-    const memoryTooltipLabel = memoryLimitLabel
-        ? t('ai_chat.input.context.memory_tooltip', { limit: memoryLimitLabel })
-        : '';
     const composerActionHandler = typeof onComposerAction === 'function' ? onComposerAction : undefined;
     const composerNoticeActionHandler = composerNotice?.action?.key && composerActionHandler
         ? handleComposerNoticeAction
@@ -191,6 +206,9 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                     onToggleExpanded={() => setContextExpanded(!contextExpanded)}
                     onOpenContext={handleOpenContext}
                     onRemoveContext={handleRemoveContextItem}
+                    activeEditorSelection={editorSelectionForContext}
+                    editorSelectionBound={editorSelectionBound}
+                    onBindEditorSelection={handleBindEditorSelection}
                 />
                 <AIChatAttachmentStrip
                     attachments={draftAttachments}
@@ -218,6 +236,8 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                         darkMode={darkMode}
                         textColor={textColor}
                         mutedColor={mutedColor}
+                        activeCmd={activeSlashCmd}
+                        onActiveChange={setActiveSlashCmd}
                         className="gn-v2-ai-slash-menu"
                         style={{
                             background: darkMode ? '#2a2a2a' : '#fff',
@@ -231,7 +251,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                             ref={textareaRef as any}
                             value={input}
                             onChange={(e) => handleComposerInputChange(e.target.value)}
-                            onKeyDown={handleKeyDown as any}
+                            onKeyDown={(event) => { if (!handleSlashKeyDown(event)) handleKeyDown(event); }}
                             placeholder={t('ai_chat.input.placeholder_compact', { shortcut: sendShortcutLabel })}
                             variant="borderless"
                             autoSize={{ minRows: 3, maxRows: 8 }}
@@ -263,7 +283,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                         <Tooltip title={connectionTooltipLabel}>
                             <div className="gn-v2-ai-context-chip">
                                 <span className="gn-v2-ai-context-live-dot" />
-                                <DatabaseOutlined />
+                                <GnDatabaseIcon />
                                 <span className="gn-v2-ai-context-chip-text">
                                     {activeConnName}{activeContext?.dbName ? ` / ${activeContext.dbName}` : ''}
                                 </span>
@@ -290,16 +310,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                         cliCatalog={cliCatalog}
                     />
                     {contextUsageChars !== undefined && maxContextChars !== undefined && (
-                        <Tooltip title={memoryTooltipLabel}>
-                            <div className={`gn-v2-ai-token-meter${contextUsageChars > maxContextChars * 0.8 ? ' is-warn' : ''}`}>
-                                <span className="gn-v2-ai-token-bar" aria-hidden="true">
-                                    <span style={{ width: `${Math.min(100, (contextUsageChars / Math.max(1, maxContextChars)) * 100)}%` }} />
-                                </span>
-                                <span className="gn-v2-ai-token-meter-text">
-                                    {(contextUsageChars / 1000).toFixed(1)}k/{(maxContextChars / 1000).toFixed(0)}k
-                                </span>
-                            </div>
-                        </Tooltip>
+                        <AIChatContextMeter usageChars={contextUsageChars} maxChars={maxContextChars} />
                     )}
                 </div>
             </div>
@@ -316,11 +327,14 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                 searchText={searchText}
                 filteredTables={filteredTables}
                 selectedTableKeys={selectedTableKeys}
+                activeEditorSelection={editorSelectionForContext}
+                selectedEditorSelection={selectedEditorSelection}
                 onCancel={() => setContextOpen(false)}
                 onConfirm={handleAppendContext}
                 onDbChange={handleDbChange}
                 onSearchTextChange={setSearchText}
                 onSelectedTableKeysChange={setSelectedTableKeys}
+                onSelectedEditorSelectionChange={setSelectedEditorSelection}
             />
         </div>
     );

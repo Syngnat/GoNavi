@@ -460,33 +460,15 @@ func executeExplainStatementsWithText(ctx context.Context, dbInst db.Database, d
 	statements = append(statements, postQueries...)
 	fullSQL := strings.Join(statements, ";\n")
 
-	// 优先使用带 context 的多结果接口，便于取消
-	if multi, ok := dbInst.(db.MultiResultQueryMessageExecer); ok {
-		results, _, err := multi.QueryMultiContextWithMessages(ctx, fullSQL)
-		if err != nil {
-			return "", preferFormat, err
-		}
-		return collectExplainRawWithText(results, preferFormat, text)
+	// 优先使用多结果接口。数据库层返回空结果且无错误表示驱动不支持原生多结果集
+	// （如可选驱动代理里的 KingBase），与 DBQueryMulti 一致：没有后置查询时退回单结果查询；
+	// 有后置查询（Oracle 的 DBMS_XPLAN）单结果无法还原，仍按「未返回结果集」报错。
+	multiResults, multiSupported, multiErr := queryExplainMulti(ctx, dbInst, fullSQL)
+	if multiErr != nil {
+		return "", preferFormat, multiErr
 	}
-	if multi, ok := dbInst.(db.MultiResultQuerierContext); ok {
-		results, err := multi.QueryMultiContext(ctx, fullSQL)
-		if err != nil {
-			return "", preferFormat, err
-		}
-		return collectExplainRawWithText(results, preferFormat, text)
-	}
-	if multi, ok := dbInst.(db.MultiResultQuerier); ok {
-		if err := ctx.Err(); err != nil {
-			return "", preferFormat, err
-		}
-		results, err := multi.QueryMulti(fullSQL)
-		if err != nil {
-			return "", preferFormat, err
-		}
-		if err := ctx.Err(); err != nil {
-			return "", preferFormat, err
-		}
-		return collectExplainRawWithText(results, preferFormat, text)
+	if multiSupported && (len(multiResults) > 0 || len(postQueries) > 0) {
+		return collectExplainRawWithText(multiResults, preferFormat, text)
 	}
 
 	// 单结果 fallback：只执行第一条 EXPLAIN，忽略 postQueries（不适合 Oracle/SQLServer）。
@@ -515,6 +497,30 @@ func executeExplainStatementsWithText(ctx context.Context, dbInst db.Database, d
 		return "", preferFormat, err
 	}
 	return collectExplainRawWithText([]connection.ResultSetData{{Rows: data, Columns: columns}}, preferFormat, text)
+}
+
+// queryExplainMulti 按带 context 优先的顺序调用数据库的多结果集接口；
+// supported=false 表示驱动没有任何多结果集接口。
+func queryExplainMulti(ctx context.Context, dbInst db.Database, sql string) (results []connection.ResultSetData, supported bool, err error) {
+	if multi, ok := dbInst.(db.MultiResultQueryMessageExecer); ok {
+		results, _, err = multi.QueryMultiContextWithMessages(ctx, sql)
+		return results, true, err
+	}
+	if multi, ok := dbInst.(db.MultiResultQuerierContext); ok {
+		results, err = multi.QueryMultiContext(ctx, sql)
+		return results, true, err
+	}
+	if multi, ok := dbInst.(db.MultiResultQuerier); ok {
+		if err = ctx.Err(); err != nil {
+			return nil, true, err
+		}
+		results, err = multi.QueryMulti(sql)
+		if err == nil {
+			err = ctx.Err()
+		}
+		return results, true, err
+	}
+	return nil, false, nil
 }
 
 // collectExplainRaw 把多个结果集合并为单个原文，并探测实际格式。

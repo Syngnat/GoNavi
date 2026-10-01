@@ -82,7 +82,10 @@ const normalizeHttpTunnelConfig = (value: unknown): connection.HTTPTunnelConfig 
 
 const withOceanBaseProtocolParam = (config: ConnectionConfigInput): ConnectionConfigInput => {
   const type = toStringValue(config.type).trim().toLowerCase();
-  if (type !== 'oceanbase') {
+  const driver = toStringValue(config.driver).trim().toLowerCase();
+  const isOceanBase = type === 'oceanbase'
+    || (type === 'custom' && driver === 'oceanbase');
+  if (!isOceanBase) {
     return config;
   }
   const selectedProtocol = resolveOceanBaseProtocolFromConfig(config);

@@ -532,3 +532,64 @@ func TestProviderModelTurnAdapterPreservesStreamUsage(t *testing.T) {
 		t.Fatalf("cached usage = %#v", result.Usage.CachedTokens)
 	}
 }
+
+// truncatedStreamProvider 先流出一段内容，再以「输出被截断」结束，模拟模型撞到自己的最大输出。
+type truncatedStreamProvider struct {
+	request ai.ChatRequest
+}
+
+func (p *truncatedStreamProvider) Chat(context.Context, ai.ChatRequest) (*ai.ChatResponse, error) {
+	return &ai.ChatResponse{}, nil
+}
+
+func (p *truncatedStreamProvider) ChatStream(_ context.Context, request ai.ChatRequest, callback func(ai.StreamChunk)) error {
+	p.request = request
+	callback(ai.StreamChunk{Content: "SELECT a, "})
+	return &ai.OutputLimitError{Message: "response incomplete: max_output_tokens"}
+}
+
+func (p *truncatedStreamProvider) Name() string    { return "truncated" }
+func (p *truncatedStreamProvider) Validate() error { return nil }
+
+func TestProviderModelTurnAdapterReportsTruncationWithPartialOutput(t *testing.T) {
+	captured := &truncatedStreamProvider{}
+	adapter := NewProviderModelTurnAdapter(func(context.Context, ModelTurnRequest) (provider.Provider, error) {
+		return captured, nil
+	})
+	result, err := adapter.Execute(context.Background(), ModelTurnRequest{}, func(context.Context, ModelDelta) error { return nil })
+	if err != nil {
+		t.Fatalf("truncation is not a failure, got %v", err)
+	}
+	if !result.Truncated || result.Text != "SELECT a, " {
+		t.Fatalf("result = %#v, want the partial text flagged as truncated", result)
+	}
+}
+
+func TestProviderModelTurnAdapterAsksProvidersToReportTruncationOnlyForImplicitBudgets(t *testing.T) {
+	implicit := &captureAdapterProvider{}
+	implicitBinding, err := NewProviderBinding("p", ai.ProviderConfig{ID: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewProviderModelTurnAdapter(func(context.Context, ModelTurnRequest) (provider.Provider, error) { return implicit, nil })
+	if _, err := adapter.Execute(context.Background(), ModelTurnRequest{Provider: "p", ProviderBinding: &implicitBinding}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !implicit.request.ReportOutputLimit {
+		t.Fatal("no configured budget: providers must report truncation so the harness can continue")
+	}
+
+	// 显式的小上限（行内补全等）本来就期望被截断，不能当成需要续写的事故。
+	explicit := &captureAdapterProvider{}
+	explicitBinding, err := NewProviderBinding("p", ai.ProviderConfig{ID: "p", MaxTokens: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter = NewProviderModelTurnAdapter(func(context.Context, ModelTurnRequest) (provider.Provider, error) { return explicit, nil })
+	if _, err := adapter.Execute(context.Background(), ModelTurnRequest{Provider: "p", ProviderBinding: &explicitBinding}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if explicit.request.ReportOutputLimit {
+		t.Fatal("an explicit budget is a deliberate limit and must not be reported as truncation")
+	}
+}

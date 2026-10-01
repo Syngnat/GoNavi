@@ -18,6 +18,7 @@ const REQUIRED_MESSAGE_BUBBLE_KEYS = [
   'ai_chat.message.image_alt',
   'ai_chat.message.wait.connecting',
   'ai_chat.message.wait.generating',
+  'ai_chat.message.processing_time',
   'ai_chat.message.usage.input',
   'ai_chat.message.usage.output',
   'ai_chat.message.usage.cache_rate',
@@ -288,6 +289,54 @@ describe('AIMessageBubble', () => {
     expect(markup).toContain('250');
     expect(markup).toContain('Cache rate');
     expect(markup).toContain('40%');
+  });
+
+  it('shows the send time under a user message and the processing time under an AI reply', () => {
+    const sentAt = new Date(2026, 8, 30, 9, 5, 7).getTime();
+    const render = (msg: React.ComponentProps<typeof AIMessageBubble>['msg']) => renderToStaticMarkup(
+      <AIMessageBubble
+        msg={msg}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        onDelete={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+
+    const userMarkup = render({ id: 'user-1', role: 'user', content: 'create a table', timestamp: sentAt });
+    expect(userMarkup).toContain('ai-message-footer');
+    expect(userMarkup).toMatch(/\d{2}:05:07|09-30 \d{2}:05:07|2026-09-30 \d{2}:05:07/);
+    expect(userMarkup).not.toContain('Processed in');
+
+    const aiMarkup = render({
+      id: 'assistant-timed',
+      role: 'assistant',
+      content: 'done',
+      timestamp: sentAt,
+      processingMs: 41_300,
+    });
+    expect(aiMarkup).toContain('Processed in 41s');
+  });
+
+  it('keeps the footer hidden while the reply is still streaming', () => {
+    const markup = renderToStaticMarkup(
+      <AIMessageBubble
+        msg={{ id: 'assistant-live', role: 'assistant', content: 'partial', timestamp: Date.now(), loading: true, phase: 'generating' }}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        onDelete={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+    expect(markup).not.toContain('ai-message-footer');
   });
 
   it('shows unavailable token metadata for providers that do not report usage', () => {

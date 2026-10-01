@@ -33,8 +33,15 @@ const LOCAL_CATALOGS: readonly LocalCatalog[] = [
   },
 ];
 
+// 位于局部词典目录、但实际使用全局翻译器（shared/i18n）的文件，按全局链解析。
+const GLOBAL_TRANSLATOR_FILES: ReadonlySet<string> = new Set([
+  `${frontendSrc}/components/data-sync/DataSyncBackgroundNotice.tsx`,
+]);
+
 const localCatalogFor = (file: string): LocalCatalog | undefined =>
-  LOCAL_CATALOGS.find((catalog) => file.startsWith(catalog.sourceDirectory));
+  GLOBAL_TRANSLATOR_FILES.has(file)
+    ? undefined
+    : LOCAL_CATALOGS.find((catalog) => file.startsWith(catalog.sourceDirectory));
 
 // 与 src/i18n/index.ts 的 toCatalogKey 保持一致
 const ACTION_ALIASES: Record<string, string> = {

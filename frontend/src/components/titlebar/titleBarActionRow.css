@@ -1,0 +1,70 @@
+/*
+ * 功能入口放在标题栏 GoNavi 右侧时的补充规则。
+ *
+ * 容器本身不生成盒子，按钮直接排进 .gonavi-titlebar-leading，
+ * 继续使用 App.css 中改版前的标题栏胶囊 / 文字按钮样式。
+ * 显示方式由容器的 data-titlebar-actions-display 决定：
+ *   text       纯文字（默认，与改版前一致）
+ *   icon       纯图标，名称见悬浮提示
+ *   icon-text  图标 + 精简名称，完整名称见悬浮提示
+ *
+ * 以下规则比 titleBarToolBar.css 里「关于」槽位的规则多一个属性选择器，
+ * macOS 随行移入的驱动管理 / 关于同样跟随显示方式。
+ */
+.gonavi-titlebar-inline-actions {
+  display: contents;
+}
+
+/* 精简名称默认不显示，只在「图标 + 文字」模式出现。 */
+.gn-titlebar-toolbar-item-short-label {
+  display: none;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-display='text'] .gn-titlebar-toolbar-item-icon {
+  display: none;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions:not([data-titlebar-actions-display='text']) .gn-titlebar-toolbar-item-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px * var(--gn-ui-scale, 1));
+  height: calc(16px * var(--gn-ui-scale, 1));
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions:not([data-titlebar-actions-display='text']) .gn-titlebar-toolbar-item-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 纯图标：隐藏全部文字，按钮收成近似正方形。 */
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-display='icon'] .gn-titlebar-toolbar-item-label {
+  display: none;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-display='icon'] :is(.gonavi-titlebar-primary-action, .gn-v2-titlebar-quick-action) {
+  padding-inline: calc(7px * var(--gn-ui-scale, 1));
+}
+
+/* 图标 + 文字：有精简名称的入口换成精简名称，并收紧内边距。 */
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-display='icon-text'] .gn-titlebar-toolbar-item-label.has-short-label {
+  display: none;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-display='icon-text'] .gn-titlebar-toolbar-item-short-label {
+  display: inline;
+  white-space: nowrap;
+}
+
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-display='icon-text'] :is(.gonavi-titlebar-primary-action, .gn-v2-titlebar-quick-action) {
+  gap: calc(4px * var(--gn-ui-scale, 1));
+  padding-inline: calc(7px * var(--gn-ui-scale, 1));
+}
+
+/* AI / 驱动管理打开时的激活态：工具条的淡紫底只在工具条作用域内，这里沿用改版前标题栏按钮的 is-active。 */
+body[data-ui-version='v2'] .gn-v2-titlebar .gonavi-titlebar-inline-actions[data-titlebar-actions-placement='titlebar'] [data-titlebar-toolbar-item-active='true'] {
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-active));
+  color: var(--gn-accent);
+}

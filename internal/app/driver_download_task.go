@@ -68,7 +68,8 @@ func (a *App) StartDriverPackageDownload(driverType string, version string, down
 	}
 
 	a.driverDownloadTaskMu.Lock()
-	if activeTask, ok := a.activeDriverDownloadTaskLocked(); ok {
+	// 只对「同一驱动类型」去重：不同类型允许并行安装。
+	if activeTask, ok := a.activeDriverDownloadTaskLocked(normalizedDriverType); ok {
 		a.driverDownloadTaskMu.Unlock()
 		return connection.QueryResult{Success: true, Data: map[string]interface{}{
 			"task":           activeTask,
@@ -101,7 +102,10 @@ func (a *App) StartDriverPackageDownload(driverType string, version string, down
 		}
 	}
 	a.driverDownloadTasks[task.TaskID] = task
-	a.driverDownloadActiveTaskID = task.TaskID
+	if a.driverDownloadActiveTaskIDByType == nil {
+		a.driverDownloadActiveTaskIDByType = make(map[string]string)
+	}
+	a.driverDownloadActiveTaskIDByType[normalizedDriverType] = task.TaskID
 	runner := a.driverDownloadTaskRunner
 	parentContext := a.ctx
 	if parentContext == nil {
@@ -164,9 +168,7 @@ func (a *App) CancelDriverPackageDownload(taskID string) connection.QueryResult 
 	task.FinishedAt = time.Now().Format(time.RFC3339)
 	a.driverDownloadTasks[normalizedTaskID] = task
 	delete(a.driverDownloadTaskControls, normalizedTaskID)
-	if a.driverDownloadActiveTaskID == normalizedTaskID {
-		a.driverDownloadActiveTaskID = ""
-	}
+	a.clearActiveDriverDownloadTaskLocked(task.DriverType, normalizedTaskID)
 	a.driverDownloadTaskMu.Unlock()
 
 	a.emitDriverDownloadTaskSnapshot(task)
@@ -209,17 +211,39 @@ func (a *App) runDriverPackageDownloadTask(ctx context.Context, cancel context.C
 	result = runner(ctx, task.DriverType, task.Version, task.DownloadURL, task.DownloadDir)
 }
 
-func (a *App) activeDriverDownloadTaskLocked() (DriverDownloadTaskStatus, bool) {
-	taskID := strings.TrimSpace(a.driverDownloadActiveTaskID)
+func (a *App) activeDriverDownloadTaskLocked(driverType string) (DriverDownloadTaskStatus, bool) {
+	normalizedDriverType := normalizeDriverType(driverType)
+	if normalizedDriverType == "" || a.driverDownloadActiveTaskIDByType == nil {
+		return DriverDownloadTaskStatus{}, false
+	}
+	taskID := strings.TrimSpace(a.driverDownloadActiveTaskIDByType[normalizedDriverType])
 	if taskID == "" {
 		return DriverDownloadTaskStatus{}, false
 	}
 	task, ok := a.driverDownloadTasks[taskID]
 	if !ok || !task.Running {
-		a.driverDownloadActiveTaskID = ""
+		delete(a.driverDownloadActiveTaskIDByType, normalizedDriverType)
 		return DriverDownloadTaskStatus{}, false
 	}
 	return task, true
+}
+
+// clearActiveDriverDownloadTaskLocked 清理某个类型或某个 taskID 的活动登记。
+func (a *App) clearActiveDriverDownloadTaskLocked(driverType string, taskID string) {
+	if a.driverDownloadActiveTaskIDByType == nil {
+		return
+	}
+	if driverType != "" {
+		if a.driverDownloadActiveTaskIDByType[driverType] == taskID {
+			delete(a.driverDownloadActiveTaskIDByType, driverType)
+		}
+		return
+	}
+	for registeredType, registeredTaskID := range a.driverDownloadActiveTaskIDByType {
+		if registeredTaskID == taskID {
+			delete(a.driverDownloadActiveTaskIDByType, registeredType)
+		}
+	}
 }
 
 func (a *App) updateDriverDownloadTaskProgress(driverType string, status string, percent float64, message string) string {
@@ -242,7 +266,8 @@ func (a *App) updateDriverDownloadTaskProgressForTask(taskID string, driverType 
 			return ""
 		}
 	} else {
-		task, ok = a.activeDriverDownloadTaskLocked()
+		// 无 taskID 的进度（本地安装 / 删除）按驱动类型定位归属任务。
+		task, ok = a.activeDriverDownloadTaskLocked(normalizedDriverType)
 	}
 	if !ok || task.DriverType != normalizedDriverType {
 		return ""
@@ -300,9 +325,7 @@ func (a *App) finishDriverDownloadTask(taskID string, result connection.QueryRes
 	task.FinishedAt = time.Now().Format(time.RFC3339)
 	a.driverDownloadTasks[task.TaskID] = task
 	delete(a.driverDownloadTaskControls, task.TaskID)
-	if a.driverDownloadActiveTaskID == task.TaskID {
-		a.driverDownloadActiveTaskID = ""
-	}
+	a.clearActiveDriverDownloadTaskLocked(task.DriverType, task.TaskID)
 	a.driverDownloadTaskMu.Unlock()
 
 	// DownloadDriverPackage normally emits its own terminal progress event. If

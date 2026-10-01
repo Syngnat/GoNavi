@@ -12,12 +12,6 @@ import (
 
 const dataSyncCDCProbeTimeout = 15 * time.Second
 
-// dataSyncJobPreflightTimeout 是数据同步预检的总时长上界。
-//
-// 取值远大于健康的预检耗时（映射校验复用会话后通常是秒级），同时短于用户
-// 对「卡住」的忍耐阈值，让交互式预检总能返回一个可操作的结果。
-const dataSyncJobPreflightTimeout = 60 * time.Second
-
 func (a *App) dataSyncCDCAdapters() *synccdc.Registry {
 	if a != nil && a.dataSyncCDCRegistry != nil {
 		return a.dataSyncCDCRegistry

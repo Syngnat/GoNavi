@@ -1,0 +1,30 @@
+/* 「历史与诊断」入口：带文字标签，颜色/高度沿用工具栏 .ant-btn-default 的统一规则。 */
+body[data-ui-version="v2"] .gn-v2-query-toolbar-analysis-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-analysis-action.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px 0 10px !important;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-analysis-action .gn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--gn-toolbar-icon-size, 17px);
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-analysis-action .gn-v2-query-toolbar-analysis-caret {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-toolbar-analysis-label {
+  line-height: 1;
+}

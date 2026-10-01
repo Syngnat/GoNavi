@@ -55,6 +55,32 @@ const GENERIC_OPTIONS: ThinkingIntensityOption[] = [
   { value: 'high', labelKey: 'ai_settings.form.thinking_intensity.high' },
 ];
 
+// 个别模型的档位值域和同族其他模型不同：GPT-6.1 不支持 none / minimal，
+// 但多出 max。实测 none / minimal 会返回 400，所以在选项层面直接过滤掉。
+const OPENAI_OPTIONS_BY_MODEL: Array<{ match: RegExp; omit: string[]; append?: string[] }> = [
+  { match: /^gpt-6\.1/, omit: ['none', 'minimal'], append: ['max'] },
+];
+
+const filterOptionsForModel = (
+  options: ThinkingIntensityOption[],
+  model: string,
+): ThinkingIntensityOption[] => {
+  const name = String(model || '').trim().toLowerCase();
+  const rule = OPENAI_OPTIONS_BY_MODEL.find((item) => item.match.test(name));
+  if (!rule) return options;
+  const omit = new Set(rule.omit);
+  const filtered = options.filter((option) => !omit.has(option.value));
+  const existing = new Set(filtered.map((option) => option.value));
+  const appended = (rule.append || [])
+    .filter((value) => !existing.has(value))
+    .map(optionForValue);
+  if (appended.length === 0) return filtered;
+  // 追加项插在 high 之后，保持档位由低到高的顺序（max 在最后）。
+  const insertAt = filtered.findIndex((option) => option.value === 'xhigh');
+  if (insertAt < 0) return [...filtered, ...appended];
+  return [...filtered.slice(0, insertAt + 1), ...appended, ...filtered.slice(insertAt + 1)];
+};
+
 const optionForValue = (value: string): ThinkingIntensityOption => ({
   value,
   labelKey: value === 'default'
@@ -87,9 +113,16 @@ export const resolveProviderThinkingIntensityControl = (
     };
   }
   const profile = resolveThinkingIntensityProfile(provider);
+  const options = profile === 'openai'
+    ? filterOptionsForModel(OPENAI_OPTIONS, String(provider.model || ''))
+    : resolveThinkingIntensityOptions(profile);
+  const preferred = defaultThinkingIntensityForProfile(profile);
   return {
-    options: resolveThinkingIntensityOptions(profile),
-    defaultValue: defaultThinkingIntensityForProfile(profile),
+    options,
+    // 默认档也可能被过滤掉（如 gpt-6.1 没有 none），退到第一个可用档位。
+    defaultValue: options.some((option) => option.value === preferred)
+      ? preferred
+      : (options[0]?.value || preferred),
   };
 };
 

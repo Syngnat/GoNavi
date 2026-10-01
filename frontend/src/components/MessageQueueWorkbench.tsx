@@ -130,8 +130,8 @@ export const resolveMessageRowIdentity = (
     }
     return [row.topic, row.received_at, row.message_id, stableSerialize(row.payload)].join('|');
   }
-  if (sourceType === 'kafka') {
-    return [row.topic, row.partition, row.offset].join('|');
+  if (sourceType === 'kafka' || sourceType === 'pulsar') {
+    return (sourceType === 'pulsar' ? [row.topic, row.message_id] : [row.topic, row.partition, row.offset]).join('|');
   }
   if (sourceType === 'rocketmq') {
     return String(row.msg_id || [row.topic, row.queue_id, row.queue_offset].join('|'));

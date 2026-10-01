@@ -22,6 +22,7 @@ import (
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
 	"GoNavi-Wails/internal/webserver"
+	"GoNavi-Wails/shared/i18n"
 
 	"github.com/wailsapp/wails/v2"
 	wailslogger "github.com/wailsapp/wails/v2/pkg/logger"
@@ -176,13 +177,21 @@ func main() {
 	windowChrome := resolveMainWindowChrome(runtime.GOOS)
 	var runtimeCtx context.Context
 	var appMenu *menu.Menu
+	var preferencesMenu *macPreferencesMenu
 	if strings.EqualFold(strings.TrimSpace(runtime.GOOS), "darwin") {
-		appMenu = buildMacApplicationMenu(func() {
-			if runtimeCtx == nil {
-				return
+		emitNative := func(event string) {
+			if runtimeCtx != nil {
+				wailsRuntime.EventsEmit(runtimeCtx, event)
 			}
-			wailsRuntime.EventsEmit(runtimeCtx, nativeSelectCurrentLineEvent)
-		}, windowChrome.Frameless)
+		}
+		menuLocalizer, localizerErr := i18n.NewLocalizer(resolveStartupMenuLanguage())
+		if localizerErr != nil {
+			logger.Warnf("加载菜单栏多语言目录失败：%v", localizerErr)
+		}
+		preferencesMenu = newMacPreferencesMenu(menuLocalizer, emitNative)
+		appMenu = buildMacApplicationMenu(func() {
+			emitNative(nativeSelectCurrentLineEvent)
+		}, windowChrome.Frameless, preferencesMenu.topLevelItems()...)
 	}
 
 	// Keep the native startup barrier before showing the packaged application icon.
@@ -221,6 +230,24 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			defer signalStartupNativeIconReady()
 			runtimeCtx = ctx
+			if preferencesMenu != nil {
+				wailsRuntime.EventsOn(ctx, nativeMenuLanguageEvent, func(data ...interface{}) {
+					if len(data) == 0 {
+						return
+					}
+					if language, ok := data[0].(string); ok && preferencesMenu.setLanguage(language) {
+						wailsRuntime.MenuUpdateApplicationMenu(ctx)
+					}
+				})
+				wailsRuntime.EventsOn(ctx, nativeMenuThemeEvent, func(data ...interface{}) {
+					if len(data) == 0 {
+						return
+					}
+					if mode, ok := data[0].(string); ok && preferencesMenu.setTheme(mode) {
+						wailsRuntime.MenuUpdateApplicationMenu(ctx)
+					}
+				})
+			}
 			if hideWindowUntilFrontendReady {
 				// Subscribe before startup continues so a fast first paint cannot
 				// emit gonavi:frontend-ready into an empty event bus.
@@ -335,7 +362,8 @@ func newDesktopAgentToolCatalog(application *app.App, aiService *aiservice.Servi
 	), nil
 }
 
-func buildMacApplicationMenu(onNativeSelectCurrentLine func(), frameless bool) *menu.Menu {
+// buildMacApplicationMenu 组装 macOS 菜单栏；extraMenus 按顺序追加在 SQL 之后。
+func buildMacApplicationMenu(onNativeSelectCurrentLine func(), frameless bool, extraMenus ...*menu.MenuItem) *menu.Menu {
 	result := menu.NewMenuFromItems(
 		menu.AppMenu(),
 		menu.EditMenu(),
@@ -349,6 +377,11 @@ func buildMacApplicationMenu(onNativeSelectCurrentLine func(), frameless bool) *
 			onNativeSelectCurrentLine()
 		}
 	})
+	for _, extra := range extraMenus {
+		if extra != nil {
+			result.Append(extra)
+		}
+	}
 	return result
 }
 
@@ -363,6 +396,10 @@ func runSpecialMode(args []string) (bool, error) {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return true, app.RunSyncWorker(ctx, args[1:])
+	case "run-sync-job":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return true, app.RunScheduledJobOnce(ctx, args[1:])
 	case "mcp-server", "--mcp-server":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

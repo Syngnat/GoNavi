@@ -1,6 +1,7 @@
 import { resolveOceanBaseProtocolForDialect } from './oceanBaseProtocol';
 import { splitQualifiedNameSegments, splitQualifiedNameSegmentsDetailed } from './qualifiedName';
 import { t as translate } from '../i18n';
+import { ROCKETMQ_KEYWORDS, MQTT_KEYWORDS, KAFKA_KEYWORDS, RABBITMQ_KEYWORDS, PULSAR_KEYWORDS } from './messageSqlKeywords';
 
 export type ColumnTypeOption = { value: string };
 
@@ -35,6 +36,7 @@ export type SqlDialect =
   | 'mqtt'
   | 'kafka'
   | 'rabbitmq'
+  | 'pulsar'
   | 'mongodb'
   | 'redis'
   | 'elasticsearch'
@@ -178,6 +180,10 @@ export const resolveSqlDialect = (
     case 'rabbit-mq':
     case 'rabbit_mq':
       return 'rabbitmq';
+    case 'pulsar':
+    case 'apache-pulsar':
+    case 'apache_pulsar':
+      return 'pulsar';
     default:
       break;
   }
@@ -206,6 +212,7 @@ export const resolveSqlDialect = (
   if (source.includes('mqtt')) return 'mqtt';
   if (source.includes('kafka')) return 'kafka';
   if (source.includes('rabbitmq') || source.includes('rabbit-mq') || source.includes('rabbit_mq')) return 'rabbitmq';
+  if (source.includes('pulsar')) return 'pulsar';
   if (source.includes('sqlserver') || source.includes('mssql')) return 'sqlserver';
   if (source.includes('iris') || source.includes('intersystems')) return 'iris';
   if (source.includes('elastic')) return 'elasticsearch';
@@ -686,46 +693,6 @@ const IOTDB_KEYWORDS = [
   'COMPRESSION',
 ];
 
-const ROCKETMQ_KEYWORDS = [
-  'SHOW TOPICS',
-  'DESCRIBE TOPIC',
-  'CONSUME',
-  'FROM',
-  'LIMIT',
-  'OFFSET',
-];
-
-const MQTT_KEYWORDS = [
-  'SHOW TOPICS',
-  'DESCRIBE TOPIC',
-  'CONSUME',
-  'FROM',
-  'LIMIT',
-  'OFFSET',
-];
-
-const KAFKA_KEYWORDS = [
-  'SHOW TOPICS',
-  'SHOW TOPIC',
-  'DESCRIBE TOPIC',
-  'CONSUME',
-  'GROUP',
-  'FROM',
-  'LIMIT',
-  'OFFSET',
-];
-
-const RABBITMQ_KEYWORDS = [
-  'SHOW VHOSTS',
-  'SHOW QUEUES',
-  'SHOW EXCHANGES',
-  'DESCRIBE QUEUE',
-  'DESCRIBE EXCHANGE',
-  'CONSUME',
-  'FROM',
-  'LIMIT',
-  'OFFSET',
-];
 
 /**
  * 补全候选的常用词权重（#1328）。
@@ -812,6 +779,7 @@ export const resolveSqlKeywords = (dbType: string): string[] => {
   if (dialect === 'mqtt') return unique([...COMMON_KEYWORDS, ...MQTT_KEYWORDS]);
   if (dialect === 'kafka') return unique([...COMMON_KEYWORDS, ...KAFKA_KEYWORDS]);
   if (dialect === 'rabbitmq') return unique([...COMMON_KEYWORDS, ...RABBITMQ_KEYWORDS]);
+  if (dialect === 'pulsar') return PULSAR_KEYWORDS.slice();
   return COMMON_KEYWORDS;
 };
 

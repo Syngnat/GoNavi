@@ -478,7 +478,7 @@ export const useSidebarV2ContextMenu = ({
   const renderV2ConnectionContextMenu = (node: any) => {
       const conn = node.dataRef as SavedConnection;
       const capabilities = getDataSourceCapabilities(conn?.config);
-      const isMessageQueue = ['mqtt', 'kafka', 'rocketmq', 'rabbitmq'].includes(capabilities.type);
+      const isMessageQueue = ['mqtt', 'kafka', 'rocketmq', 'rabbitmq', 'pulsar'].includes(capabilities.type);
       const currentTagId = connectionTags.find((tag) => tag.connectionIds.includes(String(conn.id || node.key)))?.id || '';
       return (
           <V2ConnectionContextMenuView
@@ -496,6 +496,7 @@ export const useSidebarV2ContextMenu = ({
               supportsQueryEditor={capabilities.supportsQueryEditor}
               isMessageQueue={isMessageQueue}
               supportsMessagePublish={capabilities.supportsMessagePublish}
+              supportsUserManagement={capabilities.supportsUserManagement}
               tags={connectionTags.map((tag) => ({
                   id: tag.id,
                   name: tag.name,

@@ -24,32 +24,7 @@ import {
   APP_POPUP_Z_INDEX,
 } from '../utils/overlayZIndex';
 import { requestCloseWorkbenchTabs } from '../utils/workbenchTabCloseProtection';
-
-const getTabKindLabel = (type: string): string => {
-  if (type === 'query') return t('tab_manager.kind_badge.query');
-  if (type === 'table') return t('tab_manager.kind_badge.table');
-  if (type === 'design') return t('tab_manager.kind_badge.design');
-  if (type === 'table-overview') return t('tab_manager.kind_badge.table_overview');
-  if (type === 'table-export') return t('tab_manager.kind_badge.table_export');
-  if (type === 'data-import') return t('tab_manager.kind_badge.data_import');
-  if (type === 'data-sync') return t('app.tools.entry.sync.title');
-  if (type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
-  if (type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
-  if (type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
-  if (type === 'dml-snapshot') return t('tab_manager.kind_badge.dml_snapshot');
-  if (type === 'driver-manager') return t('tab_manager.kind_badge.driver_manager');
-  if (type === 'settings-center') return t('tab_manager.kind_badge.settings_center');
-  if (type.startsWith('redis')) return t('tab_manager.kind_badge.redis');
-  if (type.startsWith('jvm')) return t('tab_manager.kind_badge.jvm');
-  if (type === 'trigger') return t('tab_manager.kind_badge.trigger');
-  if (type === 'view-def') return t('tab_manager.kind_badge.view');
-  if (type === 'event-def') return t('tab_manager.kind_badge.event');
-  if (type === 'routine-def') return t('tab_manager.kind_badge.routine');
-  if (type === 'sequence-def') return t('tab_manager.kind_badge.sequence');
-  if (type === 'package-def') return t('tab_manager.kind_badge.package');
-  if (type === 'database-link-def') return t('tab_manager.kind_badge.database_link');
-  return t('tab_manager.kind_badge.fallback');
-};
+import { getWorkbenchTabKindLabel } from '../utils/workbenchTabKindLabels';
 
 type DragMode = 'move' | 'resize-e' | 'resize-s' | 'resize-se';
 
@@ -81,7 +56,7 @@ const FloatingWorkbenchWindows: React.FC = () => {
         if (!tab) return null;
         const connection = connections.find((conn) => conn.id === tab.connectionId);
         const displayModel = buildTabDisplayModel(tab, connection, appearance.tabDisplay, t);
-        const kindLabel = getTabKindLabel(tab.type);
+        const kindLabel = getWorkbenchTabKindLabel(tab);
         const objectLabel =
           tab.tableName ||
           tab.viewName ||

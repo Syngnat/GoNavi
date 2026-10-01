@@ -40,6 +40,12 @@ describe('GoNavi Monaco themes', () => {
       'keyword.block.sql',
       'keyword.choice.sql',
     ];
+    for (const name of ['transparent-light', 'transparent-dark']) {
+      const colors = definitions.get(name)?.colors;
+      expect(colors?.['diffEditor.insertedLineBackground']).toMatch(/^#[0-9a-f]{8}$/i);
+      expect(colors?.['diffEditor.removedLineBackground']).toMatch(/^#[0-9a-f]{8}$/i);
+      expect(colors?.['diffEditor.insertedLineBackground']).not.toBe(colors?.['diffEditor.removedLineBackground']);
+    }
     const lightRules = definitions.get('transparent-light')?.rules ?? [];
     const darkRules = definitions.get('transparent-dark')?.rules ?? [];
 
@@ -52,6 +58,11 @@ describe('GoNavi Monaco themes', () => {
         foreground: 'C792EA',
         fontStyle: 'bold',
       });
+    }
+
+    for (const token of ['string', 'number', 'number.float', 'number.hex', 'number.octal', 'number.infinity', 'number.nan', 'number.date']) {
+      expect(lightRules.find((rule: any) => rule.token === token + '.yaml')).toMatchObject({ foreground: '0451A5' });
+      expect(darkRules.find((rule: any) => rule.token === token + '.yaml')).toMatchObject({ foreground: 'CE9178' });
     }
 
     for (const preset of BUILTIN_CUSTOM_THEME_PRESETS) {

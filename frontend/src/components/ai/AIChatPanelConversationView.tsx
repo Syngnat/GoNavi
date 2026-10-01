@@ -20,6 +20,7 @@ import {
 } from './aiToolResultIndex';
 import { collectRetryableAIChatAssistantMessageIds } from './aiChatRetrySafety';
 import { collectOriginalSqlCandidatesForAssistant } from './aiSqlReplaceCandidates';
+import { aiPx } from './aiScale';
 
 interface AIChatPanelConversationViewProps {
   mode: AIChatPanelMode;
@@ -293,7 +294,7 @@ const AIChatPanelConversationView: React.FC<AIChatPanelConversationViewProps> = 
           event.currentTarget.style.background = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
         }}
       >
-        <DownOutlined style={{ fontSize: 14 }} />
+        <DownOutlined style={{ fontSize: aiPx(14) }} />
       </div>
     )}
   </>

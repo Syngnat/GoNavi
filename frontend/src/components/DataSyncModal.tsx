@@ -65,6 +65,7 @@ import {
   validateDataSyncExecutionReadiness,
   validateDataSyncSelection,
 } from "./dataSyncRequest";
+import { isTargetTableCreationAllowed } from "./dataSyncTableCreation";
 import { t } from "../i18n";
 import { useOptionalI18n } from "../i18n/provider";
 import { confirmProductionMutation } from "../utils/productionRiskConfirm";
@@ -528,6 +529,7 @@ const DataSyncModal: React.FC<{
     sourceDatasetMode,
     migrationCapability?.supportsAutoCreate === true,
     targetTableStrategyTouchedRef.current,
+    syncContent,
   );
 
   const currentAnalysisFingerprint = useMemo(
@@ -789,14 +791,14 @@ const DataSyncModal: React.FC<{
       }
       return;
     }
-    if (workflowType === "migration") {
+    if (isTargetTableCreationAllowed(workflowType, syncContent, sourceDatasetMode)) {
       const supportsAutoCreate = migrationCapability?.supportsAutoCreate === true;
       // 迁移保持默认 insert_update：目标表已存在且补列时，必须走按主键差异
       // 更新才能把新增字段的值回填到已有数据行；强制 insert_only 会让这些
       // 行永远留 NULL（issue #1014）。全新建表场景下目标为空表，
       // insert_update 的差异比对等价于全量插入，无额外开销。
       // 无主键的已存在表会由引擎明确报错提示，而不是静默漏数据。
-      if (syncContent === "schema") {
+      if (workflowType === "migration" && syncContent === "schema") {
         setSyncContent("both");
       }
       if (
@@ -808,11 +810,8 @@ const DataSyncModal: React.FC<{
       } else if (!supportsAutoCreate && targetTableStrategy !== "existing_only") {
         setTargetTableStrategy("existing_only");
       }
-      if (supportsAutoCreate && !createIndexes) {
-        setCreateIndexes(true);
-      } else if (!supportsAutoCreate && createIndexes) {
-        setCreateIndexes(false);
-      }
+      // 支持自动建表时默认同时建索引，不支持时必须关掉。
+      if (createIndexes !== supportsAutoCreate) setCreateIndexes(supportsAutoCreate);
     } else {
       if (targetTableStrategy !== "existing_only") {
         setTargetTableStrategy("existing_only");
@@ -1452,6 +1451,7 @@ const DataSyncModal: React.FC<{
 
   const isSourceQueryMode = sourceDatasetMode === "query";
   const isMigrationWorkflow = !isCompareEntry && workflowType === "migration";
+  const tableCreationAllowed = !isCompareEntry && isTargetTableCreationAllowed(workflowType, syncContent, sourceDatasetMode);
   const sourceConn = useMemo(
     () => connections.find((c) => c.id === sourceConnId),
     [connections, sourceConnId],
@@ -2162,7 +2162,7 @@ const DataSyncModal: React.FC<{
                 {!isCompareEntry && (
                   <Form.Item
                     label={
-                      isMigrationWorkflow
+                      tableCreationAllowed
                         ? tr("data_sync.field.target_table_strategy")
                         : tr("data_sync.field.target_table_requirement")
                     }
@@ -2174,7 +2174,7 @@ const DataSyncModal: React.FC<{
                         setTargetTableStrategy(value);
                       }}
                       disabled={
-                        !isMigrationWorkflow ||
+                        !tableCreationAllowed ||
                         isSourceQueryMode ||
                         migrationCapabilityStatus !== "ready" ||
                         capabilityPresentation?.forceExistingTarget === true
@@ -2244,7 +2244,7 @@ const DataSyncModal: React.FC<{
                       checked={createIndexes}
                       onChange={(e) => setCreateIndexes(e.target.checked)}
                       disabled={
-                        !isMigrationWorkflow ||
+                        !tableCreationAllowed ||
                         targetTableStrategy === "existing_only" ||
                         isSourceQueryMode ||
                         migrationCapability?.supportsAutoCreate !== true
