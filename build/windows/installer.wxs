@@ -95,6 +95,46 @@
     <ui:WixUI Id="WixUI_InstallDir"
               InstallDirectory="INSTALLFOLDER"
               ExtendedPathValidation="yes" />
+
+    <!-- Brand icon switching rewrites the IconLocation of the GoNavi shortcuts at
+         run time with standard user privileges. Explorer anchors the taskbar
+         button to the IconLocation of the shortcut resolved through the
+         AppUserModel.ID, so a read-only shortcut freezes the button on a stale
+         brand icon and leaves the desktop and Start Menu entries behind while
+         every other surface updates ("shortcut is not writable", observed on
+         Windows 11 26200). Grant Users modify on exactly these two
+         installer-owned .lnk files after they are created - never on the
+         containing directories - so runtime switches can update them. -->
+    <!-- Data pass to the deferred actions follows the documented pattern: an
+         immediate type 51 scheduled in the execute sequence formats the
+         icacls command line (directory properties resolve at script
+         generation) into a property write that lands in the execution
+         script; the deferred type 18 then expands it as its
+         CustomActionData. Granting requires the elevated, deferred context. -->
+    <CustomAction Id="SetGrantUsersModifyStartMenuShortcutCmd"
+                  Property="GrantUsersModifyStartMenuShortcut"
+                  Value="&quot;[SystemFolder]icacls.exe&quot; &quot;[ProgramMenuFolder]$(var.ProductName).lnk&quot; /grant *S-1-5-32-545:M" />
+    <CustomAction Id="GrantUsersModifyStartMenuShortcut"
+                  Directory="SystemFolder"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"
+                  ExeCommand="[GrantUsersModifyStartMenuShortcut]" />
+    <CustomAction Id="SetGrantUsersModifyDesktopShortcutCmd"
+                  Property="GrantUsersModifyDesktopShortcut"
+                  Value="&quot;[SystemFolder]icacls.exe&quot; &quot;[DesktopFolder]$(var.ProductName).lnk&quot; /grant *S-1-5-32-545:M" />
+    <CustomAction Id="GrantUsersModifyDesktopShortcut"
+                  Directory="SystemFolder"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"
+                  ExeCommand="[GrantUsersModifyDesktopShortcut]" />
+    <InstallExecuteSequence>
+      <Custom Action="SetGrantUsersModifyStartMenuShortcutCmd" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="GrantUsersModifyStartMenuShortcut" Before="InstallFinalize" Condition="NOT REMOVE" />
+      <Custom Action="SetGrantUsersModifyDesktopShortcutCmd" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="GrantUsersModifyDesktopShortcut" Before="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
   </Package>
 
   <Fragment>

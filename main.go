@@ -282,8 +282,8 @@ func main() {
 				})
 			}
 			if isWindowsDesktop {
-				if err := app.MigrateLegacyApplicationShortcuts(application); err != nil {
-					logger.Warnf("迁移 Windows 应用快捷方式失败：%v", err)
+				if err := app.InitializePersistedNativeBrandIcon(application, ctx); err != nil {
+					logger.Warnf("启动时应用已保存的 Windows 品牌图标失败：%v", err)
 				}
 			}
 			// The icon is now ready; the remaining lifecycle services may continue

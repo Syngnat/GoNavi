@@ -106,6 +106,15 @@ New-TestShortcut (Join-Path $pins 'GoNavi (2).lnk') $duplicateGoNaviTarget ''
 # identity in the Syngnat.GoNavi family.
 New-TestShortcut (Join-Path $pins 'GoNavi-rotated.lnk') $alternateGoNaviTarget ''
 [void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath (Join-Path $pins 'GoNavi-rotated.lnk') -TargetPath $alternateGoNaviTarget -IconPath $missingIcon -ApplicationUserModelID 'Syngnat.GoNavi.Icon.deadbeefdeadbeefdeadbeef')
+# 系统固定项回归防护：File Explorer 固定项（历史事故中被测试实例误认领）
+# 永远不属于 GoNavi 的认领范围。
+New-TestShortcut (Join-Path $pins 'File Explorer.lnk') "$env:windir\explorer.exe" ''
+[void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath (Join-Path $pins 'File Explorer.lnk') -TargetPath "$env:windir\explorer.exe" -IconPath $missingIcon -ApplicationUserModelID 'Microsoft.Windows.Explorer')
+# 外部应用死固定项防护（审查实测复现的事故）：用户卸载其他应用后残留的
+# 目标失效 pin，MSI 模式下也绝不能被认领改写为 GoNavi 启动器。
+$steamDeadTarget = Join-Path $env:GONAVI_TEST_ROOT 'missing-foreign\Steam\steam.exe'
+New-TestShortcut (Join-Path $pins 'Steam.lnk') $steamDeadTarget ''
+$steamIconBefore = $shell.CreateShortcut((Join-Path $pins 'Steam.lnk')).IconLocation
 $blankIconBefore = $shell.CreateShortcut((Join-Path $pins 'blank-icon.lnk')).IconLocation
 $otherMissingIconBefore = $shell.CreateShortcut((Join-Path $pins 'other-missing-icon.lnk')).IconLocation
 
@@ -150,6 +159,14 @@ foreach ($shortcutName in @('missing-icon.lnk', 'existing-icon.lnk', 'blank-icon
 if (-not (Test-ShortcutIconLocation $shell.CreateShortcut((Join-Path $pins 'foreign-target.lnk')).IconLocation $missingIcon)) {
     throw 'brand icon update modified a foreign target shortcut'
 }
+# 外部应用死固定项（目标失效）也不得被劫持：目标与图标都必须原样保留。
+$steamShortcut = $shell.CreateShortcut((Join-Path $pins 'Steam.lnk'))
+if (-not (Test-SameFilePath $steamShortcut.TargetPath $steamDeadTarget)) {
+    throw ('brand icon update hijacked a dead foreign pin target: ' + $steamShortcut.TargetPath)
+}
+if (-not [string]::Equals([string]$steamShortcut.IconLocation, $steamIconBefore, [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('brand icon update hijacked a dead foreign pin icon: ' + $steamShortcut.IconLocation)
+}
 $alternateShortcut = $shell.CreateShortcut((Join-Path $pins 'GoNavi.lnk'))
 if (-not (Test-ShortcutIconLocation $alternateShortcut.IconLocation $brandIcon)) {
     throw ('brand icon was not applied to the alternate GoNavi pin: ' + $alternateShortcut.IconLocation)
@@ -159,10 +176,19 @@ if (-not (Test-SameFilePath $alternateShortcut.TargetPath $target)) {
 }
 $alternateItem = $shellApplication.Namespace((Split-Path (Join-Path $pins 'GoNavi.lnk') -Parent)).ParseName('GoNavi.lnk')
 if ($null -ne $alternateItem) {
-    $alternateRelaunchCommand = [string]$alternateItem.ExtendedProperty('System.AppUserModel.RelaunchCommand')
-    if ($alternateRelaunchCommand -match '(?i)\.ico') {
-        throw ('taskbar pin relaunch command was pointed at an icon: ' + $alternateRelaunchCommand)
-    }
+	if (-not [string]::Equals([string]$alternateItem.ExtendedProperty('System.AppUserModel.ID'), 'Syngnat.GoNavi', [StringComparison]::OrdinalIgnoreCase)) {
+		throw ('MSI GoNavi pin identity was not normalized: ' + $alternateItem.ExtendedProperty('System.AppUserModel.ID'))
+	}
+	$alternateRelaunchCommand = [string]$alternateItem.ExtendedProperty('System.AppUserModel.RelaunchCommand')
+	if (-not [string]::Equals($alternateRelaunchCommand, ('"' + $target + '"'), [StringComparison]::OrdinalIgnoreCase)) {
+		throw ('taskbar pin relaunch command did not target GoNavi.exe: ' + $alternateRelaunchCommand)
+	}
+	$alternateRelaunchIcon = [string]$alternateItem.ExtendedProperty('System.AppUserModel.RelaunchIconResource')
+	# RelaunchIconResource 是纯路径（无 ",0" 后缀）——带后缀会让 Explorer 按
+	# PE 资源索引提取 .ico 失败，按钮退化为空白文档图标。
+	if (-not (Test-SameFilePath ($alternateRelaunchIcon -replace ',\d+$', '') $brandIcon)) {
+		throw ('taskbar pin relaunch icon was not updated: ' + $alternateRelaunchIcon)
+	}
 }
 $rotatedShortcut = $shell.CreateShortcut((Join-Path $pins 'GoNavi-rotated.lnk'))
 if (-not (Test-ShortcutIconLocation $rotatedShortcut.IconLocation $brandIcon)) {
@@ -172,8 +198,13 @@ if (-not (Test-SameFilePath $rotatedShortcut.TargetPath $target)) {
     throw ('rotated-identity MSI pin target was not repaired: ' + $rotatedShortcut.TargetPath)
 }
 $rotatedItemBefore = $shellApplication.Namespace($pins).ParseName('GoNavi-rotated.lnk')
-if ($null -ne $rotatedItemBefore -and ([string]$rotatedItemBefore.ExtendedProperty('System.AppUserModel.RelaunchCommand')) -match '(?i)\.ico') {
-    throw ('rotated pin relaunch command was pointed at an icon: ' + $rotatedItemBefore.ExtendedProperty('System.AppUserModel.RelaunchCommand'))
+if ($null -ne $rotatedItemBefore) {
+	if (-not [string]::Equals([string]$rotatedItemBefore.ExtendedProperty('System.AppUserModel.ID'), 'Syngnat.GoNavi', [StringComparison]::OrdinalIgnoreCase)) {
+		throw ('rotated pin identity was not normalized: ' + $rotatedItemBefore.ExtendedProperty('System.AppUserModel.ID'))
+	}
+	if (-not [string]::Equals([string]$rotatedItemBefore.ExtendedProperty('System.AppUserModel.RelaunchCommand'), ('"' + $target + '"'), [StringComparison]::OrdinalIgnoreCase)) {
+		throw ('rotated pin relaunch command did not target GoNavi.exe: ' + $rotatedItemBefore.ExtendedProperty('System.AppUserModel.RelaunchCommand'))
+	}
 }
 $duplicateShortcut = $shell.CreateShortcut((Join-Path $pins 'GoNavi (2).lnk'))
 if (-not (Test-SameFilePath $duplicateShortcut.TargetPath $target)) {
@@ -257,23 +288,31 @@ if ($null -ne $portableStableItem) {
     }
 }
 $portablePlainItem = $shellApplication.Namespace($portablePins).ParseName('GoNavi-plain.lnk')
-if ($null -ne $portablePlainItem -and -not [string]::IsNullOrWhiteSpace([string]$portablePlainItem.ExtendedProperty('System.AppUserModel.ID'))) {
-    throw ('portable pin without an identity was assigned one: ' + $portablePlainItem.ExtendedProperty('System.AppUserModel.ID'))
+if ($null -ne $portablePlainItem -and -not [string]::Equals([string]$portablePlainItem.ExtendedProperty('System.AppUserModel.ID'), 'Syngnat.GoNavi', [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('portable pin matching the current executable did not receive the stable identity: ' + $portablePlainItem.ExtendedProperty('System.AppUserModel.ID'))
 }
 $env:GONAVI_BRAND_MATCH_TARGET_ONLY = '1'
 $portableMatchedIcon = Join-Path $portableRoot 'gonavi-brand-matched.ico'
 [IO.File]::WriteAllBytes($portableMatchedIcon, [byte[]](0, 0, 1, 0, 0, 0))
+# 模拟用户机器上另一安装（D:\tools 类）留下的固定项：目标他处、图标与本实例无关
+$portableForeignPin = Join-Path $portablePins 'GoNavi-foreign-install.lnk'
+New-TestShortcut $portableForeignPin $portableInstalledTarget ''
 $matchedOnlyCount = Set-GoNaviShortcutBrandIcon -TargetPath $portableTarget -IconPath $portableMatchedIcon -ShortcutDirectories @($portablePins) -TaskbarDirectory $portablePins
-if ($matchedOnlyCount -ne 2) {
-    throw ('unexpected portable match-only update count: ' + $matchedOnlyCount)
-}
-$portableHistoryAfterMatchOnly = $shell.CreateShortcut($portableShortcutPath)
-if (-not (Test-ShortcutIconLocation $portableHistoryAfterMatchOnly.IconLocation $portableIcon)) {
-    throw ('match-only portable update rewrote a different install pin: ' + $portableHistoryAfterMatchOnly.IconLocation)
+if ($matchedOnlyCount -ne 3) {
+	throw ('unexpected portable match-only update count: ' + $matchedOnlyCount)
 }
 $portableStableAfterMatchOnly = $shell.CreateShortcut($portableStablePath)
 if (-not (Test-ShortcutIconLocation $portableStableAfterMatchOnly.IconLocation $portableMatchedIcon)) {
     throw ('match-only portable update skipped the current executable pin: ' + $portableStableAfterMatchOnly.IconLocation)
+}
+# 归属收窄：指向其他安装、且图标不属于本实例数据目录的固定项，Portable
+# 不得改写（历史事故：测试实例曾把用户安装版的固定项图标改写进沙箱目录）。
+$foreignPinAfterMatchOnly = $shell.CreateShortcut($portableForeignPin)
+if (Test-ShortcutIconLocation $foreignPinAfterMatchOnly.IconLocation $portableMatchedIcon) {
+    throw ('match-only portable update hijacked a foreign GoNavi pin: ' + $foreignPinAfterMatchOnly.IconLocation)
+}
+if (-not (Test-SameFilePath $foreignPinAfterMatchOnly.TargetPath $portableInstalledTarget)) {
+    throw ('match-only portable update redirected a foreign pin target: ' + $foreignPinAfterMatchOnly.TargetPath)
 }
 $env:GONAVI_BRAND_MATCH_TARGET_ONLY = ''
 
@@ -355,11 +394,10 @@ if (-not (Test-SameFilePath $restoredMatchingShortcut.TargetPath $target)) {
 	}
 }
 
-// Shared Start Menu shortcuts under ProgramData are created by the installer and
-// are not writable for a standard user. Their presence must not turn a whole brand
-// icon update into a failure: the writable pins still update and the process must
-// report success so the caller can persist the new identity.
-func TestWindowsShortcutBrandIconSkipsUnwritableShortcut(t *testing.T) {
+// Shared Start Menu shortcuts under ProgramData may not be writable for a
+// standard user. A partially applied batch must fail so the caller does not
+// activate an icon while some shortcuts still refer to the previous one.
+func TestWindowsShortcutBrandIconFailsOnUnwritableShortcut(t *testing.T) {
 	powerShell, err := exec.LookPath("powershell.exe")
 	if err != nil {
 		t.Skip("powershell.exe is unavailable")
@@ -431,9 +469,7 @@ if (-not [string]::Equals($staleReadBack, $readonlyStaleIcon, [StringComparison]
 
 # Deny writes for the current user so WScript.Shell.Save fails like it does for
 # a ProgramData Start Menu shortcut owned by the installer. The read-only entry
-# lives outside the taskbar directory on purpose: the real ProgramData Start
-# Menu path is not a taskbar shortcut, and it must be skipped rather than fail
-# the whole batch.
+# lives outside the taskbar directory on purpose.
 #
 # Only WriteData is denied. Denying the broader Write/Modify set would also block
 # reading the shortcut, and COM would then resolve it to an empty shell whose empty
@@ -475,21 +511,27 @@ if (-not $lockThrew) {
 $brandIcon = Join-Path $env:GONAVI_TEST_ROOT 'gonavi-brand-abcdefabcdefabcdefabcdef.ico'
 [IO.File]::WriteAllBytes($brandIcon, [byte[]](0, 0, 1, 0, 0, 0))
 
-# A read-only shortcut must be skipped instead of failing the whole batch.
-$updateCount = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $brandIcon -ShortcutDirectories @($shortcuts) -TaskbarDirectory $taskbar
-if ($updateCount -ne 1) {
-    throw ('expected only the writable shortcut to update, got ' + $updateCount)
+# 部分成功语义：只读快捷方式（标准用户写机器级快捷方式被拒的常态）跳过
+# 并记录，可写的照常更新——不能让一个只读项拖垮整批（否则 MSI 标准用户
+# 场景下所有表面都无法更新）。失败计数必须暴露给调用方。
+$script:GoNaviBrandFailureCount = 0
+$updatedCount2 = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $brandIcon -ShortcutDirectories @($shortcuts) -TaskbarDirectory $taskbar
+if ($updatedCount2 -lt 1) {
+    throw ('read-only shortcut suppressed all writable shortcut updates: ' + $updatedCount2)
+}
+if ([int]$script:GoNaviBrandFailureCount -lt 1) {
+    throw 'read-only shortcut failure was not counted for the caller'
 }
 $updatedShortcut = $shell.CreateShortcut($writableShortcut)
 if (-not [string]::Equals([string]$updatedShortcut.IconLocation, ($brandIcon + ',0'), [StringComparison]::OrdinalIgnoreCase)) {
     throw ('writable shortcut icon was not applied: ' + $updatedShortcut.IconLocation)
 }
-$skipLog = @($script:GoNaviRepairLog | Where-Object { $_ -like '*skipped read-only shortcut icon update*' })
-if ($skipLog.Count -lt 1) {
-    throw ('the read-only shortcut was not skipped: ' + [string]::Join(' | ', $script:GoNaviRepairLog))
+$failureLog = @($script:GoNaviRepairLog | Where-Object { $_ -like '*shortcut is not writable*' })
+if ($failureLog.Count -lt 1) {
+    throw ('the read-only shortcut failure was not logged: ' + [string]::Join(' | ', $script:GoNaviRepairLog))
 }
-if (-not ($skipLog[0] -like ('*' + $readonlyShortcut + '*'))) {
-    throw ('the skip log did not name the read-only shortcut: ' + $skipLog[0])
+if (-not ($failureLog[0] -like ('*' + $readonlyShortcut + '*'))) {
+    throw ('the failure log did not name the read-only shortcut: ' + $failureLog[0])
 }`
 	scriptPath := filepath.Join(tempDir, "brand-icon-readonly-test.ps1")
 	if err := os.WriteFile(scriptPath, []byte(strings.ReplaceAll(harness, "\n", "\r\n")), 0o644); err != nil {
@@ -504,6 +546,238 @@ if (-not ($skipLog[0] -like ('*' + $readonlyShortcut + '*'))) {
 		"GONAVI_TEST_ROOT="+tempDir,
 	)
 	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("read-only shortcut brand icon update failed: %v\n%s", err, output)
+		t.Fatalf("read-only shortcut brand icon batch did not fail as expected: %v\n%s", err, output)
+	}
+}
+
+func TestWindowsShortcutRepairCreatesUserLevelAumidShortcutBesideMachineShortcut(t *testing.T) {
+	powerShell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Skip("powershell.exe is unavailable")
+	}
+
+	tempDir := t.TempDir()
+	targetPath := filepath.Join(tempDir, "install", "GoNavi.exe")
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	brandIcon := filepath.Join(tempDir, "gonavi-brand-b00b00b00b00b00b00b00b00.ico")
+	if err := os.WriteFile(brandIcon, []byte("icon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	harness := windowsShortcutRepairPowerShellScript + `
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+
+$target = $env:GONAVI_TEST_TARGET
+$brandIcon = $env:GONAVI_TEST_ICON
+$userPrograms = Join-Path $env:GONAVI_TEST_ROOT 'aumid-shortcut-programs'
+$machinePrograms = Join-Path $env:GONAVI_TEST_ROOT 'aumid-shortcut-common-programs'
+[void](New-Item -ItemType Directory -Path $machinePrograms -Force)
+$machineShortcut = Join-Path $machinePrograms 'GoNavi.lnk'
+
+# Machine-level shortcut declaring the AUMID: on real MSI installs this lives
+# in CommonPrograms and is read-only for a standard user, so the AUMID ensure
+# must not treat it as "already satisfied" - Explorer anchors the taskbar
+# button to its IconLocation and brand switches would freeze on a stale icon.
+$machine = $shell.CreateShortcut($machineShortcut)
+$machine.TargetPath = $target
+$machine.Save()
+[void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath $machineShortcut -TargetPath $target -IconPath $brandIcon)
+
+$created = Ensure-GoNaviAumidShortcut -TargetPath $target -IconPath $brandIcon
+if ($created -ne $true) {
+    throw 'user-level AUMID shortcut was not created beside the machine shortcut'
+}
+$userShortcut = Join-Path $userPrograms 'GoNavi.lnk'
+if (-not (Test-Path -LiteralPath $userShortcut -PathType Leaf)) {
+    throw ('user-level AUMID shortcut is missing: ' + $userShortcut)
+}
+$readBack = $shell.CreateShortcut($userShortcut)
+if (-not [string]::Equals([string]$readBack.TargetPath, $target, [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('user-level AUMID shortcut has the wrong target: ' + $readBack.TargetPath)
+}
+if (-not [string]::Equals([string]$readBack.IconLocation, ($brandIcon + ',0'), [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('user-level AUMID shortcut has the wrong icon: ' + $readBack.IconLocation)
+}
+$namespace = (New-Object -ComObject Shell.Application).Namespace($userPrograms)
+$userAumid = [string]$namespace.ParseName('GoNavi.lnk').ExtendedProperty('System.AppUserModel.ID')
+if ($userAumid -ne 'Syngnat.GoNavi') {
+    throw ('user-level AUMID shortcut does not declare the AUMID: ' + $userAumid)
+}
+$machineReadBack = $shell.CreateShortcut($machineShortcut)
+if (-not [string]::Equals([string]$machineReadBack.IconLocation, ',0', [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('machine shortcut was modified: ' + $machineReadBack.IconLocation)
+}
+$second = Ensure-GoNaviAumidShortcut -TargetPath $target -IconPath $brandIcon
+if ($second -ne $false) {
+    throw 'second AUMID ensure call did not skip when the user-level shortcut exists'
+}`
+	scriptPath := filepath.Join(tempDir, "aumid-user-level-test.ps1")
+	if err := os.WriteFile(scriptPath, []byte(strings.ReplaceAll(harness, "\n", "\r\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(powerShell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", scriptPath)
+	command.Env = append(os.Environ(),
+		"GONAVI_TEST_TARGET="+targetPath,
+		"GONAVI_TEST_ICON="+brandIcon,
+		"GONAVI_TEST_ROOT="+tempDir,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("user-level AUMID shortcut was not created beside the machine shortcut: %v\n%s", err, output)
+	}
+}
+
+// 启动期迁移模式（GONAVI_BRAND_MIGRATE_ONLY=1）把机器层 GoNavi 快捷方式按
+// 字节移动到用户层：外观与 AppUserModel 属性包必须原样保留，外来目标与
+// 被用户层同名条目遮蔽的场景各有明确行为。同时覆盖审查发现的 SFX 死链
+// 防护：Ensure 必须跳过位于临时目录的可执行文件。
+func TestWindowsMachineShortcutMigrationMovesEntriesToUserScope(t *testing.T) {
+	powerShell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Skip("powershell.exe is unavailable")
+	}
+
+	tempDir := t.TempDir()
+	targetPath := filepath.Join(tempDir, "install", "GoNavi.exe")
+	foreignTargetPath := filepath.Join(tempDir, "foreign", "GoNavi.exe")
+	commonPrograms := filepath.Join(tempDir, "common-programs")
+	userPrograms := filepath.Join(tempDir, "user-programs")
+	commonDesktop := filepath.Join(tempDir, "common-desktop")
+	userDesktop := filepath.Join(tempDir, "user-desktop")
+	for _, directory := range []string{
+		filepath.Dir(targetPath),
+		filepath.Dir(foreignTargetPath),
+		commonPrograms,
+		userPrograms,
+		commonDesktop,
+		userDesktop,
+	} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(targetPath, []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreignTargetPath, []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installerIcon := filepath.Join(tempDir, "installer", "GoNaviIcon.ico")
+	if err := os.MkdirAll(filepath.Dir(installerIcon), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installerIcon, []byte("icon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	harness := windowsShortcutRepairPowerShellScript + `
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+$shellApplication = New-Object -ComObject Shell.Application
+
+function New-TestShortcut {
+    param([string]$Path, [string]$TargetPath, [string]$IconLocation)
+    $shortcut = $shell.CreateShortcut($Path)
+    $shortcut.TargetPath = $TargetPath
+    if (-not [string]::IsNullOrEmpty($IconLocation)) { $shortcut.IconLocation = $IconLocation }
+    $shortcut.Save()
+}
+
+$machineShortcut = Join-Path $env:GONAVI_TEST_COMMON_PROGRAMS 'GoNavi.lnk'
+New-TestShortcut $machineShortcut $env:GONAVI_TEST_TARGET ($env:GONAVI_TEST_INSTALLER_ICON + ',0')
+[void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath $machineShortcut -TargetPath $env:GONAVI_TEST_TARGET -IconPath $env:GONAVI_TEST_INSTALLER_ICON -ApplicationUserModelID 'Syngnat.GoNavi')
+$variantShortcut = Join-Path $env:GONAVI_TEST_COMMON_PROGRAMS 'GoNavi (2).lnk'
+New-TestShortcut $variantShortcut $env:GONAVI_TEST_TARGET ''
+$foreignNamedShortcut = Join-Path $env:GONAVI_TEST_COMMON_PROGRAMS 'GoNaviElsewhere.lnk'
+New-TestShortcut $foreignNamedShortcut $env:GONAVI_TEST_FOREIGN_TARGET ''
+$shadowedShortcut = Join-Path $env:GONAVI_TEST_COMMON_DESKTOP 'GoNavi.lnk'
+New-TestShortcut $shadowedShortcut $env:GONAVI_TEST_TARGET ''
+New-TestShortcut (Join-Path $env:GONAVI_TEST_USER_DESKTOP 'GoNavi.lnk') $env:GONAVI_TEST_TARGET ''
+
+$migrated = Set-GoNaviMachineShortcutMigration -TargetPath $env:GONAVI_TEST_TARGET -CommonDesktopDirectory $env:GONAVI_TEST_COMMON_DESKTOP -CommonProgramsDirectory $env:GONAVI_TEST_COMMON_PROGRAMS -UserDesktopDirectory $env:GONAVI_TEST_USER_DESKTOP -UserProgramsDirectory $env:GONAVI_TEST_USER_PROGRAMS
+if ($migrated -ne 3) { throw ('unexpected migration count: ' + $migrated) }
+
+if (Test-Path -LiteralPath $machineShortcut -PathType Leaf) { throw 'machine start menu shortcut was not moved' }
+$movedPath = Join-Path $env:GONAVI_TEST_USER_PROGRAMS 'GoNavi.lnk'
+$moved = $shell.CreateShortcut($movedPath)
+if (-not (Test-SameFilePath $moved.TargetPath $env:GONAVI_TEST_TARGET)) { throw 'moved shortcut lost its target' }
+if ($moved.IconLocation -notlike ($env:GONAVI_TEST_INSTALLER_ICON + '*')) { throw ('moved shortcut lost its installer icon: ' + $moved.IconLocation) }
+$movedItem = $shellApplication.Namespace((Split-Path -Parent $movedPath)).ParseName('GoNavi.lnk')
+if ($null -eq $movedItem) {
+    throw 'moved shortcut is not visible to the shell'
+}
+if (-not [string]::Equals([string]$movedItem.ExtendedProperty('System.AppUserModel.ID'), 'Syngnat.GoNavi', [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('moved shortcut lost its AUMID property bag: ' + $movedItem.ExtendedProperty('System.AppUserModel.ID'))
+}
+
+if (Test-Path -LiteralPath $variantShortcut -PathType Leaf) { throw 'variant machine shortcut was not moved' }
+if (-not (Test-Path -LiteralPath (Join-Path $env:GONAVI_TEST_USER_PROGRAMS 'GoNavi (2).lnk') -PathType Leaf)) { throw 'variant shortcut did not arrive in user scope' }
+
+if (-not (Test-Path -LiteralPath $foreignNamedShortcut -PathType Leaf)) { throw 'foreign-targeted GoNavi-named shortcut must stay untouched' }
+
+if (Test-Path -LiteralPath $shadowedShortcut -PathType Leaf) { throw 'shadowed machine shortcut was not removed' }
+$keptUserDesktop = $shell.CreateShortcut((Join-Path $env:GONAVI_TEST_USER_DESKTOP 'GoNavi.lnk'))
+if (-not (Test-SameFilePath $keptUserDesktop.TargetPath $env:GONAVI_TEST_TARGET)) { throw 'existing user desktop shortcut was modified' }
+
+# SFX 死链防护：Go 侧检测到 exe 位于临时目录时会设置禁用标记，Ensure
+# 必须拒绝创建开始菜单快捷方式（SFX 退出即清理临时目录，创建即死链且
+# 永不自愈）。
+$env:GONAVI_BRAND_ENSURE_SHORTCUTS_DISABLED = '1'
+if (Ensure-GoNaviAumidShortcut -TargetPath $env:GONAVI_TEST_TARGET -IconPath $env:GONAVI_TEST_TARGET) {
+    throw 'Ensure must skip when shortcut creation is disabled for temporary executables'
+}
+`
+	scriptPath := filepath.Join(tempDir, "machine-migration-test.ps1")
+	if err := os.WriteFile(scriptPath, []byte(strings.ReplaceAll(harness, "\n", "\r\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(powerShell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", scriptPath)
+	command.Env = append(os.Environ(),
+		"GONAVI_TEST_TARGET="+targetPath,
+		"GONAVI_TEST_FOREIGN_TARGET="+foreignTargetPath,
+		"GONAVI_TEST_COMMON_PROGRAMS="+commonPrograms,
+		"GONAVI_TEST_USER_PROGRAMS="+userPrograms,
+		"GONAVI_TEST_COMMON_DESKTOP="+commonDesktop,
+		"GONAVI_TEST_USER_DESKTOP="+userDesktop,
+		"GONAVI_TEST_INSTALLER_ICON="+installerIcon,
+		"GONAVI_TEST_ROOT="+tempDir,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("machine shortcut migration integration failed: %v\n%s", err, output)
+	}
+}
+
+// 「所有应用」列表的图标快照只在其宿主进程启动时重建（三项 shell 通知
+// 全部无效，用户实测确认），因此切换收尾必须在 UPDATED>0 时重启
+// StartMenuExperienceHost；迁移分发同样如此。静态断言防止该调用被误删。
+func TestWindowsShortcutScriptRestartsStartMenuHostForAllAppsList(t *testing.T) {
+	if !strings.Contains(windowsShortcutRepairPowerShellScript, "function Restart-GoNaviStartMenuHost") {
+		t.Fatal("repair script must define Restart-GoNaviStartMenuHost for the all-apps list refresh")
+	}
+	if !strings.Contains(windowsShortcutRepairPowerShellScript, "Stop-Process -InputObject $startMenuHost -Force") {
+		t.Fatal("Restart-GoNaviStartMenuHost must stop the StartMenuExperienceHost process")
+	}
+	for _, marker := range []string{
+		"Restart-GoNaviStartMenuHost",
+		"$updated -gt 0",
+		"GONAVI_BRAND_RESTART_STARTMENU",
+	} {
+		if !strings.Contains(windowsShortcutUpdateEpilogue, marker) {
+			t.Fatalf("brand update epilogue must restart the Start menu host on update (missing %q)", marker)
+		}
+	}
+	if !strings.Contains(windowsShortcutRepairPowerShellScript, "if ($migrated -gt 0 -and $env:GONAVI_BRAND_RESTART_STARTMENU -ne '0')") {
+		t.Fatal("migration mode must restart the Start menu host after moving machine shortcuts")
+	}
+	// 函数定义 + 迁移分发调用：嵌入脚本中至少出现两次。
+	if got := strings.Count(windowsShortcutRepairPowerShellScript, "Restart-GoNaviStartMenuHost"); got < 2 {
+		t.Fatalf("Restart-GoNaviStartMenuHost references = %d, want >= 2 (definition + migration dispatch)", got)
 	}
 }

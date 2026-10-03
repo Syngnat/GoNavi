@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -53,10 +54,12 @@ func TestApplyWindowsApplicationIconVerifiesMainWindowReadback(t *testing.T) {
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
 	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
+	originalRefreshTaskbar := windowsRefreshTaskbarButton
 	t.Cleanup(func() {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
 		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
+		windowsRefreshTaskbarButton = originalRefreshTaskbar
 	})
 
 	current := map[uintptr]uintptr{}
@@ -89,6 +92,11 @@ func TestApplyWindowsApplicationIconVerifiesMainWindowReadback(t *testing.T) {
 		taskbarIconPath = iconPath
 		return nil
 	}
+	var refreshedHWND uintptr
+	windowsRefreshTaskbarButton = func(actualHWND uintptr) error {
+		refreshedHWND = actualHWND
+		return nil
+	}
 
 	const iconPath = `C:\Users\tester\gonavi-brand.ico`
 	if err := applyWindowsApplicationIcon(hwnd, iconPath, small, large); err != nil {
@@ -106,16 +114,21 @@ func TestApplyWindowsApplicationIconVerifiesMainWindowReadback(t *testing.T) {
 	if taskbarHWND != hwnd || taskbarIconPath != iconPath {
 		t.Fatalf("taskbar properties = (%#x, %q), want (%#x, %q)", taskbarHWND, taskbarIconPath, hwnd, iconPath)
 	}
+	if refreshedHWND != hwnd {
+		t.Fatalf("refreshed taskbar HWND = %#x, want %#x", refreshedHWND, hwnd)
+	}
 }
 
 func TestApplyWindowsApplicationIconRejectsSilentSetFailure(t *testing.T) {
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
 	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
+	originalRefreshTaskbar := windowsRefreshTaskbarButton
 	t.Cleanup(func() {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
 		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
+		windowsRefreshTaskbarButton = originalRefreshTaskbar
 	})
 	windowsApplicationIconSendMessageCall = func(_, message, _, _ uintptr) uintptr {
 		if message == windowsGetIconMessage {
@@ -142,10 +155,12 @@ func TestApplyWindowsApplicationIconReturnsTaskbarPropertyFailure(t *testing.T) 
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
 	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
+	originalRefreshTaskbar := windowsRefreshTaskbarButton
 	t.Cleanup(func() {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
 		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
+		windowsRefreshTaskbarButton = originalRefreshTaskbar
 	})
 	windowsApplicationIconSendMessageCall = func(_, message, iconType, icon uintptr) uintptr {
 		if message == windowsGetIconMessage {
@@ -160,10 +175,46 @@ func TestApplyWindowsApplicationIconReturnsTaskbarPropertyFailure(t *testing.T) 
 	windowsApplicationIconSetTaskbarProperties = func(uintptr, string) error {
 		return errors.New("shell rejected taskbar properties")
 	}
+	windowsRefreshTaskbarButton = func(uintptr) error {
+		t.Fatal("taskbar button must not refresh when properties fail")
+		return nil
+	}
 
 	err := applyWindowsApplicationIcon(0x1234, `C:\brand.ico`, 0x2001, 0x2002)
 	if err == nil || !strings.Contains(err.Error(), "taskbar") {
 		t.Fatalf("expected taskbar property error, got %v", err)
+	}
+}
+
+func TestApplyWindowsApplicationIconReturnsTaskbarRefreshFailure(t *testing.T) {
+	originalSend := windowsApplicationIconSendMessageCall
+	originalSetClass := windowsApplicationIconSetClassIcon
+	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
+	originalRefreshTaskbar := windowsRefreshTaskbarButton
+	t.Cleanup(func() {
+		windowsApplicationIconSendMessageCall = originalSend
+		windowsApplicationIconSetClassIcon = originalSetClass
+		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
+		windowsRefreshTaskbarButton = originalRefreshTaskbar
+	})
+	windowsApplicationIconSendMessageCall = func(_, message, iconType, icon uintptr) uintptr {
+		if message == windowsGetIconMessage {
+			if iconType == windowsIconSmall {
+				return 0x2001
+			}
+			return 0x2002
+		}
+		return icon
+	}
+	windowsApplicationIconSetClassIcon = func(uintptr, int32, uintptr) {}
+	windowsApplicationIconSetTaskbarProperties = func(uintptr, string) error { return nil }
+	windowsRefreshTaskbarButton = func(uintptr) error {
+		return errors.New("Explorer rejected taskbar refresh")
+	}
+
+	err := applyWindowsApplicationIcon(0x1234, `C:\brand.ico`, 0x2001, 0x2002)
+	if err == nil || !strings.Contains(err.Error(), "refresh Windows taskbar icon") {
+		t.Fatalf("expected taskbar refresh failure, got %v", err)
 	}
 }
 
@@ -210,6 +261,7 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
 	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
+	originalRefreshTaskbar := windowsRefreshTaskbarButton
 	originalUpdateShortcuts := windowsUpdateCurrentApplicationShortcuts
 	originalResolveInstallTarget := updateResolveInstallTarget
 	originalVersion := AppVersion
@@ -226,6 +278,7 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
 		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
+		windowsRefreshTaskbarButton = originalRefreshTaskbar
 		windowsUpdateCurrentApplicationShortcuts = originalUpdateShortcuts
 		updateResolveInstallTarget = originalResolveInstallTarget
 		AppVersion = originalVersion
@@ -291,6 +344,13 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 		identityEvents = append(identityEvents, "window")
 		return nil
 	}
+	windowsRefreshTaskbarButton = func(actualHWND uintptr) error {
+		if actualHWND != hwnd {
+			t.Fatalf("refresh taskbar HWND = %#x, want %#x", actualHWND, hwnd)
+		}
+		identityEvents = append(identityEvents, "refresh")
+		return nil
+	}
 
 	if err := InitializePersistedNativeBrandIcon(application, ctx); err != nil {
 		t.Fatalf("initialize persisted native brand icon: %v", err)
@@ -304,34 +364,25 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 	if shortcutIconPath != iconPath {
 		t.Fatalf("shortcut icon path = %q, want %q", shortcutIconPath, iconPath)
 	}
-	if got := strings.Join(identityEvents, ","); got != "shortcut,window" {
-		t.Fatalf("startup identity order = %q, want shortcut,window", got)
+	if got := strings.Join(identityEvents, ","); got != "shortcut,window,refresh" {
+		t.Fatalf("startup identity order = %q, want shortcut,window,refresh", got)
 	}
 	if err := InitializePersistedNativeBrandIcon(application, ctx); err != nil {
 		t.Fatalf("initialize persisted native brand icon again: %v", err)
 	}
-	if shortcutUpdateCount != 1 {
-		t.Fatalf("shortcut update count = %d, want one-time MSI migration", shortcutUpdateCount)
-	}
-	migrationPath := filepath.Join(configDir, windowsApplicationIconDirectoryName, ".taskbar-identity-v1")
-	migrationState, err := os.ReadFile(migrationPath)
-	if err != nil {
-		t.Fatalf("taskbar identity migration state: %v", err)
-	}
-	wantIdentity := windowsApplicationUserModelIDForIconPath(iconPath)
-	if state := string(migrationState); !containsAll(state, AppVersion, wantIdentity, strings.ToLower(filepath.Join(installDir, "GoNavi.exe"))) {
-		t.Fatalf("taskbar identity migration state = %q", state)
+	if shortcutUpdateCount != 2 {
+		t.Fatalf("shortcut update count = %d, want repair on every startup", shortcutUpdateCount)
 	}
 	AppVersion = "1.0.1"
 	if err := InitializePersistedNativeBrandIcon(application, ctx); err != nil {
 		t.Fatalf("initialize persisted native brand icon after MSI update: %v", err)
 	}
-	if shortcutUpdateCount != 2 {
-		t.Fatalf("shortcut update count after MSI update = %d, want 2", shortcutUpdateCount)
+	if shortcutUpdateCount != 3 {
+		t.Fatalf("shortcut update count after MSI update = %d, want 3", shortcutUpdateCount)
 	}
 }
 
-func TestRepairPersistedWindowsApplicationShortcutsOnceRepairsPortablePin(t *testing.T) {
+func TestRepairPersistedWindowsApplicationShortcutsRepairsPortablePinOnEveryStartup(t *testing.T) {
 	originalUpdateShortcuts := windowsUpdateCurrentApplicationShortcuts
 	originalResolveInstallTarget := updateResolveInstallTarget
 	originalVersion := AppVersion
@@ -351,55 +402,45 @@ func TestRepairPersistedWindowsApplicationShortcutsOnceRepairsPortablePin(t *tes
 		called++
 		return nil
 	}
-	configDir := t.TempDir()
-	repairPersistedWindowsApplicationShortcutsOnce(`C:\icons\gonavi-brand.ico`, configDir)
-	repairPersistedWindowsApplicationShortcutsOnce(`C:\icons\gonavi-brand.ico`, configDir)
-	if called != 1 {
-		t.Fatalf("portable shortcut repair count = %d, want 1", called)
+	repairPersistedWindowsApplicationShortcuts(`C:\icons\gonavi-brand.ico`)
+	repairPersistedWindowsApplicationShortcuts(`C:\icons\gonavi-brand.ico`)
+	if called != 2 {
+		t.Fatalf("portable shortcut repair count = %d, want 2", called)
 	}
 }
 
-func TestPackagedIconShortcutMigrationRetriesAndIgnoresOldIconMarker(t *testing.T) {
-	originalUpdate, originalTarget, originalVersion := windowsUpdateCurrentApplicationShortcuts, updateResolveInstallTarget, AppVersion
+func TestRepairPersistedWindowsApplicationShortcutsRetriesAfterFailure(t *testing.T) {
+	originalUpdateShortcuts := windowsUpdateCurrentApplicationShortcuts
+	originalResolveInstallTarget := updateResolveInstallTarget
+	originalVersion := AppVersion
 	t.Cleanup(func() {
-		windowsUpdateCurrentApplicationShortcuts, updateResolveInstallTarget, AppVersion = originalUpdate, originalTarget, originalVersion
+		windowsUpdateCurrentApplicationShortcuts = originalUpdateShortcuts
+		updateResolveInstallTarget = originalResolveInstallTarget
+		AppVersion = originalVersion
 	})
-	executable := filepath.Join(t.TempDir(), "GoNavi.exe")
-	updateResolveInstallTarget = func() string { return executable }
-	AppVersion = "1.2.3"
-	configDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(configDir, windowsApplicationIconDirectoryName), 0o755); err != nil {
-		t.Fatal(err)
+
+	installDir := t.TempDir()
+	updateResolveInstallTarget = func() string {
+		return filepath.Join(installDir, "GoNavi.exe")
 	}
-	recordCurrentWindowsShortcutIdentityState("old-custom.ico", configDir)
-	calls := 0
-	windowsUpdateCurrentApplicationShortcuts = func(iconPath string) error {
-		calls++
-		if iconPath != executable {
-			t.Fatalf("icon target = %q, want packaged executable", iconPath)
-		}
-		if calls == 1 {
-			return errors.New("temporary failure")
+	AppVersion = "1.2.3"
+
+	updateCalls := 0
+	windowsUpdateCurrentApplicationShortcuts = func(string) error {
+		updateCalls++
+		if updateCalls == 1 {
+			return errors.New("simulated partial shortcut failure")
 		}
 		return nil
 	}
-	a := NewApp()
-	a.configDir = configDir
-	if err := MigrateLegacyApplicationShortcuts(a); err == nil {
-		t.Fatal("expected repair failure")
-	}
-	if _, err := os.Stat(filepath.Join(configDir, ".packaged-icon-shortcuts-v1")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("failure recorded as complete")
-	}
-	for i := 0; i < 2; i++ {
-		if err := MigrateLegacyApplicationShortcuts(a); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if calls != 2 {
-		t.Fatalf("repair calls = %d, want 2", calls)
+	iconPath := filepath.Join(installDir, "icons", "brand.ico")
+	repairPersistedWindowsApplicationShortcuts(iconPath)
+	repairPersistedWindowsApplicationShortcuts(iconPath)
+	if updateCalls != 2 {
+		t.Fatalf("shortcut repair calls = %d, want retry after failure", updateCalls)
 	}
 }
+
 
 func TestSetApplicationIconPNGDoesNotActivateAfterShortcutFailure(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
@@ -491,5 +532,244 @@ func TestRemoveStaleWindowsShortcutUpdateScriptsKeepsIconState(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(iconDir, name)); err != nil {
 			t.Fatalf("cleanup removed %s: %v", name, err)
 		}
+	}
+}
+
+func TestWindowsDiffPinsNameSets(t *testing.T) {
+	added, removed := windowsDiffPinsNameSets("gonavi.lnk\nsteam.lnk", "explorer.lnk\ngonavi.lnk")
+	if len(added) != 1 || added[0] != "explorer.lnk" {
+		t.Fatalf("unexpected added set: %v", added)
+	}
+	if len(removed) != 1 || removed[0] != "steam.lnk" {
+		t.Fatalf("unexpected removed set: %v", removed)
+	}
+	added, removed = windowsDiffPinsNameSets("", "")
+	if len(added) != 0 || len(removed) != 0 {
+		t.Fatalf("empty sets must not diff: %v %v", added, removed)
+	}
+}
+
+func TestWindowsPinsChangeAffectsGoNavi(t *testing.T) {
+	cases := []struct {
+		name    string
+		added   []string
+		removed []string
+		want    bool
+	}{
+		{name: "our pin added", added: []string{"gonavi.lnk"}, want: true},
+		{name: "our rotated pin removed", removed: []string{"gonavi (2).lnk"}, want: true},
+		{name: "foreign pins only", added: []string{"chrome.lnk"}, removed: []string{"steam.lnk"}, want: false},
+		{name: "nothing changed", want: false},
+	}
+	for _, tc := range cases {
+		if got := windowsPinsChangeAffectsGoNavi(tc.added, tc.removed); got != tc.want {
+			t.Fatalf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestWindowsSendShortcutRefreshNotificationsUsesKnownFolders(t *testing.T) {
+	var items, directories []string
+	var associations int
+	previousItem := windowsApplicationIconNotifyItemChanged
+	previousDirectory := windowsApplicationIconNotifyDirectoryChanged
+	previousAssociation := windowsApplicationIconNotifyShellChange
+	defer func() {
+		windowsApplicationIconNotifyItemChanged = previousItem
+		windowsApplicationIconNotifyDirectoryChanged = previousDirectory
+		windowsApplicationIconNotifyShellChange = previousAssociation
+	}()
+	windowsApplicationIconNotifyItemChanged = func(path string) { items = append(items, path) }
+	windowsApplicationIconNotifyDirectoryChanged = func(path string) { directories = append(directories, path) }
+	windowsApplicationIconNotifyShellChange = func() { associations++ }
+
+	windowsSendShortcutRefreshNotifications()
+
+	// The global association flush redraws the whole desktop (visible flash),
+	// so the refresh pass sends it only when a GoNavi taskbar pin exists (the
+	// pinned button re-reads its icon exclusively on that flush). The test
+	// machine may or may not have the pin, so derive the expectation from the
+	// same directories the pass walks.
+	wantAssociations := 0
+	for _, dir := range directories {
+		if strings.EqualFold(dir, windowsTaskbarPinsDirectory()) {
+			if len(windowsGoNaviShortcutNamesIn(dir)) > 0 {
+				wantAssociations = 1
+			}
+		}
+	}
+	if associations != wantAssociations {
+		t.Fatalf("association change notification sent %d times, want %d", associations, wantAssociations)
+	}
+	if len(directories) == 0 {
+		t.Fatal("no folder notifications were sent")
+	}
+	seenPrograms := false
+	for _, dir := range directories {
+		if strings.HasSuffix(strings.ToLower(dir), `start menu\programs`) {
+			seenPrograms = true
+		}
+	}
+	if !seenPrograms {
+		t.Fatalf("Start Menu Programs folder missing from refresh pass: %v", directories)
+	}
+	// Item notifications only fire for existing GoNavi-prefixed .lnk files
+	// (the same name set the repair script claims); on a clean machine none
+	// exist, which must not error or notify.
+	for _, item := range items {
+		base := strings.ToLower(filepath.Base(item))
+		if !strings.HasSuffix(base, ".lnk") || !strings.HasPrefix(base, "gonavi") {
+			t.Fatalf("unexpected item notification target: %s", item)
+		}
+	}
+}
+
+func TestWindowsGoNaviShortcutNamesInClaimsVariantNames(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"GoNavi.lnk", "GoNavi (2).lnk", "GoNavi-rotated.lnk", "File Explorer.lnk", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "GoNavi-directory.lnk"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := windowsGoNaviShortcutNamesIn(dir)
+	want := []string{"GoNavi (2).lnk", "GoNavi-rotated.lnk", "GoNavi.lnk"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("claimed names = %v, want %v", got, want)
+	}
+	if missing := windowsGoNaviShortcutNamesIn(filepath.Join(dir, "not-exist")); missing != nil {
+		t.Fatalf("missing directory should claim nothing, got %v", missing)
+	}
+}
+
+func TestWindowsSendShortcutRefreshNotificationsSendsAssociationForVariantPin(t *testing.T) {
+	var items, directories []string
+	var associations int
+	previousItem := windowsApplicationIconNotifyItemChanged
+	previousDirectory := windowsApplicationIconNotifyDirectoryChanged
+	previousAssociation := windowsApplicationIconNotifyShellChange
+	previousDirectories := windowsKnownGoNaviShortcutDirectories
+	previousPins := windowsTaskbarPinsDirectory
+	defer func() {
+		windowsApplicationIconNotifyItemChanged = previousItem
+		windowsApplicationIconNotifyDirectoryChanged = previousDirectory
+		windowsApplicationIconNotifyShellChange = previousAssociation
+		windowsKnownGoNaviShortcutDirectories = previousDirectories
+		windowsTaskbarPinsDirectory = previousPins
+	}()
+	windowsApplicationIconNotifyItemChanged = func(path string) { items = append(items, path) }
+	windowsApplicationIconNotifyDirectoryChanged = func(path string) { directories = append(directories, path) }
+	windowsApplicationIconNotifyShellChange = func() { associations++ }
+
+	pinsDir := t.TempDir()
+	windowsTaskbarPinsDirectory = func() string { return pinsDir }
+	windowsKnownGoNaviShortcutDirectories = func() []string { return []string{pinsDir} }
+
+	// 复现审查发现的场景：固定项不叫 GoNavi.lnk（如副本 GoNavi (2).lnk）。
+	// 固定按钮的图标重读只认全局关联广播，字面名单一判定会让这类 pin
+	// 停留在旧图标。
+	variantPin := filepath.Join(pinsDir, "GoNavi (2).lnk")
+	if err := os.WriteFile(variantPin, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	windowsSendShortcutRefreshNotifications()
+
+	if associations != 1 {
+		t.Fatalf("association change notification sent %d times, want 1 for variant-named pin", associations)
+	}
+	if len(items) != 1 || items[0] != variantPin {
+		t.Fatalf("item notifications = %v, want [%s]", items, variantPin)
+	}
+	if len(directories) != 1 || directories[0] != pinsDir {
+		t.Fatalf("directory notifications = %v, want [%s]", directories, pinsDir)
+	}
+}
+
+func TestWindowsSendShortcutRefreshNotificationsSkipsAssociationForForeignPin(t *testing.T) {
+	var associations int
+	previousItem := windowsApplicationIconNotifyItemChanged
+	previousDirectory := windowsApplicationIconNotifyDirectoryChanged
+	previousAssociation := windowsApplicationIconNotifyShellChange
+	previousDirectories := windowsKnownGoNaviShortcutDirectories
+	previousPins := windowsTaskbarPinsDirectory
+	defer func() {
+		windowsApplicationIconNotifyItemChanged = previousItem
+		windowsApplicationIconNotifyDirectoryChanged = previousDirectory
+		windowsApplicationIconNotifyShellChange = previousAssociation
+		windowsKnownGoNaviShortcutDirectories = previousDirectories
+		windowsTaskbarPinsDirectory = previousPins
+	}()
+	windowsApplicationIconNotifyItemChanged = func(path string) {}
+	windowsApplicationIconNotifyDirectoryChanged = func(path string) {}
+	windowsApplicationIconNotifyShellChange = func() { associations++ }
+
+	pinsDir := t.TempDir()
+	windowsTaskbarPinsDirectory = func() string { return pinsDir }
+	windowsKnownGoNaviShortcutDirectories = func() []string { return []string{pinsDir} }
+	if err := os.WriteFile(filepath.Join(pinsDir, "File Explorer.lnk"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	windowsSendShortcutRefreshNotifications()
+
+	if associations != 0 {
+		t.Fatalf("association change notification sent %d times, want 0 for foreign pin", associations)
+	}
+}
+
+// 45s 超时硬杀会绕过脚本自身的清理路径，桌面/开始菜单目录里会留下
+// "GoNavi-gonavi-update-<8hex>.lnk" 替换残渣；启动清理必须删除它们且不
+// 碰正常快捷方式。
+func TestRemoveStaleWindowsShortcutReplacementFiles(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "GoNavi-gonavi-update-1a2b3c4d.lnk")
+	variantStale := filepath.Join(dir, "GoNavi (2)-gonavi-update-deadbeef.lnk")
+	keep := filepath.Join(dir, "GoNavi.lnk")
+	notHex := filepath.Join(dir, "GoNavi-gonavi-update-zzzzzzzz.lnk")
+	for _, path := range []string{stale, variantStale, keep, notHex} {
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousDirectories := windowsKnownGoNaviShortcutDirectories
+	defer func() { windowsKnownGoNaviShortcutDirectories = previousDirectories }()
+	windowsKnownGoNaviShortcutDirectories = func() []string { return []string{dir} }
+
+	removeStaleWindowsShortcutReplacementFiles()
+
+	for _, path := range []string{stale, variantStale} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("stale replacement file was not removed: %s", path)
+		}
+	}
+	for _, path := range []string{keep, notHex} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("unrelated file was removed: %s", path)
+		}
+	}
+}
+
+func TestWindowsShortcutUpdateFailedCount(t *testing.T) {
+	testCases := []struct {
+		name   string
+		output string
+		want   int
+	}{
+		{name: "marker absent", output: "some noise only\n", want: 0},
+		{name: "zero failures", output: "UPDATED=5 FAILED=0\n", want: 0},
+		{name: "with failures", output: "noise\nUPDATED=3 FAILED=2\r\nmore", want: 2},
+		{name: "missing failed marker", output: "UPDATED=3\n", want: 0},
+		{name: "negative count", output: "UPDATED=3 FAILED=-1", want: 0},
+		{name: "non numeric count", output: "UPDATED=3 FAILED=many", want: 0},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := windowsShortcutUpdateFailedCount(tc.output); got != tc.want {
+				t.Fatalf("windowsShortcutUpdateFailedCount(%q) = %d, want %d", tc.output, got, tc.want)
+			}
+		})
 	}
 }

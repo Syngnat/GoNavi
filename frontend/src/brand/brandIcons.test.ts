@@ -14,15 +14,15 @@ import {
 } from './brandIcons';
 
 describe('brand icon asset resolution', () => {
-  it('ignores old runtime selections when hydrating persisted settings', async () => {
+  it('hydrating persisted settings keeps valid runtime selections and sanitizes unknown ones', async () => {
     vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
     try {
       const { useStore } = await import('../store');
       const merge = useStore.persist.getOptions().merge!;
-      for (const brandIconId of ['03', '08', 'unknown']) {
-        const restored = merge({ brandIconId }, useStore.getState());
-        expect(restored.brandIconId).toBe('01');
-      }
+      // 运行时切换保留后，历史有效选择必须原样恢复；仅非法值回退默认。
+      expect(merge({ brandIconId: '03' }, useStore.getState()).brandIconId).toBe('03');
+      expect(merge({ brandIconId: '08' }, useStore.getState()).brandIconId).toBe('08');
+      expect(merge({ brandIconId: 'unknown' }, useStore.getState()).brandIconId).toBe('01');
       expect(useStore.getState().brandIconId).toBe('01');
     } finally { vi.unstubAllGlobals(); }
   }, 30000);

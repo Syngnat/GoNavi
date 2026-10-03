@@ -100,9 +100,8 @@ type nativeWindowsWindowPropertyStoreVTable struct {
 }
 
 // setWindowsTaskbarProperties updates the relaunch icon of the live taskbar
-// group. AppUserModel.ID stays Syngnat.GoNavi, the same value as the MSI
-// shortcuts; writing that same ID last tells Explorer to re-read the icon
-// path without moving the window into a second taskbar button.
+// group. The AppUserModel.ID remains the stable GoNavi identity so Explorer
+// keeps the live window grouped with the pinned shortcut.
 func setWindowsTaskbarProperties(hwnd uintptr, iconPath string) error {
 	if hwnd == 0 {
 		return errors.New("set Windows taskbar properties: window handle is zero")
@@ -133,10 +132,18 @@ func setWindowsTaskbarProperties(hwnd uintptr, iconPath string) error {
 	}
 	defer store.release()
 
+	// RelaunchIconResource 必须保留：Win11 上未固定按钮的图标来源就是它，
+	// 缺失时按钮停留在通用窗口图标且不跟随 WM_SETICON 更新（实测 26200）。
+	// 内容寻址的 .ico 路径随每次选择变化，属性 store 提交后 Explorer 会
+	// 重新加载该路径，按钮随品牌切换实时更新。
 	properties := []windowsWindowProperty{
 		{key: windowsAppUserModelRelaunchCommandKey, value: relaunchCommand},
 		{key: windowsAppUserModelRelaunchDisplayNameKey, value: windowsApplicationDisplayName},
-		{key: windowsAppUserModelRelaunchIconKey, value: iconPath + ",0"},
+		// RelaunchIconResource 必须是纯 .ico 路径：带 ",0" 后缀时 Explorer
+		// 按 PE 资源索引提取 .ico 会失败，按钮退化为空白文档图标（实测
+		// 26200）；纯路径直接加载成功。固定项的 IconLocation 仍用 "path,0"
+		// 格式，两者格式要求不同。
+		{key: windowsAppUserModelRelaunchIconKey, value: iconPath},
 		{key: windowsAppUserModelIDKey, value: windowsApplicationUserModelID},
 	}
 	for _, property := range properties {

@@ -11,7 +11,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"testing"
 )
@@ -21,14 +20,6 @@ const validBrandIconPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAA
 // Wails v2 packages build/appicon.png. Keep it aligned with the default
 // 01-ribbon-graphite-air brand instead of allowing Wails to restore its W icon.
 const defaultBrandAppIconSHA256 = "5a75c96f2e3e9046fbca0adf4302404330e26d93dd9d5b82ca748ae2ba5341e9"
-
-func TestRuntimeBrandIconMutationIsNotExposed(t *testing.T) {
-	for _, name := range []string{"SetApplicationBrandIcon", "PrepareWindowsBrandIconRestart"} {
-		if _, ok := reflect.TypeOf((*App)(nil)).MethodByName(name); ok {
-			t.Fatalf("removed runtime icon method remains exposed: %s", name)
-		}
-	}
-}
 
 func TestWailsBuildIconMatchesDefaultBrand(t *testing.T) {
 	_, filename, _, ok := runtime.Caller(0)
@@ -166,6 +157,40 @@ func TestDecodeApplicationBrandIconPayloadAcceptsDataURLAndURLSafeBase64(t *test
 				t.Fatal("decoded payload did not match fixture")
 			}
 		})
+	}
+}
+
+func TestPrepareWindowsBrandIconRestartReturnsRestartRequiredAfterPersisting(t *testing.T) {
+	wantPNG, err := base64.StdEncoding.DecodeString(validBrandIconPNGBase64)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	originalPrepare := prepareWindowsBrandIconRestartPlatform
+	t.Cleanup(func() {
+		prepareWindowsBrandIconRestartPlatform = originalPrepare
+	})
+	configDir := t.TempDir()
+	var gotPNG []byte
+	var gotConfigDir string
+	prepareWindowsBrandIconRestartPlatform = func(png []byte, actualConfigDir string) error {
+		gotPNG = append([]byte(nil), png...)
+		gotConfigDir = actualConfigDir
+		return nil
+	}
+
+	application := NewApp()
+	application.configDir = configDir
+	result := application.PrepareWindowsBrandIconRestart(validBrandIconPNGBase64)
+	if !result.Success {
+		t.Fatalf("PrepareWindowsBrandIconRestart failed: %#v", result)
+	}
+	if !bytes.Equal(gotPNG, wantPNG) || gotConfigDir != configDir {
+		t.Fatalf("prepared payload/config = (%d bytes, %q), want (%d bytes, %q)", len(gotPNG), gotConfigDir, len(wantPNG), configDir)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["restartRequired"] != true {
+		t.Fatalf("restart result data = %#v, want restartRequired=true", result.Data)
 	}
 }
 

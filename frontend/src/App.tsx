@@ -52,6 +52,8 @@ import CloudBackupSettings from './components/CloudBackupSettings';
 import {
   resolveBrandIconSrc,
 } from './brand/brandIcons';
+import BrandIconPicker from './components/BrandIconPicker';
+import { useBrandIconSync } from './brand/useBrandIconSync';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
 import TitlebarActionsPlacementSettings from './components/settings/TitlebarActionsPlacementSettings';
@@ -665,12 +667,13 @@ type ToolCenterPaneKey =
   | 'snippet-settings'
   | 'shortcut-settings';
 
-type SettingsCenterGroupKey = 'preferences' | 'services' | ToolCenterGroupKey | 'about';
+type SettingsCenterGroupKey = 'preferences' | 'services' | ToolCenterGroupKey | 'about' | 'brand-icon';
 type SettingsCenterPaneKey =
   | 'language'
   | 'theme'
   | 'sidebar-metadata'
   | 'sidebar-objects'
+  | 'brand-icon'
   | 'proxy'
   | 'download-source'
   | 'web-auth'
@@ -916,6 +919,9 @@ function App() {
   const resetShortcutOptions = useStore(state => state.resetShortcutOptions);
   const [systemThemeMode, setSystemThemeMode] = useState<'light' | 'dark'>(() => getSystemThemeMode());
   const [runtimePlatform, setRuntimePlatform] = useState('');
+  // 品牌图标领域逻辑（favicon、原生图标同步、资源加载、设置面板选择流程）
+  // 抽到独立 hook：App.tsx 只保留接线。
+  const { handleBrandIconChange } = useBrandIconSync(runtimePlatform);
   const [runtimeBuildType, setRuntimeBuildType] = useState('');
   const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const activeCustomTheme = useMemo(
@@ -1051,22 +1057,6 @@ function App() {
       }
       void safeWindowRuntimeCall(() => WindowSetLightTheme(), undefined);
   }, [effectiveThemePreference, resolvedThemeMode, setTheme, themeMode]);
-
-  // Use the bundled application brand for the browser favicon.
-  useEffect(() => {
-      if (typeof document === 'undefined') return;
-      const href = resolveBrandIconSrc(brandIconId);
-      let link = document.querySelector<HTMLLinkElement>("link[rel='icon'][data-brand-icon='true']");
-      if (!link) {
-          link = document.createElement('link');
-          link.rel = 'icon';
-          link.setAttribute('data-brand-icon', 'true');
-          document.head.appendChild(link);
-      }
-      link.type = 'image/svg+xml';
-      link.href = href;
-
-  }, [brandIconId]);
 
   const selectPresetTheme = useCallback((preference: ThemePreference) => {
       suppressThemeSwitchTransitions();
@@ -7720,6 +7710,13 @@ function App() {
                   description: t('app.settings.sidebar_objects.description'),
                   onClick: () => handleOpenSettingsCenterPane('preferences', 'sidebar-objects'),
               },
+              {
+                  key: 'brand-icon',
+                  icon: <AppstoreOutlined />,
+                  title: t('app.settings.entry.brand_icon.title'),
+                  description: t('app.settings.entry.brand_icon.description'),
+                  onClick: () => handleOpenSettingsCenterPane('preferences', 'brand-icon'),
+              },
           ],
       },
       {
@@ -7832,6 +7829,19 @@ function App() {
   const renderSettingsCenterPane = () => {
       if (!activeSettingsCenterPane) {
           return null;
+      }
+      if (activeSettingsCenterPane.key === 'brand-icon') {
+          return (
+              <div style={{ padding: '16px 0 20px' }}>
+                  <BrandIconPicker
+                    value={brandIconId}
+                    darkMode={darkMode}
+                    accentColor={overlayTheme.selectedText}
+                    ariaLabel={t('app.settings.entry.brand_icon.title')}
+                    onChange={handleBrandIconChange}
+                  />
+              </div>
+          );
       }
       if (activeSettingsCenterPane.key === 'language') {
           return (

@@ -14,9 +14,9 @@ var windowsSetCurrentProcessExplicitAppUserModelID = windowsShell32.NewProc("Set
 
 // InitializeWindowsApplicationIdentity must run before Wails creates the main
 // window. Otherwise Explorer may create the taskbar button under the
-// executable's implicit identity and keep serving its embedded icon. The ID
-// stays on the MSI shortcut value; the selected logo changes the bitmap, not
-// the taskbar group.
+// executable's implicit identity and keep serving its embedded icon. The
+// stable identity keeps the process, live window, and taskbar shortcut in the
+// same Explorer group across icon changes.
 func InitializeWindowsApplicationIdentity() error {
 	if err := windowsSetCurrentProcessExplicitAppUserModelID.Find(); err != nil {
 		return fmt.Errorf("resolve SetCurrentProcessExplicitAppUserModelID: %w", err)

@@ -607,6 +607,8 @@ export function OpenSavedQueryDirectory():Promise<connection.QueryResult>;
 
 export function PreflightDatabaseSQLImport(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function PrepareWindowsBrandIconRestart(arg1:string):Promise<connection.QueryResult>;
+
 export function PreviewChanges(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:connection.ChangeSet):Promise<connection.QueryResult>;
 
 export function PreviewImportFile(arg1:string):Promise<connection.QueryResult>;
@@ -772,6 +774,8 @@ export function SelectSSHKeyFile(arg1:string):Promise<connection.QueryResult>;
 export function SelectSSHKnownHostsFile(arg1:string):Promise<connection.QueryResult>;
 
 export function SelectSavedQueryDirectory(arg1:string):Promise<connection.QueryResult>;
+
+export function SetApplicationBrandIcon(arg1:string):Promise<connection.QueryResult>;
 
 export function SetLanguage(arg1:string):Promise<void>;
 

@@ -44,6 +44,7 @@ import {
 } from "./utils/sqlSnippetDefaults";
 import {
   DEFAULT_BRAND_ICON_ID,
+  sanitizeBrandIconId,
 } from "./brand/brandIcons";
 
 export interface AIChatSessionSummary {
@@ -64,8 +65,8 @@ type ActiveContext = {
   tableName?: string;
 };
 
-const sanitizeBrandIconIdLocal = (_value: unknown): string =>
-  DEFAULT_BRAND_ICON_ID;
+const sanitizeBrandIconIdLocal = (value: unknown): string =>
+  sanitizeBrandIconId(value) || DEFAULT_BRAND_ICON_ID;
 import { toPersistedGlobalProxy } from "./utils/globalProxyDraft";
 import {
   DEFAULT_DATA_GRID_DISPLAY_SETTINGS,
@@ -2023,6 +2024,7 @@ interface AppState {
   themePreference: ThemePreference;
   /** Built-in brand mascot icon id (01-10), used in title bar / about / favicon. */
   brandIconId: string;
+  setBrandIconId: (brandIconId: string) => void;
   languagePreference: LanguagePreference;
   appearance: AppearanceSettings;
   uiScale: number;
@@ -5501,6 +5503,10 @@ export const useStore = create<AppState>()(
       setThemePreference: (themePreference) =>
         set({
           themePreference: sanitizeThemePreference(themePreference),
+        }),
+      setBrandIconId: (brandIconId) =>
+        set({
+          brandIconId: sanitizeBrandIconIdLocal(brandIconId),
         }),
       setLanguagePreference: (languagePreference) =>
         set({
