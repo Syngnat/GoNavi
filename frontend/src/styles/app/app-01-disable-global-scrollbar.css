@@ -1,0 +1,675 @@
+:root {
+  --gn-font-sans: "Inter", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Ubuntu", sans-serif;
+  --gn-font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Disable global scrollbar */
+  background-color: transparent !important; /* CRITICAL: Allow Wails window transparency */
+}
+
+/* Windows uses an opaque HWND. Transparent pixels here fall through to the
+   native white client area and look like a blank window, including the gap
+   while React hydrates and around an undersized WebView2 controller. */
+html[data-gonavi-windows="true"],
+html[data-gonavi-windows="true"] body,
+html[data-gonavi-windows="true"] #root {
+  background-color: var(--gn-bg-app, #f4f6f8) !important;
+}
+html[data-gonavi-windows="true"][data-theme="dark"],
+html[data-gonavi-windows="true"] body[data-theme="dark"],
+html[data-gonavi-windows="true"][data-theme="dark"] body,
+html[data-gonavi-windows="true"][data-theme="dark"] #root,
+html[data-gonavi-windows="true"] body[data-theme="dark"] #root {
+  background-color: var(--gn-bg-app, #14161a) !important;
+}
+
+/* Native detached WebViews use the same transparent window composition as the
+   main macOS surface. Paint the resolved app token behind any child content so
+   loading gaps and transparent component pixels never fall back to white. */
+body[data-gonavi-detached='true'],
+body[data-gonavi-detached='true'] #root {
+  background-color: var(--gn-bg-app, transparent) !important;
+}
+
+body, #root {
+  border-radius: var(--gonavi-border-radius); /* Slightly rounded app window corners */
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--gn-font-sans);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--gn-font-mono);
+}
+
+/* 侧边栏 Tree 样式优化 */
+.ant-tree .ant-tree-treenode {
+  width: 100%;
+}
+
+.ant-tree .ant-tree-node-content-wrapper {
+  display: flex !important;
+  align-items: center;
+  white-space: nowrap;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.ant-tree .ant-tree-title,
+.ant-tree .ant-tree-treenode * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.ant-tree .ant-tree-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+
+.gonavi-sidebar-object-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.gonavi-sidebar-object-status.is-valid {
+  border-color: rgba(47, 158, 68, 0.42);
+  background: rgba(47, 158, 68, 0.12);
+  color: #16803a;
+}
+
+.gonavi-sidebar-object-status.is-invalid {
+  border-color: rgba(217, 72, 65, 0.45);
+  background: rgba(217, 72, 65, 0.12);
+  color: #c92a2a;
+}
+
+.sidebar-tree-scroll-shell {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.sidebar-tree-scroll-content {
+  min-width: 100%;
+}
+
+.sidebar-tree-scroll-shell .ant-tree {
+  min-width: 100%;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-list-holder,
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-list-holder-inner {
+  min-width: 100%;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-treenode {
+  width: auto;
+  min-width: 100%;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-node-content-wrapper {
+  width: max-content !important;
+  min-width: 100%;
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-switcher {
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-iconEle {
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-inline-end: 0;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-title {
+  flex: 0 0 auto;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.redis-viewer-workbench .ant-tree {
+    background: transparent;
+}
+
+.redis-viewer-workbench .ant-tree .ant-tree-list-holder-inner,
+.redis-viewer-workbench .ant-tree .ant-tree-list-holder-inner .ant-tree-treenode {
+    width: 100% !important;
+}
+
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper {
+    min-height: 36px;
+    border-radius: 14px;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto !important;
+}
+
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper:hover,
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper:active,
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper:focus,
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper:focus-visible,
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected,
+.redis-viewer-workbench .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected:hover {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.redis-viewer-workbench .ant-tree .ant-tree-treenode {
+    padding: 2px 0;
+    width: 100%;
+    border-radius: 14px;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    border: none;
+    align-items: center;
+    position: relative;
+    z-index: 0;
+    display: flex !important;
+    box-sizing: border-box;
+}
+
+.redis-viewer-workbench .ant-tree .ant-tree-switcher {
+    width: 0 !important;
+    min-width: 0 !important;
+    margin-inline-end: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: transparent !important;
+}
+
+.redis-viewer-workbench .ant-tree .ant-tree-switcher:hover,
+.redis-viewer-workbench .ant-tree .ant-tree-switcher:active,
+.redis-viewer-workbench .ant-tree .ant-tree-switcher:focus {
+    background: transparent !important;
+}
+
+.redis-viewer-workbench .redis-tree-expander-button:hover,
+.redis-viewer-workbench .redis-tree-expander-button:focus-visible {
+    background: transparent !important;
+    outline: none;
+}
+
+.redis-viewer-workbench .ant-radio-group .ant-radio-button-wrapper {
+    border-radius: 10px;
+    margin-inline-end: 6px;
+}
+
+.redis-viewer-workbench .ant-radio-group .ant-radio-button-wrapper:last-child {
+    margin-inline-end: 0;
+}
+
+.redis-viewer-workbench .ant-table {
+    background: transparent;
+}
+
+.redis-viewer-workbench .ant-table-wrapper .ant-table-thead > tr > th {
+    font-weight: 700;
+}
+
+.redis-value-table-shell .ant-table-body {
+    overflow-y: auto !important;
+}
+
+/* Scrollbar styling for dark mode */
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-track {
+    background: #1f1f1f;
+}
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-corner {
+    background: #1f1f1f;
+}
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb {
+    background: #424242;
+    border-radius: 4px;
+    border: 2px solid #1f1f1f;
+}
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb:hover {
+    background: #666;
+}
+
+/* Scrollbar styling for light mode (transparent-friendly) */
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-track {
+    background: transparent;
+}
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-corner {
+    background: transparent;
+}
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.30);
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.gn-query-monaco-stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    /* Wails 原生文件拖放的投放目标标记。CSS 自定义属性会继承到 Monaco
+       内部层，Wails 用 elementFromPoint 命中的元素读取该值判定可投放。 */
+    --wails-drop-target: drop;
+}
+
+.gn-query-monaco-stage.wails-drop-target-active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    border: 1.5px dashed rgba(22, 119, 255, 0.65);
+    background: rgba(22, 119, 255, 0.06);
+}
+
+.gn-query-monaco-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-details-container {
+    min-height: 260px;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-details {
+    min-height: 260px;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main {
+    justify-content: flex-start;
+    gap: 6px;
+}
+
+/* 补全主名称优先完整显示，避免被右侧表名/类型挤成 primary_ent... */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* 表名/类型等元数据让位：始终可见，但空间不足时优先压缩/省略右侧 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .right {
+    flex: 0 1 auto;
+    flex-shrink: 4;
+    max-width: 48%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .right > .details-label {
+    display: inline !important;
+    margin-left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 字段候选的备注跟随加宽后的弹层使用剩余空间，避免被默认 48% 列宽提前截断。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .left {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .right {
+    flex: 1 1 auto;
+    max-width: none;
+}
+
+/* 表候选使用 Monaco 原生 CompletionItemLabel：第一行表名，第二行注释。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) {
+    height: var(--gn-query-suggest-row-height, 36px) !important;
+    min-height: var(--gn-query-suggest-row-height, 36px) !important;
+    max-height: var(--gn-query-suggest-row-height, 36px) !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents {
+    height: var(--gn-query-suggest-row-height, 36px) !important;
+    overflow: visible !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main {
+    display: grid !important;
+    grid-template-columns: 18px minmax(0, 1fr);
+    grid-template-rows: var(--gn-query-suggest-name-row-height, 18px) var(--gn-query-suggest-comment-row-height, 18px);
+    grid-template-areas:
+        "icon name"
+        "comment comment";
+    align-content: center;
+    gap: 0 !important;
+    height: var(--gn-query-suggest-row-height, 36px);
+    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
+    overflow: visible;
+    white-space: normal;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .icon-label.codicon {
+    grid-area: icon;
+    width: 18px;
+    height: 18px;
+    align-self: center;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .left {
+    grid-area: name;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--gn-query-suggest-name-row-height, 18px);
+    min-width: 0;
+    max-width: none;
+    overflow: visible;
+    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .left > .monaco-icon-label {
+    min-width: 0;
+    max-width: 100%;
+    height: var(--gn-query-suggest-name-row-height, 18px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: var(--gn-query-suggest-name-row-height, 18px);
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right {
+    grid-area: comment;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    height: 18px;
+    min-width: 0;
+    max-width: none;
+    overflow: visible;
+    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right > .details-label {
+    display: block !important;
+    width: max-content;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+    margin-left: 0 !important;
+    overflow: visible;
+    color: var(--vscode-editorSuggestWidget-foreground);
+    font-size: 11px !important;
+    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
+    opacity: 0.68;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.focused:not(.string-label) > .contents > .main > .right > .details-label {
+    color: var(--vscode-editorSuggestWidget-selectedForeground);
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right > .readMore {
+    display: none !important;
+}
+
+/* Ensure body background matches theme to avoid white flashes, but kept transparent for window composition */
+body {
+    transition: color 0.3s;
+}
+
+body[data-theme='dark'] {
+    /* 移除全局 text-shadow：对每个文本元素增加 GPU compositing 成本，
+       在透明窗口环境下会显著加剧 GPU 负载 */
+}
+
+.table-designer-shell .table-designer-cell-check .ant-checkbox-disabled.ant-checkbox-checked .ant-checkbox-inner::after {
+    border-color: var(--gn-on-accent, #fff) !important;
+}
+
+/* 连接配置弹窗：滚动仅在弹窗 body 内部，不使用外层 wrap 滚动条 */
+.connection-modal-wrap {
+    overflow: hidden !important;
+}
+
+.connection-modal-wrap .ant-modal-content {
+    max-height: calc(100vh - 72px);
+    display: flex;
+    flex-direction: column;
+    padding: 0 !important;
+    overflow: hidden;
+    border-radius: 16px !important;
+    background: var(--gn-bg-panel, var(--ant-color-bg-elevated)) !important;
+    border: 1px solid var(--gn-br-2, var(--ant-color-border-secondary)) !important;
+    box-shadow: var(--gn-shadow-lg, var(--ant-box-shadow-secondary)) !important;
+}
+
+.connection-modal-wrap .ant-modal-header {
+    margin: 0 !important;
+    padding: 0 !important;
+    border-bottom: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    background: var(--gn-bg-chrome, var(--ant-color-fill-quaternary)) !important;
+}
+
+.connection-modal-wrap .ant-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.connection-modal-wrap .ant-modal-footer {
+    flex-shrink: 0;
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    border-top: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    background: var(--gn-bg-chrome, var(--ant-color-fill-quaternary)) !important;
+}
+
+/* v2-theme.css 后加载且包含通用 Modal !important，这里仅提高连接弹窗作用域优先级。 */
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-content {
+    border: 1px solid var(--gn-br-2) !important;
+    border-radius: 16px !important;
+}
+
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-header {
+    margin: 0 !important;
+    padding: 0 !important;
+    border-bottom: 1px solid var(--gn-br-1) !important;
+    background: var(--gn-bg-chrome) !important;
+}
+
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-body {
+    padding: 0 !important;
+}
+
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-footer {
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    border-top: 1px solid var(--gn-br-1) !important;
+    background: var(--gn-bg-chrome) !important;
+}
+
+.connection-modal-picker-wrap .ant-modal-footer {
+    display: none;
+}
+
+/* A · Studio 标题栏：左右列等宽，步骤始终保持几何居中。 */
+.gn-conn-studio-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    width: 100%;
+    padding: 12px 16px;
+    box-sizing: border-box;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-header {
+    column-gap: 8px;
+    padding: 8px 12px;
+}
+
+.gn-conn-studio-header-left {
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.gn-conn-studio-type-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 36px;
+    overflow: hidden;
+    box-sizing: border-box;
+    color: #fff;
+    background: var(--gn-accent, #1677ff);
+    font-size: 22px;
+    line-height: 1;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-type-badge {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    border-radius: 7px;
+    font-size: 11px;
+}
+
+.gn-conn-studio-heading {
+    min-width: 0;
+}
+
+.gn-conn-studio-title {
+    overflow: hidden;
+    color: var(--gn-fg-1, var(--ant-color-text));
+    font-size: 14.5px;
+    font-weight: 700;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-title {
+    font-size: 13.5px;
+}
+
+.gn-conn-studio-subtitle {
+    margin-top: 2px;
+    overflow: hidden;
+    color: var(--gn-fg-4, var(--ant-color-text-secondary));
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-steps {
+    grid-column: 2;
+    justify-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--gn-fg-5, var(--ant-color-text-quaternary));
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-steps [data-active='true'] {
+    color: var(--gn-accent, var(--ant-color-primary));
+    font-weight: 700;
+}
+
+.gn-conn-studio-steps [data-done='true'] {
+    color: var(--gn-fg-3, var(--ant-color-text-secondary));
+}
+
+.gn-conn-studio-step-arrow {
+    color: var(--gn-fg-5, var(--ant-color-text-quaternary));
+    font-size: 9px;
+}
+
+.gn-conn-studio-close {
+    grid-column: 3;
+    justify-self: end;
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--gn-fg-4, var(--ant-color-text-secondary));
+    cursor: pointer;
+}
+
+.gn-conn-studio-close:hover {
+    background: var(--gn-bg-hover, var(--ant-color-fill-tertiary));
+    color: var(--gn-fg-1, var(--ant-color-text));
+}
+
+.gn-conn-studio-close:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 55%, transparent);
+    outline-offset: 1px;
+}
+

@@ -65,6 +65,63 @@ class CompleteDriverReleaseAssetsTests(unittest.TestCase):
         self.assertEqual(requests[0][0], asset["browser_download_url"])
         self.assertNotIn("Authorization", requests[0][1])
 
+    def test_requires_registry_driver_assets_only_on_declared_platforms(self):
+        required = set(MODULE.required_assets())
+        # 描述表驱动未声明平台时发布全部六个平台。
+        for platform_dir, name in [
+            ("Windows", "tidb-driver-agent-windows-amd64.exe"),
+            ("Windows", "tidb-driver-agent-windows-arm64.exe"),
+            ("MacOS", "meilisearch-driver-agent-darwin-arm64"),
+            ("Linux", "zookeeper-driver-agent-linux-arm64"),
+        ]:
+            self.assertIn((platform_dir, name), required)
+        # 崖山、GBase 8s 只声明了 linux/amd64、linux/arm64、windows/amd64。
+        self.assertIn(("Linux", "yashandb-driver-agent-linux-arm64"), required)
+        self.assertIn(("Windows", "gbase8s-driver-agent-windows-amd64.exe"), required)
+        self.assertNotIn(("MacOS", "yashandb-driver-agent-darwin-arm64"), required)
+        self.assertNotIn(("Windows", "gbase8s-driver-agent-windows-arm64.exe"), required)
+
+    def test_prefers_7z_bundle_and_keeps_legacy_zip_bundle(self):
+        self.assertEqual(MODULE.BUNDLE_NAMES, ("GoNavi-DriverAgents.7z", "GoNavi-DriverAgents.zip"))
+
+    def test_copies_only_missing_required_assets_from_7z_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            drivers = root / "drivers"
+            (drivers / "Windows").mkdir(parents=True)
+            (drivers / "Linux").mkdir(parents=True)
+            (drivers / "Windows" / "mariadb-driver-agent-windows-amd64.exe").write_bytes(b"bundled-windows")
+            (drivers / "Linux" / "mariadb-driver-agent-linux-arm64").write_bytes(b"bundled-linux")
+            (drivers / "Linux" / "unrelated-file").write_bytes(b"ignored")
+            bundle = root / "GoNavi-DriverAgents.7z"
+            from driver_bundle_7z import create_bundle
+
+            create_bundle(
+                bundle,
+                drivers,
+                [
+                    "Windows/mariadb-driver-agent-windows-amd64.exe",
+                    "Linux/mariadb-driver-agent-linux-arm64",
+                    "Linux/unrelated-file",
+                ],
+                [],
+            )
+
+            target = root / "target"
+            (target / "Linux").mkdir(parents=True)
+            existing = target / "Linux" / "mariadb-driver-agent-linux-arm64"
+            existing.write_bytes(b"freshly-built")
+
+            copied = MODULE.copy_missing_from_bundle(bundle, target)
+
+            self.assertEqual(copied, 1)
+            self.assertEqual(
+                (target / "Windows" / "mariadb-driver-agent-windows-amd64.exe").read_bytes(),
+                b"bundled-windows",
+            )
+            self.assertEqual(existing.read_bytes(), b"freshly-built")
+            self.assertFalse((target / "Linux" / "unrelated-file").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

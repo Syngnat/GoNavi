@@ -38,6 +38,8 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
       /ora-00933/i,
       /ora-00936/i,
       /you have an error in your sql syntax/i,
+      // Presto / Trino：line 1:8: mismatched input 'FORM'
+      /mismatched input/i,
     ],
   },
   {
@@ -52,6 +54,8 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
       /invalid object name/i,
       /ora-00942/i,
       /object\s+.+does not exist/i,
+      // Presto / Trino：Table 'hive.sales.orders' does not exist、Schema / Catalog … does not exist
+      /\b(?:table|view|schema|catalog)\s+.+does not exist/i,
     ],
   },
   {
@@ -76,6 +80,8 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
       /invalid column name/i,
       /ora-00904/i,
       /no such column/i,
+      // Presto / Trino：Column 'amount' cannot be resolved
+      /column\s+.+cannot be resolved/i,
     ],
   },
   {

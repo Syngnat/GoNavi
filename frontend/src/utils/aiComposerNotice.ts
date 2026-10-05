@@ -3,7 +3,7 @@ import type { AIChatReadinessIssue } from '../components/ai/aiChatReadiness';
 import { formatAIChatProviderIssueLabels } from '../components/ai/aiChatReadiness';
 
 export type AIComposerNoticeTone = 'warning' | 'error';
-export type AIComposerNoticeAction = 'open-settings' | 'reload-models';
+export type AIComposerNoticeAction = 'open-settings' | 'reload-models' | 'builtin-login';
 
 export interface AIComposerNotice {
   tone: AIComposerNoticeTone;
@@ -18,6 +18,8 @@ export interface AIComposerNotice {
 export type AIComposerNoticeDescriptor =
   | { kind: 'missing_provider' }
   | { kind: 'missing_model' }
+  | { kind: 'builtin_login_required' }
+  | { kind: 'builtin_login_failed'; detail?: string }
   | { kind: 'provider_incomplete'; issues?: AIChatReadinessIssue[] }
   | { kind: 'model_fetch_failed'; detail?: string | number | boolean | null | undefined };
 
@@ -90,6 +92,65 @@ export const buildMissingProviderNotice = (t?: AIComposerNoticeTranslator): AICo
     t,
   ),
 });
+
+export const buildBuiltinLoginNotice = (t?: AIComposerNoticeTranslator): AIComposerNotice => ({
+  tone: 'warning',
+  title: translateWithFallback(
+    t,
+    'ai_chat.input.status.builtin_login.title',
+    catalogTranslateEn('ai_chat.input.status.builtin_login.title'),
+  ),
+  description: translateWithFallback(
+    t,
+    'ai_chat.input.status.builtin_login.description',
+    catalogTranslateEn('ai_chat.input.status.builtin_login.description'),
+  ),
+  action: buildNoticeAction(
+    'builtin-login',
+    'ai_chat.input.status.action.builtin_login',
+    catalogTranslateEn('ai_chat.input.status.action.builtin_login'),
+    t,
+  ),
+});
+
+/** Shown while the browser step of the sign-in is open: the code to compare with the page. */
+export const buildBuiltinLoginPendingNotice = (t: AIComposerNoticeTranslator | undefined, code: string): AIComposerNotice => ({
+  tone: 'warning',
+  title: translateWithFallback(
+    t,
+    'ai_chat.composer_notice.builtin_login_pending.title',
+    catalogTranslateEn('ai_chat.composer_notice.builtin_login_pending.title'),
+  ),
+  description: translateWithFallback(
+    t,
+    'ai_chat.composer_notice.builtin_login_pending.description',
+    catalogTranslateEn('ai_chat.composer_notice.builtin_login_pending.description', { code }),
+    { code },
+  ),
+});
+
+export const buildBuiltinLoginFailedNotice = (t?: AIComposerNoticeTranslator, detail?: string): AIComposerNotice => {
+  const cleanDetail = String(detail ?? '').trim();
+  return {
+    tone: 'error',
+    title: translateWithFallback(
+      t,
+      'ai_chat.composer_notice.builtin_login_failed.title',
+      catalogTranslateEn('ai_chat.composer_notice.builtin_login_failed.title'),
+    ),
+    description: cleanDetail || translateWithFallback(
+      t,
+      'ai_chat.composer_notice.builtin_login_failed.description',
+      catalogTranslateEn('ai_chat.composer_notice.builtin_login_failed.description'),
+    ),
+    action: buildNoticeAction(
+      'builtin-login',
+      'ai_chat.input.status.action.builtin_login',
+      catalogTranslateEn('ai_chat.input.status.action.builtin_login'),
+      t,
+    ),
+  };
+};
 
 export const buildMissingModelNotice = (t?: AIComposerNoticeTranslator): AIComposerNotice => ({
   tone: 'warning',
@@ -213,6 +274,12 @@ export const buildAIComposerNotice = (
   }
   if (descriptor.kind === 'missing_model') {
     return buildMissingModelNotice(t);
+  }
+  if (descriptor.kind === 'builtin_login_required') {
+    return buildBuiltinLoginNotice(t);
+  }
+  if (descriptor.kind === 'builtin_login_failed') {
+    return buildBuiltinLoginFailedNotice(t, descriptor.detail);
   }
   if (descriptor.kind === 'provider_incomplete') {
     return buildIncompleteProviderNotice(descriptor.issues, t);

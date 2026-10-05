@@ -26,8 +26,15 @@ import { useAIChatDraftAttachments } from './useAIChatDraftAttachments';
 import { useAISlashCommandMenu } from './useAISlashCommandMenu';
 import type { AIChatAttachment, AIEditorSelection } from '../../types';
 import type { AIRunDispatchMode } from './aiRunHarnessClient';
-import { AIChatContextMeter } from './AIChatContextMeter';
-import { isAIEditorSelectionContext } from './aiEditorSelectionContext';
+import { AIContextRing } from './AIContextRing';
+import { useAIContextBreakdown } from './useAIContextBreakdown';
+import type { AIHistoryMeasure } from './aiContextBreakdown';
+import { isAIEditorSelectionContext, isAITableSchemaContext } from './aiEditorSelectionContext';
+import { isTransientContextItem } from './aiContextChips';
+import AIComposerBoundChips from './AIComposerBoundChips';
+import { useAIImageOcr } from './ocr/useAIImageOcr';
+import AIOcrInstallModal from './ocr/AIOcrInstallModal';
+import BuiltinAITermsModal from './builtinTerms/BuiltinAITermsModal';
 
 interface AIChatInputProps {
     input: string;
@@ -68,8 +75,11 @@ interface AIChatInputProps {
     textColor: string;
     mutedColor: string;
     overlayTheme: OverlayWorkbenchTheme;
-    contextUsageChars?: number;
-    maxContextChars?: number;
+    /** What the conversation so far takes, by role; the composer adds what is being typed. */
+    contextHistory?: AIHistoryMeasure;
+    contextWindow?: number;
+    /** The conversation the next message goes into (none before the first message). */
+    contextSessionId?: string;
 }
 
 export const AIChatInput: React.FC<AIChatInputProps> = ({
@@ -81,7 +91,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
     onModelChange, onProviderModelChange, onManageProvider, onFetchModels, onFetchProviderModels, thinkingIntensity, onThinkingIntensityChange,
     cliCapability, cliCatalog,
     textareaRef, darkMode, textColor, mutedColor, overlayTheme,
-    contextUsageChars, maxContextChars,
+    contextHistory, contextWindow, contextSessionId,
 }) => {
     const i18n = useOptionalI18n();
     const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
@@ -99,6 +109,10 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
         ? activeEditorSelection
         : null;
     const activeContextItems = aiContexts[connectionKey] || [];
+    const contextBreakdown = useAIContextBreakdown({
+        history: contextHistory, contextWindow, activeProvider, contextItems: activeContextItems, input, draftAttachments,
+        sessionId: contextSessionId,
+    });
     const composerReadiness = React.useMemo(() => buildAIChatReadinessSnapshot({
         activeProvider,
         dynamicModels,
@@ -142,6 +156,8 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
             && item.source?.tabId === editorSelectionForContext?.tabId
             && String(item.content || item.ddl || '') === editorSelectionForContext?.text);
 
+    // A model that cannot see images is given the text in them instead.
+    const imageOcr = useAIImageOcr({ provider: activeProvider, draftAttachments, setDraftAttachments });
     const {
         fileInputRef,
         handleAttachmentUpload,
@@ -150,6 +166,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
     } = useAIChatDraftAttachments({
         setDraftAttachments,
         translate: t,
+        onAttachmentAdded: imageOcr.onAttachmentAdded,
     });
 
     const {
@@ -201,7 +218,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                 padding: '8px 4px 8px'
             }}>
                 <AIChatContextPreview
-                    activeContextItems={activeContextItems}
+                    activeContextItems={activeContextItems.filter(isAITableSchemaContext)}
                     contextExpanded={contextExpanded}
                     onToggleExpanded={() => setContextExpanded(!contextExpanded)}
                     onOpenContext={handleOpenContext}
@@ -213,6 +230,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                 <AIChatAttachmentStrip
                     attachments={draftAttachments}
                     onRemove={handleRemoveDraftAttachment}
+                    onReadImage={imageOcr.readNow}
                 />
                 <AIChatComposerNotice
                     composerNotice={composerNotice}
@@ -246,6 +264,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                         onSelect={handleSelectSlashCommand}
                     />
                     <div className="gn-v2-ai-input-surface">
+                        <AIComposerBoundChips items={activeContextItems} copy={t} onRemove={handleRemoveContextItem} />
                         <Input.TextArea
                             onPaste={handlePasteImages}
                             ref={textareaRef as any}
@@ -262,6 +281,8 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                         <AIChatComposerActions
                             input={input}
                             draftAttachmentCount={draftAttachments.length}
+                            hasBoundSelection={activeContextItems.some(isTransientContextItem)}
+                            recognizingImages={imageOcr.recognizing}
                             sending={sending}
                             dispatchMode={dispatchMode}
                             hasActiveRun={hasActiveRun}
@@ -309,9 +330,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                         cliCapability={cliCapability}
                         cliCatalog={cliCatalog}
                     />
-                    {contextUsageChars !== undefined && maxContextChars !== undefined && (
-                        <AIChatContextMeter usageChars={contextUsageChars} maxChars={maxContextChars} />
-                    )}
+                    {contextBreakdown && <AIContextRing breakdown={contextBreakdown} copy={t} />}
                 </div>
             </div>
 
@@ -336,6 +355,8 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                 onSelectedTableKeysChange={setSelectedTableKeys}
                 onSelectedEditorSelectionChange={setSelectedEditorSelection}
             />
+            <AIOcrInstallModal />
+            <BuiltinAITermsModal />
         </div>
     );
 };

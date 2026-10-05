@@ -158,6 +158,11 @@ func (s *ProviderConfigStore) Save(snapshot ProviderConfigStoreSnapshot) error {
 	providers := make([]ai.ProviderConfig, 0, len(snapshot.Providers))
 	for _, providerConfig := range snapshot.Providers {
 		runtimeConfig := clearRemovedProviderEditorFields(normalizeProviderConfig(clearRemovedProviderEditorFields(providerConfig)))
+		if isBuiltinAIProviderConfig(runtimeConfig) {
+			runtimeConfig.HasSecret, runtimeConfig.SecretRef, runtimeConfig.APIKey, runtimeConfig.Headers = false, "", "", nil
+			providers = append(providers, runtimeConfig)
+			continue
+		}
 		meta, bundle := splitProviderSecrets(runtimeConfig)
 		if bundle.hasAny() {
 			storedMeta, err := persistProviderSecretBundleWithLocalizer(s.dailySecrets, meta, bundle, s.localizer)
@@ -306,6 +311,12 @@ func (s *ProviderConfigStore) persistMCPHTTPServerToken(token string) error {
 }
 
 func (s *ProviderConfigStore) loadStoredProviderConfig(config ai.ProviderConfig) (ai.ProviderConfig, bool, error) {
+	if isBuiltinAIProviderConfig(config) {
+		// Account tokens are not provider secrets (see builtinAIAccountKey).
+		rewritten := config.HasSecret || strings.TrimSpace(config.SecretRef) != "" || strings.TrimSpace(config.APIKey) != ""
+		config.HasSecret, config.SecretRef, config.APIKey, config.Headers = false, "", "", nil
+		return config, rewritten, nil
+	}
 	meta, bundle := splitProviderSecrets(config)
 	if bundle.hasAny() {
 		storedMeta, err := persistProviderSecretBundleWithLocalizer(s.dailySecrets, meta, bundle, s.localizer)

@@ -12,11 +12,83 @@ import {
   resolveTitleBarLayout,
   shouldDockCollapsedSidebarActionsInTitlebar,
 } from './utils/titlebarLayout';
+import { readCssWithImports } from './test/readCssWithImports';
 
-const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-const appCss = readFileSync(new URL('./App.css', import.meta.url), 'utf8');
-const v2ThemeCss = readFileSync(new URL('./v2-theme.css', import.meta.url), 'utf8');
-const sidebarSource = readFileSync(new URL('./components/Sidebar.tsx', import.meta.url), 'utf8');
+// App.tsx 已拆成 hook / 子组件 / 辅助模块（src/appShell），源码扫描按原顺序聚合。
+const APP_SOURCE_MODULES = [
+  'App.tsx',
+  'appShell/appSettingsConstants.ts',
+  'appShell/ThemeSettingsSlider.tsx',
+  'appShell/appEnvironment.ts',
+  'appShell/connectionPackageImport.ts',
+  'appShell/settingsCenterPanes.ts',
+  'appShell/globalProxySettings.ts',
+  'appShell/aboutSettingsFormat.ts',
+  'appShell/SidebarMetadataSortableRow.tsx',
+  'appShell/appLayoutParts.ts',
+  'appShell/settingsCenterNavigation.ts',
+  'appShell/hooks/useAppCoreState.ts',
+  'appShell/hooks/useAppShellState.ts',
+  'appShell/hooks/useAppBootstrapEffects.ts',
+  'appShell/hooks/useAppStartupEffects.tsx',
+  'appShell/hooks/useAppWindowEffects.ts',
+  'appShell/hooks/useAppSecurityUpdate.ts',
+  'appShell/hooks/useAppUpdateAndDiagnostics.ts',
+  'appShell/hooks/useAppQuitAndUpdate.tsx',
+  'appShell/hooks/useAppConnectionImportExport.ts',
+  'appShell/hooks/useAppProxySettings.ts',
+  'appShell/hooks/useAppSettingsNavigation.ts',
+  'appShell/hooks/useAppDirectorySettingsRender.tsx',
+  'appShell/hooks/useAppWorkbenchActions.ts',
+  'appShell/hooks/useAppLayoutEffects.ts',
+  'appShell/hooks/useAppAntdTheme.tsx',
+  'appShell/hooks/useAppSettingsPanesRender.tsx',
+  'appShell/hooks/useAppAboutSettingsRender.tsx',
+  'appShell/hooks/useAppThemeSettingsRender.tsx',
+  'appShell/settings/ThemeModeSettingsSection.tsx',
+  'appShell/settings/ThemeAppearanceSettingsSection.tsx',
+  'appShell/settings/TabDisplaySettingsSection.tsx',
+  'appShell/settings/DataTableSettingsFields.tsx',
+  'appShell/hooks/useAppSettingsCenterRender.tsx',
+  'appShell/layout/AppTitleBar.tsx',
+  'appShell/layout/AppSider.tsx',
+  'appShell/layout/AppContent.tsx',
+  'appShell/settings/renderAppSettingsCenterModal.tsx',
+  'appShell/settings/toolCenterGroups.tsx',
+  'appShell/settings/toolCenterPaneRenderer.tsx',
+  'appShell/layout/AppGlobalDialogs.tsx',
+];
+const appSource = APP_SOURCE_MODULES
+  .map((file) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8'))
+  .join('\n');
+const appCss = readCssWithImports(new URL('./App.css', import.meta.url));
+const v2ThemeCss = readCssWithImports(new URL('./v2-theme.css', import.meta.url));
+// Sidebar.tsx 已拆成 components/sidebar/ 下的 hook 与子组件，源码扫描需一并聚合。
+const SIDEBAR_COMPONENT_PARTS = [
+  'sidebarProps.ts',
+  'sidebarRootHelpers.ts',
+  'sidebarSavedQueriesTreeNode.tsx',
+  'V2ExplorerContextSummary.tsx',
+  'useSidebarStoreState.tsx',
+  'useSidebarSearchState.ts',
+  'useSidebarTreeViewState.ts',
+  'useSidebarTitlebarSync.tsx',
+  'useSidebarTreeData.tsx',
+  'useSidebarLocate.ts',
+  'useSidebarTreeEvents.tsx',
+  'useSidebarJvmAndSavedQueries.tsx',
+  'useSidebarConnectionRefresh.ts',
+  'useSidebarVisibility.ts',
+  'useSidebarObjectMenuActions.tsx',
+  'useSidebarContextMenus.tsx',
+  'useSidebarTreeDnd.ts',
+  'useSidebarToolbarModel.tsx',
+  'SidebarObjectExplorer.tsx',
+];
+const sidebarSource = [
+  readFileSync(new URL('./components/Sidebar.tsx', import.meta.url), 'utf8'),
+  ...SIDEBAR_COMPONENT_PARTS.map((file) => readFileSync(new URL(`./components/sidebar/${file}`, import.meta.url), 'utf8')),
+].join('\n');
 const toolbarSource = readFileSync(new URL('./components/sidebar/SidebarExplorerToolbar.tsx', import.meta.url), 'utf8');
 const sidebarCollapseSource = readFileSync(new URL('./hooks/useAppSidebarCollapse.ts', import.meta.url), 'utf8');
 

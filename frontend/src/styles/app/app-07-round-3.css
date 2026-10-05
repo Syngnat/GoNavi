@@ -1,0 +1,588 @@
+/* ── 双栏：左驱动清单 + 右详情面板 ── */
+.driver-manager-columns {
+    display: grid;
+    grid-template-columns: minmax(300px, 440px) minmax(0, 1fr);
+    gap: 0;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.driver-manager-list-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    min-height: 0;
+    padding-right: 16px;
+    border-right: 1px solid rgba(5, 5, 5, 0.06);
+}
+
+.driver-manager-list-search.ant-input-search {
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+}
+
+.driver-manager-list-item:hover {
+    background: rgba(5, 5, 5, 0.04);
+}
+
+.driver-manager-list-item.is-selected {
+    background: rgba(22, 119, 255, 0.10);
+}
+
+.driver-manager-list-item.is-selected .driver-manager-list-item-name {
+    color: #1677ff;
+    font-weight: 600;
+}
+
+.driver-manager-list-item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.driver-manager-list-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-manager-list-item-meta {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-manager-detail {
+    min-width: 0;
+    min-height: 0;
+    padding-left: 24px;
+}
+
+.driver-manager-detail-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 720px;
+}
+
+.driver-manager-detail-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.driver-manager-detail-path {
+    font-size: var(--driver-manager-font-body) !important;
+}
+
+.driver-manager-title-row,
+.driver-manager-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+}
+
+.driver-manager-driver-name {
+    font-size: 18px;
+}
+
+.driver-manager-meta-row {
+    row-gap: 6px;
+    gap: 12px;
+}
+
+.driver-manager-update-note {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(250, 173, 20, 0.1);
+}
+
+.driver-manager-note-text,
+.driver-manager-muted-message {
+    margin-bottom: 0 !important;
+}
+
+.driver-manager-muted-message {
+    color: var(--ant-color-text-secondary);
+}
+
+.driver-manager-card-actions {
+    justify-content: flex-start;
+}
+
+.driver-manager-control-block {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.driver-manager-progress.ant-progress-line {
+    width: 100%;
+    min-width: 0;
+}
+
+.driver-manager-progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+}
+
+.driver-manager-progress-value {
+    flex: 0 0 auto;
+    font-size: var(--driver-manager-font-body);
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-manager-progress-side {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+/* 进度块内的取消按钮此前落在放大规则之外（那条只覆盖 .driver-manager-card-actions），
+   于是退回 antd size="small" 的固定值，不跟随主题字号与控件高度。 */
+body[data-ui-version] .driver-manager-progress-side .ant-btn {
+    min-height: var(--gn-control-height, 32px);
+    height: var(--gn-control-height, 32px) !important;
+    padding-inline: 12px !important;
+    font-size: var(--driver-manager-font-body, var(--gn-font-size, 14px)) !important;
+}
+
+.driver-manager-control-label,
+.driver-manager-small-text {
+    font-size: var(--driver-manager-font-body);
+}
+
+.driver-manager-version-control {
+    display: grid;
+    gap: 4px;
+}
+
+.driver-manager-version-summary {
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-manager-version-lock {
+    line-height: 24px;
+}
+
+.driver-manager-card-actions .ant-btn {
+    min-width: 88px;
+}
+
+body[data-ui-version] .driver-manager-card-actions .ant-btn,
+body[data-ui-version] .gonavi-settings-center-modal .driver-manager-card-actions .ant-btn-sm {
+    min-height: var(--gn-control-height, 32px);
+    height: var(--gn-control-height, 32px) !important;
+    padding-inline: 12px !important;
+    font-size: var(--driver-manager-font-body, var(--gn-font-size, 14px)) !important;
+}
+
+.driver-manager-footer-actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.driver-manager-net-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.driver-manager-footer-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+/* ── Round 3 · mockup-alignment styles ──
+   Inline card progress replaces the action buttons while a download is
+   running (driver-manager-card-progress-active), and collapses to a
+   "ready + switch version" row when done (driver-manager-card-progress-done).
+   Hero shows the loaded count + a sort label sits in the list head, and the
+   top-level batch panel is replaced by the compact driver-manager-batch-bar. */
+
+.driver-manager-hero-subtitle-sep {
+  margin: 0 2px;
+  opacity: 0.5;
+}
+
+.driver-manager-card-progress-active {
+  gap: 6px;
+}
+
+.driver-manager-progress-lg.ant-progress-line {
+  margin: 0;
+}
+
+.driver-manager-progress-lg .ant-progress-bg {
+  /* 跟随主题缩放：8px 是 14px 基准字号下的观感值，用户调大字号时同步变粗，
+     否则大字号界面里进度条细得看不见。 */
+  height: calc(8px * var(--gn-ui-scale, 1)) !important;
+}
+
+.driver-manager-card-progress-done {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.driver-manager-card-ready-text {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.driver-manager-version-block {
+  gap: 4px;
+  max-width: 460px;
+}
+
+.driver-manager-progress-error {
+  font-size: var(--driver-manager-font-body) !important;
+  line-height: 1.4;
+}
+
+.driver-manager-list-head-left,
+.driver-manager-list-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.driver-manager-list-head-sort {
+  /* Follows the settings-center font scale when embedded; standalone keeps 12px. */
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  white-space: nowrap;
+}
+
+/* Compact top-level batch progress bar (replaces the old panel). */
+.driver-manager-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(22, 119, 255, 0.08);
+}
+
+.driver-manager-batch-bar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(22, 119, 255, 0.14);
+  color: #1677ff;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.driver-manager-batch-bar-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.driver-manager-batch-bar-text .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.driver-manager-batch-bar-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 220px;
+  min-width: 140px;
+}
+
+.driver-manager-batch-bar-progress .ant-progress {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.driver-manager-batch-bar-percent {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.driver-manager-batch-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* The tab-hosted view follows the full driver-manager workbench preview.
+   It shares the modal's controls, but retains the panel, statistic cards,
+   filters, and individual driver cards instead of flattening them. */
+.driver-manager-embedded-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.driver-manager-embedded-layout > .driver-manager-shell.is-embedded {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: contain;
+}
+
+.driver-manager-shell.is-embedded {
+    gap: 14px;
+    min-width: 0;
+}
+
+.driver-manager-shell.is-embedded .driver-manager-columns {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.driver-manager-shell.is-embedded .driver-manager-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.driver-manager-shell.is-embedded .driver-manager-detail {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+/* 日志区吃掉详情栏剩余高度，正文保持内容高度。 */
+.driver-manager-shell.is-embedded .driver-manager-detail-body {
+    flex: 0 0 auto;
+}
+
+.driver-manager-shell.is-embedded .driver-manager-log-section {
+    flex: 1 1 auto;
+    min-height: 160px;
+}
+
+.driver-manager-shell.is-embedded .driver-manager-log-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+}
+
+.driver-manager-shell.is-embedded .driver-manager-list-head {
+    min-height: 24px;
+}
+
+.driver-manager-embedded-layout > .driver-manager-footer-actions {
+    flex: 0 0 auto;
+    padding-top: 4px;
+}
+
+.driver-manager-embedded-layout > .driver-manager-footer-actions.is-status-only {
+    border-top: none;
+    padding-top: 2px;
+    min-height: 0;
+}
+
+.driver-manager-embedded-layout > .driver-manager-footer-actions.is-status-only .driver-manager-net-text {
+    font-size: 12px;
+}
+
+/* ── 驱动日志：详情栏下方的常驻日志区 ── */
+.driver-manager-log-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    min-height: 120px;
+}
+
+.driver-manager-log-empty {
+    font-size: var(--driver-manager-font-body);
+}
+
+.driver-manager-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 320px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 12px 14px;
+    background: rgba(5, 5, 5, 0.03);
+    border-radius: 8px;
+    font-family: var(--gn-font-mono, monospace);
+    font-size: var(--driver-manager-font-body);
+    line-height: 1.8;
+}
+
+.driver-manager-log-line {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.driver-manager-log-time {
+    flex: 0 0 auto;
+    color: var(--ant-color-text-tertiary, rgba(5, 5, 5, 0.45));
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-manager-log-text {
+    min-width: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ant-color-text, rgba(5, 5, 5, 0.88));
+}
+
+.driver-manager-log-line.is-done .driver-manager-log-text {
+    color: #389e0d;
+}
+
+.driver-manager-log-line.is-error .driver-manager-log-text {
+    color: #cf1322;
+}
+
+/* 小屏固定左右双栏：只压缩左栏与控件密度，不折叠成上下两段。
+   左栏 46% 在 960px 处约合调外档位的 440px 上限，窗口缩放时宽度连续；
+   下限 150px 保住驱动名可读宽度，右栏吃掉剩余宽度。 */
+@container (max-width: 960px) {
+    .driver-manager-columns {
+        grid-template-columns: clamp(150px, 46%, 440px) minmax(0, 1fr);
+    }
+
+    /* 嵌入态高度被压满：双栏共用一行，行高由容器决定，详情栏内部滚动。 */
+    .driver-manager-shell.is-embedded .driver-manager-columns {
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    .driver-manager-detail {
+        padding-left: 16px;
+    }
+
+    /* 左栏收窄：筛选由一行 4 格改 2×2，列表头与镜像源允许换行。 */
+    .driver-manager-filterbar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .driver-manager-list-head {
+        flex-wrap: wrap;
+    }
+
+    .driver-manager-list-head .driver-manager-list-search.is-in-head {
+        min-width: 120px;
+    }
+
+    .driver-manager-list-head-right {
+        margin-left: auto;
+    }
+
+    /* 刷新 / 网络检测 在收窄后的左栏内换行，避免撑出横向滚动。 */
+    .driver-manager-list-search-row.is-embedded .driver-manager-list-search-row-left {
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    .driver-manager-mirror-chip.is-compact {
+        margin-left: 0;
+    }
+
+    /* 工具条按钮组在窄容器内换行，避免横向溢出。 */
+    .driver-manager-bulkbar.is-embedded-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-primary,
+    .driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-dir {
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    /* 长安装路径在窄详情栏内折行，不撑破布局。 */
+    .driver-manager-detail-path {
+        overflow-wrap: anywhere;
+    }
+
+    .driver-manager-batch-bar {
+        flex-wrap: wrap;
+    }
+
+    .driver-manager-batch-bar-progress {
+        flex-basis: 100%;
+        order: 3;
+    }
+
+    .driver-manager-batch-bar-actions {
+        margin-left: auto;
+    }
+
+    .driver-manager-batch-progress-header,
+    .driver-manager-batch-progress-meta {
+        justify-content: flex-start;
+    }
+
+    .driver-manager-bulkbar-dir {
+        margin-left: 0;
+    }
+}
+

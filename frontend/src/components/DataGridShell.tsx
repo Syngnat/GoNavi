@@ -1,135 +1,13 @@
 import React from 'react';
-import { Button, message } from 'antd';
-import { CopyOutlined } from '@ant-design/icons';
-import { createPortal } from 'react-dom';
-import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
-
-import Modal from './common/ResizableDraggableModal';
 import ImportPreviewModal from './ImportPreviewModal';
-import DataGridModals from './DataGridModals';
-import DataGridPreviewPanel from './DataGridPreviewPanel';
 import DataGridSecondaryActions from './DataGridSecondaryActions';
-import DataGridToolbarFrame from './DataGridToolbarFrame';
-import LogPanel from './LogPanel';
-import { DataGridJsonView, DataGridTextView } from './DataGridRecordViews';
-import { DataGridV2DdlSideWorkspace, DataGridV2DdlView } from './DataGridV2DdlWorkspace';
-import { DataGridV2ErView, DataGridV2FieldsView } from './DataGridV2MetadataViews';
-import TableDesigner from './TableDesigner';
-import { V2CellContextMenuView, V2ColumnHeaderContextMenuView } from './V2TableContextMenu';
-import {
-  FILTER_FIELD_POPUP_WIDTH,
-  FILTER_FIELD_SELECT_STYLE,
-  GONAVI_ROW_KEY,
-} from './DataGridCore';
+import { useDataGridShellRenderers } from './dataGrid/shell/useDataGridShellRenderers';
+import { DataGridShellToolbar } from './dataGrid/shell/DataGridShellToolbar';
+import { DataGridShellBody } from './dataGrid/shell/DataGridShellBody';
+import { DataGridShellRowEditorModal } from './dataGrid/shell/DataGridShellRowEditorModal';
+export { DataGridTableSurface } from './dataGrid/shell/DataGridTableSurface';
 
-type DataGridShellProps = Record<string, any>;
-
-type DataGridTableSurfaceProps = {
-  CellContextMenuContext: React.Context<any>;
-  DndContext: React.ElementType;
-  EditableContext: React.Context<any>;
-  Form: React.ElementType;
-  SortableContext: React.ElementType;
-  Table: React.ElementType;
-  cellContextMenuValue: any;
-  closestCenter: any;
-  displayColumnNames: React.Key[];
-  enableVirtual: boolean;
-  form: any;
-  handleDragEnd: (...args: any[]) => any;
-  handleTableChange: (...args: any[]) => any;
-  horizontalListSortingStrategy: any;
-  loading: boolean;
-  rowClassName: (...args: any[]) => string;
-  rowSelectionConfig: any;
-  sensors: any;
-  tableColumns: any[];
-  tableComponents: any;
-  tableRef: React.Ref<any>;
-  tableRenderData: any[];
-  tableScrollConfig: any;
-  virtualListItemColumnVirtual: boolean;
-  virtualListItemHeight?: number;
-  virtualListItemHeightFixed: boolean;
-  virtualListItemNativeScrollbarControlled: boolean;
-  virtualListItemHorizontalOffsetComposited: boolean;
-};
-
-const TABLE_SORTER_TOOLTIP = { target: 'sorter-icon' } as const;
-
-const DataGridTableSurfaceComponent: React.FC<DataGridTableSurfaceProps> = ({
-  CellContextMenuContext,
-  DndContext,
-  EditableContext,
-  Form,
-  SortableContext,
-  Table,
-  cellContextMenuValue,
-  closestCenter,
-  displayColumnNames,
-  enableVirtual,
-  form,
-  handleDragEnd,
-  handleTableChange,
-  horizontalListSortingStrategy,
-  loading,
-  rowClassName,
-  rowSelectionConfig,
-  sensors,
-  tableColumns,
-  tableComponents,
-  tableRef,
-  tableRenderData,
-  tableScrollConfig,
-  virtualListItemColumnVirtual,
-  virtualListItemHeight,
-  virtualListItemHeightFixed,
-  virtualListItemNativeScrollbarControlled,
-  virtualListItemHorizontalOffsetComposited,
-}) => (
-  <Form component={false} form={form}>
-    <CellContextMenuContext.Provider value={cellContextMenuValue}>
-      <EditableContext.Provider value={form}>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={displayColumnNames} strategy={horizontalListSortingStrategy}>
-            <Table
-              ref={tableRef}
-              components={tableComponents}
-              dataSource={tableRenderData}
-              columns={tableColumns}
-              {...(enableVirtual && typeof virtualListItemHeight === 'number'
-                ? {
-                    listItemHeight: virtualListItemHeight,
-                    listItemHeightFixed: virtualListItemHeightFixed,
-                    listItemNativeScrollbarControlled: virtualListItemNativeScrollbarControlled,
-                    listItemHorizontalOffsetComposited: virtualListItemHorizontalOffsetComposited,
-                    listItemColumnVirtual: virtualListItemColumnVirtual,
-                  }
-                : {})}
-              showSorterTooltip={TABLE_SORTER_TOOLTIP}
-              size="small"
-              tableLayout="fixed"
-              scroll={tableScrollConfig}
-              sticky={false}
-              virtual={enableVirtual}
-              loading={loading}
-              rowKey={GONAVI_ROW_KEY}
-              pagination={false}
-              onChange={handleTableChange}
-              rowHoverable={false}
-              bordered
-              rowSelection={rowSelectionConfig}
-              rowClassName={rowClassName}
-            />
-          </SortableContext>
-        </DndContext>
-      </EditableContext.Provider>
-    </CellContextMenuContext.Provider>
-  </Form>
-);
-
-export const DataGridTableSurface = React.memo(DataGridTableSurfaceComponent);
-DataGridTableSurface.displayName = 'DataGridTableSurface';
+export type DataGridShellProps = Record<string, any>;
 
 const DataGridShell: React.FC<DataGridShellProps> = (props) => {
   const {
@@ -457,219 +335,41 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     window,
   } = props;
 
-const renderDataTableView = () => (
-      <div
-          ref={tableContainerRef}
-          className={`gn-v2-data-grid-table-shell gn-v2-data-grid-table-wrap data-grid-table-wrap${horizontalScrollVisible ? ' data-grid-table-wrap-external-active' : ''}`}
-          data-horizontal-scroll-sync={virtualListItemHorizontalOffsetComposited ? 'transform' : undefined}
-          onClickCapture={enableVirtual ? handleVirtualTableClickCapture : undefined}
-          onDoubleClickCapture={enableVirtual ? handleVirtualTableDoubleClickCapture : undefined}
-          onContextMenuCapture={enableVirtual ? handleVirtualTableContextMenuCapture : undefined}
-          style={{
-              flex: '1 1 auto',
-              minHeight: 0,
-              position: 'relative',
-              boxSizing: 'border-box',
-              paddingBottom: enableVirtual ? tableBodyBottomPadding : 0,
-          }}
-      >
-          <DataGridTableSurface
-              CellContextMenuContext={CellContextMenuContext}
-              DndContext={DndContext}
-              EditableContext={EditableContext}
-              Form={Form}
-              SortableContext={SortableContext}
-              Table={Table}
-              cellContextMenuValue={cellContextMenuValue}
-              closestCenter={closestCenter}
-              displayColumnNames={displayColumnNames}
-              enableVirtual={enableVirtual}
-              form={form}
-              handleDragEnd={handleDragEnd}
-              handleTableChange={handleTableChange}
-              horizontalListSortingStrategy={horizontalListSortingStrategy}
-              loading={loading}
-              rowClassName={rowClassName}
-              rowSelectionConfig={rowSelectionConfig}
-              sensors={sensors}
-              tableColumns={tableColumns}
-              tableComponents={tableComponents}
-              tableRef={tableRef}
-              tableRenderData={tableRenderData}
-              tableScrollConfig={tableScrollConfig}
-              virtualListItemColumnVirtual={virtualListItemColumnVirtual}
-              virtualListItemHeight={virtualListItemHeight}
-              virtualListItemHeightFixed={virtualListItemHeightFixed}
-              virtualListItemNativeScrollbarControlled={virtualListItemNativeScrollbarControlled}
-              virtualListItemHorizontalOffsetComposited={virtualListItemHorizontalOffsetComposited}
-          />
-          <div
-              ref={externalHorizontalScrollRef}
-              className="data-grid-external-horizontal-scroll"
-              aria-hidden={!horizontalScrollVisible}
-              onScroll={applyExternalScrollToTableTargets}
-              onPointerDown={handleExternalHorizontalScrollPointerDown}
-              onPointerUp={handleExternalHorizontalScrollPointerRelease}
-              onPointerCancel={handleExternalHorizontalScrollPointerRelease}
-              onLostPointerCapture={handleExternalHorizontalScrollLostPointerCapture}
-              style={{
-                  opacity: horizontalScrollVisible ? 1 : 0,
-                  pointerEvents: horizontalScrollVisible ? 'auto' : 'none',
-              }}
-          >
-              <div
-                  className="data-grid-external-horizontal-scroll-inner"
-                  style={{ width: `${Math.max(horizontalScrollWidth, externalScrollbarMinWidth)}px` }}
-              />
-          </div>
-      </div>
-  );
-  const pageFindContent = (
-      <DataGridPageFind
-          inputRef={pageFindInputRef}
-          inputProps={noAutoCapInputProps as Record<string, unknown>}
-          pageFindText={pageFindText}
-          normalizedPageFindText={normalizedPageFindText}
-          hasMatches={pageFindMatches.length > 0}
-          activePageFindPosition={activePageFindPosition}
-          matchCount={pageFindMatches.length}
-          occurrenceCount={pageFindSummary.occurrenceCount}
-          matchedCellCount={pageFindSummary.matchedCellCount}
-          onPageFindTextChange={setPageFindText}
-          onCancel={handleClosePageFind}
-          onNavigatePrevious={() => handleNavigatePageFind('previous')}
-          onNavigateNext={() => handleNavigatePageFind('next')}
-          translate={translateDataGrid}
-      />
-  );
-  const floatingPageFindContent = pageFindOpen && viewMode === 'table'
-      ? pageFindContent
-      : null;
-  const columnQuickFindContent = isTableSurfaceActive ? (
-      <DataGridColumnQuickFind
-          inputProps={noAutoCapInputProps as Record<string, unknown>}
-          value={columnQuickFindText}
-          options={columnQuickFindOptions}
-          translate={translateDataGrid}
-          onChange={setColumnQuickFindText}
-          onSubmit={handleSubmitColumnQuickFind}
-      />
-  ) : null;
-  const resultViewSwitcher = (
-      <DataGridResultViewSwitcher
-          viewMode={viewMode}
-          onViewModeChange={handleViewModeChange}
-          translate={translateDataGrid}
-      />
-  );
-  const handleToggleTotalCount = useCallback(() => {
-      if (!onRequestTotalCount) return;
-      if (pagination?.totalCountLoading) {
-          onCancelTotalCount?.();
-          return;
-      }
-      if (pagination?.totalCountUnavailableReason) return;
-      onRequestTotalCount();
-  }, [onCancelTotalCount, onRequestTotalCount, pagination?.totalCountLoading, pagination?.totalCountUnavailableReason]);
-  const paginationContent = (
-      <DataGridPaginationBar
-          pagination={pagination}
-          selectedRowCount={selectedRowCount}
-          paginationV2SummaryText={paginationV2SummaryText}
-          paginationTotalPages={paginationTotalPages}
-          paginationPageText={paginationPageText}
-          paginationPageSizeOptions={paginationPageSizeOptions}
-          allowCustomPageSize={allowCustomPageSize}
-          showKnownPageCount={paginationHasKnownTotalPages}
-          manualTotalCountAvailable={prefersManualTotalCount && !!onRequestTotalCount}
-          totalCountLoading={pagination?.totalCountLoading}
-          onPageChange={onPageChange}
-          onLastPage={onLastPage}
-          onPageSizeChange={handlePageSizeChange}
-          onV2PageStep={handleV2PageStep}
-          onToggleTotalCount={onRequestTotalCount ? handleToggleTotalCount : undefined}
-          translate={translateDataGrid}
-      />
-  );
-
-  const rowEditorFields = useMemo(() => (
-      displayColumnNames.map((col: string) => {
-          const sample = rowEditorDisplayRef.current?.[col] ?? '';
-          const placeholder = rowEditorNullColsRef.current?.has(col) ? '(NULL)' : undefined;
-          const isJson = looksLikeJsonText(sample);
-          const useTextArea = isJson || sample.includes('\n') || sample.length >= 160;
-          const colMeta = columnMetaMap[col] || columnMetaMapByLowerName[col.toLowerCase()];
-          const pickerType = getTemporalPickerType(colMeta?.type, dbType, currentConnConfig);
-          const isTemporalValue = !!pickerType && !(/^0{4}-0{2}-0{2}/.test(String(sample || '')));
-          const isWritable = isWritableResultColumn(col, effectiveEditLocator);
-          return {
-              columnName: col,
-              sample,
-              placeholder,
-              isJson,
-              useTextArea,
-              pickerType,
-              isTemporalValue,
-              isWritable,
-          };
-      })
-  ), [columnMetaMap, columnMetaMapByLowerName, currentConnConfig, dbType, displayColumnNames, effectiveEditLocator, rowEditorOpen, rowEditorRowKey]);
-
-  const handleRefreshGrid = useCallback(() => {
-      setSelectedRowKeys([]);
-      resetCellSelection();
-      const normalizedTableName = String(tableName || '').trim();
-      if (connectionId && normalizedTableName) {
-          delete columnMetaCacheRef.current[metadataCacheKey];
-          delete foreignKeyCacheRef.current[metadataCacheKey];
-          delete uniqueKeyGroupsCacheRef.current[metadataCacheKey];
-          setMetadataReloadVersion((value: number) => value + 1);
-      }
-      if (onReload) onReload();
-  }, [connectionId, metadataCacheKey, onReload, resetCellSelection, tableName]);
-
-  const handleResetPendingChanges = useCallback(() => {
-      clearAutoCommitTimer();
-      autoCommitFailedTokenRef.current = -1;
-      setAddedRows([]);
-      setModifiedRows({});
-      setDeletedRowKeys(new Set());
-      setModifiedColumns({});
-  }, [clearAutoCommitTimer]);
-
-  const handleToggleFilterWithDefault = useCallback(() => {
-      if (!onToggleFilter) return;
-      onToggleFilter();
-      if (filterConditions.length === 0 && !showFilter) addFilter();
-  }, [onToggleFilter, filterConditions.length, showFilter]);
-
-  const handleToggleCellEditMode = useCallback(() => {
-      const next = !cellEditMode;
-      if (!next) {
-          closeCellEditMode();
-      } else {
-          cellEditModeRef.current = true;
-          setCellEditMode(true);
-          resetCellSelection();
-      }
-      void message.info(next
-          ? translateDataGrid('data_grid.message.cell_edit_mode_entered')
-          : translateDataGrid('data_grid.message.cell_edit_mode_exited')).then();
-  }, [cellEditMode, closeCellEditMode, resetCellSelection, translateDataGrid]);
-
-  const handleRequestAiInsight = useCallback(() => {
-      const sampleData = mergedDisplayData.slice(0, 10);
-      const prompt = translateDataGrid('data_grid.ai_insight.prompt', {
-          count: sampleData.length,
-          json: JSON.stringify(sampleData, null, 2),
-      });
-      const store = useStore.getState();
-      const wasClosed = !store.aiPanelVisible;
-      if (wasClosed) store.setAIPanelVisible(true);
-      setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('gonavi:ai:inject-prompt', { detail: { prompt } }));
-      }, wasClosed ? 350 : 0);
-  }, [mergedDisplayData, translateDataGrid]);
+const {
+  renderDataTableView, floatingPageFindContent, columnQuickFindContent, resultViewSwitcher,
+  handleToggleTotalCount, paginationContent, rowEditorFields, handleRefreshGrid,
+  handleResetPendingChanges, handleToggleFilterWithDefault, handleToggleCellEditMode,
+  handleRequestAiInsight,
+} = useDataGridShellRenderers({
+  tableContainerRef, horizontalScrollVisible, virtualListItemHorizontalOffsetComposited,
+  enableVirtual, handleVirtualTableClickCapture, handleVirtualTableDoubleClickCapture,
+  handleVirtualTableContextMenuCapture, tableBodyBottomPadding, CellContextMenuContext, DndContext,
+  EditableContext, Form, SortableContext, Table, cellContextMenuValue, closestCenter,
+  displayColumnNames, form, handleDragEnd, handleTableChange, horizontalListSortingStrategy,
+  loading, rowClassName, rowSelectionConfig, sensors, tableColumns, tableComponents, tableRef,
+  tableRenderData, tableScrollConfig, virtualListItemColumnVirtual, virtualListItemHeight,
+  virtualListItemHeightFixed, virtualListItemNativeScrollbarControlled, externalHorizontalScrollRef,
+  applyExternalScrollToTableTargets, handleExternalHorizontalScrollPointerDown,
+  handleExternalHorizontalScrollPointerRelease, handleExternalHorizontalScrollLostPointerCapture,
+  horizontalScrollWidth, externalScrollbarMinWidth, DataGridPageFind, pageFindInputRef,
+  noAutoCapInputProps, pageFindText, normalizedPageFindText, pageFindMatches,
+  activePageFindPosition, pageFindSummary, setPageFindText, handleClosePageFind,
+  handleNavigatePageFind, translateDataGrid, pageFindOpen, viewMode, isTableSurfaceActive,
+  DataGridColumnQuickFind, columnQuickFindText, columnQuickFindOptions, setColumnQuickFindText,
+  handleSubmitColumnQuickFind, DataGridResultViewSwitcher, handleViewModeChange, useCallback,
+  onRequestTotalCount, pagination, onCancelTotalCount, DataGridPaginationBar, selectedRowCount,
+  paginationV2SummaryText, paginationTotalPages, paginationPageText, paginationPageSizeOptions,
+  allowCustomPageSize, paginationHasKnownTotalPages, prefersManualTotalCount, onPageChange,
+  onLastPage, handlePageSizeChange, handleV2PageStep, useMemo, rowEditorDisplayRef,
+  rowEditorNullColsRef, looksLikeJsonText, columnMetaMap, columnMetaMapByLowerName,
+  getTemporalPickerType, dbType, currentConnConfig, isWritableResultColumn, effectiveEditLocator,
+  rowEditorOpen, rowEditorRowKey, setSelectedRowKeys, resetCellSelection, tableName, connectionId,
+  columnMetaCacheRef, metadataCacheKey, foreignKeyCacheRef, uniqueKeyGroupsCacheRef,
+  setMetadataReloadVersion, onReload, clearAutoCommitTimer, autoCommitFailedTokenRef, setAddedRows,
+  setModifiedRows, setDeletedRowKeys, Set, setModifiedColumns, onToggleFilter, filterConditions,
+  showFilter, addFilter, cellEditMode, closeCellEditMode, cellEditModeRef, setCellEditMode,
+  mergedDisplayData, JSON, useStore, setTimeout, window, CustomEvent,
+});
 
   return (
     <div
@@ -679,379 +379,130 @@ const renderDataTableView = () => (
         className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''}${tableRenderData.length === 0 ? ' data-grid-empty' : ''} data-grid-root gn-v2-data-grid`}
         style={{ '--gonavi-header-min-height': `${headerCellMinHeight}px`, flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'transparent', outline: 'none' } as React.CSSProperties}
     >
-        <DataGridToolbarFrame
-            tableName={tableName}
-            dbName={dbName}
-            translate={translateDataGrid}
-            loading={loading}
-            darkMode={darkMode}
-            bgFilter={bgFilter}
-            panelFrameColor={panelFrameColor}
-            panelRadius={panelRadius}
-            panelOuterGap={panelOuterGap}
-            panelPaddingY={panelPaddingY}
-            panelPaddingX={panelPaddingX}
-            toolbarBottomPadding={toolbarBottomPadding}
-            filterTopPadding={filterTopPadding}
-            showFilter={showFilter}
-            appliedFilterConditions={appliedFilterConditions}
-            filterPanelRef={filterPanelRef}
-            onReload={onReload}
-            onToggleFilter={onToggleFilter}
-            canModifyData={canModifyData}
-            selectedRowKeysLength={selectedRowKeys.length}
-            deleteTargetRowCount={deleteTargetRowCount}
-            allSelectedAreDeleted={allSelectedAreDeleted}
-            cellEditMode={cellEditMode}
-            selectedCellsSize={selectedCells.size}
-            selectedCellRowCount={selectedCellRowCount}
-            fillTemplateTargetRowCount={fillTemplateTargetRowCount}
-            copiedCellPatchColumnCount={copiedCellPatch ? Object.keys(copiedCellPatch.values).length : 0}
-            hasChanges={hasChanges}
-            pendingChangeCount={pendingChangeCount}
-            dataEditCommitMode={dataEditCommitMode}
-            dataEditAutoCommitDelayMs={dataEditAutoCommitDelayMs}
-            dataEditAutoCommitDelayOptions={localizedDataEditAutoCommitDelayOptions}
-            autoCommitRemainingSeconds={autoCommitRemainingSeconds}
-            canImport={canImport}
-            canExport={canExport}
-            isQueryResultExport={isQueryResultExport}
-            canCopyQueryResult={canCopyQueryResult}
-            prefersManualTotalCount={prefersManualTotalCount && !!onRequestTotalCount}
-            aiShortcutLabel={aiShortcutLabel}
-            paginationTotalCountLoading={pagination?.totalCountLoading}
-            totalCountUnavailableLabel={pagination?.totalCountUnavailableLabel}
-            totalCountUnavailableReason={pagination?.totalCountUnavailableReason}
-            toolbarExtraActions={toolbarExtraActions}
-            filterConditions={filterConditions}
-            sortInfo={sortInfo}
-            displayColumnNames={displayColumnNames}
-            quickWhereDraft={quickWhereDraft}
-            quickWhereCondition={quickWhereCondition}
-            quickWhereSuggestionsOpen={quickWhereSuggestionsOpen}
-            quickWhereSuggestionOptions={quickWhereSuggestionOptions}
-            gridFieldSelectOptions={gridFieldSelectOptions}
-            filterLogicOptions={filterLogicOptions}
-            filterOpOptions={filterOpOptions}
-            renderGridFieldSelectOption={renderGridFieldSelectOption}
-            noAutoCapInputProps={noAutoCapInputProps as Record<string, unknown>}
-            filterFieldSelectStyle={FILTER_FIELD_SELECT_STYLE}
-            filterFieldPopupWidth={FILTER_FIELD_POPUP_WIDTH}
-            queryResultCopyMenu={queryResultCopyMenu}
-            dbType={dbType}
-            onResetPendingChanges={handleResetPendingChanges}
-            onDataEditCommitModeChange={(mode) => setDataEditTransactionOptions({ commitMode: mode })}
-            onDataEditAutoCommitDelayChange={(delayMs) => setDataEditTransactionOptions({ autoCommitDelayMs: delayMs })}
-            onRefresh={handleRefreshGrid}
-            onToggleFilterClick={handleToggleFilterWithDefault}
-            onAddRow={handleAddRow}
-            onUndoDeleteSelected={handleUndoDeleteSelected}
-            onDeleteSelected={handleDeleteSelected}
-            onToggleCellEditMode={handleToggleCellEditMode}
-            onCopySelectedCellsToClipboard={handleCopySelectedCellsToClipboard}
-            onCopySelectedColumnsFromRow={handleCopySelectedColumnsFromRow}
-            onOpenBatchEditModal={openBatchEditModal}
-            onPasteCopiedColumnsToSelectedRows={() => handlePasteCopiedColumnsToSelectedRows()}
-            onCommit={handleCommit}
-            onPreviewChanges={handlePreviewChanges}
-            onImport={handleImport}
-            onOpenExportModal={handleOpenExportDialog}
-            onRequestAiInsight={handleRequestAiInsight}
-            onToggleTotalCount={handleToggleTotalCount}
-            onQuickWhereDraftChange={setQuickWhereDraft}
-            onQuickWhereSuggestionsOpenChange={setQuickWhereSuggestionsOpen}
-            onQuickWhereKeyDown={(event) => {
-                const isClipboardShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && ['c', 'v', 'x'].includes(String(event.key || '').toLowerCase());
-                if (isClipboardShortcut) {
-                    event.stopPropagation();
-                    return;
-                }
-                if (!shouldApplyQuickWhereOnEnter({
-                    key: event.key,
-                    shiftKey: event.shiftKey,
-                    isComposing: Boolean((event.nativeEvent as any)?.isComposing),
-                    suggestionsOpen: quickWhereSuggestionsOpen,
-                    suggestionCount: quickWhereSuggestionOptions.length,
-                    activeSuggestionId: event.currentTarget.getAttribute('aria-activedescendant'),
-                })) {
-                    return;
-                }
-                event.preventDefault();
-                applyQuickWhereCondition();
-            }}
-            onQuickWhereSelect={(value, option) => {
-                setQuickWhereDraft(resolveWhereConditionSelectedValue({
-                    selectedValue: value,
-                    currentInput: quickWhereDraft,
-                    insertText: (option as any)?.insertText,
-                }));
-            }}
-            onQuickWhereCopy={stopQuickWhereClipboardPropagation}
-            onQuickWhereCut={stopQuickWhereClipboardPropagation}
-            onQuickWherePaste={handleQuickWherePaste}
-            onApplyQuickWhere={() => applyQuickWhereCondition()}
-            onClearQuickWhere={clearQuickWhereCondition}
-            updateFilter={updateFilter}
-            removeFilter={removeFilter}
-            addFilter={addFilter}
-            isListOp={isListOp}
-            isBetweenOp={isBetweenOp}
-            isNoValueOp={isNoValueOp}
-            enableSortControls={!!onSort}
-            onApplySortInfo={applySortInfo}
-            onApplyFilters={applyFilters}
-            onEnableAllFilters={applyAllFiltersEnabled}
-            onDisableAllFilters={applyAllFiltersDisabled}
-            onClearFiltersAndSorts={clearAllFiltersAndSorts}
+        <DataGridShellToolbar
+          tableName={tableName} dbName={dbName} translateDataGrid={translateDataGrid}
+          loading={loading} darkMode={darkMode} bgFilter={bgFilter}
+          panelFrameColor={panelFrameColor} panelRadius={panelRadius}
+          panelOuterGap={panelOuterGap} panelPaddingY={panelPaddingY}
+          panelPaddingX={panelPaddingX} toolbarBottomPadding={toolbarBottomPadding}
+          filterTopPadding={filterTopPadding} showFilter={showFilter}
+          appliedFilterConditions={appliedFilterConditions} filterPanelRef={filterPanelRef}
+          onReload={onReload} onToggleFilter={onToggleFilter} canModifyData={canModifyData}
+          selectedRowKeys={selectedRowKeys} deleteTargetRowCount={deleteTargetRowCount}
+          allSelectedAreDeleted={allSelectedAreDeleted} cellEditMode={cellEditMode}
+          selectedCells={selectedCells} selectedCellRowCount={selectedCellRowCount}
+          fillTemplateTargetRowCount={fillTemplateTargetRowCount}
+          copiedCellPatch={copiedCellPatch} hasChanges={hasChanges}
+          pendingChangeCount={pendingChangeCount} dataEditCommitMode={dataEditCommitMode}
+          dataEditAutoCommitDelayMs={dataEditAutoCommitDelayMs}
+          localizedDataEditAutoCommitDelayOptions={localizedDataEditAutoCommitDelayOptions}
+          autoCommitRemainingSeconds={autoCommitRemainingSeconds} canImport={canImport}
+          canExport={canExport} isQueryResultExport={isQueryResultExport}
+          canCopyQueryResult={canCopyQueryResult}
+          prefersManualTotalCount={prefersManualTotalCount}
+          onRequestTotalCount={onRequestTotalCount} aiShortcutLabel={aiShortcutLabel}
+          pagination={pagination} toolbarExtraActions={toolbarExtraActions}
+          filterConditions={filterConditions} sortInfo={sortInfo}
+          displayColumnNames={displayColumnNames} quickWhereDraft={quickWhereDraft}
+          quickWhereCondition={quickWhereCondition}
+          quickWhereSuggestionsOpen={quickWhereSuggestionsOpen}
+          quickWhereSuggestionOptions={quickWhereSuggestionOptions}
+          gridFieldSelectOptions={gridFieldSelectOptions} filterLogicOptions={filterLogicOptions}
+          filterOpOptions={filterOpOptions}
+          renderGridFieldSelectOption={renderGridFieldSelectOption}
+          noAutoCapInputProps={noAutoCapInputProps} queryResultCopyMenu={queryResultCopyMenu}
+          dbType={dbType} handleResetPendingChanges={handleResetPendingChanges}
+          setDataEditTransactionOptions={setDataEditTransactionOptions}
+          handleRefreshGrid={handleRefreshGrid}
+          handleToggleFilterWithDefault={handleToggleFilterWithDefault}
+          handleAddRow={handleAddRow} handleUndoDeleteSelected={handleUndoDeleteSelected}
+          handleDeleteSelected={handleDeleteSelected}
+          handleToggleCellEditMode={handleToggleCellEditMode}
+          handleCopySelectedCellsToClipboard={handleCopySelectedCellsToClipboard}
+          handleCopySelectedColumnsFromRow={handleCopySelectedColumnsFromRow}
+          openBatchEditModal={openBatchEditModal}
+          handlePasteCopiedColumnsToSelectedRows={handlePasteCopiedColumnsToSelectedRows}
+          handleCommit={handleCommit} handlePreviewChanges={handlePreviewChanges}
+          handleImport={handleImport} handleOpenExportDialog={handleOpenExportDialog}
+          handleRequestAiInsight={handleRequestAiInsight}
+          handleToggleTotalCount={handleToggleTotalCount} setQuickWhereDraft={setQuickWhereDraft}
+          setQuickWhereSuggestionsOpen={setQuickWhereSuggestionsOpen}
+          shouldApplyQuickWhereOnEnter={shouldApplyQuickWhereOnEnter}
+          applyQuickWhereCondition={applyQuickWhereCondition}
+          resolveWhereConditionSelectedValue={resolveWhereConditionSelectedValue}
+          stopQuickWhereClipboardPropagation={stopQuickWhereClipboardPropagation}
+          handleQuickWherePaste={handleQuickWherePaste}
+          clearQuickWhereCondition={clearQuickWhereCondition} updateFilter={updateFilter}
+          removeFilter={removeFilter} addFilter={addFilter} isListOp={isListOp}
+          isBetweenOp={isBetweenOp} isNoValueOp={isNoValueOp} onSort={onSort}
+          applySortInfo={applySortInfo} applyFilters={applyFilters}
+          applyAllFiltersEnabled={applyAllFiltersEnabled}
+          applyAllFiltersDisabled={applyAllFiltersDisabled}
+          clearAllFiltersAndSorts={clearAllFiltersAndSorts}
         />
 
-	       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0, display: 'flex', flexDirection: 'column', background: `var(--gn-bg-panel, ${bgContent})`, borderRadius: panelRadius, border: `1px solid ${panelFrameColor}`, boxSizing: 'border-box' }}>
-	        {contextHolder}
-            {exportProgressModal}
-            <DataGridModals
-                tableName={tableName}
-                darkMode={darkMode}
-                translate={translateDataGrid}
-                displayColumnNames={displayColumnNames}
-                rowEditorOpen={rowEditorOpen}
-                rowEditorRowKey={rowEditorRowKey}
-                rowEditorForm={rowEditorForm}
-                rowEditorFields={rowEditorFields}
-                onCloseRowEditor={closeRowEditor}
-                onApplyRowEditor={applyRowEditor}
-                onOpenRowEditorFieldEditor={openRowEditorFieldEditor}
-                cellEditorOpen={cellEditorOpen}
-                cellEditorMeta={cellEditorMeta}
-                cellEditorReadOnly={cellEditorReadOnly}
-                cellEditorViewerMode={cellEditorViewerMode}
-                cellEditorIsJson={cellEditorIsJson}
-                cellEditorEscapeApplied={cellEditorEscapeApplied}
-                cellEditorValue={cellEditorValue}
-                onCloseCellEditor={closeCellEditor}
-                onFormatJsonInEditor={handleFormatJsonInEditor}
-                onCompactJsonInEditor={handleCompactJsonInEditor}
-                onEscapeCellEditorValue={handleEscapeCellEditorValue}
-                onUnescapeCellEditorValue={handleUnescapeCellEditorValue}
-                onSaveCellEditor={handleCellEditorSave}
-                onCellEditorValueChange={handleCellEditorValueChange}
-                batchEditModalOpen={batchEditModalOpen}
-                selectedCellsSize={selectedCells.size}
-                batchEditSetNull={batchEditSetNull}
-                batchEditValue={batchEditValue}
-                onCloseBatchEditModal={closeBatchEditModal}
-                onApplyBatchFill={handleBatchFillCells}
-                onBatchEditSetNullChange={setBatchEditSetNull}
-                onBatchEditValueChange={setBatchEditValue}
-                jsonEditorOpen={jsonEditorOpen}
-                jsonEditorValue={jsonEditorValue}
-                onCloseJsonEditor={closeJsonEditor}
-                onFormatJsonEditor={handleFormatJsonEditor}
-                onApplyJsonEditor={applyJsonEditor}
-                onJsonEditorValueChange={setJsonEditorValue}
-                ddlModalOpen={ddlModalOpen}
-                ddlLoading={ddlLoading}
-                ddlText={ddlText}
-                onCloseDdlModal={() => setDdlModalOpen(false)}
-                onCopyDdl={handleCopyDdl}
-            />
-            {floatingPageFindContent ? (
-                <div
-                    data-grid-page-find-overlay="true"
-                    className="gn-v2-data-grid-page-find-overlay"
-                >
-                    {floatingPageFindContent}
-                </div>
-            ) : null}
-
-        {viewMode === 'table' ? (
-            renderDataTableView()
-        ) : viewMode === 'fields' ? (
-            canOpenObjectDesigner ? (
-                <TableDesigner
-                    embedded
-                    tab={{
-                        id: `embedded-design-${connectionId || ''}-${dbName || ''}-${tableName || ''}`,
-                        title: translateDataGrid('data_grid.embedded_designer.title', { tableName: tableName || '' }),
-                        type: 'design',
-                        connectionId: String(connectionId || ''),
-                        dbName,
-                        tableName,
-                        schemaName,
-                        initialTab: 'columns',
-                        readOnly: designerReadOnly,
-                        objectType: 'table',
-                    }}
-                />
-            ) : (
-                <DataGridV2FieldsView
-                    tableName={tableName}
-                    displayOutputColumnNames={displayOutputColumnNames}
-                    pkColumns={pkColumns}
-                    locatorColumns={effectiveEditLocator?.columns}
-                    columnMetaMap={columnMetaMap}
-                    columnMetaMapByLowerName={columnMetaMapByLowerName}
-                    translate={translateDataGrid}
-                />
-            )
-        ) : viewMode === 'ddl' && ddlViewLayout === 'side' ? (
-            <DataGridV2DdlSideWorkspace
-                tableContent={renderDataTableView()}
-                translate={translateDataGrid}
-                tableName={tableName}
-                ddlViewLayout={ddlViewLayout}
-                ddlLoading={ddlLoading}
-                ddlText={ddlText}
-                darkMode={darkMode}
-                onDdlViewLayoutChange={setDdlViewLayout}
-                onClose={closeDdlView}
-                onReload={() => {
-                    void handleOpenTableDdl({ asView: true });
-                }}
-                onCopy={handleCopyDdl}
-                ddlSidebarWidth={ddlSidebarWidth}
-                ddlSidebarResizePreviewX={ddlSidebarResizePreviewX}
-                onResizeStart={handleDdlSidebarResizeStart}
-            />
-        ) : viewMode === 'ddl' ? (
-            <DataGridV2DdlView
-                layout="bottom"
-                translate={translateDataGrid}
-                tableName={tableName}
-                ddlViewLayout={ddlViewLayout}
-                ddlLoading={ddlLoading}
-                ddlText={ddlText}
-                darkMode={darkMode}
-                onDdlViewLayoutChange={setDdlViewLayout}
-                onClose={closeDdlView}
-                onReload={() => {
-                    void handleOpenTableDdl({ asView: true });
-                }}
-                onCopy={handleCopyDdl}
-            />
-        ) : viewMode === 'er' ? (
-            <DataGridV2ErView
-                connections={connections}
-                connectionId={connectionId}
-                dbName={dbName}
-                tableName={tableName}
-                displayOutputColumnNames={displayOutputColumnNames}
-                columnMetaMap={columnMetaMap}
-                columnMetaMapByLowerName={columnMetaMapByLowerName}
-                onOpenTable={onOpenErTable}
-                translate={translateDataGrid}
-            />
-        ) : viewMode === 'sqlLog' ? (
-            <LogPanel variant="embedded" />
-        ) : viewMode === 'json' ? (
-            <DataGridJsonView
-                darkMode={darkMode}
-                rowCount={mergedDisplayData.length}
-                canModifyData={canModifyData}
-                jsonViewText={jsonViewText}
-                displayOutputColumnNames={displayOutputColumnNames}
-                translate={translateDataGrid}
-                onReturnToTable={() => handleViewModeChange('table')}
-                onOpenJsonEditor={handleOpenJsonEditor}
-            />
-        ) : (
-            <DataGridTextView
-                darkMode={darkMode}
-                rowCount={textViewRows.length}
-                textRecordIndex={textRecordIndex}
-                canModifyData={canModifyData}
-                currentTextRow={currentTextRow}
-                displayOutputColumnNames={displayOutputColumnNames}
-                columnMetaMap={columnMetaMap}
-                columnMetaMapByLowerName={columnMetaMapByLowerName}
-                showColumnType={showColumnType}
-                showColumnComment={showColumnComment}
-                translate={translateDataGrid}
-                onReturnToTable={() => handleViewModeChange('table')}
-                onPrev={() => setTextRecordIndex((i: number) => Math.max(0, i - 1))}
-                onNext={() => setTextRecordIndex((i: number) => Math.min(textViewRows.length - 1, i + 1))}
-                onEditCurrent={openCurrentViewRowEditor}
-                formatTextViewValue={formatTextViewValue}
-            />
-        )}
-
-        <DataGridPreviewPanel
-            visible={dataPanelOpen}
-            isTableSurfaceActive={isTableSurfaceActive}
-            darkMode={darkMode}
-            focusedCellInfo={focusedCellInfo}
-            dataPanelIsJson={dataPanelIsJson}
-            focusedCellWritable={focusedCellWritable}
-            dataPanelValue={dataPanelValue}
-            columnMetaMap={columnMetaMap}
-            columnMetaMapByLowerName={columnMetaMapByLowerName}
-            translate={translateDataGrid}
-            onFormatJson={() => {
-                handleDataPanelFormatJson((errorMessage: string) => {
-                    void message.error(translateDataGrid('data_grid.json_editor.invalid_format', { error: errorMessage }));
-                });
-            }}
-            onSave={handleDataPanelSave}
-            onValueChange={setDataPanelValue}
-            onDirtyChange={(dirty) => {
-                dataPanelDirtyRef.current = dirty;
-            }}
-            isDirtyComparedToOriginal={(value) => value !== dataPanelOriginalRef.current}
-        />
-
-        {isTableSurfaceActive && cellContextMenu.visible && createPortal(
-            <div
-                ref={cellContextMenuPortalRef}
-                className="gn-v2-table-context-menu-portal"
-                data-gonavi-close-shortcut-guard="true"
-                data-gonavi-close-shortcut-blocks-background="true"
-                style={{
-                    position: 'fixed',
-                    left: cellContextMenu.x,
-                    top: cellContextMenu.y,
-                    zIndex: APP_POPUP_Z_INDEX,
-                }}
-                onClick={(e) => e.stopPropagation()}
-            >
-                {cellContextMenu.kind === 'column' ? (() => {
-                    const fieldName = resolveContextMenuFieldName(cellContextMenu.dataIndex, cellContextMenu.title);
-                    const meta = columnMetaMap[fieldName] || columnMetaMapByLowerName[fieldName.toLowerCase()];
-                    const activeSort = sortInfo.find((item: any) => item.columnKey === fieldName && item.enabled !== false);
-                    return (
-                        <V2ColumnHeaderContextMenuView
-                            fieldName={fieldName}
-                            shortcutPlatform={activeShortcutPlatform}
-                            columnType={meta?.type}
-                            columnComment={meta?.comment}
-                            sortOrder={(activeSort?.order === 'ascend' || activeSort?.order === 'descend') ? activeSort.order : null}
-                            showColumnType={showColumnType}
-                            showColumnComment={showColumnComment}
-                            pinnedLeft={Boolean(pinnedLeftColumnSet?.has?.(fieldName))}
-                            canPinLeft={Boolean(connectionId && dbName && pinnedLeftColumnScope)}
-                            onAction={handleV2ColumnHeaderContextMenuAction}
-                        />
-                    );
-                })() : (
-                    <V2CellContextMenuView
-                        fieldName={resolveContextMenuFieldName(cellContextMenu.dataIndex, cellContextMenu.title)}
-                        shortcutPlatform={activeShortcutPlatform}
-                        tableName={tableName}
-                        rowLabel={cellContextMenu.record?.[GONAVI_ROW_KEY] === undefined ? undefined : `row ${String(cellContextMenu.record?.[GONAVI_ROW_KEY])}`}
-                        selectedRowCount={selectedRowKeys.length}
-                        selectedCellCount={selectedCellCount}
-                        canModifyData={canModifyData}
-                        canEditCell={canEditContextMenuCell}
-                        canUndoCellChange={canUndoContextMenuCellChange}
-                        copiedRowCount={copiedRowsForPaste.length}
-                        canPasteCopiedColumns={!!copiedCellPatch}
-                        supportsCopyInsert={supportsCopyInsert}
-                        onAction={handleV2CellContextMenuAction}
-                    />
-                )}
-            </div>,
-            document.body
-        )}
-
-       </div>
+	       <DataGridShellBody
+	         containerRef={containerRef} bgContent={bgContent} panelRadius={panelRadius}
+	         panelFrameColor={panelFrameColor} contextHolder={contextHolder}
+	         exportProgressModal={exportProgressModal} tableName={tableName} darkMode={darkMode}
+	         translateDataGrid={translateDataGrid} displayColumnNames={displayColumnNames}
+	         rowEditorOpen={rowEditorOpen} rowEditorRowKey={rowEditorRowKey}
+	         rowEditorForm={rowEditorForm} rowEditorFields={rowEditorFields}
+	         closeRowEditor={closeRowEditor} applyRowEditor={applyRowEditor}
+	         openRowEditorFieldEditor={openRowEditorFieldEditor} cellEditorOpen={cellEditorOpen}
+	         cellEditorMeta={cellEditorMeta} cellEditorReadOnly={cellEditorReadOnly}
+	         cellEditorViewerMode={cellEditorViewerMode} cellEditorIsJson={cellEditorIsJson}
+	         cellEditorEscapeApplied={cellEditorEscapeApplied} cellEditorValue={cellEditorValue}
+	         closeCellEditor={closeCellEditor} handleFormatJsonInEditor={handleFormatJsonInEditor}
+	         handleCompactJsonInEditor={handleCompactJsonInEditor}
+	         handleEscapeCellEditorValue={handleEscapeCellEditorValue}
+	         handleUnescapeCellEditorValue={handleUnescapeCellEditorValue}
+	         handleCellEditorSave={handleCellEditorSave}
+	         handleCellEditorValueChange={handleCellEditorValueChange}
+	         batchEditModalOpen={batchEditModalOpen} selectedCells={selectedCells}
+	         batchEditSetNull={batchEditSetNull} batchEditValue={batchEditValue}
+	         closeBatchEditModal={closeBatchEditModal} handleBatchFillCells={handleBatchFillCells}
+	         setBatchEditSetNull={setBatchEditSetNull} setBatchEditValue={setBatchEditValue}
+	         jsonEditorOpen={jsonEditorOpen} jsonEditorValue={jsonEditorValue}
+	         closeJsonEditor={closeJsonEditor} handleFormatJsonEditor={handleFormatJsonEditor}
+	         applyJsonEditor={applyJsonEditor} setJsonEditorValue={setJsonEditorValue}
+	         ddlModalOpen={ddlModalOpen} ddlLoading={ddlLoading} ddlText={ddlText}
+	         setDdlModalOpen={setDdlModalOpen} handleCopyDdl={handleCopyDdl}
+	         floatingPageFindContent={floatingPageFindContent} viewMode={viewMode}
+	         renderDataTableView={renderDataTableView} canOpenObjectDesigner={canOpenObjectDesigner}
+	         connectionId={connectionId} dbName={dbName} schemaName={schemaName}
+	         designerReadOnly={designerReadOnly} displayOutputColumnNames={displayOutputColumnNames}
+	         pkColumns={pkColumns} effectiveEditLocator={effectiveEditLocator}
+	         columnMetaMap={columnMetaMap} columnMetaMapByLowerName={columnMetaMapByLowerName}
+	         ddlViewLayout={ddlViewLayout} setDdlViewLayout={setDdlViewLayout}
+	         closeDdlView={closeDdlView} handleOpenTableDdl={handleOpenTableDdl}
+	         ddlSidebarWidth={ddlSidebarWidth} ddlSidebarResizePreviewX={ddlSidebarResizePreviewX}
+	         handleDdlSidebarResizeStart={handleDdlSidebarResizeStart} connections={connections}
+	         onOpenErTable={onOpenErTable} mergedDisplayData={mergedDisplayData}
+	         canModifyData={canModifyData} jsonViewText={jsonViewText}
+	         handleViewModeChange={handleViewModeChange} handleOpenJsonEditor={handleOpenJsonEditor}
+	         textViewRows={textViewRows} textRecordIndex={textRecordIndex}
+	         currentTextRow={currentTextRow} showColumnType={showColumnType}
+	         showColumnComment={showColumnComment} setTextRecordIndex={setTextRecordIndex}
+	         openCurrentViewRowEditor={openCurrentViewRowEditor}
+	         formatTextViewValue={formatTextViewValue} dataPanelOpen={dataPanelOpen}
+	         isTableSurfaceActive={isTableSurfaceActive} focusedCellInfo={focusedCellInfo}
+	         dataPanelIsJson={dataPanelIsJson} focusedCellWritable={focusedCellWritable}
+	         dataPanelValue={dataPanelValue} handleDataPanelFormatJson={handleDataPanelFormatJson}
+	         handleDataPanelSave={handleDataPanelSave} setDataPanelValue={setDataPanelValue}
+	         dataPanelDirtyRef={dataPanelDirtyRef} dataPanelOriginalRef={dataPanelOriginalRef}
+	         cellContextMenu={cellContextMenu} cellContextMenuPortalRef={cellContextMenuPortalRef}
+	         resolveContextMenuFieldName={resolveContextMenuFieldName} sortInfo={sortInfo}
+	         activeShortcutPlatform={activeShortcutPlatform}
+	         pinnedLeftColumnSet={pinnedLeftColumnSet} pinnedLeftColumnScope={pinnedLeftColumnScope}
+	         handleV2ColumnHeaderContextMenuAction={handleV2ColumnHeaderContextMenuAction}
+	         selectedRowKeys={selectedRowKeys} selectedCellCount={selectedCellCount}
+	         canEditContextMenuCell={canEditContextMenuCell}
+	         canUndoContextMenuCellChange={canUndoContextMenuCellChange}
+	         copiedRowsForPaste={copiedRowsForPaste} copiedCellPatch={copiedCellPatch}
+	         supportsCopyInsert={supportsCopyInsert}
+	         handleV2CellContextMenuAction={handleV2CellContextMenuAction}
+	       />
 
 	       <DataGridSecondaryActions
                 canViewDdl={canViewDdl}
@@ -1069,100 +520,11 @@ const renderDataTableView = () => (
 		        <style>{gridCssText}</style>
 
        {/* Preview SQL Modal */}
-       <Modal
-           title={translateDataGrid('data_grid.preview_sql.title')}
-           open={previewModalOpen}
-           onCancel={() => setPreviewModalOpen(false)}
-           width={800}
-           footer={null}
-       >
-           <div style={{ marginBottom: 16 }}>
-               {previewSqlData.deletes.length > 0 && (
-                   <div style={{ marginBottom: 12 }}>
-                       <div style={{ fontWeight: 'bold', color: '#ff4d4f', marginBottom: 8 }}>
-                           DELETE ({previewSqlData.deletes.length})
-                       </div>
-                        {previewSqlData.deletes.map((sql: string, i: number) => (
-                           <div key={`del-${i}`} style={{ position: 'relative', marginBottom: 8 }}>
-                               <pre style={{
-                                   background: darkMode ? 'rgba(255, 77, 79, 0.10)' : '#fff2f0',
-                                   border: darkMode ? '1px solid rgba(255, 77, 79, 0.25)' : '1px solid #ffccc7',
-                                   padding: '8px 40px 8px 12px', borderRadius: 4,
-                                   fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                                   margin: 0,
-                               }}>{sql}</pre>
-                               <Button
-                                   size="small" type="text"
-                                   icon={<CopyOutlined />}
-                                   style={{ position: 'absolute', top: 4, right: 4 }}
-                                   onClick={() => { navigator.clipboard.writeText(sql).then(() => message.success(translateDataGrid('data_grid.preview_sql.copied'))); }}
-                               />
-                           </div>
-                       ))}
-                   </div>
-               )}
-               {previewSqlData.updates.length > 0 && (
-                   <div style={{ marginBottom: 12 }}>
-                       <div style={{ fontWeight: 'bold', color: '#fa8c16', marginBottom: 8 }}>
-                           UPDATE ({previewSqlData.updates.length})
-                       </div>
-                        {previewSqlData.updates.map((sql: string, i: number) => (
-                           <div key={`upd-${i}`} style={{ position: 'relative', marginBottom: 8 }}>
-                               <pre style={{
-                                   background: darkMode ? 'rgba(250, 140, 22, 0.10)' : '#fff7e6',
-                                   border: darkMode ? '1px solid rgba(250, 140, 22, 0.25)' : '1px solid #ffd591',
-                                   padding: '8px 40px 8px 12px', borderRadius: 4,
-                                   fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                                   margin: 0,
-                               }}>{sql}</pre>
-                               <Button
-                                   size="small" type="text"
-                                   icon={<CopyOutlined />}
-                                   style={{ position: 'absolute', top: 4, right: 4 }}
-                                   onClick={() => { navigator.clipboard.writeText(sql).then(() => message.success(translateDataGrid('data_grid.preview_sql.copied'))); }}
-                               />
-                           </div>
-                       ))}
-                   </div>
-               )}
-               {previewSqlData.inserts.length > 0 && (
-                   <div style={{ marginBottom: 12 }}>
-                       <div style={{ fontWeight: 'bold', color: '#52c41a', marginBottom: 8 }}>
-                           INSERT ({previewSqlData.inserts.length})
-                       </div>
-                        {previewSqlData.inserts.map((sql: string, i: number) => (
-                           <div key={`ins-${i}`} style={{ position: 'relative', marginBottom: 8 }}>
-                               <pre style={{
-                                   background: darkMode ? 'rgba(82, 196, 26, 0.10)' : '#f6ffed',
-                                   border: darkMode ? '1px solid rgba(82, 196, 26, 0.25)' : '1px solid #b7eb8f',
-                                   padding: '8px 40px 8px 12px', borderRadius: 4,
-                                   fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                                   margin: 0,
-                               }}>{sql}</pre>
-                               <Button
-                                   size="small" type="text"
-                                   icon={<CopyOutlined />}
-                                   style={{ position: 'absolute', top: 4, right: 4 }}
-                                   onClick={() => { navigator.clipboard.writeText(sql).then(() => message.success(translateDataGrid('data_grid.preview_sql.copied'))); }}
-                               />
-                           </div>
-                       ))}
-                   </div>
-               )}
-               {previewSqlData.deletes.length === 0 && previewSqlData.updates.length === 0 && previewSqlData.inserts.length === 0 && (
-                   <div style={{ color: darkMode ? '#888' : '#999', textAlign: 'center', padding: 24 }}>
-                       {translateDataGrid('data_grid.preview_sql.no_changes')}
-                   </div>
-               )}
-           </div>
-           <div style={{ color: darkMode ? '#999' : '#888', fontSize: 12, borderTop: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', paddingTop: 8 }}>
-               {translateDataGrid('data_grid.preview_sql.summary', {
-                   deletes: previewSqlData.deletes.length,
-                   updates: previewSqlData.updates.length,
-                   inserts: previewSqlData.inserts.length
-               })}
-           </div>
-       </Modal>
+       <DataGridShellRowEditorModal
+         translateDataGrid={translateDataGrid} previewModalOpen={previewModalOpen}
+         setPreviewModalOpen={setPreviewModalOpen} previewSqlData={previewSqlData}
+         darkMode={darkMode}
+       />
 
        {/* Import Preview Modal */}
        <ImportPreviewModal

@@ -176,6 +176,7 @@ var readOnlyConnectionActionTextKeys = map[string]string{
 
 func supportsConnectionReadOnlyMode(config connection.ConnectionConfig) bool {
 	_, ok := connectionReadOnlySupportedTypes[resolveConnectionProtectionDBType(config)]
+	ok = ok || registryProtectionSupported(config.Type)
 	return ok
 }
 

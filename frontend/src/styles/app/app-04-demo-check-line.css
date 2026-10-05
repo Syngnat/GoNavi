@@ -1,0 +1,496 @@
+/* 库范围 tags Select：noStyle 后由 f-ctrl 外壳撑开高度 */
+.gn-conn-f-ctrl > .ant-select {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.gn-conn-dense .ant-input-affix-wrapper .ant-input {
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+.gn-conn-dense .ant-select-single .ant-select-selector {
+    display: flex !important;
+    align-items: center !important;
+    padding-inline: 8px !important;
+}
+
+.gn-conn-dense .ant-input-number-input {
+    padding: 0 8px !important;
+}
+
+.gn-conn-dense .ant-select-multiple .ant-select-selector {
+    min-height: var(--gn-conn-ctrl-h) !important;
+    height: auto !important;
+    width: 100% !important;
+    padding-block: 2px !important;
+    border-radius: 6px !important;
+}
+
+/* demo .check-line */
+.gn-conn-check-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    align-items: center;
+    padding: 2px 0 2px 60px;
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.gn-conn-check-line .ant-form-item {
+    margin-bottom: 0 !important;
+}
+
+/* demo: 模式分段 + 说明在下方（绝不能横排） */
+.gn-conn-mode-block {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0;
+    width: 100%;
+}
+
+.gn-conn-mode-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 2px;
+    margin-bottom: 0;
+    border-radius: 8px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    background: var(--gn-bg-chrome, var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03)));
+}
+
+.gn-conn-mode-seg-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.55));
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1.3;
+}
+
+.gn-conn-mode-seg-item:hover {
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-mode-seg-item[aria-pressed="true"] {
+    background: var(--gn-bg-selected, color-mix(in srgb, var(--gn-accent, #1677ff) 14%, transparent));
+    color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-mode-hint {
+    display: block !important;
+    margin: 4px 0 0 !important;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    line-height: 1.35;
+    width: 100%;
+}
+
+/* Mode-extra 扁平面板 — 规格源 demo .mode-extra / .el / .eh */
+.gn-conn-mode-extra {
+    margin-top: 10px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.gn-conn-el {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gn-fg-3);
+    margin-bottom: 3px;
+}
+
+.gn-conn-eh {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-bottom: 6px;
+    line-height: 1.35;
+}
+
+.gn-conn-mode-extra .ant-form-item {
+    margin-bottom: 8px;
+}
+
+body[data-ui-version="v2"] .gn-conn-dense .gn-conn-mode-extra .ant-form-item {
+    margin-bottom: 8px !important;
+}
+
+/* mode-extra 顶部 tags Select 使用 noStyle，间距由块级外壳承担（对齐 demo .mode-extra 输入与下方 f-row 间距） */
+.gn-conn-mode-extra > .ant-select {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.gn-conn-mode-extra .ant-form-item:last-child {
+    margin-bottom: 0;
+}
+
+/* Production protection — 规格源 demo .prot / .prot-head / .chev */
+.gn-conn-prot {
+    --prot-lead: 22px;
+    --prot-gap: 10px;
+    margin-top: 10px;
+    margin-bottom: 4px;
+    border: 0;
+    background: transparent;
+}
+
+.gn-conn-prot-head {
+    display: grid;
+    grid-template-columns: var(--prot-lead) minmax(0, 1fr) auto;
+    column-gap: var(--prot-gap);
+    align-items: center;
+    padding: 2px 0;
+    min-height: 28px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+}
+
+.gn-conn-prot-head:hover {
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-prot-chev {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--prot-lead);
+    height: var(--prot-lead);
+    margin: 0;
+    padding: 0;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.45));
+    border-radius: 6px;
+    transition: transform 0.15s, background 0.15s, color 0.15s;
+    font-size: 0;
+    line-height: 0;
+}
+
+/* demo .prot-head .chev::before — border-width: 5px 0 5px 7px */
+.gn-conn-prot-chev::before {
+    content: "";
+    display: block;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 5px 0 5px 7px;
+    border-color: transparent transparent transparent currentColor;
+}
+
+.gn-conn-prot-head:hover .gn-conn-prot-chev {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.05));
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-prot[data-open="1"] .gn-conn-prot-chev {
+    transform: rotate(90deg);
+}
+
+.gn-conn-prot-title {
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+    line-height: 1.2;
+}
+
+.gn-conn-prot-tag {
+    font-size: 11px;
+    font-weight: 650;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    background: transparent;
+}
+
+.gn-conn-prot-tag.on {
+    background: color-mix(in srgb, var(--gn-danger, #ff4d4f) 16%, transparent);
+    color: var(--gn-danger, #ff4d4f);
+    border-color: color-mix(in srgb, var(--gn-danger, #ff4d4f) 35%, transparent);
+}
+
+.gn-conn-prot-body {
+    padding: 4px 0 0;
+}
+
+.gn-conn-prot-opt {
+    display: grid;
+    grid-template-columns: var(--prot-lead) minmax(0, 1fr);
+    column-gap: var(--prot-gap);
+    align-items: start;
+    padding: 6px 0;
+    width: 100%;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.gn-conn-prot-opt:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.04));
+}
+
+/* 「仅只读」总开关（#1325）：与下方分项之间一条分隔线，语义上全覆盖 */
+.gn-conn-prot-opt-all {
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--gn-border, rgba(16, 24, 40, 0.08));
+    padding-bottom: 8px;
+}
+
+.gn-conn-prot-opt .n {
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--gn-fg-2, inherit);
+}
+
+.gn-conn-prot-opt .h {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-top: 2px;
+    line-height: 1.35;
+}
+
+.gn-conn-prot-sum {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+}
+
+/* Compact section title for residual blocks */
+.gn-conn-subhead {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gn-fg-2, inherit);
+    margin: 10px 0 6px;
+}
+
+/* Hide heavy section chrome when dense form uses section cards sparingly */
+.gn-conn-dense [data-connection-config-section] {
+    padding-top: 8px !important;
+    margin-top: 4px;
+    border-top: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06)) !important;
+}
+
+.gn-conn-dense [data-connection-config-section]:first-child {
+    border-top: none !important;
+    padding-top: 0 !important;
+}
+
+/* Network list rows */
+/* demo .net-list：扁平列表（非卡片） */
+.gn-conn-net-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 8px;
+}
+
+/* demo .net-row：无外框、行间细分割线、选中=左侧强调线 */
+.gn-conn-net-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 4px 8px 6px;
+    border: 0;
+    border-bottom: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    box-sizing: border-box;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.gn-conn-net-row:last-child {
+    border-bottom: 0;
+}
+
+.gn-conn-net-row:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.04));
+}
+
+/* 选中=正在编辑：左侧强调线 + 文字色，不整行填色 */
+.gn-conn-net-row[data-active='true'] {
+    background: transparent;
+    border-left-color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-net-row[data-active='true'] .nt,
+.gn-conn-net-row[data-active='true'] .st {
+    color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-net-row .nt {
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.25;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+}
+
+.gn-conn-net-row .nd {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-top: 1px;
+    line-height: 1.35;
+}
+
+.gn-conn-net-row .st {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    white-space: nowrap;
+}
+
+.gn-conn-net-row .st.on {
+    color: var(--gn-accent, #1677ff);
+    font-weight: 650;
+}
+
+.gn-conn-net-hint {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+/* demo .net-detail：扁平详情区（h4 · 已启用 + ndesc + 密排字段） */
+.gn-conn-net-detail {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 2px 0 10px;
+    margin-bottom: 4px;
+}
+
+.gn-conn-net-detail h4 {
+    margin: 0 0 2px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+}
+
+.gn-conn-net-detail h4 .on {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--gn-accent, #1677ff);
+    margin-left: 6px;
+}
+
+.gn-conn-net-detail .ndesc {
+    margin: 0 0 8px;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    line-height: 1.4;
+}
+
+.gn-conn-net-detail .empty-hint {
+    font-size: 11.5px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    line-height: 1.45;
+}
+
+/* demo .path-pick：输入 + 浏览按钮 */
+.gn-conn-path-pick {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
+}
+
+.gn-conn-path-pick .ant-input,
+.gn-conn-path-pick .ant-input-affix-wrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.gn-conn-path-pick .ant-btn {
+    flex: 0 0 auto;
+}
+
+/* 网络 · 高级连接区块内的小单位说明 */
+.gn-conn-unit-hint {
+    font-size: 11.5px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    white-space: nowrap;
+}
+
+.gn-conn-field-hint {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    line-height: 1.4;
+    margin-top: 4px;
+}
+
+/* SSH 主机身份不再是一个需要用户填写的路径/指纹字段。
+   提示占据完整可用宽度，避免长说明落入 52px 的密排标签列而被截断。 */
+.gn-ssh-host-key-automatic-hint {
+    margin: 2px 0 4px;
+    max-width: 100%;
+    line-height: 1.55;
+}
+
+.gn-ssh-host-key-trust-dialog {
+    display: grid;
+    gap: 14px;
+}
+
+.gn-ssh-host-key-trust-facts {
+    display: grid;
+    grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+    gap: 8px 14px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.gn-ssh-host-key-trust-facts dt {
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+}
+
+.gn-ssh-host-key-trust-facts dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+    font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    overflow-wrap: anywhere;
+}
+
+.gn-ssh-host-key-trust-explanation {
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-size: 12px;
+    line-height: 1.55;
+}
+

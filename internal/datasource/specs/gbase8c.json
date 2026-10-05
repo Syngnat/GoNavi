@@ -1,0 +1,100 @@
+{
+  "type": "gbase8c",
+  "aliases": [
+    "gbase-8c"
+  ],
+  "displayName": "GBase 8c",
+  "group": "domestic",
+  "order": 30,
+  "defaultPort": 15400,
+  "wire": "postgres",
+  "dialect": "gbase8c",
+  "ddlDialect": "opengauss",
+  "family": "postgres",
+  "objectKind": "table",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT version() AS version",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_gbase8c_driver",
+    "goModule": "github.com/HuaweiCloudDeveloper/gaussdb-go",
+    "version": "1.0.0-rc1",
+    "sourcePrefixes": [
+      "gbase8c",
+      "postgres",
+      "pg"
+    ]
+  },
+  "variants": {
+    "default": "v5",
+    "items": [
+      {
+        "id": "v5",
+        "label": "GBase 8c V5",
+        "descriptionKey": "datasource.variant.gbase8c.v5"
+      }
+    ]
+  },
+  "ui": {
+    "uriSchemes": [
+      "gbase8c",
+      "postgresql",
+      "postgres"
+    ],
+    "hiddenSchemas": [
+      "blockchain",
+      "compat_tools",
+      "cstore",
+      "db4ai",
+      "dolphin_catalog",
+      "oracle",
+      "orafce",
+      "pkg_service",
+      "plunit",
+      "snapshot",
+      "sqladvisor",
+      "sys",
+      "wmsys"
+    ],
+    "hiddenSchemaPrefixes": [
+      "dbe_",
+      "dbms_",
+      "plv",
+      "utl_"
+    ],
+    "hideExtensionRoutines": true,
+    "hideExtensionViews": true,
+    "defaultUser": "gbase",
+    "indexDesign": {
+      "kinds": [
+        "NORMAL",
+        "UNIQUE"
+      ],
+      "methods": [
+        "DEFAULT",
+        "BTREE",
+        "HASH",
+        "GIN",
+        "GIST",
+        "SPGIST"
+      ]
+    },
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "hint": "openGauss kernel / sha256 & sm3 auth",
+    "icon": {
+      "color": "#E60012",
+      "text": "8c",
+      "scale": 0.9
+    }
+  }
+}

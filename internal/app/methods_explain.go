@@ -80,11 +80,11 @@ func (a *App) diagnoseQueryContext(ctx context.Context, config connection.Connec
 	}
 
 	runConfig := normalizeRunConfig(config, dbName)
-	dbType := resolveDDLDBType(runConfig)
+	dbType := resolveExplainDBType(runConfig)
 	if !isSafeExplainQuery(dbType, query) {
 		return connection.QueryResult{Success: false, Message: a.appText("sql_analysis.backend.error.select_only", nil)}
 	}
-	if !explainSupportedDBTypes[dbType] {
+	if !explainSupportedDBTypes[dbType] && !isRegistryExplainDialect(dbType) {
 		return connection.QueryResult{
 			Success: false,
 			Message: a.appText("sql_analysis.backend.error.unsupported_db_type", map[string]any{"dbType": dbType}),
@@ -192,7 +192,7 @@ func isExplainWhitespace(ch byte) bool {
 // must not discard them while deciding whether a diagnostic query is read-only.
 func hasExecutableSQLComment(dbType, query string) bool {
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "tidb":
 	default:
 		return false
 	}
@@ -200,7 +200,7 @@ func hasExecutableSQLComment(dbType, query string) bool {
 	for index := 0; index < len(query); {
 		remaining := query[index:]
 		if strings.HasPrefix(remaining, "/*!") ||
-			(len(remaining) >= 4 && strings.EqualFold(remaining[:4], "/*m!")) {
+			(len(remaining) >= 4 && (strings.EqualFold(remaining[:4], "/*m!") || strings.EqualFold(remaining[:4], "/*t!"))) {
 			return true
 		}
 		switch {
@@ -612,6 +612,9 @@ func parseExplainRawWithText(dbType, sourceSQL, raw string, format connection.Ex
 	if text == nil {
 		text = defaultExplainBackendText
 	}
+	if dialect, ok := registryExplainDialects[dbType]; ok {
+		return dialect.parse(dbType, sourceSQL, raw, text), nil
+	}
 	switch dbType {
 	case "mysql", "mariadb", "oceanbase":
 		return parseMySQLExplain(dbType, sourceSQL, raw, format)
@@ -658,6 +661,9 @@ func buildExplainQueryWithText(dbType, query string, text func(string, map[strin
 		text = defaultExplainBackendText
 	}
 	sql := strings.TrimRight(strings.TrimSpace(query), ";")
+	if dialect, ok := registryExplainDialects[dbType]; ok {
+		return fmt.Sprintf("EXPLAIN %s", sql), nil, dialect.format, nil, nil
+	}
 	switch dbType {
 	case "mysql", "mariadb", "oceanbase":
 		// MySQL 8.0+ 和 OceanBase 都支持 FORMAT=JSON

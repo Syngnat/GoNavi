@@ -393,7 +393,7 @@ jobs:
             driver_version_index="${RUNNER_TEMP}/driver-version-index.json"
             driver_hashes="${RUNNER_TEMP}/driver-asset-sha256.json"
             jq --arg tag "${RELEASE_TAG}" \
-              '.tagName = $tag | del(.mirrorTagName) | del(.assets["GoNavi-DriverAgents.zip"]) | del(.assetSha256)' \
+              '.tagName = $tag | del(.mirrorTagName) | del(.assets["GoNavi-DriverAgents.7z"], .assets["GoNavi-DriverAgents.zip"]) | del(.assetSha256)' \
               "${driver_dir}/GoNavi-DriverAgents-Index.json" \
               > "${RUNNER_TEMP}/driver-version-index-base.json"
             while IFS= read -r name; do

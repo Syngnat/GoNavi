@@ -29,6 +29,31 @@ describe('AIProviderLogo', () => {
     expect(xiaomiMiMo).toContain('/icons/ai/xiaomimimo.svg');
   });
 
+  it('shows GoNavi AI with the brand icon of the app, not a letter', () => {
+    const markup = renderToStaticMarkup(<AIProviderLogo presetKey="gonavi-ai" label="GoNavi AI" />);
+    expect(markup).toContain('<img');
+    expect(markup).toContain('/brand-fallback.svg'); // the default brand icon
+    expect(markup).not.toContain('is-fallback');
+    expect(markup).not.toContain('/icons/ai/');
+    // Its tile is 80% of the image; it is enlarged to the footprint of the full-box marks beside it.
+    expect(markup).toContain('transform:scale(1.25)');
+    // A dark theme does not recolor it: the brand tile carries its own background.
+    expect(renderToStaticMarkup(<AIProviderLogo presetKey="gonavi-ai" label="GoNavi AI" dark />)).not.toContain('invert');
+  });
+
+  it('draws a custom provider as a solid slider tile, like every other provider, not as a stock grid icon', () => {
+    const markup = renderToStaticMarkup(<AIProviderLogo presetKey="custom" label="Custom" />);
+    expect(markup).toContain('<img');
+    expect(markup).toContain('/icons/ai/custom.svg');
+    expect(markup).not.toContain('anticon');
+    const svg = readFileSync(new URL('../../../public/icons/ai/custom.svg', import.meta.url), 'utf8');
+    expect(svg).toContain('viewBox="0 0 24 24"');
+    expect(svg).toContain('<title>Custom provider</title>');
+    // A slate tile with white sliders: legible on light and dark panels without recoloring.
+    expect(svg).toContain('fill="#6f7f9e"');
+    expect(renderToStaticMarkup(<AIProviderLogo presetKey="custom" label="Custom" dark />)).not.toContain('invert');
+  });
+
   it('falls back to the first letter when there is no asset', () => {
     const markup = renderToStaticMarkup(<AIProviderLogo presetKey="unknown-provider" label="Kimi" />);
     expect(markup).toContain('is-fallback');

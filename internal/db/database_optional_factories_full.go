@@ -25,4 +25,7 @@ func registerOptionalDatabaseFactories() {
 	registerDatabaseFactory(newOptionalDriverAgentDatabase("clickhouse"), "clickhouse")
 	registerDatabaseFactory(newOptionalDriverAgentDatabase("elasticsearch"), "elasticsearch", "elastic")
 	registerDatabaseFactory(newOptionalDriverAgentDatabase("trino"), "trino")
+	registerDatabaseFactory(newOptionalDriverAgentDatabase("kafka"), "kafka")
+	registerDatabaseFactory(newOptionalDriverAgentDatabase("rocketmq"), "rocketmq")
+	registerDatabaseFactory(newOptionalDriverAgentDatabase("pulsar"), "pulsar")
 }

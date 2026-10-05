@@ -1,1505 +1,310 @@
 import Modal from './common/ResizableDraggableModal';
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
-import { Table, Input, Button, Space, Tag, Tree, Spin, message, Form, InputNumber, Popconfirm, Tooltip, Radio } from 'antd';
-import type { RadioChangeEvent, TableProps } from 'antd';
-import { ReloadOutlined, DeleteOutlined, PlusOutlined, EditOutlined, EyeOutlined, SearchOutlined, ClockCircleOutlined, CopyOutlined, FolderOpenOutlined, KeyOutlined, PartitionOutlined, UnorderedListOutlined, TagsOutlined, RightOutlined, DownOutlined } from '@ant-design/icons';
-import { useStore } from '../store';
-import { RedisKeyInfo, RedisValue, StreamEntry } from '../types';
+import { Input, Button, Tag, Spin, message, Form, InputNumber, Popconfirm, Tooltip, Radio } from 'antd';
+import { ReloadOutlined, DeleteOutlined, ClockCircleOutlined, CopyOutlined } from '@ant-design/icons';
 import Editor from './MonacoEditor';
-import type { DataNode } from 'antd/es/tree';
-import {
-    blurToFilter,
-    isMacLikePlatform,
-    normalizeBlurForPlatform,
-    resolveAppearanceValues,
-    resolveTextInputSafeBackdropFilter,
-} from '../utils/appearance';
-import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
-import { downloadBrowserFileFromResult } from '../utils/browserFileTransfer';
-import {
-    applyRenamedRedisKeyState,
-    applyTreeNodeCheck,
-    buildLeafNodeKey,
-    buildCheckedTreeNodeState,
-    buildRedisKeyListView,
-    buildRedisKeyTree,
-    buildRedisKeyTypeView,
-    isGroupFullyChecked,
-    parseRawKeyFromNodeKey,
-    type RedisTreeDataNode,
-} from './redisViewerTree';
-import { buildRedisWorkbenchTheme } from './redisViewerWorkbenchTheme';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
-import { normalizeRedisSearchDraftChange, normalizeRedisSearchInput, type RedisSearchMode } from '../utils/redisSearchPattern';
-import { decodeRedisUtf8Value, formatRedisStringValue, toHexDisplay } from '../utils/redisValueDisplay';
-import { isConnectionDataImportRestricted } from '../utils/connectionReadOnly';
-import { confirmProductionMutation } from '../utils/productionRiskConfirm';
-import { t, type I18nParams } from '../i18n';
-import { useOptionalI18n } from '../i18n/provider';
-import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
+import { formatRedisStringValue } from '../utils/redisValueDisplay';
 import RedisResizableDivider from './RedisResizableDivider';
-import { RedisListPush, RedisListRemove } from '../../wailsjs/go/app/App';
+import { useRedisViewerState } from './redisViewer/useRedisViewerState';
+import { useRedisViewerStyles } from './redisViewer/useRedisViewerStyles';
+import { useRedisViewerKeyLoading } from './redisViewer/useRedisViewerKeyLoading';
+import { useRedisViewerImportExport } from './redisViewer/useRedisViewerImportExport';
+import { useRedisViewerKeyActions } from './redisViewer/useRedisViewerKeyActions';
+import { useRedisViewerKeyTree } from './redisViewer/useRedisViewerKeyTree';
+import { createRedisValueFormatter } from './redisViewer/redisValueFormatter';
+import { createRedisStringValueView } from './redisViewer/redisStringValueView';
+import { createRedisHashValueView } from './redisViewer/redisHashValueView';
+import { createRedisListValueView } from './redisViewer/redisListValueView';
+import { createRedisSetValueView } from './redisViewer/redisSetValueView';
+import { createRedisZSetValueView } from './redisViewer/redisZSetValueView';
+import { createRedisStreamValueView } from './redisViewer/redisStreamValueView';
+import { createRedisKeyViewLabels } from './redisViewer/redisKeyViewLabels';
+import { RedisViewerSidebar } from './redisViewer/RedisViewerSidebar';
+import { RedisNewKeyModal } from './redisViewer/RedisNewKeyModal';
+import { RedisJsonEditModal } from './redisViewer/RedisJsonEditModal';
+import { RedisKeyContextMenu } from './redisViewer/RedisKeyContextMenu';
 
-const { Search } = Input;
-
-const REDIS_TREE_KEY_TYPE_WIDTH = 92;
-const REDIS_TREE_KEY_TYPE_WIDTH_NARROW = 84;
-const REDIS_TREE_KEY_TTL_WIDTH = 92;
-const REDIS_TREE_HIDE_TTL_THRESHOLD = 460;
-const REDIS_KEY_INITIAL_LOAD_COUNT = 100;
-const REDIS_KEY_LOAD_MORE_COUNT = 100;
-const REDIS_CLUSTER_KEY_INITIAL_LOAD_COUNT = 2000;
-const REDIS_CLUSTER_KEY_LOAD_MORE_COUNT = 2000;
-const REDIS_KEY_SEARCH_INITIAL_LOAD_COUNT = 100;
-const REDIS_KEY_SEARCH_LOAD_MORE_COUNT = 100;
-const REDIS_KEY_SEARCH_MAX_RESULT_COUNT = 10000;
-const REDIS_KEY_VIRTUAL_SCROLL_THRESHOLD = 500;
-const REDIS_LARGE_KEYSPACE_THRESHOLD = 10000;
-const REDIS_LARGE_KEYSPACE_MAX_EXPANDED_GROUPS = 200;
-const REDIS_KEY_GONE_MESSAGE = 'Redis Key 不存在或已过期'; // i18n-scan: allow-raw backend sentinel
-const REDIS_VALUE_TABLE_PAGE_SIZE = 50;
-const REDIS_VALUE_TABLE_DEFAULT_SCROLL_HEIGHT = 240;
-const REDIS_VALUE_TABLE_MIN_SCROLL_HEIGHT = 96;
-
-type RedisValueTableProps = Omit<TableProps<any>, 'pagination' | 'scroll' | 'size'> & {
-    totalCount: number;
-    totalLabel: string;
-    paginationResetKey?: string;
-};
-
-const getElementOuterHeight = (element: HTMLElement | null): number => {
-    if (!element) return 0;
-    const styles = window.getComputedStyle(element);
-    const marginTop = Number.parseFloat(styles.marginTop) || 0;
-    const marginBottom = Number.parseFloat(styles.marginBottom) || 0;
-    return element.getBoundingClientRect().height + marginTop + marginBottom;
-};
-
-const RedisValueTable: React.FC<RedisValueTableProps> = ({ totalCount, totalLabel, paginationResetKey, dataSource, ...tableProps }) => {
-    const shellRef = useRef<HTMLDivElement>(null);
-    const [scrollHeight, setScrollHeight] = useState(REDIS_VALUE_TABLE_DEFAULT_SCROLL_HEIGHT);
-    const [currentPage, setCurrentPage] = useState(1);
-    const maxPage = Math.max(1, Math.ceil(totalCount / REDIS_VALUE_TABLE_PAGE_SIZE));
-
-    useEffect(() => {
-        if (paginationResetKey !== undefined) {
-            setCurrentPage(1);
-        }
-    }, [paginationResetKey]);
-
-    useEffect(() => {
-        const shell = shellRef.current;
-        if (!shell) return;
-
-        let animationFrame = 0;
-        const measure = () => {
-            const header = shell.querySelector<HTMLElement>('.ant-table-header')
-                || shell.querySelector<HTMLElement>('.ant-table-thead');
-            const pagination = shell.querySelector<HTMLElement>('.ant-pagination');
-            const availableHeight = shell.clientHeight
-                - getElementOuterHeight(header)
-                - getElementOuterHeight(pagination)
-                - 2;
-            const nextHeight = Math.max(REDIS_VALUE_TABLE_MIN_SCROLL_HEIGHT, Math.floor(availableHeight));
-            setScrollHeight((current) => current === nextHeight ? current : nextHeight);
-        };
-        const scheduleMeasure = () => {
-            if (animationFrame) window.cancelAnimationFrame(animationFrame);
-            animationFrame = window.requestAnimationFrame(() => {
-                animationFrame = 0;
-                measure();
-            });
-        };
-
-        scheduleMeasure();
-        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(scheduleMeasure) : null;
-        observer?.observe(shell);
-        window.addEventListener('resize', scheduleMeasure);
-        return () => {
-            if (animationFrame) window.cancelAnimationFrame(animationFrame);
-            observer?.disconnect();
-            window.removeEventListener('resize', scheduleMeasure);
-        };
-    }, [dataSource?.length]);
-
-    return (
-        <div
-            ref={shellRef}
-            className="redis-value-table-shell"
-            data-redis-value-total={totalCount}
-            style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}
-        >
-            <Table
-                {...tableProps}
-                dataSource={dataSource}
-                size="small"
-                pagination={{
-                    pageSize: REDIS_VALUE_TABLE_PAGE_SIZE,
-                    showSizeChanger: false,
-                    showTotal: () => totalLabel,
-                    ...(paginationResetKey !== undefined
-                        ? {
-                            current: Math.min(currentPage, maxPage),
-                            onChange: setCurrentPage,
-                        }
-                        : {}),
-                }}
-                scroll={{ y: scrollHeight }}
-            />
-        </div>
-    );
-};
-
-interface RedisViewerProps {
+export interface RedisViewerProps {
     connectionId: string;
     redisDB: number;
 }
 
-type RedisExportScope = 'all' | 'selected';
-type RedisImportConflictMode = 'overwrite' | 'skip';
-type RedisListSortOrder = 'ascend' | 'descend' | null;
-type RedisKeyViewMode = 'tree' | 'list' | 'type';
-type RedisImportPreview = {
-    file: string;
-    exportedAt?: string;
-    database: number;
-    scope?: string;
-    pattern?: string;
-    sourceAppName?: string;
-    total: number;
-    keys: RedisKeyInfo[];
-};
-
-const getRedisScanLoadCount = (pattern: string, append: boolean, isCluster: boolean): number => {
-    const normalizedPattern = pattern.trim() || '*';
-    if (normalizedPattern === '*') {
-        if (isCluster) {
-            return append ? REDIS_CLUSTER_KEY_LOAD_MORE_COUNT : REDIS_CLUSTER_KEY_INITIAL_LOAD_COUNT;
-        }
-        return append ? REDIS_KEY_LOAD_MORE_COUNT : REDIS_KEY_INITIAL_LOAD_COUNT;
-    }
-    return append ? REDIS_KEY_SEARCH_LOAD_MORE_COUNT : REDIS_KEY_SEARCH_INITIAL_LOAD_COUNT;
-};
-
-const normalizeRedisCursor = (value: unknown): string => {
-    if (typeof value === 'string') {
-        const trimmed = value.trim();
-        return trimmed === '' ? '0' : trimmed;
-    }
-    if (typeof value === 'number') {
-        if (!Number.isFinite(value)) {
-            return '0';
-        }
-        return Math.trunc(value).toString();
-    }
-    if (typeof value === 'bigint') {
-        return value.toString();
-    }
-    return '0';
-};
-
-const isRedisKeyGoneErrorMessage = (messageText: string): boolean => {
-    return messageText.includes(REDIS_KEY_GONE_MESSAGE);
-};
-
-const normalizeToolbarText = (value: unknown): string => String(value || '').trim();
-const extractFilenameFromPath = (value: unknown): string => {
-    const normalized = String(value || '').trim().replace(/\\/g, '/');
-    if (!normalized) {
-        return '';
-    }
-    const segments = normalized.split('/');
-    return segments[segments.length - 1] || normalized;
-};
-
-const mergeRedisKeyInfoLists = (existing: RedisKeyInfo[], incoming: RedisKeyInfo[]): RedisKeyInfo[] => {
-    const keyMap = new Map<string, RedisKeyInfo>();
-    existing.forEach((item) => keyMap.set(item.key, item));
-    incoming.forEach((item) => keyMap.set(item.key, item));
-    return Array.from(keyMap.values());
-};
-
-const resolveRedisTopology = (connection?: { config?: { topology?: string; hosts?: string[] } }): 'single' | 'replica' | 'cluster' | 'sentinel' => {
-    const topology = normalizeToolbarText(connection?.config?.topology).toLowerCase();
-    if (topology === 'replica') return 'replica';
-    if (topology === 'sentinel') return 'sentinel';
-    if (topology === 'cluster') return 'cluster';
-    const extraHosts = Array.isArray(connection?.config?.hosts) ? connection.config.hosts.filter(Boolean) : [];
-    return extraHosts.length > 0 ? 'cluster' : 'single';
-};
-
-const buildRedisSeedAddresses = (connection?: { config?: { host?: string; port?: number | string; hosts?: string[] } }): string[] => {
-    if (!connection) return [];
-    const port = Number.isFinite(Number(connection.config?.port)) ? Number(connection.config?.port) : 6379;
-    const primaryHost = normalizeToolbarText(connection.config?.host);
-    const primary = primaryHost ? `${primaryHost}:${port}` : '';
-    const extraHosts = Array.isArray(connection.config?.hosts)
-        ? connection.config.hosts.map((host) => normalizeToolbarText(host)).filter(Boolean)
-        : [];
-    return [primary, ...extraHosts].filter(Boolean);
-};
-
-const getRedisTopologyTagLabel = (topology: 'single' | 'replica' | 'cluster' | 'sentinel'): string => {
-    if (topology === 'replica') return 'Replica';
-    if (topology === 'cluster') return 'Cluster';
-    if (topology === 'sentinel') return 'Sentinel';
-    return 'Single';
-};
-
 const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
-    const connections = useStore(state => state.connections);
-    const theme = useStore(state => state.theme);
-    const appearance = useStore(state => state.appearance);
-    const i18n = useOptionalI18n();
-    const i18nLanguage = i18n?.language;
-    const tr = useCallback((key: string, params?: I18nParams) => t(key, params, i18nLanguage), [i18nLanguage]);
-    const darkMode = theme === 'dark';
-    const resolvedAppearance = resolveAppearanceValues(appearance);
-    const blur = normalizeBlurForPlatform(resolvedAppearance.blur);
-    const disableLocalBackdropFilter = isMacLikePlatform();
-    const connection = connections.find(c => c.id === connectionId);
-    const workbenchTheme = useMemo(
-        () => buildRedisWorkbenchTheme({ darkMode, blur, disableBackdropFilter: disableLocalBackdropFilter }),
-        [blur, darkMode, disableLocalBackdropFilter],
-    );
-    const workbenchBackdropFilter = useMemo(
-        () => resolveTextInputSafeBackdropFilter(blurToFilter(blur), disableLocalBackdropFilter),
-        [blur, disableLocalBackdropFilter],
-    );
-
-    const keyAccentColor = workbenchTheme.accent;
-    const jsonAccentColor = darkMode ? '#f6c453' : '#1890ff';
-    const valueToolbarBg = workbenchTheme.panelBgStrong;
-    const valueToolbarBorder = workbenchTheme.panelBorder;
-    const valueToolbarText = workbenchTheme.textMuted;
-    const redisTopology = useMemo(() => resolveRedisTopology(connection), [connection]);
-    const redisSeedAddresses = useMemo(() => buildRedisSeedAddresses(connection), [connection]);
-    const redisSentinelMaster = normalizeToolbarText(connection?.config?.redisSentinelMaster);
-    const importRestricted = isConnectionDataImportRestricted(connection?.config);
-
-    const [keys, setKeys] = useState<RedisKeyInfo[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [searchInput, setSearchInput] = useState('');
-    const [searchPattern, setSearchPattern] = useState('*');
-    const [searchMode, setSearchMode] = useState<RedisSearchMode>('prefix');
-    const [cursor, setCursor] = useState<string>('0');
-    const [hasMore, setHasMore] = useState(false);
-    const [loadingAllKeys, setLoadingAllKeys] = useState(false);
-    const [exportingScope, setExportingScope] = useState<RedisExportScope | null>(null);
-    const [importingKeys, setImportingKeys] = useState(false);
-    const [selectedKey, setSelectedKey] = useState<string | null>(null);
-    const [keyValue, setKeyValue] = useState<RedisValue | null>(null);
-    const [listSortOrder, setListSortOrder] = useState<RedisListSortOrder>(null);
-    const [hashFieldFilter, setHashFieldFilter] = useState('');
-    const [hashValueFilter, setHashValueFilter] = useState('');
-    const [valueLoading, setValueLoading] = useState(false);
-    const [editModalOpen, setEditModalOpen] = useState(false);
-    const [newKeyModalOpen, setNewKeyModalOpen] = useState(false);
-    const [newKeyForm] = Form.useForm();
-    const [renameKeyModalOpen, setRenameKeyModalOpen] = useState(false);
-    const [renameKeyForm] = Form.useForm();
-    const [renameTargetKey, setRenameTargetKey] = useState<string | null>(null);
-    const [ttlModalOpen, setTtlModalOpen] = useState(false);
-    const [ttlForm] = Form.useForm();
-    const [importModalOpen, setImportModalOpen] = useState(false);
-    const [importPreviewLoading, setImportPreviewLoading] = useState(false);
-    const [importConflictMode, setImportConflictMode] = useState<RedisImportConflictMode>('overwrite');
-    const [importPreview, setImportPreview] = useState<RedisImportPreview | null>(null);
-    const [importSelectedKeys, setImportSelectedKeys] = useState<string[]>([]);
-    const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-    const [editValue, setEditValue] = useState('');
-    const [treeContextMenu, setTreeContextMenu] = useState<{ x: number; y: number; rawKey: string } | null>(null);
-    const [keyViewMode, setKeyViewMode] = useState<RedisKeyViewMode>('tree');
-
-    // View mode shared by every Redis value type.
-    const [viewMode, setViewMode] = useState<'auto' | 'text' | 'utf8' | 'hex'>('auto');
-
-    // JSON edit modal state.
-    const [jsonEditModalOpen, setJsonEditModalOpen] = useState(false);
-    const [jsonEditConfig, setJsonEditConfig] = useState<{
-        mode: 'edit' | 'view';
-        title: string;
-        value: string;
-        isJson: boolean;
-        onSave?: (newValue: string) => Promise<void>;
-    } | null>(null);
-    const jsonEditValueRef = useRef<string>('');
-    const latestLoadRequestIdRef = useRef(0);
-
-    // Left pane width defaults to 50%.
-    const [leftPanelWidth, setLeftPanelWidth] = useState<number | string>('50%');
-    const leftPanelRef = useRef<HTMLDivElement>(null);
-    const treeContainerRef = useRef<HTMLDivElement>(null);
-    const [showTreeKeyTTL, setShowTreeKeyTTL] = useState(true);
-    const [treeHeight, setTreeHeight] = useState(500);
-    const [expandedTreeGroupKeys, setExpandedTreeGroupKeys] = useState<string[]>([]);
-    const [expandedTypeGroupKeys, setExpandedTypeGroupKeys] = useState<string[]>([]);
-
-    useEffect(() => {
-        setHashFieldFilter('');
-        setHashValueFilter('');
-    }, [connectionId, redisDB, selectedKey]);
-
-    const workbenchCardStyle = useMemo(() => ({
-        background: workbenchTheme.panelBg,
-        border: workbenchTheme.panelBorder,
-        boxShadow: `${workbenchTheme.panelInset}, ${workbenchTheme.shadow}`,
-        borderRadius: 18,
-        backdropFilter: workbenchTheme.backdropFilter,
-        WebkitBackdropFilter: workbenchTheme.backdropFilter,
-    }), [workbenchTheme]);
-
-    const workbenchSubCardStyle = useMemo(() => ({
-        background: workbenchTheme.panelBgStrong,
-        border: workbenchTheme.panelBorder,
-        boxShadow: workbenchTheme.panelInset,
-        borderRadius: 16,
-        backdropFilter: workbenchTheme.backdropFilter,
-        WebkitBackdropFilter: workbenchTheme.backdropFilter,
-    }), [workbenchTheme]);
-
-    const actionButtonStyle = useMemo(() => ({
-        height: 36,
-        borderRadius: 12,
-        background: workbenchTheme.actionSecondaryBg,
-        borderColor: workbenchTheme.actionSecondaryBorder,
-        color: workbenchTheme.textPrimary,
-        fontWeight: 600,
-        boxShadow: 'none',
-    }), [workbenchTheme]);
-
-    const primaryActionButtonStyle = useMemo(() => ({
-        ...actionButtonStyle,
-        background: workbenchTheme.toolbarPrimaryBg,
-        borderColor: workbenchTheme.accentBorder,
-        color: workbenchTheme.accent,
-    }), [actionButtonStyle, workbenchTheme]);
-
-    const dangerActionButtonStyle = useMemo(() => ({
-        ...actionButtonStyle,
-        background: workbenchTheme.actionDangerBg,
-        borderColor: workbenchTheme.actionDangerBorder,
-        color: workbenchTheme.actionDangerText,
-    }), [actionButtonStyle, workbenchTheme]);
-
-    const pillTagStyle = useMemo(() => ({
-        margin: 0,
-        borderRadius: 999,
-        borderColor: workbenchTheme.statusTagBorder,
-        background: workbenchTheme.statusTagBg,
-        color: workbenchTheme.isDark ? '#9bc2ff' : '#165dca',
-        fontWeight: 600,
-        paddingInline: 10,
-    }), [workbenchTheme]);
-
-    const mutedPillTagStyle = useMemo(() => ({
-        margin: 0,
-        borderRadius: 999,
-        borderColor: workbenchTheme.statusTagMutedBorder,
-        background: workbenchTheme.statusTagMutedBg,
-        color: workbenchTheme.textSecondary,
-        fontWeight: 500,
-        paddingInline: 10,
-    }), [workbenchTheme]);
-    // v2: same CSS token as Monaco (--gn-bg-panel / --gn-monaco-bg) so modal shell matches editor.
-    const redisModalContentStyle = useMemo(() => (
-        {
-                background: 'var(--gn-bg-panel)',
-                border: '1px solid var(--gn-br-1)',
-                boxShadow: 'var(--gn-shadow-md, none)',
-            }
-    ), [workbenchTheme]);
-
-    const getConfig = useCallback(() => {
-        if (!connection) return null;
-        return {
-            ...connection.config,
-            port: Number(connection.config.port),
-            password: connection.config.password || "",
-            useSSH: connection.config.useSSH || false,
-            ssh: connection.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" },
-            redisDB: redisDB
-        };
-    }, [connection, redisDB]);
-
-    const confirmRedisMutation = useCallback((target: string) => (
-        confirmProductionMutation(
-            connection,
-            tr('connection.production_risk.action.modify_data'),
-            target,
-            tr,
-        )
-    ), [connection, tr]);
-
-    const scanRedisKeysPage = useCallback(async (
-        config: Record<string, any>,
-        pattern: string,
-        fromCursor: string,
-        targetCount: number
-    ): Promise<{ scannedKeys: RedisKeyInfo[]; nextCursor: string }> => {
-        const res = await (window as any).go.app.App.RedisScanKeys(
-            buildRpcConnectionConfig(config),
-            pattern,
-            fromCursor,
-            targetCount
-        );
-        if (!res?.success) {
-            throw new Error(String(res?.message || 'Unknown error'));
-        }
-        const result = res.data;
-        return {
-            scannedKeys: Array.isArray(result?.keys) ? result.keys : [],
-            nextCursor: normalizeRedisCursor(result?.cursor),
-        };
-    }, []);
-
-    const loadKeys = useCallback(async (
-        pattern: string = '*',
-        fromCursor: string = '0',
-        append: boolean = false,
-        targetCount?: number,
-        scanToCompletion: boolean = false
-    ) => {
-        const config = getConfig();
-        if (!config) return;
-
-        const normalizedPattern = pattern.trim() || '*';
-        const effectiveTargetCount = targetCount ?? getRedisScanLoadCount(normalizedPattern, append, redisTopology === 'cluster');
-        const requestId = latestLoadRequestIdRef.current + 1;
-        latestLoadRequestIdRef.current = requestId;
-
-        setLoading(true);
-        setLoadingAllKeys(false);
-        try {
-            let scanCursor = normalizeRedisCursor(fromCursor);
-            let scannedKeys: RedisKeyInfo[] = [];
-            let nextCursor = scanCursor;
-            const keyMap = new Map<string, RedisKeyInfo>();
-            const visitedCursors = new Set<string>();
-
-            while (true) {
-                if (visitedCursors.has(scanCursor)) {
-                    throw new Error(`Redis scan cursor repeated: ${scanCursor}`);
-                }
-                visitedCursors.add(scanCursor);
-
-                const page = await scanRedisKeysPage(
-                    config,
-                    normalizedPattern,
-                    scanCursor,
-                    effectiveTargetCount
-                );
-                if (requestId !== latestLoadRequestIdRef.current) {
-                    return;
-                }
-
-                scannedKeys = page.scannedKeys;
-                nextCursor = page.nextCursor;
-                if (nextCursor !== '0' && nextCursor === scanCursor) {
-                    throw new Error(`Redis scan cursor repeated: ${nextCursor}`);
-                }
-                if (scanToCompletion) {
-                    scannedKeys.forEach((item) => keyMap.set(item.key, item));
-                    if (keyMap.size > REDIS_KEY_SEARCH_MAX_RESULT_COUNT) {
-                        throw new Error(`Redis search exceeded ${REDIS_KEY_SEARCH_MAX_RESULT_COUNT} Keys`);
-                    }
-                }
-                if (nextCursor === '0' || (!scanToCompletion && scannedKeys.length > 0)) {
-                    break;
-                }
-                scanCursor = nextCursor;
-            }
-
-            const loadedKeys = scanToCompletion ? Array.from(keyMap.values()) : scannedKeys;
-            if (append) {
-                setKeys(prev => mergeRedisKeyInfoLists(prev, loadedKeys));
-            } else {
-                setKeys(loadedKeys);
-            }
-            setCursor(nextCursor);
-            setHasMore(nextCursor !== '0');
-        } catch (e: any) {
-            if (requestId !== latestLoadRequestIdRef.current) {
-                return;
-            }
-            message.error(tr('redis_viewer.message.load_keys_failed', { detail: e?.message || String(e) }));
-        } finally {
-            if (requestId === latestLoadRequestIdRef.current) {
-                setLoading(false);
-            }
-        }
-    }, [getConfig, redisTopology, scanRedisKeysPage, tr]);
-
-    useEffect(() => {
-        loadKeys(
-            searchPattern,
-            '0',
-            false,
-            getRedisScanLoadCount(searchPattern, false, redisTopology === 'cluster'),
-            searchMode !== 'exact' && searchPattern !== '*'
-        );
-    }, [loadKeys, redisDB]);
-
-    const executeSearch = useCallback((value: string, mode: RedisSearchMode = searchMode) => {
-        const normalized = normalizeRedisSearchInput(value, mode);
-        setSearchInput(normalized.keyword);
-        setSearchPattern(normalized.pattern);
-        setCursor('0');
-        loadKeys(
-            normalized.pattern,
-            '0',
-            false,
-            getRedisScanLoadCount(normalized.pattern, false, redisTopology === 'cluster'),
-            mode !== 'exact' && normalized.keyword !== ''
-        );
-    }, [loadKeys, redisTopology, searchMode]);
-
-    const handleSearch = (value: string) => {
-        executeSearch(value);
-    };
-
-    const handleSearchInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const normalized = normalizeRedisSearchDraftChange(event.target.value, searchMode);
-        setSearchInput(normalized.keyword);
-        if (!normalized.shouldSearchImmediately) {
-            return;
-        }
-        setSearchPattern(normalized.pattern);
-        setCursor('0');
-        loadKeys(
-            normalized.pattern,
-            '0',
-            false,
-            getRedisScanLoadCount(normalized.pattern, false, redisTopology === 'cluster'),
-            searchMode !== 'exact' && normalized.keyword !== ''
-        );
-    };
-
-    const handleSearchModeChange = useCallback((event: RadioChangeEvent) => {
-        const nextMode = event.target.value as RedisSearchMode;
-        setSearchMode(nextMode);
-        executeSearch(searchInput, nextMode);
-    }, [executeSearch, searchInput]);
-
-    const handleLoadMore = () => {
-        if (!hasMore || loading) {
-            return;
-        }
-        loadKeys(searchPattern, cursor, true, getRedisScanLoadCount(searchPattern, true, redisTopology === 'cluster'));
-    };
-
-    const handleLoadAllKeys = useCallback(async () => {
-        const config = getConfig();
-        if (!config || loading || !hasMore) {
-            return;
-        }
-
-        const normalizedPattern = searchPattern.trim() || '*';
-        const batchSize = getRedisScanLoadCount(normalizedPattern, true, redisTopology === 'cluster');
-        const requestId = latestLoadRequestIdRef.current + 1;
-        latestLoadRequestIdRef.current = requestId;
-
-        setLoading(true);
-        setLoadingAllKeys(true);
-        try {
-            let nextCursor = '0';
-            const keyMap = new Map<string, RedisKeyInfo>();
-            const visitedCursors = new Set<string>();
-
-            do {
-                if (visitedCursors.has(nextCursor)) {
-                    throw new Error(`Redis scan cursor repeated: ${nextCursor}`);
-                }
-                visitedCursors.add(nextCursor);
-
-                const { scannedKeys, nextCursor: scannedCursor } = await scanRedisKeysPage(
-                    config,
-                    normalizedPattern,
-                    nextCursor,
-                    batchSize
-                );
-                if (requestId !== latestLoadRequestIdRef.current) {
-                    return;
-                }
-                scannedKeys.forEach((item) => keyMap.set(item.key, item));
-                if (scannedCursor !== '0' && scannedCursor === nextCursor) {
-                    throw new Error(`Redis scan cursor repeated: ${scannedCursor}`);
-                }
-                nextCursor = scannedCursor;
-            } while (nextCursor !== '0');
-
-            setKeys(Array.from(keyMap.values()));
-            setCursor('0');
-            setHasMore(false);
-        } catch (e: any) {
-            if (requestId !== latestLoadRequestIdRef.current) {
-                return;
-            }
-            message.error(tr('redis_viewer.message.load_keys_failed', { detail: e?.message || String(e) }));
-        } finally {
-            if (requestId === latestLoadRequestIdRef.current) {
-                setLoading(false);
-                setLoadingAllKeys(false);
-            }
-        }
-    }, [getConfig, hasMore, loading, redisTopology, scanRedisKeysPage, searchPattern, tr]);
-
-    const handleRefresh = () => {
-        setCursor('0');
-        return loadKeys(
-            searchPattern,
-            '0',
-            false,
-            getRedisScanLoadCount(searchPattern, false, redisTopology === 'cluster'),
-            searchMode !== 'exact' && searchPattern !== '*'
-        );
-    };
-
-    const handleSelectAllLoadedKeys = useCallback(() => {
-        setSelectedKeys(keys.map((item) => item.key));
-    }, [keys]);
-
-    const handleClearAllSelectedKeys = useCallback(() => {
-        setSelectedKeys([]);
-    }, []);
-
-    const handleExportKeys = useCallback(async (scope: RedisExportScope) => {
-        const config = getConfig();
-        if (!config) return;
-
-        if (scope === 'selected' && selectedKeys.length === 0) {
-            message.warning(tr('redis_viewer.message.export_selection_required'));
-            return;
-        }
-
-        setExportingScope(scope);
-        try {
-            const res = await (window as any).go.app.App.RedisExportKeys(
-                buildRpcConnectionConfig(config),
-                {
-                    scope,
-                    keys: scope === 'selected' ? selectedKeys : [],
-                    pattern: searchPattern,
-                },
-            );
-            if (res?.success) {
-                if (!downloadBrowserFileFromResult(res)) {
-                    message.error(tr('redis_viewer.message.export_failed', { detail: 'Browser download is unavailable' }));
-                    return;
-                }
-                const exportedCount = Number(res?.data?.exported ?? (scope === 'selected' ? selectedKeys.length : 0));
-                message.success(tr('redis_viewer.message.export_success', { count: exportedCount }));
-                return;
-            }
-            if (String(res?.message || '').trim() === '已取消') {
-                return;
-            }
-            message.error(tr('redis_viewer.message.export_failed', { detail: res?.message || 'Unknown error' }));
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.export_failed', { detail: e?.message || String(e) }));
-        } finally {
-            setExportingScope(null);
-        }
-    }, [getConfig, searchPattern, selectedKeys, tr]);
-
-    const resetImportModalState = useCallback(() => {
-        setImportModalOpen(false);
-        setImportPreview(null);
-        setImportSelectedKeys([]);
-        setImportPreviewLoading(false);
-        setImportConflictMode('overwrite');
-    }, []);
-
-    const handleChooseImportFile = useCallback(async () => {
-        const config = getConfig();
-        if (!config) return;
-
-        setImportPreviewLoading(true);
-        try {
-            const res = await (window as any).go.app.App.RedisPreviewImportKeys(
-                buildRpcConnectionConfig(config),
-            );
-            if (res?.success) {
-                const previewData = (res.data || {}) as RedisImportPreview;
-                const previewKeys = Array.isArray(previewData.keys) ? previewData.keys : [];
-                const nextPreview: RedisImportPreview = {
-                    file: String(previewData.file || '').trim(),
-                    exportedAt: previewData.exportedAt,
-                    database: Number(previewData.database ?? redisDB),
-                    scope: String(previewData.scope || '').trim(),
-                    pattern: String(previewData.pattern || '').trim(),
-                    sourceAppName: String(previewData.sourceAppName || '').trim(),
-                    total: Number(previewData.total ?? previewKeys.length),
-                    keys: previewKeys,
-                };
-                setImportPreview(nextPreview);
-                setImportSelectedKeys(previewKeys.map((item) => item.key));
-                return;
-            }
-            if (String(res?.message || '').trim() === '已取消') {
-                return;
-            }
-            message.error(tr('redis_viewer.message.import_failed', { detail: res?.message || 'Unknown error' }));
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.import_failed', { detail: e?.message || String(e) }));
-        } finally {
-            setImportPreviewLoading(false);
-        }
-    }, [getConfig, redisDB, tr]);
-
-    const handleOpenImportModal = useCallback(() => {
-        setImportModalOpen(true);
-        setImportPreview(null);
-        setImportSelectedKeys([]);
-        setImportPreviewLoading(false);
-        setImportConflictMode('overwrite');
-    }, []);
-
-    const handleConfirmImportKeys = useCallback(async () => {
-        const config = getConfig();
-        if (!config) return;
-        if (!importPreview) {
-            message.warning(tr('redis_viewer.message.import_file_required'));
-            return;
-        }
-        if (importSelectedKeys.length === 0) {
-            message.warning(tr('redis_viewer.message.import_selection_required'));
-            return;
-        }
-        if (!await confirmRedisMutation(`db${redisDB} / ${importPreview.file}`)) return;
-
-        setImportingKeys(true);
-        try {
-            const scope = importSelectedKeys.length === importPreview.keys.length ? 'all' : 'selected';
-            const res = await (window as any).go.app.App.RedisImportKeys(
-                buildRpcConnectionConfig(config),
-                {
-                    conflictMode: importConflictMode,
-                    file: importPreview.file,
-                    scope,
-                    keys: scope === 'selected' ? importSelectedKeys : [],
-                },
-            );
-            if (res?.success) {
-                const imported = Number(res?.data?.imported ?? 0);
-                const skipped = Number(res?.data?.skipped ?? 0);
-                resetImportModalState();
-                setSelectedKeys([]);
-                setSelectedKey(null);
-                setKeyValue(null);
-                setListSortOrder(null);
-                setCursor('0');
-                await loadKeys(
-                    searchPattern,
-                    '0',
-                    false,
-                    getRedisScanLoadCount(searchPattern, false, redisTopology === 'cluster'),
-                    searchMode !== 'exact' && searchPattern !== '*'
-                );
-                message.success(tr('redis_viewer.message.import_summary', {
-                    imported,
-                    skipped,
-                }));
-                return;
-            }
-            if (String(res?.message || '').trim() === '已取消') {
-                return;
-            }
-            message.error(tr('redis_viewer.message.import_failed', { detail: res?.message || 'Unknown error' }));
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.import_failed', { detail: e?.message || String(e) }));
-        } finally {
-            setImportingKeys(false);
-        }
-    }, [confirmRedisMutation, getConfig, importConflictMode, importPreview, importSelectedKeys, loadKeys, redisDB, redisTopology, resetImportModalState, searchMode, searchPattern, tr]);
-
-    const importSelectedKeySet = useMemo(() => new Set(importSelectedKeys), [importSelectedKeys]);
-    const handleToggleImportPreviewKey = useCallback((key: string, checked: boolean) => {
-        setImportSelectedKeys((prev) => {
-            if (checked) {
-                return prev.includes(key) ? prev : [...prev, key];
-            }
-            return prev.filter((item) => item !== key);
-        });
-    }, []);
-    const handleSelectAllImportPreviewKeys = useCallback(() => {
-        if (!importPreview) return;
-        setImportSelectedKeys(importPreview.keys.map((item) => item.key));
-    }, [importPreview]);
-    const handleClearImportPreviewSelection = useCallback(() => {
-        setImportSelectedKeys([]);
-    }, []);
-
-    const removeMissingKeyFromView = useCallback((missingKey: string) => {
-        setKeys(prev => prev.filter(item => item.key !== missingKey));
-        setSelectedKeys(prev => prev.filter(item => item !== missingKey));
-        setSelectedKey(null);
-        setKeyValue(null);
-        setListSortOrder(null);
-    }, []);
-
-    const loadKeyValue = async (key: string, requestedListSortOrder: RedisListSortOrder = listSortOrder) => {
-        const config = getConfig();
-        if (!config) return;
-
-        setValueLoading(true);
-        try {
-            const appApi = (window as any).go.app.App;
-            const rpcConfig = buildRpcConnectionConfig(config);
-            const res = requestedListSortOrder === 'descend'
-                ? await appApi.RedisGetListValue(rpcConfig, key, true)
-                : await appApi.RedisGetValue(rpcConfig, key);
-            if (res.success) {
-                setKeyValue(res.data);
-                setSelectedKey(key);
-                setListSortOrder(res.data?.type === 'list' ? requestedListSortOrder : null);
-            } else {
-                const messageText = String(res.message || '');
-                if (isRedisKeyGoneErrorMessage(messageText)) {
-                    removeMissingKeyFromView(key);
-                    message.warning(tr('redis_viewer.message.key_missing_removed'));
-                } else {
-                    message.error(tr('redis_viewer.message.value_load_failed', { detail: messageText }));
-                }
-            }
-        } catch (e: any) {
-            const messageText = e?.message || String(e);
-            if (isRedisKeyGoneErrorMessage(messageText)) {
-                removeMissingKeyFromView(key);
-                message.warning(tr('redis_viewer.message.key_missing_removed'));
-            } else {
-                message.error(tr('redis_viewer.message.value_load_failed', { detail: messageText }));
-            }
-        } finally {
-            setValueLoading(false);
-        }
-    };
-
-    const handleDeleteKeys = async (keysToDelete: string[]) => {
-        const config = getConfig();
-        if (!config) return;
-        if (!await confirmRedisMutation(`db${redisDB} / ${keysToDelete.join(', ')}`)) return;
-
-        try {
-            const res = await (window as any).go.app.App.RedisDeleteKeys(buildRpcConnectionConfig(config), keysToDelete);
-            if (res.success) {
-                setKeys(prev => prev.filter(k => !keysToDelete.includes(k.key)));
-                if (selectedKey && keysToDelete.includes(selectedKey)) {
-                    setSelectedKey(null);
-                    setKeyValue(null);
-                    setListSortOrder(null);
-                }
-                setSelectedKeys([]);
-                message.success(tr('redis_viewer.message.deleted_keys', { count: res.data.deleted }));
-            } else {
-                message.error(tr('redis_viewer.message.delete_failed', { detail: res.message }));
-            }
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.delete_failed', { detail: e?.message || String(e) }));
-        }
-    };
-
-    const handleDeleteCurrentKey = async () => {
-        if (!selectedKey) return;
-        await handleDeleteKeys([selectedKey]);
-    };
-
-    const handleSetTTL = async () => {
-        const config = getConfig();
-        if (!config || !selectedKey) return;
-
-        try {
-            const values = await ttlForm.validateFields();
-            if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-            const res = await (window as any).go.app.App.RedisSetTTL(buildRpcConnectionConfig(config), selectedKey, values.ttl);
-            if (res.success) {
-                setTtlModalOpen(false);
-                await Promise.all([loadKeyValue(selectedKey), handleRefresh()]);
-                message.success(tr('redis_viewer.message.ttl_set_success'));
-            } else {
-                message.error(tr('redis_viewer.message.set_failed', { detail: res.message }));
-            }
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.set_failed', { detail: e?.message || String(e) }));
-        }
-    };
-
-    const handleSaveString = async () => {
-        const config = getConfig();
-        if (!config || !selectedKey) return;
-
-        try {
-            if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-            const res = await (window as any).go.app.App.RedisSetString(buildRpcConnectionConfig(config), selectedKey, editValue, keyValue?.ttl || -1);
-            if (res.success) {
-                setEditModalOpen(false);
-                await loadKeyValue(selectedKey);
-                message.success(tr('redis_viewer.message.save_success'));
-            } else {
-                message.error(tr('redis_viewer.message.save_failed', { detail: res.message }));
-            }
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.save_failed', { detail: e?.message || String(e) }));
-        }
-    };
-
-    const handleCreateKey = async () => {
-        const config = getConfig();
-        if (!config) return;
-
-        try {
-            const values = await newKeyForm.validateFields();
-            if (!await confirmRedisMutation(`db${redisDB} / ${values.key}`)) return;
-            const res = await (window as any).go.app.App.RedisSetString(buildRpcConnectionConfig(config), values.key, values.value, values.ttl || -1);
-            if (res.success) {
-                setNewKeyModalOpen(false);
-                newKeyForm.resetFields();
-                await handleRefresh();
-                message.success(tr('redis_viewer.message.create_success'));
-            } else {
-                message.error(tr('redis_viewer.message.create_failed', { detail: res.message }));
-            }
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.create_failed', { detail: e?.message || String(e) }));
-        }
-    };
-
-    const openRenameKeyModal = useCallback((rawKey: string) => {
-        setTreeContextMenu(null);
-        setRenameTargetKey(rawKey);
-        renameKeyForm.setFieldsValue({ key: rawKey });
-        setRenameKeyModalOpen(true);
-    }, [renameKeyForm]);
-
-    const handleRenameKey = async () => {
-        const config = getConfig();
-        if (!config || !renameTargetKey) return;
-
-        try {
-            const values = await renameKeyForm.validateFields();
-            const nextKey = String(values.key || '').trim();
-            if (!nextKey) {
-                message.warning(tr('redis_viewer.message.new_key_name_required'));
-                return;
-            }
-            if (nextKey === renameTargetKey) {
-                message.warning(tr('redis_viewer.message.rename_same_key'));
-                return;
-            }
-
-            const existsRes = await (window as any).go.app.App.RedisKeyExists(buildRpcConnectionConfig(config), nextKey);
-            if (!existsRes?.success) {
-                message.error(tr('redis_viewer.message.key_check_failed', { detail: existsRes?.message || 'Unknown error' }));
-                return;
-            }
-            if (existsRes?.data?.exists) {
-                message.error(tr('redis_viewer.message.target_key_exists', { key: nextKey }));
-                return;
-            }
-            if (!await confirmRedisMutation(`db${redisDB} / ${renameTargetKey} -> ${nextKey}`)) return;
-
-            const res = await (window as any).go.app.App.RedisRenameKey(buildRpcConnectionConfig(config), renameTargetKey, nextKey);
-            if (res.success) {
-                const nextState = applyRenamedRedisKeyState(
-                    {
-                        keys,
-                        selectedKey,
-                        selectedKeys,
-                    },
-                    renameTargetKey,
-                    nextKey
-                );
-                setKeys(nextState.keys);
-                setSelectedKey(nextState.selectedKey);
-                setSelectedKeys(Array.from(new Set(nextState.selectedKeys)));
-                setRenameKeyModalOpen(false);
-                setRenameTargetKey(null);
-                renameKeyForm.resetFields();
-                await Promise.all([
-                    selectedKey === renameTargetKey ? loadKeyValue(nextKey) : Promise.resolve(),
-                    handleRefresh(),
-                ]);
-                message.success(tr('redis_viewer.message.rename_success'));
-            } else {
-                message.error(tr('redis_viewer.message.rename_failed', { detail: res.message }));
-            }
-        } catch (e: any) {
-            message.error(tr('redis_viewer.message.rename_failed', { detail: e?.message || String(e) }));
-        }
-    };
-
-    const getTypeColor = (type: string) => {
-        switch (type) {
-            case 'string': return 'green';
-            case 'hash': return 'blue';
-            case 'list': return 'orange';
-            case 'set': return 'purple';
-            case 'zset': return 'magenta';
-            case 'stream': return 'cyan';
-            default: return 'default';
-        }
-    };
-
-    const formatTTL = useCallback((ttl: number) => {
-        if (ttl === -1) return tr('redis_viewer.ttl.forever');
-        if (ttl === -2) return tr('redis_viewer.ttl.expired');
-        if (ttl < 60) return tr('redis_viewer.ttl.seconds', { seconds: ttl });
-        if (ttl < 3600) return tr('redis_viewer.ttl.minutes_seconds', { minutes: Math.floor(ttl / 60), seconds: ttl % 60 });
-        if (ttl < 86400) return tr('redis_viewer.ttl.hours_minutes', { hours: Math.floor(ttl / 3600), minutes: Math.floor((ttl % 3600) / 60) });
-        return tr('redis_viewer.ttl.days_hours', { days: Math.floor(ttl / 86400), hours: Math.floor((ttl % 86400) / 3600) });
-    }, [tr]);
-
-    useEffect(() => {
-        const target = leftPanelRef.current;
-        if (!target) return;
-
-        const updateTTLVisibility = (width: number) => {
-            const nextShowTTL = width > REDIS_TREE_HIDE_TTL_THRESHOLD;
-            setShowTreeKeyTTL((prev) => (prev === nextShowTTL ? prev : nextShowTTL));
-        };
-
-        updateTTLVisibility(Math.round(target.getBoundingClientRect().width));
-
-        if (typeof ResizeObserver !== 'undefined') {
-            const observer = new ResizeObserver((entries) => {
-                const width = Math.round(entries[0]?.contentRect.width || target.getBoundingClientRect().width);
-                updateTTLVisibility(width);
-            });
-            observer.observe(target);
-            return () => observer.disconnect();
-        }
-
-        const handleWindowResize = () => {
-            updateTTLVisibility(Math.round(target.getBoundingClientRect().width));
-        };
-        window.addEventListener('resize', handleWindowResize);
-        return () => window.removeEventListener('resize', handleWindowResize);
-    }, []);
-
-    useEffect(() => {
-        const target = treeContainerRef.current;
-        if (!target) return;
-
-        const updateTreeHeight = (nextHeight: number) => {
-            if (nextHeight <= 0) return;
-            setTreeHeight((prev) => (prev === nextHeight ? prev : nextHeight));
-        };
-
-        updateTreeHeight(Math.round(target.getBoundingClientRect().height));
-
-        if (typeof ResizeObserver !== 'undefined') {
-            const observer = new ResizeObserver((entries) => {
-                const nextHeight = Math.round(entries[0]?.contentRect.height || target.getBoundingClientRect().height);
-                updateTreeHeight(nextHeight);
-            });
-            observer.observe(target);
-            return () => observer.disconnect();
-        }
-
-        const handleWindowResize = () => {
-            updateTreeHeight(Math.round(target.getBoundingClientRect().height));
-        };
-        window.addEventListener('resize', handleWindowResize);
-        return () => window.removeEventListener('resize', handleWindowResize);
-    }, []);
-
-    const isLargeKeyspace = keys.length >= REDIS_LARGE_KEYSPACE_THRESHOLD;
-    const shouldVirtualizeKeyTree = keys.length > REDIS_KEY_VIRTUAL_SCROLL_THRESHOLD;
-
-    const keyTree = useMemo(() => {
-        if (keyViewMode === 'list') {
-            return buildRedisKeyListView(keys, !isLargeKeyspace);
-        }
-        if (keyViewMode === 'type') {
-            return buildRedisKeyTypeView(keys, !isLargeKeyspace);
-        }
-        return buildRedisKeyTree(keys, !isLargeKeyspace);
-    }, [isLargeKeyspace, keyViewMode, keys]);
-
-    const groupKeySet = useMemo(() => new Set(keyTree.groupKeys), [keyTree.groupKeys]);
-    const expandedGroupKeys = keyViewMode === 'tree'
-        ? expandedTreeGroupKeys
-        : keyViewMode === 'type'
-            ? expandedTypeGroupKeys
-            : [];
-
-    const updateExpandedGroupKeys = useCallback((updater: (previousKeys: string[]) => string[]) => {
-        if (keyViewMode === 'tree') {
-            setExpandedTreeGroupKeys(updater);
-            return;
-        }
-        if (keyViewMode === 'type') {
-            setExpandedTypeGroupKeys(updater);
-        }
-    }, [keyViewMode]);
-
-    const selectedTreeNodeKeys = useMemo(() => {
-        if (!selectedKey) {
-            return [] as string[];
-        }
-        return [buildLeafNodeKey(selectedKey)];
-    }, [selectedKey]);
-
-    const checkedTreeNodeKeys = useMemo(() => {
-        return buildCheckedTreeNodeState(selectedKeys, keyTree);
-    }, [keyTree, selectedKeys]);
-
-    useEffect(() => {
-        const existingKeySet = new Set(keys.map(item => item.key));
-        setSelectedKeys(prev => prev.filter(rawKey => existingKeySet.has(rawKey)));
-    }, [keys]);
-
-    useEffect(() => {
-        if (keyViewMode === 'list') {
-            return;
-        }
-        updateExpandedGroupKeys((prev) => {
-            const validKeys = prev.filter(nodeKey => groupKeySet.has(nodeKey));
-            if (!isLargeKeyspace) {
-                return validKeys;
-            }
-            return validKeys.slice(0, REDIS_LARGE_KEYSPACE_MAX_EXPANDED_GROUPS);
-        });
-    }, [groupKeySet, isLargeKeyspace, keyViewMode, updateExpandedGroupKeys]);
-
-    useEffect(() => {
-        if (!treeContextMenu) {
-            return;
-        }
-        const handleDismiss = () => setTreeContextMenu(null);
-        window.addEventListener('click', handleDismiss);
-        window.addEventListener('scroll', handleDismiss, true);
-        window.addEventListener('contextmenu', handleDismiss);
-        return () => {
-            window.removeEventListener('click', handleDismiss);
-            window.removeEventListener('scroll', handleDismiss, true);
-            window.removeEventListener('contextmenu', handleDismiss);
-        };
-    }, [treeContextMenu]);
-
-    const handleTreeSelect = (nodeKeys: React.Key[]) => {
-        if (nodeKeys.length === 0) {
-            return;
-        }
-        const rawKey = parseRawKeyFromNodeKey(nodeKeys[0]);
-        if (!rawKey) {
-            return;
-        }
-        loadKeyValue(rawKey, null);
-    };
-
-    const handleTreeCheck = (
-        _checked: React.Key[] | { checked: React.Key[]; halfChecked: React.Key[] },
-        info: { checked: boolean; node: DataNode }
-    ) => {
-        const node = info.node as RedisTreeDataNode;
-        setSelectedKeys((prev) => applyTreeNodeCheck(prev, node, info.checked));
-    };
-
-    const handleTreeRightClick = ({ event, node }: { event: React.MouseEvent; node: DataNode }) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const treeNode = node as RedisTreeDataNode;
-        if (treeNode.nodeType !== 'leaf' || !treeNode.rawKey) {
-            setTreeContextMenu(null);
-            return;
-        }
-
-        setTreeContextMenu({
-            x: event.clientX,
-            y: event.clientY,
-            rawKey: treeNode.rawKey,
-        });
-    };
-
-    const handleSelectGroupDescendants = useCallback((treeNode: RedisTreeDataNode) => {
-        setSelectedKeys((prev) => applyTreeNodeCheck(prev, treeNode, !isGroupFullyChecked(treeNode, prev)));
-    }, []);
-
-    const handleToggleGroupExpand = useCallback((groupNodeKey: string) => {
-        updateExpandedGroupKeys((prev) => {
-            const exists = prev.includes(groupNodeKey);
-            const nextKeys = exists
-                ? prev.filter((nodeKey) => nodeKey !== groupNodeKey)
-                : [...prev, groupNodeKey];
-
-            if (isLargeKeyspace) {
-                return nextKeys.slice(-REDIS_LARGE_KEYSPACE_MAX_EXPANDED_GROUPS);
-            }
-
-            return nextKeys;
-        });
-    }, [isLargeKeyspace, updateExpandedGroupKeys]);
-
-    const handleKeyViewModeChange = useCallback((nextMode: RedisKeyViewMode) => {
-        setTreeContextMenu(null);
-        setKeyViewMode(nextMode);
-    }, []);
-
-    const handleFilterByGroup = useCallback((treeNode: RedisTreeDataNode) => {
-        const groupPath = treeNode.groupPath?.trim();
-        if (!groupPath) {
-            return;
-        }
-
-        setSearchMode('prefix');
-        executeSearch(groupPath, 'prefix');
-    }, [executeSearch]);
-
-    const stopTreeTitleEvent = (event: React.SyntheticEvent<HTMLElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-    };
-
-    const renderTreeNodeTitle = useCallback((nodeData: DataNode) => {
-        const treeNode = nodeData as RedisTreeDataNode;
-
-        if (treeNode.nodeType === 'group') {
-            const groupFullyChecked = isGroupFullyChecked(treeNode, selectedKeys);
-            const groupNodeKey = String(treeNode.key ?? '');
-            const isExpanded = expandedGroupKeys.includes(groupNodeKey);
-            const isTypeGroup = treeNode.groupKind === 'type';
-            return (
-                <div
-                    role="button"
-                    tabIndex={0}
-                    onMouseDown={stopTreeTitleEvent}
-                    onClick={(event) => {
-                        stopTreeTitleEvent(event);
-                        handleToggleGroupExpand(groupNodeKey);
-                    }}
-                    onKeyDown={(event) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') {
-                            return;
-                        }
-                        stopTreeTitleEvent(event);
-                        handleToggleGroupExpand(groupNodeKey);
-                    }}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        width: '100%',
-                        minWidth: 0,
-                        padding: '2px 0',
-                        cursor: 'pointer',
-                    }}
-                >
-                    <Space size={6} style={{ minWidth: 0, overflow: 'hidden' }}>
-                        <button
-                            type="button"
-                            className="redis-tree-expander-button"
-                            aria-label={isExpanded ? tr('redis_viewer.aria.collapse_group') : tr('redis_viewer.aria.expand_group')}
-                            onMouseDown={stopTreeTitleEvent}
-                            onClick={(event) => {
-                                stopTreeTitleEvent(event);
-                                handleToggleGroupExpand(groupNodeKey);
-                            }}
-                            style={{
-                                width: 18,
-                                height: 18,
-                                padding: 0,
-                                border: 'none',
-                                background: 'transparent',
-                                color: workbenchTheme.textMuted,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: 6,
-                                cursor: 'pointer',
-                                flexShrink: 0,
-                            }}
-                        >
-                            {isExpanded ? <DownOutlined style={{ fontSize: 11 }} /> : <RightOutlined style={{ fontSize: 11 }} />}
-                        </button>
-                        {isTypeGroup ? (
-                            <Tag
-                                color={getTypeColor(treeNode.groupName ?? 'unknown')}
-                                style={{ marginInlineEnd: 0, borderRadius: 999, fontWeight: 600, flexShrink: 0 }}
-                            >
-                                <TagsOutlined style={{ marginRight: 4 }} />
-                                {treeNode.groupName}
-                            </Tag>
-                        ) : (
-                            <>
-                                <FolderOpenOutlined style={{ color: workbenchTheme.textMuted }} />
-                                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {treeNode.groupName}
-                                </span>
-                            </>
-                        )}
-                        <span style={{ fontSize: 12, color: workbenchTheme.textMuted, flexShrink: 0 }}>({treeNode.groupLeafCount ?? 0})</span>
-                    </Space>
-                    <Space size={6} style={{ flexShrink: 0 }}>
-                        {treeNode.groupKind === 'namespace' && (
-                            <Tooltip title={tr('redis_viewer.action.filter_group')}>
-                                <Button
-                                    size="small"
-                                    className="redis-tree-group-filter-button"
-                                    aria-label={tr('redis_viewer.action.filter_group')}
-                                    icon={<SearchOutlined />}
-                                    style={{
-                                        width: 26,
-                                        height: 26,
-                                        padding: 0,
-                                        borderRadius: 999,
-                                        borderColor: workbenchTheme.actionSecondaryBorder,
-                                        background: workbenchTheme.actionSecondaryBg,
-                                        color: workbenchTheme.accent,
-                                        boxShadow: 'none',
-                                    }}
-                                    onMouseDown={stopTreeTitleEvent}
-                                    onClick={(event) => {
-                                        stopTreeTitleEvent(event);
-                                        handleFilterByGroup(treeNode);
-                                    }}
-                                />
-                            </Tooltip>
-                        )}
-                        <Button
-                            size="small"
-                            style={{
-                                paddingInline: 10,
-                                height: 26,
-                                borderRadius: 999,
-                                flexShrink: 0,
-                                borderColor: workbenchTheme.accentBorder,
-                                background: workbenchTheme.accentSoft,
-                                color: workbenchTheme.accent,
-                                fontWeight: 600,
-                            }}
-                            onMouseDown={stopTreeTitleEvent}
-                            onClick={(event) => {
-                                stopTreeTitleEvent(event);
-                                handleSelectGroupDescendants(treeNode);
-                            }}
-                        >
-                            {groupFullyChecked ? tr('redis_viewer.action.clear_group_selection') : tr('redis_viewer.action.select_group')}
-                        </Button>
-                    </Space>
-                </div>
-            );
-        }
-
-        const leafLabel = treeNode.leafLabel ?? '';
-        const rawKey = treeNode.rawKey ?? parseRawKeyFromNodeKey(treeNode.key ?? '') ?? '';
-        const keyType = treeNode.keyType ?? 'unknown';
-        const ttl = typeof treeNode.ttl === 'number' ? treeNode.ttl : -1;
-
-        if (isLargeKeyspace) {
-            return (
-                <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: workbenchTheme.textPrimary }}>
-                    <span>{leafLabel}</span>
-                    {keyViewMode !== 'type' && (
-                        <span style={{ marginLeft: 8, color: workbenchTheme.textMuted, fontSize: 12 }}>[{keyType}]</span>
-                    )}
-                    {showTreeKeyTTL && (
-                        <span style={{ marginLeft: 8, color: workbenchTheme.textMuted, fontSize: 12 }}>{formatTTL(ttl)}</span>
-                    )}
-                </div>
-            );
-        }
-
-        return (
-            <div
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    minWidth: 0,
-                    width: '100%',
-                    overflow: 'hidden',
-                }}
-            >
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        minWidth: 0,
-                        flex: 1,
-                        overflow: 'hidden',
-                    }}
-                >
-                    <KeyOutlined style={{ color: keyAccentColor, flexShrink: 0 }} />
-                    <Tooltip title={rawKey}>
-                        <span
-                            style={{
-                                minWidth: 0,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                display: 'block',
-                            }}
-                        >
-                            {leafLabel}
-                        </span>
-                    </Tooltip>
-                </div>
-                {keyViewMode !== 'type' && (
-                    <Tag
-                        color={getTypeColor(keyType)}
-                        style={{
-                            marginInlineEnd: 0,
-                            width: showTreeKeyTTL ? REDIS_TREE_KEY_TYPE_WIDTH : REDIS_TREE_KEY_TYPE_WIDTH_NARROW,
-                            textAlign: 'center',
-                            flexShrink: 0,
-                            borderRadius: 999,
-                            fontWeight: 600,
-                        }}
-                    >
-                        {keyType}
-                    </Tag>
-                )}
-                {showTreeKeyTTL && (
-                    <span
-                        style={{
-                            width: REDIS_TREE_KEY_TTL_WIDTH,
-                            fontSize: 12,
-                            color: workbenchTheme.textMuted,
-                            textAlign: 'left',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                        }}
-                    >
-                        {formatTTL(ttl)}
-                    </span>
-                )}
-            </div>
-        );
-    }, [expandedGroupKeys, formatTTL, getTypeColor, handleFilterByGroup, handleSelectGroupDescendants, handleToggleGroupExpand, isLargeKeyspace, keyAccentColor, keyViewMode, selectedKeys, showTreeKeyTTL, tr, workbenchTheme]);
-
-    const handleTreeExpand = (nextExpandedKeys: React.Key[]) => {
-        const validGroupKeys = nextExpandedKeys
-            .map(key => String(key))
-            .filter(nodeKey => groupKeySet.has(nodeKey));
-        if (isLargeKeyspace) {
-            updateExpandedGroupKeys(() => validGroupKeys.slice(0, REDIS_LARGE_KEYSPACE_MAX_EXPANDED_GROUPS));
-            return;
-        }
-        updateExpandedGroupKeys(() => validGroupKeys);
-    };
+    const {
+        tr,
+        darkMode,
+        connection,
+        workbenchTheme,
+        workbenchBackdropFilter,
+        keyAccentColor,
+        jsonAccentColor,
+        valueToolbarBg,
+        valueToolbarBorder,
+        valueToolbarText,
+        redisTopology,
+        redisSeedAddresses,
+        redisSentinelMaster,
+        importRestricted,
+        keys,
+        setKeys,
+        loading,
+        setLoading,
+        searchInput,
+        setSearchInput,
+        searchPattern,
+        setSearchPattern,
+        searchMode,
+        setSearchMode,
+        cursor,
+        setCursor,
+        hasMore,
+        setHasMore,
+        loadingAllKeys,
+        setLoadingAllKeys,
+        exportingScope,
+        setExportingScope,
+        importingKeys,
+        setImportingKeys,
+        selectedKey,
+        setSelectedKey,
+        keyValue,
+        setKeyValue,
+        listSortOrder,
+        setListSortOrder,
+        hashFieldFilter,
+        setHashFieldFilter,
+        hashValueFilter,
+        setHashValueFilter,
+        valueLoading,
+        setValueLoading,
+        editModalOpen,
+        setEditModalOpen,
+        newKeyModalOpen,
+        setNewKeyModalOpen,
+        newKeyForm,
+        renameKeyModalOpen,
+        setRenameKeyModalOpen,
+        renameKeyForm,
+        renameTargetKey,
+        setRenameTargetKey,
+        ttlModalOpen,
+        setTtlModalOpen,
+        ttlForm,
+        importModalOpen,
+        setImportModalOpen,
+        importPreviewLoading,
+        setImportPreviewLoading,
+        importConflictMode,
+        setImportConflictMode,
+        importPreview,
+        setImportPreview,
+        importSelectedKeys,
+        setImportSelectedKeys,
+        selectedKeys,
+        setSelectedKeys,
+        editValue,
+        setEditValue,
+        treeContextMenu,
+        setTreeContextMenu,
+        keyViewMode,
+        setKeyViewMode,
+        viewMode,
+        setViewMode,
+        jsonEditModalOpen,
+        setJsonEditModalOpen,
+        jsonEditConfig,
+        setJsonEditConfig,
+        jsonEditValueRef,
+        latestLoadRequestIdRef,
+        leftPanelWidth,
+        setLeftPanelWidth,
+        leftPanelRef,
+        treeContainerRef,
+        showTreeKeyTTL,
+        setShowTreeKeyTTL,
+        treeHeight,
+        setTreeHeight,
+        expandedTreeGroupKeys,
+        setExpandedTreeGroupKeys,
+        expandedTypeGroupKeys,
+        setExpandedTypeGroupKeys,
+    } = useRedisViewerState({ connectionId, redisDB });
+
+    const {
+        workbenchCardStyle,
+        workbenchSubCardStyle,
+        actionButtonStyle,
+        primaryActionButtonStyle,
+        dangerActionButtonStyle,
+        pillTagStyle,
+        mutedPillTagStyle,
+        redisModalContentStyle,
+        getConfig,
+    } = useRedisViewerStyles({ workbenchTheme, redisDB, connection });
+
+    const {
+        confirmRedisMutation,
+        loadKeys,
+        executeSearch,
+        handleSearch,
+        handleSearchInputChange,
+        handleSearchModeChange,
+        handleLoadMore,
+        handleLoadAllKeys,
+        handleRefresh,
+        handleSelectAllLoadedKeys,
+        handleClearAllSelectedKeys,
+    } = useRedisViewerKeyLoading({
+        connection,
+        tr,
+        getConfig,
+        redisTopology,
+        latestLoadRequestIdRef,
+        setLoading,
+        setLoadingAllKeys,
+        setKeys,
+        setCursor,
+        setHasMore,
+        redisDB,
+        searchPattern,
+        searchMode,
+        setSearchInput,
+        setSearchPattern,
+        setSearchMode,
+        searchInput,
+        hasMore,
+        loading,
+        cursor,
+        setSelectedKeys,
+        keys,
+    });
+
+    const {
+        handleExportKeys,
+        resetImportModalState,
+        handleChooseImportFile,
+        handleOpenImportModal,
+        handleConfirmImportKeys,
+        importSelectedKeySet,
+        handleToggleImportPreviewKey,
+        handleSelectAllImportPreviewKeys,
+        handleClearImportPreviewSelection,
+        removeMissingKeyFromView,
+    } = useRedisViewerImportExport({
+        getConfig,
+        selectedKeys,
+        tr,
+        setExportingScope,
+        searchPattern,
+        setImportModalOpen,
+        setImportPreview,
+        setImportSelectedKeys,
+        setImportPreviewLoading,
+        setImportConflictMode,
+        redisDB,
+        importPreview,
+        importSelectedKeys,
+        confirmRedisMutation,
+        setImportingKeys,
+        importConflictMode,
+        setSelectedKeys,
+        setSelectedKey,
+        setKeyValue,
+        setListSortOrder,
+        setCursor,
+        loadKeys,
+        redisTopology,
+        searchMode,
+        setKeys,
+    });
+
+    const {
+        loadKeyValue,
+        handleDeleteKeys,
+        handleDeleteCurrentKey,
+        handleSetTTL,
+        handleSaveString,
+        handleCreateKey,
+        openRenameKeyModal,
+        handleRenameKey,
+        getTypeColor,
+        formatTTL,
+    } = useRedisViewerKeyActions({
+        listSortOrder,
+        setListSortOrder,
+        getConfig,
+        setValueLoading,
+        setKeyValue,
+        setSelectedKey,
+        removeMissingKeyFromView,
+        tr,
+        redisDB,
+        confirmRedisMutation,
+        setKeys,
+        selectedKey,
+        setSelectedKeys,
+        ttlForm,
+        setTtlModalOpen,
+        handleRefresh,
+        editValue,
+        keyValue,
+        setEditModalOpen,
+        newKeyForm,
+        setNewKeyModalOpen,
+        setTreeContextMenu,
+        setRenameTargetKey,
+        renameKeyForm,
+        setRenameKeyModalOpen,
+        renameTargetKey,
+        keys,
+        selectedKeys,
+    });
+
+    const {
+        isLargeKeyspace,
+        shouldVirtualizeKeyTree,
+        keyTree,
+        expandedGroupKeys,
+        selectedTreeNodeKeys,
+        checkedTreeNodeKeys,
+        handleTreeSelect,
+        handleTreeCheck,
+        handleTreeRightClick,
+        handleKeyViewModeChange,
+        renderTreeNodeTitle,
+        handleTreeExpand,
+    } = useRedisViewerKeyTree({
+        leftPanelRef,
+        setShowTreeKeyTTL,
+        treeContainerRef,
+        setTreeHeight,
+        keys,
+        keyViewMode,
+        expandedTreeGroupKeys,
+        expandedTypeGroupKeys,
+        setExpandedTreeGroupKeys,
+        setExpandedTypeGroupKeys,
+        selectedKey,
+        selectedKeys,
+        setSelectedKeys,
+        treeContextMenu,
+        setTreeContextMenu,
+        loadKeyValue,
+        setKeyViewMode,
+        setSearchMode,
+        executeSearch,
+        tr,
+        workbenchTheme,
+        getTypeColor,
+        showTreeKeyTTL,
+        formatTTL,
+        keyAccentColor,
+    });
 
     const renderValueEditor = () => {
-        const processValueForCurrentView = (value: string) => {
-            if (viewMode === 'hex') {
-                return { displayValue: toHexDisplay(value), isBinary: true, isJson: false, encoding: 'HEX' };
-            }
-
-            if (viewMode === 'text') {
-                return { displayValue: value, isBinary: false, isJson: false, encoding: 'Text' };
-            }
-
-            if (viewMode === 'utf8') {
-                return { displayValue: decodeRedisUtf8Value(value), isBinary: false, isJson: false, encoding: 'UTF-8' };
-            }
-
-            return formatRedisStringValue(value);
-        };
+        const { processValueForCurrentView } = createRedisValueFormatter({ viewMode });
 
         if (!keyValue || !selectedKey) {
             return (
@@ -1521,884 +326,94 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
             );
         }
 
-        const renderStringValue = () => {
-            const strValue = String(keyValue.value);
-            const { displayValue, isBinary, isJson, encoding } = processValueForCurrentView(strValue);
+        const { renderStringValue } = createRedisStringValueView({
+            keyValue,
+            valueToolbarBg,
+            valueToolbarBorder,
+            valueToolbarText,
+            tr,
+            darkMode,
+            viewMode,
+            setEditValue,
+            setEditModalOpen,
+            processValueForCurrentView,
+        });
 
-            return (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div className={'gn-v2-redis-value-subtoolbar'} style={{
-                        padding: '4px 8px',
-                        background: valueToolbarBg,
-                        borderBottom: valueToolbarBorder,
-                        display: 'flex',
-                        alignItems: 'center'
-                    }}>
-                        <span style={{ fontSize: 12, color: valueToolbarText }}>
-                            {encoding && tr('redis_viewer.label.encoding', { encoding })}
-                        </span>
-                    </div>
-                    <Editor
-                        height="calc(100% - 72px)"
-                        gonaviTypography="data"
-                        language={isJson ? 'json' : 'plaintext'}
-                        theme={darkMode ? 'transparent-dark' : 'transparent-light'}
-                        value={displayValue}
-                        options={{
-                            readOnly: true,
-                            minimap: { enabled: false },
-                            lineNumbers: 'on',
-                            wordWrap: isBinary ? 'off' : 'on',
-                            scrollBeyondLastLine: false,
-                            automaticLayout: true,
-                            folding: true,
-                            formatOnPaste: true,
-                        }}
-                    />
-                    <div style={{ padding: '8px 0', flexShrink: 0 }}>
-                        <Space>
-                            <Button icon={<CopyOutlined />} onClick={() => {
-                                navigator.clipboard.writeText(strValue).then(() => {
-                                    message.success(tr('redis_viewer.message.copied'));
-                                }).catch(() => {
-                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                });
-                            }}>{tr('redis_viewer.action.copy')}</Button>
-                            {!isBinary && viewMode === 'auto' && (
-                                <Button icon={<EditOutlined />} onClick={() => {
-                                    setEditValue(displayValue);
-                                    setEditModalOpen(true);
-                                }}>{tr('redis_viewer.action.edit')}</Button>
-                            )}
-                            {(isBinary || viewMode !== 'auto') && (
-                                <span style={{ color: '#999', fontSize: 12 }}>
-                                    {viewMode !== 'auto' ? tr('redis_viewer.hint.switch_auto_to_edit') : tr('redis_viewer.hint.binary_readonly')}
-                                </span>
-                            )}
-                        </Space>
-                    </div>
-                </div>
-            );
-        };
+        const { renderHashValue } = createRedisHashValueView({
+            hashFieldFilter,
+            hashValueFilter,
+            keyValue,
+            getConfig,
+            confirmRedisMutation,
+            redisDB,
+            selectedKey,
+            loadKeyValue,
+            tr,
+            actionButtonStyle,
+            setHashFieldFilter,
+            setHashValueFilter,
+            jsonAccentColor,
+            jsonEditValueRef,
+            setJsonEditConfig,
+            setJsonEditModalOpen,
+            processValueForCurrentView,
+        });
 
-        const renderHashValue = () => {
-            const fieldQuery = hashFieldFilter.trim().toLowerCase();
-            const valueQuery = hashValueFilter.trim().toLowerCase();
-            const hasFilter = fieldQuery !== '' || valueQuery !== '';
-            const allEntries = Object.entries(keyValue.value as Record<string, string>);
-            const filteredEntries = hasFilter
-                ? allEntries.filter(([field, value]) => (
-                    (fieldQuery === '' || field.toLowerCase().includes(fieldQuery))
-                    && (valueQuery === '' || value.toLowerCase().includes(valueQuery))
-                ))
-                : allEntries;
-            const data = filteredEntries.map(([field, value]) => {
-                const { displayValue, isBinary, isJson, encoding } = processValueForCurrentView(value);
-                return { field, value, displayValue, isBinary, isJson, encoding };
-            });
+        const { renderListValue } = createRedisListValueView({
+            keyValue,
+            listSortOrder,
+            getConfig,
+            confirmRedisMutation,
+            redisDB,
+            selectedKey,
+            loadKeyValue,
+            tr,
+            actionButtonStyle,
+            jsonAccentColor,
+            jsonEditValueRef,
+            setJsonEditConfig,
+            setJsonEditModalOpen,
+            processValueForCurrentView,
+        });
 
-            const handleEditHashField = async (field: string, newValue: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey} / ${field}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisSetHashField(buildRpcConnectionConfig(config), selectedKey, field, newValue);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.update_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.update_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.update_failed', { detail: e?.message || String(e) }));
-                }
-            };
+        const { renderSetValue } = createRedisSetValueView({
+            keyValue,
+            getConfig,
+            confirmRedisMutation,
+            redisDB,
+            selectedKey,
+            loadKeyValue,
+            tr,
+            actionButtonStyle,
+            jsonAccentColor,
+            processValueForCurrentView,
+        });
 
-            const handleDeleteHashField = async (field: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey} / ${field}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisDeleteHashField(buildRpcConnectionConfig(config), selectedKey, [field]);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.delete_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.delete_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.delete_failed', { detail: e?.message || String(e) }));
-                }
-            };
+        const { renderZSetValue } = createRedisZSetValueView({
+            keyValue,
+            getConfig,
+            confirmRedisMutation,
+            redisDB,
+            selectedKey,
+            loadKeyValue,
+            tr,
+            actionButtonStyle,
+            jsonAccentColor,
+            processValueForCurrentView,
+        });
 
-            return (
-                <div className={'gn-v2-redis-data-section'} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div className={'gn-v2-redis-value-actionbar'} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <Button size="small" style={actionButtonStyle} icon={<PlusOutlined />} onClick={() => {
-                            Modal.confirm({
-                                title: tr('redis_viewer.modal.add_field'),
-                                content: (
-                                    <Form id="add-hash-field-form" layout="vertical">
-	                                        <Form.Item label={tr('redis_viewer.field.field_name')} name="field" rules={[{ required: true }]}>
-	                                            <Input id="new-hash-field" {...noAutoCapInputProps} />
-	                                        </Form.Item>
-                                        <Form.Item label={tr('redis_viewer.field.value')} name="value" rules={[{ required: true }]}>
-                                            <Input.TextArea id="new-hash-value" rows={4} />
-                                        </Form.Item>
-                                    </Form>
-                                ),
-                                onOk: async () => {
-                                    const field = (document.getElementById('new-hash-field') as HTMLInputElement)?.value;
-                                    const value = (document.getElementById('new-hash-value') as HTMLTextAreaElement)?.value;
-                                    if (field && value !== undefined) {
-                                        await handleEditHashField(field, value);
-                                    }
-                                }
-                            });
-                        }}>{tr('redis_viewer.action.add_field')}</Button>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 420px', minWidth: 0, flexWrap: 'wrap' }}>
-                            <Input
-                                {...noAutoCapInputProps}
-                                data-redis-hash-field-filter="true"
-                                size="small"
-                                allowClear
-                                prefix={<SearchOutlined />}
-                                value={hashFieldFilter}
-                                aria-label={tr('redis_viewer.placeholder.filter_field')}
-                                placeholder={tr('redis_viewer.placeholder.filter_field')}
-                                onChange={(event) => setHashFieldFilter(event.target.value)}
-                                style={{ flex: '1 1 180px', maxWidth: 260 }}
-                            />
-                            <Input
-                                {...noAutoCapInputProps}
-                                data-redis-hash-value-filter="true"
-                                size="small"
-                                allowClear
-                                prefix={<SearchOutlined />}
-                                value={hashValueFilter}
-                                aria-label={tr('redis_viewer.placeholder.filter_value')}
-                                placeholder={tr('redis_viewer.placeholder.filter_value')}
-                                onChange={(event) => setHashValueFilter(event.target.value)}
-                                style={{ flex: '1 1 180px', maxWidth: 320 }}
-                            />
-                        </div>
-                    </div>
-                    <RedisValueTable
-                        totalCount={data.length}
-                        totalLabel={hasFilter
-                            ? tr('redis_viewer.pagination.filtered_total', { matched: data.length, total: allEntries.length })
-                            : tr('redis_viewer.pagination.total', { count: allEntries.length })}
-                        paginationResetKey={`${selectedKey}\u0000${hashFieldFilter}\u0000${hashValueFilter}`}
-                        dataSource={data}
-                        columns={[
-                            { title: tr('redis_viewer.table.field'), dataIndex: 'field', key: 'field', width: 200, ellipsis: true },
-                            {
-                                title: tr('redis_viewer.table.value'),
-                                dataIndex: 'displayValue',
-                                key: 'value',
-                                ellipsis: true,
-                                render: (text: string, record: any) => {
-                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
-                                        ? `[${record.encoding}]\n${text}`
-                                        : text;
-
-                                    return (
-                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
-                                            <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
-                                                fontFamily: record.isBinary ? 'var(--gn-font-mono)' : undefined,
-                                                fontSize: record.isBinary ? 11 : undefined
-                                            }}>
-                                                {text}
-                                            </span>
-                                        </Tooltip>
-                                    );
-                                }
-                            },
-                            {
-                                title: tr('redis_viewer.table.action'),
-                                key: 'action',
-                                width: 120,
-                                render: (_: any, record: any) => (
-                                    <Space size="small">
-                                        <Tooltip title={tr('redis_viewer.tooltip.copy_value')}>
-                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                                                navigator.clipboard.writeText(record.value).then(() => {
-                                                    message.success(tr('redis_viewer.message.copied'));
-                                                }).catch(() => {
-                                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                                });
-                                            }} />
-                                        </Tooltip>
-                                        {!record.isBinary && (
-                                            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => {
-                                                const editContent = record.isJson ? record.displayValue : record.value;
-                                                jsonEditValueRef.current = editContent;
-                                                setJsonEditConfig({
-                                                    mode: 'edit',
-                                                    title: tr('redis_viewer.modal.edit_field', { field: record.field }),
-                                                    value: editContent,
-                                                    isJson: record.isJson,
-                                                    onSave: async (newValue: string) => {
-                                                        await handleEditHashField(record.field, newValue);
-                                                    }
-                                                });
-                                                setJsonEditModalOpen(true);
-                                            }} />
-                                        )}
-                                        <Popconfirm title={tr('redis_viewer.confirm.delete_field')} onConfirm={() => handleDeleteHashField(record.field)}>
-                                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                                        </Popconfirm>
-                                    </Space>
-                                )
-                            }
-                        ]}
-                        rowKey="field"
-                    />
-                </div>
-            );
-        };
-
-        const renderListValue = () => {
-            const data = (keyValue.value as string[]).map((value, position) => {
-                const index = listSortOrder === 'descend'
-                    ? keyValue.length - position - 1
-                    : position;
-                const { displayValue, isBinary, isJson, encoding } = processValueForCurrentView(value);
-                return { index, value, displayValue, isBinary, isJson, encoding };
-            });
-
-            const handleEditListItem = async (index: number, newValue: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey} / ${index}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisListSet(buildRpcConnectionConfig(config), selectedKey, index, newValue);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.update_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.update_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.update_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            const handleAddListItem = async (value: string, position: 'left' | 'right') => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-                try {
-                    const res = await RedisListPush(buildRpcConnectionConfig(config), selectedKey, { values: [value], position });
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.add_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.add_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.add_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            const handleDeleteListItem = async (index: number, value: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey} / ${index}`)) return;
-                try {
-                    const res = await RedisListRemove(buildRpcConnectionConfig(config), selectedKey, index, value);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.delete_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.delete_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.delete_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            return (
-                <div className={'gn-v2-redis-data-section'} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div className={'gn-v2-redis-value-actionbar'} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Space>
-                            <Button size="small" style={actionButtonStyle} icon={<PlusOutlined />} onClick={() => {
-                                Modal.confirm({
-                                    title: tr('redis_viewer.modal.add_element'),
-                                    content: (
-                                        <div>
-                                            <Input.TextArea id="new-list-value" rows={4} placeholder={tr('redis_viewer.placeholder.new_element_value')} />
-                                        </div>
-                                    ),
-                                    onOk: async () => {
-                                        const value = (document.getElementById('new-list-value') as HTMLTextAreaElement)?.value;
-                                        if (value) {
-                                            await handleAddListItem(value, 'right');
-                                        }
-                                    }
-                                });
-                            }}>{tr('redis_viewer.action.add_list_tail')}</Button>
-                            <Button size="small" style={actionButtonStyle} onClick={() => {
-                                Modal.confirm({
-                                    title: tr('redis_viewer.modal.add_element_head'),
-                                    content: (
-                                        <div>
-                                            <Input.TextArea id="new-list-value-left" rows={4} placeholder={tr('redis_viewer.placeholder.new_element_value')} />
-                                        </div>
-                                    ),
-                                    onOk: async () => {
-                                        const value = (document.getElementById('new-list-value-left') as HTMLTextAreaElement)?.value;
-                                        if (value) {
-                                            await handleAddListItem(value, 'left');
-                                        }
-                                    }
-                                });
-                            }}>{tr('redis_viewer.action.add_list_head')}</Button>
-                        </Space>
-                    </div>
-                    <RedisValueTable
-                        totalCount={keyValue.length}
-                        totalLabel={tr('redis_viewer.pagination.total', { count: keyValue.length })}
-                        dataSource={data}
-                        columns={[
-                            {
-                                title: tr('redis_viewer.table.index'),
-                                dataIndex: 'index',
-                                key: 'index',
-                                width: 80,
-                                sorter: (left: { index: number }, right: { index: number }) => left.index - right.index,
-                                sortDirections: ['descend', 'ascend'],
-                                sortOrder: listSortOrder,
-                            },
-                            {
-                                title: tr('redis_viewer.table.value'),
-                                dataIndex: 'displayValue',
-                                key: 'value',
-                                ellipsis: true,
-                                render: (text: string, record: any) => {
-                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
-                                        ? `[${record.encoding}]\n${text}`
-                                        : text;
-
-                                    return (
-                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
-                                            <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
-                                                fontFamily: record.isBinary ? 'var(--gn-font-mono)' : undefined,
-                                                fontSize: record.isBinary ? 11 : undefined
-                                            }}>
-                                                {text}
-                                            </span>
-                                        </Tooltip>
-                                    );
-                                }
-                            },
-                            {
-                                title: tr('redis_viewer.table.action'),
-                                key: 'action',
-                                width: 160,
-                                render: (_: any, record: any) => (
-                                    <Space size="small">
-                                        <Tooltip title={tr('redis_viewer.tooltip.copy_value')}>
-                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                                                navigator.clipboard.writeText(record.value).then(() => {
-                                                    message.success(tr('redis_viewer.message.copied'));
-                                                }).catch(() => {
-                                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                                });
-                                            }} />
-                                        </Tooltip>
-                                        <Tooltip title={tr('redis_viewer.tooltip.view_value')}>
-                                            <Button
-                                                type="text"
-                                                size="small"
-                                                aria-label={tr('redis_viewer.tooltip.view_value')}
-                                                icon={<EyeOutlined />}
-                                                onClick={() => {
-                                                    const viewContent = record.isJson ? record.displayValue : record.value;
-                                                    jsonEditValueRef.current = viewContent;
-                                                    setJsonEditConfig({
-                                                        mode: 'view',
-                                                        title: tr('redis_viewer.modal.view_index', { index: record.index }),
-                                                        value: viewContent,
-                                                        isJson: record.isJson,
-                                                    });
-                                                    setJsonEditModalOpen(true);
-                                                }}
-                                            />
-                                        </Tooltip>
-                                        {!record.isBinary && (
-                                            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => {
-                                                const editContent = record.isJson ? record.displayValue : record.value;
-                                                jsonEditValueRef.current = editContent;
-                                                setJsonEditConfig({
-                                                    mode: 'edit',
-                                                    title: tr('redis_viewer.modal.edit_index', { index: record.index }),
-                                                    value: editContent,
-                                                    isJson: record.isJson,
-                                                    onSave: async (newValue: string) => {
-                                                        await handleEditListItem(record.index, newValue);
-                                                    }
-                                                });
-                                                setJsonEditModalOpen(true);
-                                            }} />
-                                        )}
-                                        <Popconfirm title={tr('redis_viewer.confirm.delete_list_item')} onConfirm={() => handleDeleteListItem(record.index, record.value)}>
-                                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                                        </Popconfirm>
-                                    </Space>
-                                )
-                            }
-                        ]}
-                        rowKey="index"
-                        onChange={(_pagination, _filters, sorter) => {
-                            const nextOrder = Array.isArray(sorter)
-                                ? null
-                                : (sorter.order || null) as RedisListSortOrder;
-                            if (nextOrder !== listSortOrder) {
-                                void loadKeyValue(selectedKey, nextOrder);
-                            }
-                        }}
-                    />
-                </div>
-            );
-        };
-
-        const renderSetValue = () => {
-            const data = (keyValue.value as string[]).map((member, index) => {
-                const { displayValue, isBinary, isJson, encoding } = processValueForCurrentView(member);
-                return { index, member, displayValue, isBinary, isJson, encoding };
-            });
-
-            const handleAddSetMember = async (member: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisSetAdd(buildRpcConnectionConfig(config), selectedKey, [member]);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.add_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.add_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.add_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            const handleRemoveSetMember = async (member: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisSetRemove(buildRpcConnectionConfig(config), selectedKey, [member]);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.delete_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.delete_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.delete_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            return (
-                <div className={'gn-v2-redis-data-section'} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div className={'gn-v2-redis-value-actionbar'} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Button size="small" style={actionButtonStyle} icon={<PlusOutlined />} onClick={() => {
-                            Modal.confirm({
-                                title: tr('redis_viewer.modal.add_member'),
-                                content: (
-                                    <Input.TextArea id="new-set-member" rows={4} placeholder={tr('redis_viewer.placeholder.new_member_value')} />
-                                ),
-                                onOk: async () => {
-                                    const member = (document.getElementById('new-set-member') as HTMLTextAreaElement)?.value;
-                                    if (member) {
-                                        await handleAddSetMember(member);
-                                    }
-                                }
-                            });
-                        }}>{tr('redis_viewer.action.add_member')}</Button>
-                    </div>
-                    <RedisValueTable
-                        totalCount={keyValue.length}
-                        totalLabel={tr('redis_viewer.pagination.total', { count: keyValue.length })}
-                        dataSource={data}
-                        columns={[
-                            {
-                                title: tr('redis_viewer.table.member'),
-                                dataIndex: 'displayValue',
-                                key: 'member',
-                                ellipsis: true,
-                                render: (text: string, record: any) => {
-                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
-                                        ? `[${record.encoding}]\n${text}`
-                                        : text;
-
-                                    return (
-                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
-                                            <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
-                                                fontFamily: record.isBinary ? 'var(--gn-font-mono)' : undefined,
-                                                fontSize: record.isBinary ? 11 : undefined
-                                            }}>
-                                                {text}
-                                            </span>
-                                        </Tooltip>
-                                    );
-                                }
-                            },
-                            {
-                                title: tr('redis_viewer.table.action'),
-                                key: 'action',
-                                width: 80,
-                                render: (_: any, record: any) => (
-                                    <Space size="small">
-                                        <Tooltip title={tr('redis_viewer.tooltip.copy_value')}>
-                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                                                navigator.clipboard.writeText(record.member).then(() => {
-                                                    message.success(tr('redis_viewer.message.copied'));
-                                                }).catch(() => {
-                                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                                });
-                                            }} />
-                                        </Tooltip>
-                                        <Popconfirm title={tr('redis_viewer.confirm.delete_member')} onConfirm={() => handleRemoveSetMember(record.member)}>
-                                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                                        </Popconfirm>
-                                    </Space>
-                                )
-                            }
-                        ]}
-                        rowKey="index"
-                    />
-                </div>
-            );
-        };
-
-        const renderZSetValue = () => {
-            const data = (keyValue.value as Array<{ member: string; score: number }>).map((item, index) => {
-                const { displayValue, isBinary, isJson, encoding } = processValueForCurrentView(item.member);
-                return { ...item, index, displayMember: displayValue, isBinary, isJson, encoding };
-            });
-
-            const handleAddZSetMember = async (member: string, score: number) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisZSetAdd(buildRpcConnectionConfig(config), selectedKey, [{ member, score }]);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.add_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.add_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.add_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            const handleRemoveZSetMember = async (member: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-                try {
-                    const res = await (window as any).go.app.App.RedisZSetRemove(buildRpcConnectionConfig(config), selectedKey, [member]);
-                    if (res.success) {
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.delete_success'));
-                    } else {
-                        message.error(tr('redis_viewer.message.delete_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.delete_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            return (
-                <div className={'gn-v2-redis-data-section'} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div className={'gn-v2-redis-value-actionbar'} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Button size="small" style={actionButtonStyle} icon={<PlusOutlined />} onClick={() => {
-                            Modal.confirm({
-                                title: tr('redis_viewer.modal.add_member'),
-                                content: (
-                                    <div>
-                                        <div style={{ marginBottom: 8 }}>
-                                            <label>{tr('redis_viewer.field.score')}</label>
-                                            <InputNumber id="new-zset-score" defaultValue={0} style={{ width: '100%' }} />
-                                        </div>
-                                        <div>
-                                            <label>{tr('redis_viewer.field.member')}</label>
-                                            <Input.TextArea id="new-zset-member" rows={4} placeholder={tr('redis_viewer.placeholder.member_value')} />
-                                        </div>
-                                    </div>
-                                ),
-                                onOk: async () => {
-                                    const score = parseFloat((document.getElementById('new-zset-score') as HTMLInputElement)?.value || '0');
-                                    const member = (document.getElementById('new-zset-member') as HTMLTextAreaElement)?.value;
-                                    if (member) {
-                                        await handleAddZSetMember(member, score);
-                                    }
-                                }
-                            });
-                        }}>{tr('redis_viewer.action.add_member')}</Button>
-                    </div>
-                    <RedisValueTable
-                        totalCount={keyValue.length}
-                        totalLabel={tr('redis_viewer.pagination.total', { count: keyValue.length })}
-                        dataSource={data}
-                        columns={[
-                            { title: tr('redis_viewer.table.score'), dataIndex: 'score', key: 'score', width: 120 },
-                            {
-                                title: tr('redis_viewer.table.member'),
-                                dataIndex: 'displayMember',
-                                key: 'member',
-                                ellipsis: true,
-                                render: (text: string, record: any) => {
-                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
-                                        ? `[${record.encoding}]\n${text}`
-                                        : text;
-
-                                    return (
-                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
-                                            <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
-                                                fontFamily: record.isBinary ? 'var(--gn-font-mono)' : undefined,
-                                                fontSize: record.isBinary ? 11 : undefined
-                                            }}>
-                                                {text}
-                                            </span>
-                                        </Tooltip>
-                                    );
-                                }
-                            },
-                            {
-                                title: tr('redis_viewer.table.action'),
-                                key: 'action',
-                                width: 120,
-                                render: (_: any, record: any) => (
-                                    <Space size="small">
-                                        <Tooltip title={tr('redis_viewer.tooltip.copy_value')}>
-                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                                                navigator.clipboard.writeText(record.member).then(() => {
-                                                    message.success(tr('redis_viewer.message.copied'));
-                                                }).catch(() => {
-                                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                                });
-                                            }} />
-                                        </Tooltip>
-                                        {!record.isBinary && (
-                                            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => {
-                                                Modal.confirm({
-                                                    title: tr('redis_viewer.modal.update_score'),
-                                                    content: (
-                                                        <div>
-                                                            <label>{tr('redis_viewer.field.new_score')}</label>
-                                                            <InputNumber id="edit-zset-score" defaultValue={record.score} style={{ width: '100%' }} />
-                                                        </div>
-                                                    ),
-                                                    onOk: async () => {
-                                                        const newScore = parseFloat((document.getElementById('edit-zset-score') as HTMLInputElement)?.value || '0');
-                                                        await handleAddZSetMember(record.member, newScore);
-                                                    }
-                                                });
-                                            }} />
-                                        )}
-                                        <Popconfirm title={tr('redis_viewer.confirm.delete_member')} onConfirm={() => handleRemoveZSetMember(record.member)}>
-                                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                                        </Popconfirm>
-                                    </Space>
-                                )
-                            }
-                        ]}
-                        rowKey="index"
-                    />
-                </div>
-            );
-        };
-
-        const renderStreamValue = () => {
-            const data = (keyValue.value as StreamEntry[]).map((item, index) => {
-                const rawFieldsText = JSON.stringify(item.fields ?? {}, null, 2);
-                const { displayValue, isBinary, isJson, encoding } = processValueForCurrentView(rawFieldsText);
-                return {
-                    index,
-                    id: item.id,
-                    rawFieldsText,
-                    displayFields: displayValue,
-                    isBinary,
-                    isJson,
-                    encoding,
-                };
-            });
-
-            const handleAddStreamEntry = async (fieldsText: string, id: string) => {
-                const config = getConfig();
-                if (!config) return;
-
-                let parsed: unknown;
-                try {
-                    parsed = JSON.parse(fieldsText);
-                } catch (e) {
-                    message.error(tr('redis_viewer.message.fields_json_invalid'));
-                    return;
-                }
-
-                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                    message.error(tr('redis_viewer.message.fields_must_be_json_object'));
-                    return;
-                }
-
-                const fieldMap: Record<string, string> = {};
-                Object.entries(parsed as Record<string, unknown>).forEach(([field, value]) => {
-                    fieldMap[field] = value == null ? '' : String(value);
-                });
-
-                if (Object.keys(fieldMap).length === 0) {
-                    message.error(tr('redis_viewer.message.fields_required'));
-                    return;
-                }
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey}`)) return;
-
-                try {
-                    const res = await (window as any).go.app.App.RedisStreamAdd(buildRpcConnectionConfig(config), selectedKey, fieldMap, id || '*');
-                    if (res.success) {
-                        const newID = res.data?.id ? ` (${res.data.id})` : '';
-                        await loadKeyValue(selectedKey);
-                        message.success(tr('redis_viewer.message.add_success_with_id', { id: newID }));
-                    } else {
-                        message.error(tr('redis_viewer.message.add_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.add_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            const handleDeleteStreamEntry = async (id: string) => {
-                const config = getConfig();
-                if (!config) return;
-                if (!await confirmRedisMutation(`db${redisDB} / ${selectedKey} / ${id}`)) return;
-
-                try {
-                    const res = await (window as any).go.app.App.RedisStreamDelete(buildRpcConnectionConfig(config), selectedKey, [id]);
-                    if (res.success) {
-                        const deleted = Number(res.data?.deleted ?? 0);
-                        await loadKeyValue(selectedKey);
-                        if (deleted > 0) {
-                            message.success(tr('redis_viewer.message.delete_success'));
-                        } else {
-                            message.warning(tr('redis_viewer.message.stream_entry_not_deleted'));
-                        }
-                    } else {
-                        message.error(tr('redis_viewer.message.delete_failed', { detail: res.message }));
-                    }
-                } catch (e: any) {
-                    message.error(tr('redis_viewer.message.delete_failed', { detail: e?.message || String(e) }));
-                }
-            };
-
-            return (
-                <div className={'gn-v2-redis-data-section'} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div className={'gn-v2-redis-value-actionbar'} style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Button size="small" style={actionButtonStyle} icon={<PlusOutlined />} onClick={() => {
-                            Modal.confirm({
-                                title: tr('redis_viewer.modal.add_stream_entry'),
-                                width: 680,
-                                content: (
-                                    <div>
-                                        <div style={{ marginBottom: 8 }}>
-                                            <label>{tr('redis_viewer.field.stream_id')}</label>
-	                                            <Input id="new-stream-id" {...noAutoCapInputProps} placeholder={tr('redis_viewer.placeholder.stream_id')} />
-                                        </div>
-                                        <div>
-                                            <label>{tr('redis_viewer.field.fields_json')}</label>
-                                            <Input.TextArea id="new-stream-fields" rows={8} defaultValue={'{\n  "field": "value"\n}'} />
-                                        </div>
-                                    </div>
-                                ),
-                                onOk: async () => {
-                                    const id = (document.getElementById('new-stream-id') as HTMLInputElement)?.value?.trim() || '*';
-                                    const fieldsText = (document.getElementById('new-stream-fields') as HTMLTextAreaElement)?.value || '{}';
-                                    await handleAddStreamEntry(fieldsText, id);
-                                }
-                            });
-                        }}>{tr('redis_viewer.action.add_stream_entry')}</Button>
-                    </div>
-                    <RedisValueTable
-                        totalCount={keyValue.length}
-                        totalLabel={tr('redis_viewer.pagination.total', { count: keyValue.length })}
-                        dataSource={data}
-                        columns={[
-                            {
-                                title: 'ID',
-                                dataIndex: 'id',
-                                key: 'id',
-                                width: 240,
-                                ellipsis: true,
-                            },
-                            {
-                                title: tr('redis_viewer.table.fields'),
-                                dataIndex: 'displayFields',
-                                key: 'fields',
-                                ellipsis: true,
-                                render: (text: string, record: any) => {
-                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
-                                        ? `[${record.encoding}]\n${text}`
-                                        : text;
-
-                                    return (
-                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 720 } }}>
-                                            <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
-                                                fontFamily: record.isBinary ? 'var(--gn-font-mono)' : undefined,
-                                                fontSize: record.isBinary ? 11 : undefined
-                                            }}>
-                                                {text}
-                                            </span>
-                                        </Tooltip>
-                                    );
-                                }
-                            },
-                            {
-                                title: tr('redis_viewer.table.action'),
-                                key: 'action',
-                                width: 140,
-                                render: (_: any, record: any) => (
-                                    <Space size="small">
-                                        <Tooltip title={tr('redis_viewer.tooltip.copy_id')}>
-                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                                                navigator.clipboard.writeText(record.id).then(() => {
-                                                    message.success(tr('redis_viewer.message.copied'));
-                                                }).catch(() => {
-                                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                                });
-                                            }} />
-                                        </Tooltip>
-                                        <Tooltip title={tr('redis_viewer.tooltip.copy_fields_json')}>
-                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                                                navigator.clipboard.writeText(record.rawFieldsText).then(() => {
-                                                    message.success(tr('redis_viewer.message.copied'));
-                                                }).catch(() => {
-                                                    message.error(tr('redis_viewer.message.copy_failed'));
-                                                });
-                                            }} />
-                                        </Tooltip>
-                                        <Popconfirm title={tr('redis_viewer.confirm.delete_stream_entry')} onConfirm={() => handleDeleteStreamEntry(record.id)}>
-                                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                                        </Popconfirm>
-                                    </Space>
-                                )
-                            }
-                        ]}
-                        rowKey="id"
-                    />
-                </div>
-            );
-        };
+        const { renderStreamValue } = createRedisStreamValueView({
+            keyValue,
+            getConfig,
+            tr,
+            confirmRedisMutation,
+            redisDB,
+            selectedKey,
+            loadKeyValue,
+            actionButtonStyle,
+            jsonAccentColor,
+            processValueForCurrentView,
+        });
 
         return (
             <div className={'gn-v2-redis-value-layout'} style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2475,19 +490,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         return <div style={{ padding: 20 }}>{tr('redis_viewer.state.connection_not_found')}</div>;
     }
 
-    const keyViewOptions: Array<{ mode: RedisKeyViewMode; label: string; icon: React.ReactNode }> = [
-        { mode: 'tree', label: tr('redis_viewer.key_view.tree'), icon: <PartitionOutlined /> },
-        { mode: 'list', label: tr('redis_viewer.key_view.list'), icon: <UnorderedListOutlined /> },
-        { mode: 'type', label: tr('redis_viewer.key_view.type'), icon: <TagsOutlined /> },
-    ];
-    const keyColumnTitle = keyViewMode === 'tree'
-        ? tr('redis_viewer.title.namespace_key')
-        : keyViewMode === 'type'
-            ? tr('redis_viewer.title.type_key')
-            : tr('redis_viewer.field.key');
-    const keyMetaColumnTitle = keyViewMode === 'type'
-        ? (showTreeKeyTTL ? tr('redis_viewer.title.ttl') : '')
-        : (showTreeKeyTTL ? tr('redis_viewer.title.type_ttl') : tr('redis_viewer.title.type'));
+    const { keyViewOptions, keyColumnTitle, keyMetaColumnTitle } = createRedisKeyViewLabels({ tr, keyViewMode, showTreeKeyTTL });
 
     return (
         <div
@@ -2504,171 +507,62 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
             } as React.CSSProperties}
         >
             {/* Left: Key List */}
-            <div ref={leftPanelRef} className={'gn-v2-redis-sidebar'} style={{ width: leftPanelWidth, minWidth: 300, display: 'flex', flexDirection: 'column', flexShrink: 0, gap: 12 }}>
-                <div className={'gn-v2-redis-header'} style={{ ...workbenchCardStyle, padding: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
-                        <div>
-                            <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '.08em', color: workbenchTheme.textMuted, fontWeight: 600 }}>{tr('redis_viewer.title.key_explorer')}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                                <div style={{ fontSize: 24, fontWeight: 700, color: workbenchTheme.textPrimary }}>db{redisDB}</div>
-                                <Tag style={mutedPillTagStyle}>{getRedisTopologyTagLabel(redisTopology)}</Tag>
-                                {redisTopology !== 'single' && (
-                                    <Tag style={mutedPillTagStyle}>{Math.max(redisSeedAddresses.length, 1)} nodes</Tag>
-                                )}
-                                {redisSentinelMaster && (
-                                    <Tag style={mutedPillTagStyle}>master: {redisSentinelMaster}</Tag>
-                                )}
-                            </div>
-                        </div>
-                        <Tag style={mutedPillTagStyle}>{tr('redis_viewer.label.keys_count', { count: keys.length })}</Tag>
-                    </div>
-                    <Space.Compact style={{ width: '100%' }}>
-                        <Radio.Group
-                            value={searchMode}
-                            onChange={handleSearchModeChange}
-                            buttonStyle="solid"
-                            style={{ flexShrink: 0 }}
-                        >
-                            <Radio.Button value="prefix">{tr('redis_viewer.search.prefix')}</Radio.Button>
-                            <Radio.Button value="fuzzy">{tr('redis_viewer.search.fuzzy')}</Radio.Button>
-                            <Radio.Button value="exact">{tr('redis_viewer.search.exact')}</Radio.Button>
-                        </Radio.Group>
-                        <Search
-                            {...noAutoCapInputProps}
-                            style={{ flex: 1 }}
-                            placeholder={searchMode === 'exact'
-                                ? tr('redis_viewer.placeholder.search_exact')
-                                : searchMode === 'fuzzy'
-                                    ? tr('redis_viewer.placeholder.search_fuzzy')
-                                    : tr('redis_viewer.placeholder.search_prefix')}
-                            value={searchInput}
-                            onChange={handleSearchInputChange}
-                            onSearch={handleSearch}
-                            allowClear
-                            enterButton={<SearchOutlined />}
-                        />
-                    </Space.Compact>
-                    <div className={'gn-v2-redis-toolbar'} style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                        <Space wrap size={8}>
-                            <Button size="small" style={actionButtonStyle} icon={<ReloadOutlined />} onClick={handleRefresh}>{tr('redis_viewer.action.refresh')}</Button>
-                            <Button size="small" style={actionButtonStyle} icon={<PlusOutlined />} onClick={() => setNewKeyModalOpen(true)}>{tr('redis_viewer.action.new_key')}</Button>
-                            <Button size="small" style={primaryActionButtonStyle} onClick={handleSelectAllLoadedKeys} disabled={keys.length === 0}>{tr('redis_viewer.action.select_all_loaded')}</Button>
-                            <Button size="small" style={actionButtonStyle} onClick={handleLoadAllKeys} disabled={!hasMore || loading} loading={loadingAllKeys}>{tr('redis_viewer.action.load_all')}</Button>
-                            <Button size="small" style={actionButtonStyle} onClick={handleClearAllSelectedKeys} disabled={selectedKeys.length === 0}>{tr('redis_viewer.action.clear_selection')}</Button>
-                            <Button
-                                size="small"
-                                style={actionButtonStyle}
-                                onClick={() => void handleExportKeys('all')}
-                                loading={exportingScope === 'all'}
-                            >
-                                {tr('redis_viewer.action.export_all')}
-                            </Button>
-                            <Button
-                                size="small"
-                                style={actionButtonStyle}
-                                onClick={() => void handleExportKeys('selected')}
-                                disabled={selectedKeys.length === 0}
-                                loading={exportingScope === 'selected'}
-                            >
-                                {tr('redis_viewer.action.export_selected')}
-                            </Button>
-                            <Button
-                                size="small"
-                                style={primaryActionButtonStyle}
-                                onClick={handleOpenImportModal}
-                                disabled={importRestricted}
-                                loading={importingKeys}
-                            >
-                                {tr('redis_viewer.action.import')}
-                            </Button>
-                        </Space>
-                        <Popconfirm
-                            title={tr('redis_viewer.confirm.delete_selected', { count: selectedKeys.length })}
-                            onConfirm={() => handleDeleteKeys(selectedKeys)}
-                            disabled={selectedKeys.length === 0}
-                        >
-                            <Button size="small" style={dangerActionButtonStyle} icon={<DeleteOutlined />} disabled={selectedKeys.length === 0}>
-                                {tr('redis_viewer.action.delete_selected', { count: selectedKeys.length })}
-                            </Button>
-                        </Popconfirm>
-                    </div>
-                </div>
-                <div className={'gn-v2-redis-tree-card'} style={{ ...workbenchCardStyle, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 10 }}>
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 10,
-                            padding: '0 4px 8px',
-                        }}
-                    >
-                        <span style={{ color: workbenchTheme.textMuted, fontSize: 12, fontWeight: 600 }}>
-                            {tr('redis_viewer.key_view.title')}
-                        </span>
-                        <div
-                            role="group"
-                            aria-label={tr('redis_viewer.key_view.title')}
-                            className="gn-v2-redis-key-view-switch"
-                            style={undefined}
-                        >
-                            {keyViewOptions.map(({ mode, label, icon }) => (
-                                <Tooltip title={label} key={mode}>
-                                    <button
-                                        type="button"
-                                        className={`gn-v2-redis-key-view-switch-btn${keyViewMode === mode ? ' is-active' : ''}`}
-                                        data-redis-key-view-mode={mode}
-                                        aria-label={label}
-                                        aria-pressed={keyViewMode === mode}
-                                        onClick={() => handleKeyViewModeChange(mode)}
-                                        style={undefined}
-                                    >
-                                        {icon}
-                                    </button>
-                                </Tooltip>
-                            ))}
-                        </div>
-                    </div>
-                    {isLargeKeyspace && keyViewMode !== 'list' && (
-                        <div style={{ padding: '8px 10px', fontSize: 12, color: workbenchTheme.textMuted, marginBottom: 8, borderRadius: 12, background: workbenchTheme.panelBgSubtle, border: workbenchTheme.panelBorder }}>
-                            {tr('redis_viewer.notice.large_keyspace_mode', { count: REDIS_LARGE_KEYSPACE_MAX_EXPANDED_GROUPS })}
-                        </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px 10px 8px', color: workbenchTheme.textMuted, fontSize: 12, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                        <span>{keyColumnTitle}</span>
-                        <span>{keyMetaColumnTitle}</span>
-                    </div>
-                    <div ref={treeContainerRef} className={'gn-v2-redis-tree-shell'} style={{ ...workbenchSubCardStyle, flex: 1, minHeight: 0, overflow: 'hidden', padding: 6 }}>
-                        <Spin spinning={loading} size="small" style={{ width: '100%' }}>
-                            <Tree
-                                blockNode
-                                showIcon={false}
-                                switcherIcon={() => null}
-                                checkable
-                                checkStrictly
-                                selectable
-                                virtual={shouldVirtualizeKeyTree}
-                                height={Math.max(treeHeight - 8, 220)}
-                                treeData={keyTree.treeData}
-                                titleRender={renderTreeNodeTitle}
-                                selectedKeys={selectedTreeNodeKeys}
-                                checkedKeys={checkedTreeNodeKeys}
-                                expandedKeys={expandedGroupKeys}
-                                onExpand={handleTreeExpand}
-                                onSelect={(nodeKeys) => handleTreeSelect(nodeKeys)}
-                                onCheck={(checked, info) => handleTreeCheck(checked, info)}
-                                onRightClick={handleTreeRightClick}
-                                style={{ padding: '8px 6px' }}
-                            />
-                        </Spin>
-                    </div>
-                    {hasMore && (
-                        <div style={{ padding: 10, textAlign: 'center' }}>
-                            <Button style={actionButtonStyle} onClick={handleLoadMore} loading={loading} disabled={!hasMore || loading}>{tr('redis_viewer.action.load_more')}</Button>
-                        </div>
-                    )}
-                </div>
-            </div>
+            <RedisViewerSidebar
+                leftPanelRef={leftPanelRef}
+                leftPanelWidth={leftPanelWidth}
+                workbenchCardStyle={workbenchCardStyle}
+                workbenchTheme={workbenchTheme}
+                tr={tr}
+                redisDB={redisDB}
+                mutedPillTagStyle={mutedPillTagStyle}
+                redisTopology={redisTopology}
+                redisSeedAddresses={redisSeedAddresses}
+                redisSentinelMaster={redisSentinelMaster}
+                keys={keys}
+                searchMode={searchMode}
+                handleSearchModeChange={handleSearchModeChange}
+                searchInput={searchInput}
+                handleSearchInputChange={handleSearchInputChange}
+                handleSearch={handleSearch}
+                actionButtonStyle={actionButtonStyle}
+                handleRefresh={handleRefresh}
+                setNewKeyModalOpen={setNewKeyModalOpen}
+                primaryActionButtonStyle={primaryActionButtonStyle}
+                handleSelectAllLoadedKeys={handleSelectAllLoadedKeys}
+                handleLoadAllKeys={handleLoadAllKeys}
+                hasMore={hasMore}
+                loading={loading}
+                loadingAllKeys={loadingAllKeys}
+                handleClearAllSelectedKeys={handleClearAllSelectedKeys}
+                selectedKeys={selectedKeys}
+                handleExportKeys={handleExportKeys}
+                exportingScope={exportingScope}
+                handleOpenImportModal={handleOpenImportModal}
+                importRestricted={importRestricted}
+                importingKeys={importingKeys}
+                handleDeleteKeys={handleDeleteKeys}
+                dangerActionButtonStyle={dangerActionButtonStyle}
+                keyViewOptions={keyViewOptions}
+                keyViewMode={keyViewMode}
+                handleKeyViewModeChange={handleKeyViewModeChange}
+                isLargeKeyspace={isLargeKeyspace}
+                keyColumnTitle={keyColumnTitle}
+                keyMetaColumnTitle={keyMetaColumnTitle}
+                treeContainerRef={treeContainerRef}
+                workbenchSubCardStyle={workbenchSubCardStyle}
+                shouldVirtualizeKeyTree={shouldVirtualizeKeyTree}
+                treeHeight={treeHeight}
+                keyTree={keyTree}
+                renderTreeNodeTitle={renderTreeNodeTitle}
+                selectedTreeNodeKeys={selectedTreeNodeKeys}
+                checkedTreeNodeKeys={checkedTreeNodeKeys}
+                expandedGroupKeys={expandedGroupKeys}
+                handleTreeExpand={handleTreeExpand}
+                handleTreeSelect={handleTreeSelect}
+                handleTreeCheck={handleTreeCheck}
+                handleTreeRightClick={handleTreeRightClick}
+                handleLoadMore={handleLoadMore}
+            />
 
             {/* Resizable Divider */}
             <RedisResizableDivider
@@ -2774,113 +668,30 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                 </Form>
             </Modal>
 
-            <Modal
-                title={tr('redis_viewer.modal.import_keys')}
-                open={importModalOpen}
-                okButtonProps={{ disabled: !importPreview || importPreview.keys.length === 0 || importSelectedKeys.length === 0 || importPreviewLoading }}
-                confirmLoading={importingKeys}
-                onOk={() => void handleConfirmImportKeys()}
-                onCancel={() => {
-                    if (importingKeys || importPreviewLoading) return;
-                    resetImportModalState();
-                }}
-                width={760}
-                styles={{ content: redisModalContentStyle, header: { background: 'transparent', borderBottom: 'none', color: workbenchTheme.textPrimary }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none' } }}
-            >
-                <Form layout="vertical">
-                    <Form.Item label={tr('redis_viewer.field.import_file')}>
-                        <Space wrap size={8}>
-                            <Button
-                                style={actionButtonStyle}
-                                onClick={() => void handleChooseImportFile()}
-                                loading={importPreviewLoading}
-                            >
-                                {importPreview ? tr('redis_viewer.action.change_import_file') : tr('redis_viewer.action.select_import_file')}
-                            </Button>
-                            {importPreview && (
-                                <>
-                                    <Tag style={mutedPillTagStyle}>{extractFilenameFromPath(importPreview.file)}</Tag>
-                                    <Tag style={mutedPillTagStyle}>{tr('redis_viewer.label.import_selection', { selected: importSelectedKeys.length, total: importPreview.total })}</Tag>
-                                </>
-                            )}
-                        </Space>
-                    </Form.Item>
-                    {importPreview ? (
-                        <Form.Item label={tr('redis_viewer.field.import_keys')}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                                <Space wrap size={8}>
-                                    <Button
-                                        size="small"
-                                        style={primaryActionButtonStyle}
-                                        onClick={handleSelectAllImportPreviewKeys}
-                                        disabled={importPreview.keys.length === 0}
-                                    >
-                                        {tr('redis_viewer.action.select_all_import_keys')}
-                                    </Button>
-                                    <Button
-                                        size="small"
-                                        style={actionButtonStyle}
-                                        onClick={handleClearImportPreviewSelection}
-                                        disabled={importSelectedKeys.length === 0}
-                                    >
-                                        {tr('redis_viewer.action.clear_selection')}
-                                    </Button>
-                                </Space>
-                                <div style={{ color: workbenchTheme.textMuted, fontSize: 12 }}>
-                                    {tr('redis_viewer.label.import_database', { database: importPreview.database })}
-                                </div>
-                            </div>
-                            <div style={{ maxHeight: 320, overflowY: 'auto', border: workbenchTheme.panelBorder, borderRadius: 12, padding: 8, background: workbenchTheme.panelBg }}>
-                                {importPreview.keys.map((item) => {
-                                    const checked = importSelectedKeySet.has(item.key);
-                                    return (
-                                        <label
-                                            key={item.key}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 10,
-                                                padding: '8px 6px',
-                                                borderRadius: 10,
-                                                cursor: 'pointer',
-                                            }}
-                                        >
-                                            <input
-                                                data-import-key={item.key}
-                                                type="checkbox"
-                                                checked={checked}
-                                                onChange={(event) => handleToggleImportPreviewKey(item.key, event.target.checked)}
-                                            />
-                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: workbenchTheme.textPrimary }}>
-                                                {item.key}
-                                            </span>
-                                            <Tag color={getTypeColor(item.type)} style={{ margin: 0 }}>
-                                                {item.type}
-                                            </Tag>
-                                            <span style={{ color: workbenchTheme.textMuted, fontSize: 12, whiteSpace: 'nowrap' }}>
-                                                {formatTTL(item.ttl)}
-                                            </span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
-                        </Form.Item>
-                    ) : (
-                        <div style={{ marginBottom: 16, color: workbenchTheme.textMuted }}>
-                            {tr('redis_viewer.state.import_preview_empty')}
-                        </div>
-                    )}
-                    <Form.Item label={tr('redis_viewer.field.import_conflict_mode')}>
-                        <Radio.Group
-                            value={importConflictMode}
-                            onChange={(event) => setImportConflictMode(event.target.value as RedisImportConflictMode)}
-                        >
-                            <Radio.Button value="overwrite">{tr('redis_viewer.option.import_overwrite')}</Radio.Button>
-                            <Radio.Button value="skip">{tr('redis_viewer.option.import_skip_existing')}</Radio.Button>
-                        </Radio.Group>
-                    </Form.Item>
-                </Form>
-            </Modal>
+            <RedisNewKeyModal
+                tr={tr}
+                importModalOpen={importModalOpen}
+                importPreview={importPreview}
+                importSelectedKeys={importSelectedKeys}
+                importPreviewLoading={importPreviewLoading}
+                importingKeys={importingKeys}
+                handleConfirmImportKeys={handleConfirmImportKeys}
+                resetImportModalState={resetImportModalState}
+                redisModalContentStyle={redisModalContentStyle}
+                workbenchTheme={workbenchTheme}
+                actionButtonStyle={actionButtonStyle}
+                handleChooseImportFile={handleChooseImportFile}
+                mutedPillTagStyle={mutedPillTagStyle}
+                primaryActionButtonStyle={primaryActionButtonStyle}
+                handleSelectAllImportPreviewKeys={handleSelectAllImportPreviewKeys}
+                handleClearImportPreviewSelection={handleClearImportPreviewSelection}
+                importSelectedKeySet={importSelectedKeySet}
+                handleToggleImportPreviewKey={handleToggleImportPreviewKey}
+                getTypeColor={getTypeColor}
+                formatTTL={formatTTL}
+                importConflictMode={importConflictMode}
+                setImportConflictMode={setImportConflictMode}
+            />
 
             {/* TTL Modal */}
             <Modal
@@ -2921,121 +732,24 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
             </Modal>
 
             {/* JSON / field Edit Modal with Monaco Editor */}
-            <Modal
-                title={jsonEditConfig?.title || tr('redis_viewer.action.edit')}
-                open={jsonEditModalOpen}
-                // Remount editor each open so defaultValue/value cannot stick to the previous field.
-                destroyOnHidden
-                onOk={async () => {
-                    if (jsonEditConfig?.mode === 'edit' && jsonEditConfig.onSave) {
-                        await jsonEditConfig.onSave(jsonEditValueRef.current);
-                    }
-                    setJsonEditModalOpen(false);
-                }}
-                onCancel={() => setJsonEditModalOpen(false)}
-                okText={jsonEditConfig?.mode === 'view' ? tr('common.close') : undefined}
-                cancelButtonProps={jsonEditConfig?.mode === 'view' ? { style: { display: 'none' } } : undefined}
-                width={800}
-                styles={{
-                    content: redisModalContentStyle,
-                    header: { background: 'transparent', borderBottom: 'none', color: workbenchTheme.textPrimary, flex: '0 0 auto' },
-                    // Flex body so drag-resize grows Monaco + keeps footer at bottom.
-                    body: {
-                        flex: '1 1 auto',
-                        paddingTop: 8,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden',
-                    },
-                    footer: { background: 'transparent', borderTop: 'none', flex: '0 0 auto' },
-                }}
-            >
-                {jsonEditModalOpen && jsonEditConfig ? (
-                    <div className="gn-modal-fill-body">
-                        <Editor
-                            // Force a fresh Monaco model per field/open (avoids stale 0.01/1 from prior edit).
-                            key={`${jsonEditConfig.title}::${jsonEditConfig.mode}::${jsonEditConfig.isJson ? 'json' : 'text'}`}
-                            height="100%"
-                            gonaviTypography="data"
-                            language={jsonEditConfig.isJson ? 'json' : 'plaintext'}
-                            theme={darkMode ? 'transparent-dark' : 'transparent-light'}
-                            value={jsonEditConfig.value || ''}
-                            onChange={(value) => { jsonEditValueRef.current = value || ''; }}
-                            onMount={(editor) => {
-                                const initial = jsonEditConfig.value || '';
-                                jsonEditValueRef.current = initial;
-                                if (editor.getValue() !== initial) {
-                                    editor.setValue(initial);
-                                }
-                                // Relayout after modal/content size settles (incl. later resize).
-                                const layout = () => {
-                                    try { editor.layout(); } catch { /* ignore */ }
-                                };
-                                window.requestAnimationFrame(layout);
-                                window.setTimeout(layout, 0);
-                            }}
-                            options={{
-                                minimap: { enabled: false },
-                                lineNumbers: 'on',
-                                wordWrap: 'on',
-                                scrollBeyondLastLine: false,
-                                automaticLayout: true,
-                                folding: true,
-                                formatOnPaste: jsonEditConfig.mode !== 'view',
-                                readOnly: jsonEditConfig.mode === 'view',
-                            }}
-                        />
-                    </div>
-                ) : null}
-            </Modal>
+            <RedisJsonEditModal
+                jsonEditConfig={jsonEditConfig}
+                tr={tr}
+                jsonEditModalOpen={jsonEditModalOpen}
+                jsonEditValueRef={jsonEditValueRef}
+                setJsonEditModalOpen={setJsonEditModalOpen}
+                redisModalContentStyle={redisModalContentStyle}
+                workbenchTheme={workbenchTheme}
+                darkMode={darkMode}
+            />
             {treeContextMenu && typeof document !== 'undefined' && createPortal((
-                <div
-                    className={'gn-v2-context-menu gn-v2-redis-context-menu'}
-                    data-gonavi-close-shortcut-guard="true"
-                    data-gonavi-close-shortcut-blocks-background="true"
-                    style={{
-                        position: 'fixed',
-                        left: typeof window !== 'undefined' ? Math.min(treeContextMenu.x + 4, Math.max(16, window.innerWidth - 220)) : treeContextMenu.x,
-                        top: typeof window !== 'undefined' ? Math.min(treeContextMenu.y + 4, Math.max(16, window.innerHeight - 140)) : treeContextMenu.y,
-                        zIndex: APP_POPUP_Z_INDEX,
-                        minWidth: 188,
-                        padding: 8,
-                        borderRadius: 14,
-                        background: workbenchTheme.panelBgStrong,
-                        border: workbenchTheme.panelBorder,
-                        boxShadow: `${workbenchTheme.panelInset}, ${workbenchTheme.shadow}`,
-                        backdropFilter: workbenchTheme.backdropFilter,
-                        WebkitBackdropFilter: workbenchTheme.backdropFilter,
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                >
-                    <Button
-                        type="text"
-                        className={'gn-v2-context-menu-item'}
-                        style={undefined}
-                        icon={<EditOutlined />}
-                        onClick={() => openRenameKeyModal(treeContextMenu.rawKey)}
-                    >
-                        {tr('redis_viewer.action.rename_key')}
-                    </Button>
-                    <Button
-                        type="text"
-                        className={'gn-v2-context-menu-item'}
-                        style={undefined}
-                        icon={<CopyOutlined />}
-                        onClick={async () => {
-                            try {
-                                await navigator.clipboard.writeText(treeContextMenu.rawKey);
-                                setTreeContextMenu(null);
-                                message.success(tr('redis_viewer.message.key_name_copied'));
-                            } catch {
-                                message.error(tr('redis_viewer.message.copy_failed'));
-                            }
-                        }}
-                    >
-                        {tr('redis_viewer.action.copy_key_name')}
-                    </Button>
-                </div>
+                <RedisKeyContextMenu
+                    treeContextMenu={treeContextMenu}
+                    workbenchTheme={workbenchTheme}
+                    openRenameKeyModal={openRenameKeyModal}
+                    tr={tr}
+                    setTreeContextMenu={setTreeContextMenu}
+                />
             ), document.body)}
         </div>
     );

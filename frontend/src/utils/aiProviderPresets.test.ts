@@ -465,6 +465,16 @@ describe('resolveProviderPresetKey', () => {
     }, PRESETS, 'custom')).toBe('openai');
   });
 
+  it('recognizes the built-in GoNavi AI provider by its stable ID', () => {
+    expect(resolveProviderPresetKey({
+      id: 'gonavi-ai',
+      type: 'custom',
+      apiFormat: 'openai',
+      authMode: 'bearer',
+      baseUrl: 'https://ai.example.test/v1',
+    }, PRESETS, 'custom')).toBe('gonavi-ai');
+  });
+
   it('区分 Claude 订阅与带端点和密钥的千问 Claude CLI', () => {
     const claudeSubscription = {
       type: 'custom',

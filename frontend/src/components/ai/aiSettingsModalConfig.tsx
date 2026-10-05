@@ -59,6 +59,9 @@ export interface ProviderPreset {
   endpoints?: ProviderPresetEndpoint[];
   defaultModel: string;
   models: string[];
+  builtIn?: boolean;
+  requiresLogin?: boolean;
+  readOnly?: boolean;
   modeLabelKey?: string;
   defaultModeKey?: string;
   modes?: ProviderPresetMode[];
@@ -89,6 +92,7 @@ export const QWEN_BAILIAN_ENDPOINTS: ProviderPresetEndpoint[] = [
 ];
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
+  { key: 'gonavi-ai', label: 'GoNavi AI', labelKey: 'ai_settings.provider_preset.gonavi_ai.label', icon: <CloudOutlined />, desc: 'GoNavi hosted SQL AI / sign in required', descKey: 'ai_settings.provider_preset.gonavi_ai.desc', color: '#16a34a', backendType: 'custom', fixedApiFormat: 'openai', authMode: 'bearer', defaultBaseUrl: '', defaultModel: 'gonavi-sql', models: ['gonavi-sql'], builtIn: true, requiresLogin: true, readOnly: true },
   { key: 'openai', label: 'OpenAI', labelKey: 'ai_settings.provider_preset.openai.label', icon: <ApiOutlined />, desc: 'GPT-6.1 series', descKey: 'ai_settings.provider_preset.openai.desc', color: '#10b981', backendType: 'openai', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-6.1-sol', models: OPENAI_MODELS },
   { key: 'atlascloud', label: 'Atlas Cloud', labelKey: 'ai_settings.provider_preset.atlascloud.label', icon: <CloudOutlined />, desc: 'Qwen3.8 Max / OpenAI-compatible', descKey: 'ai_settings.provider_preset.atlascloud.desc', color: '#0891b2', backendType: 'openai', defaultBaseUrl: ATLAS_CLOUD_BASE_URL, defaultModel: ATLAS_CLOUD_DEFAULT_MODEL, models: [] },
   { key: 'orcarouter', label: 'OrcaRouter', labelKey: 'ai_settings.provider_preset.orcarouter.label', icon: <CloudOutlined />, desc: 'Smart routing to 200+ models / OpenAI-compatible', descKey: 'ai_settings.provider_preset.orcarouter.desc', color: '#0e7490', backendType: 'openai', defaultBaseUrl: ORCAROUTER_BASE_URL, defaultModel: ORCAROUTER_DEFAULT_MODEL, models: [] },

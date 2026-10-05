@@ -409,3 +409,55 @@ func TestOptionalDriverAgentClientForwardsSSHProgressBeforeFinalConnectError(t *
 		t.Fatalf("reported progress = %#v, want %#v", reported, want)
 	}
 }
+
+func TestOptionalDriverAgentClientDecodesPartialDataAlongsideError(t *testing.T) {
+	response, err := json.Marshal(optionalAgentResponse{
+		ID:          1,
+		Success:     false,
+		Error:       "admin topic listing denied",
+		Data:        json.RawMessage(`["persistent://public/default/orders"]`),
+		PartialData: true,
+	})
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	var stdin optionalAgentTestWriteCloser
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		reader: bufio.NewReader(bytes.NewReader(append(response, '\n'))),
+		driver: "pulsar",
+	}
+	var tables []string
+	err = client.call(optionalAgentRequest{Method: optionalAgentMethodGetTables, DBName: "topics"}, &tables, nil, nil, nil)
+	if err == nil || err.Error() != "admin topic listing denied" {
+		t.Fatalf("partial response must still return the driver error, got %v", err)
+	}
+	if len(tables) != 1 || tables[0] != "persistent://public/default/orders" {
+		t.Fatalf("partial response lost the known topics: %#v", tables)
+	}
+}
+
+func TestOptionalDriverAgentClientIgnoresDataOnPlainFailure(t *testing.T) {
+	response, err := json.Marshal(optionalAgentResponse{
+		ID:      1,
+		Success: false,
+		Error:   "boom",
+		Data:    json.RawMessage(`["stale"]`),
+	})
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	var stdin optionalAgentTestWriteCloser
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		reader: bufio.NewReader(bytes.NewReader(append(response, '\n'))),
+		driver: "pulsar",
+	}
+	var tables []string
+	if err := client.call(optionalAgentRequest{Method: optionalAgentMethodGetTables}, &tables, nil, nil, nil); err == nil {
+		t.Fatal("failure must return an error")
+	}
+	if tables != nil {
+		t.Fatalf("failure without PartialData must not decode data: %#v", tables)
+	}
+}

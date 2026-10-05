@@ -82,6 +82,11 @@ const resolveSavedQueryForTab = (
   return savedQueries.find((query) => query.id === savedId) || null;
 };
 
+// Line endings are not an edit: the editor keeps one style per document, a saved file may have
+// another (or a mix), and SQL means the same either way.
+const sameSQLText = (left: string, right: string): boolean =>
+  left.replace(/\r\n?/g, '\n') === right.replace(/\r\n?/g, '\n');
+
 const hasSavedQueryUnsavedChanges = (
   tab: TabData,
   savedQuery: SavedQuery,
@@ -89,7 +94,7 @@ const hasSavedQueryUnsavedChanges = (
 ): boolean => {
   const connectionId = toTrimmedString(tab.connectionId || savedQuery.connectionId);
   const dbName = toTrimmedString(tab.dbName || savedQuery.dbName);
-  return draft !== String(savedQuery.sql ?? '')
+  return !sameSQLText(draft, String(savedQuery.sql ?? ''))
     || connectionId !== toTrimmedString(savedQuery.connectionId)
     || dbName !== toTrimmedString(savedQuery.dbName);
 };

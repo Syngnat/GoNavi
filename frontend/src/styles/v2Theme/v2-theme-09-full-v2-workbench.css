@@ -1,0 +1,662 @@
+body[data-ui-version="v2"] .gn-v2-empty-recent-item strong {
+  color: var(--gn-fg-1);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-recent-item small {
+  margin-top: 2px;
+  color: var(--gn-fg-4);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-recent-arrow {
+  color: var(--gn-fg-4);
+  font-size: 10px;
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-recent-empty {
+  margin: 0;
+  padding: 14px 12px;
+  color: var(--gn-fg-4);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-resource-empty {
+  flex: 1 1 auto;
+  min-height: 106px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 14px 14px 12px;
+  color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-resource-empty > .anticon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-resource-empty p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+body[data-ui-version="v2"] .gn-v2-empty-resource-empty .ant-btn {
+  padding-inline: 6px;
+  font-size: 11px;
+}
+
+@media (max-width: 1360px) {
+  body[data-ui-version="v2"] .gn-v2-empty-hero {
+    --gn-v2-empty-hero-padding-inline-start: 24px;
+    padding: 22px 22px 16px 24px;
+  }
+
+  body[data-ui-version="v2"] .gn-v2-empty-recent,
+  body[data-ui-version="v2"] .gn-v2-empty-resources {
+    padding-left: 24px;
+    padding-right: 22px;
+  }
+}
+
+@media (max-width: 980px) {
+  body[data-ui-version="v2"] .gn-v2-empty-recent {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  body[data-ui-version="v2"] .gn-v2-empty-recent {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body[data-ui-version="v2"] .gn-v2-empty-resources {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body[data-ui-version="v2"] .gn-v2-empty-hero,
+  body[data-ui-version="v2"] .gn-v2-empty-recent,
+  body[data-ui-version="v2"] .gn-v2-empty-resources {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  body[data-ui-version="v2"] .gn-v2-empty-hero {
+    --gn-v2-empty-hero-padding-inline-start: 16px;
+  }
+
+  body[data-ui-version="v2"] .gn-v2-empty-resource-empty {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  body[data-ui-version="v2"] .gn-v2-empty-resource-empty .ant-btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* ─── Full V2 workbench shell: app / topbar / workspace ─ */
+body[data-ui-version="v2"] .gn-v2-app-root {
+  background: var(--gn-bg-app) !important;
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar {
+  position: relative;
+  overflow: visible;
+  background: var(--gn-bg-titlebar) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* On macOS and Windows the explorer actions (search, locate, scroll to top,
+   connection menu, sidebar toggle) live permanently in the lower titlebar band,
+   so collapsing or expanding the explorer never moves them. Keep the Windows
+   window controls out of its way. */
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions {
+  --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
+  position: absolute;
+  left: calc(6px * var(--gn-ui-scale, 1));
+  right: calc(var(--gn-titlebar-window-controls-width, 0px) + 6px);
+  bottom: 1px;
+  z-index: 4;
+  display: flex;
+  min-width: 0;
+  max-width: none;
+  height: calc(26px * var(--gn-v2-explorer-scale));
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(2px * var(--gn-v2-explorer-scale));
+  padding: 0 calc(2px * var(--gn-v2-explorer-scale));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions::-webkit-scrollbar {
+  display: none;
+}
+
+/* The explorer portals its actions into this slot; let them lay out as direct
+   flex items of the toolbar so the toggle button stays last. */
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions-slot {
+  display: contents;
+}
+
+/* Standalone toolbar mode: the titlebar stays compact and the same actions sit
+   in their own row directly below the toolbar, left-aligned with its items. */
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar {
+  --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: calc(34px * var(--gn-v2-explorer-scale));
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(2px * var(--gn-v2-explorer-scale));
+  padding: calc(4px * var(--gn-v2-explorer-scale)) calc(14px * var(--gn-ui-scale, 1));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: var(--gn-bg-titlebar, transparent);
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Keep the shared focus ring inside the scrolling titlebar host. */
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar .gn-v2-explorer-tool.ant-btn:focus-visible,
+body[data-ui-version="v2"] .gn-v2-collapsed-sidebar-actions.is-below-toolbar .gn-v2-explorer-action-wrap:focus-visible,
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions .gn-v2-explorer-tool.ant-btn:focus-visible,
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions .gn-v2-explorer-action-wrap:focus-visible {
+  outline-offset: -3px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-brand {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--gn-accent-strong, var(--gn-accent));
+  color: var(--gn-on-accent, #fff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.22), 0 1px 2px color-mix(in srgb, var(--gn-accent-strong, var(--gn-accent)) 24%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-app-shell {
+  background: transparent !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-app-sider {
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-workspace-shell {
+  background: transparent !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-workspace-body {
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-workspace-main {
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel-dock {
+  background: var(--gn-bg-panel);
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 14;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(248, 250, 252, 0.38);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel-dock.is-overlay {
+  position: relative;
+  height: 100%;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel-dock.is-overlay .gn-v2-ai-panel {
+  height: 100%;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-workbench {
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav {
+  height: 36px;
+  flex: 0 0 36px;
+  background: var(--gn-bg-panel-2);
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs-double > .ant-tabs-nav {
+  height: 46px;
+  flex: 0 0 46px;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-nav-wrap,
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-nav-list {
+  min-height: 36px;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs-double .ant-tabs-nav-wrap,
+body[data-ui-version="v2"] .gn-v2-main-tabs-double .ant-tabs-nav-list {
+  min-height: 46px;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-tab {
+  width: var(--gn-v2-tab-width, 260px);
+  min-width: var(--gn-v2-tab-width, 260px);
+  max-width: var(--gn-v2-tab-width, 260px);
+  height: 36px;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  box-shadow: inset 0 2px 0 var(--gn-accent) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active::after {
+  display: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs-double .ant-tabs-tab {
+  height: 46px;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-tab-btn {
+  width: 100%;
+  height: 100%;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 8px 0 10px;
+  gap: 7px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-content {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-double {
+  padding-top: 4px;
+  padding-bottom: 3px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-content {
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-direction: column;
+  gap: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-main {
+  flex: 0 1 auto;
+  gap: 5px;
+  line-height: 17px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gn-fg-2);
+  font-weight: 700;
+  line-height: 16px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-secondary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-part {
+  min-width: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-part-object {
+  flex: 1 1 auto;
+  color: var(--gn-fg-2);
+  font-weight: 700;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-part-connection {
+  flex: 0 1 auto;
+  max-width: 92px;
+  color: var(--gn-fg-2);
+  font-family: var(--gn-font-mono);
+  font-weight: 700;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-part-host,
+body[data-ui-version="v2"] .gn-v2-tab-label-part-database,
+body[data-ui-version="v2"] .gn-v2-tab-label-part-schema,
+body[data-ui-version="v2"] .gn-v2-tab-label-part-group {
+  flex: 0 2 auto;
+  max-width: 112px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-part-host {
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-part-database {
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-separator {
+  flex: 0 0 auto;
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-kind-icon {
+  display: inline-flex;
+  color: var(--gn-accent);
+  font-size: 12px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-running-indicator {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-running-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  min-height: 8px;
+  max-width: 8px;
+  max-height: 8px;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 50%;
+  background: var(--gn-warn);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-running-dot[data-status="running"],
+body[data-ui-version="v2"] .gn-v2-tab-running-indicator[data-status="running"] .gn-v2-tab-running-dot,
+body[data-ui-version="v2"] .gn-v2-query-running-chip[data-status="running"] .gn-v2-tab-running-dot {
+  background: var(--gn-warn);
+  animation: gn-v2-tab-running-pulse 0.9s ease-in-out infinite;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-running-dot[data-status="done"],
+body[data-ui-version="v2"] .gn-v2-tab-running-indicator[data-status="done"] .gn-v2-tab-running-dot,
+body[data-ui-version="v2"] .gn-v2-query-running-chip[data-status="done"] .gn-v2-tab-running-dot {
+  background: var(--gn-status-connected, #22c55e);
+  animation: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-running-dot[data-status="error"],
+body[data-ui-version="v2"] .gn-v2-tab-running-indicator[data-status="error"] .gn-v2-tab-running-dot,
+body[data-ui-version="v2"] .gn-v2-query-running-chip[data-status="error"] .gn-v2-tab-running-dot {
+  background: var(--gn-danger);
+  animation: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-running-indicator[data-status="read"] .gn-v2-tab-running-dot {
+  background: var(--gn-fg-4);
+  animation: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs .ant-tabs-extra-content {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 42%;
+  padding: 0 8px 0 4px;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-dock {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-chip {
+  min-width: 0;
+  max-width: 220px;
+  height: 24px;
+  padding: 0 8px 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid color-mix(in srgb, var(--gn-accent) 35%, var(--gn-br-2));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-accent) 12%, var(--gn-bg-panel));
+  color: var(--gn-accent);
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-chip:hover {
+  background: color-mix(in srgb, var(--gn-accent) 18%, var(--gn-bg-panel));
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-chip-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-chip-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-2);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-chip-caret {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  margin-left: 1px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-menu-title {
+  min-width: 0;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-menu-dot {
+  display: block !important;
+  flex: none !important;
+  width: 8px !important;
+  height: 8px !important;
+  min-width: 8px !important;
+  min-height: 8px !important;
+  max-width: 8px !important;
+  max-height: 8px !important;
+  aspect-ratio: 1 !important;
+  box-sizing: border-box !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-menu-dot[data-status="running"] {
+  background: var(--gn-warn);
+  animation: gn-v2-tab-running-pulse 0.9s ease-in-out infinite;
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-menu-dot[data-status="done"] {
+  background: var(--gn-status-connected, #22c55e);
+}
+
+body[data-ui-version="v2"] .gn-v2-query-running-menu-dot[data-status="error"] {
+  background: var(--gn-danger);
+}
+
+@keyframes gn-v2-tab-running-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.28;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-ui-version="v2"] .gn-v2-tab-running-dot[data-status="running"],
+  body[data-ui-version="v2"] .gn-v2-tab-running-indicator[data-status="running"] .gn-v2-tab-running-dot,
+  body[data-ui-version="v2"] .gn-v2-query-running-chip[data-status="running"] .gn-v2-tab-running-dot,
+  body[data-ui-version="v2"] .gn-v2-query-running-menu-dot[data-status="running"] {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-kind {
+  height: 17px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 9.5px;
+  font-weight: 750;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-conn {
+  max-width: 76px;
+  overflow: hidden;
+  color: var(--gn-fg-5);
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-close {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-fg-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0.7;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-close:hover {
+  opacity: 1;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-context-menu-popup .ant-dropdown-menu {
+  min-width: 188px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-context-menu-popup .ant-dropdown-menu-item-disabled {
+  color: var(--gn-fg-5) !important;
+  opacity: 0.5;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-context-menu-popup .ant-dropdown-menu-title-content {
+  display: inline-flex;
+  align-items: center;
+}
+

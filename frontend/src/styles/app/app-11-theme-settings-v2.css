@@ -1,0 +1,698 @@
+/* ── Theme settings (v2 only): clean desktop settings ─── */
+body .gonavi-theme-settings {
+  --gn-settings-fg: #0f172a;
+  --gn-settings-muted: #64748b;
+  --gn-settings-line: #e2e8f0;
+  --gn-settings-track: #e2e8f0;
+  --gn-settings-chip-bg: #f8fafc;
+  --gn-settings-chip-fg: #0f172a;
+  --gn-settings-seg-bg: #f8fafc;
+  --gn-settings-seg-border: #e2e8f0;
+  --gn-settings-seg-item: #64748b;
+  --gn-settings-seg-selected-bg: #fff;
+  --gn-settings-seg-selected-fg: #0f172a;
+  --gn-settings-seg-shadow: none;
+  --gn-settings-accent: #16a34a;
+  --gn-settings-accent-soft: #dcfce7;
+  --gn-settings-accent-border: #86efac;
+  --gn-settings-card-bg: #ffffff;
+}
+
+body[data-theme='dark'] .gonavi-theme-settings {
+  --gn-settings-fg: rgba(248, 250, 252, 0.94);
+  --gn-settings-muted: rgba(226, 232, 240, 0.58);
+  --gn-settings-line: rgba(255, 255, 255, 0.10);
+  --gn-settings-track: rgba(255, 255, 255, 0.12);
+  --gn-settings-chip-bg: rgba(255, 255, 255, 0.06);
+  --gn-settings-chip-fg: rgba(248, 250, 252, 0.88);
+  --gn-settings-seg-bg: rgba(255, 255, 255, 0.04);
+  --gn-settings-seg-border: rgba(148, 163, 184, 0.18);
+  --gn-settings-seg-item: rgba(226, 232, 240, 0.58);
+  --gn-settings-seg-selected-bg: rgba(30, 41, 59, 0.96);
+  --gn-settings-seg-selected-fg: #f8fafc;
+  --gn-settings-accent: #22c55e;
+  --gn-settings-accent-soft: rgba(34, 197, 94, 0.18);
+  --gn-settings-accent-border: rgba(74, 222, 128, 0.55);
+  --gn-settings-card-bg: rgba(255, 255, 255, 0.02);
+}
+
+body .gonavi-theme-settings .gonavi-settings-section {
+  padding-left: 0;
+  border-left: none;
+  margin-bottom: 4px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-section + .gonavi-settings-section {
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: none;
+}
+
+body .gonavi-theme-settings .gonavi-settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--gn-settings-fg);
+  font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px));
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+body .gonavi-theme-settings .gonavi-settings-section-hint {
+  margin: -2px 0 10px;
+  color: var(--gn-settings-muted);
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  line-height: 1.5;
+}
+
+body .gonavi-theme-settings .gonavi-settings-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 168px) minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 0;
+}
+
+body .gonavi-theme-settings .gonavi-settings-row.is-stacked {
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: stretch;
+}
+
+body .gonavi-theme-settings .gonavi-settings-row + .gonavi-settings-row {
+  border-top: 1px solid var(--gn-settings-line);
+}
+
+body .gonavi-theme-settings .gonavi-settings-label {
+  color: var(--gn-settings-fg);
+  font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px));
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+body .gonavi-theme-settings .gonavi-settings-label-hint {
+  margin-top: 3px;
+  color: var(--gn-settings-muted);
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+body .gonavi-theme-settings .gonavi-settings-control {
+  min-width: 0;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 2px 0;
+  overflow: visible;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-row.has-marks {
+  align-items: flex-start;
+  padding-bottom: 2px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-row.has-marks .gonavi-settings-slider-value {
+  margin-top: 6px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/*
+ * antd Slider 手柄用 translateX(-50%)，在 0%/100% 会各伸出半个圆 + 描边阴影。
+ * 外层 padding 需 ≥ 半宽手柄(9) + 描边(2~3)，否则仍会缺一截。
+ */
+body .gonavi-theme-settings .gonavi-settings-slider-track-wrap {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 14px;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-track-wrap .ant-slider {
+  width: 100%;
+  margin: 0 !important;
+  padding-block: 14px !important;
+  padding-inline: 0 !important;
+  overflow: visible !important;
+}
+
+/* 预设刻度：独立一行，严格在进度条下方，不叠在轨道上 */
+body .gonavi-theme-settings .gonavi-settings-slider-presets {
+  position: relative;
+  height: 18px;
+  margin: 0 14px;
+  box-sizing: border-box;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-preset {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--gn-settings-muted);
+  font-size: var(--gn-font-size-sm, 12px);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-preset:hover:not(:disabled) {
+  color: var(--gn-settings-fg);
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-preset.is-active {
+  color: var(--gn-settings-accent);
+  font-weight: 700;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-preset:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-value-input.ant-input-number,
+body .gonavi-theme-settings .ant-input-number-group.ant-input-number-group-wrapper.gonavi-settings-slider-value-input,
+body .gonavi-theme-settings .gonavi-settings-slider-value-input.ant-input-number-group-wrapper {
+  flex: 0 0 auto !important;
+  width: 64px !important;
+  min-width: 56px !important;
+  max-width: 72px !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-value-input .ant-input-number,
+body .gonavi-theme-settings .gonavi-settings-slider-value-input.ant-input-number {
+  width: 100% !important;
+  border-radius: 999px 0 0 999px !important;
+  border-color: color-mix(in srgb, var(--gn-settings-accent) 28%, var(--gn-settings-line)) !important;
+  background: color-mix(in srgb, var(--gn-settings-accent) 8%, transparent) !important;
+}
+
+/* 无 addon 时整颗胶囊 */
+body .gonavi-theme-settings .gonavi-settings-slider-value-input.ant-input-number:not(.ant-input-number-group-wrapper) {
+  width: 52px !important;
+  min-width: 48px !important;
+  max-width: 56px !important;
+  border-radius: 999px !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-value-input .ant-input-number-input {
+  height: 28px !important;
+  padding: 0 2px 0 6px !important;
+  color: var(--gn-settings-fg) !important;
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)) !important;
+  font-weight: 700 !important;
+  font-variant-numeric: tabular-nums;
+  text-align: center !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-value-input .ant-input-number-group-addon {
+  min-width: 18px !important;
+  width: 18px !important;
+  padding: 0 6px 0 0 !important;
+  border: 1px solid color-mix(in srgb, var(--gn-settings-accent) 28%, var(--gn-settings-line)) !important;
+  border-left: none !important;
+  border-radius: 0 999px 999px 0 !important;
+  background: color-mix(in srgb, var(--gn-settings-accent) 8%, transparent) !important;
+  color: var(--gn-settings-muted) !important;
+  font-size: var(--gn-font-size-sm, 12px) !important;
+  font-weight: 700 !important;
+  line-height: 26px !important;
+}
+
+/* 带 % / px 的整体圆角胶囊外观 */
+body .gonavi-theme-settings .gonavi-settings-slider-value-input.ant-input-number-group-wrapper .ant-input-number {
+  border-right: none !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-slider-value-input.ant-input-number-disabled {
+  opacity: 0.6;
+}
+
+body .gonavi-theme-settings .ant-slider-rail {
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: var(--gn-settings-track) !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+body .gonavi-theme-settings .ant-slider-track {
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--gn-settings-accent) 78%, #fff) 0%, var(--gn-settings-accent) 100%) !important;
+}
+
+body .gonavi-theme-settings .ant-slider-handle {
+  width: 16px !important;
+  height: 16px !important;
+  inset-block-start: 10px !important;
+  z-index: 2;
+}
+
+/* 关掉 antd 默认 before 光晕，避免叠成空心环 */
+body .gonavi-theme-settings .ant-slider-handle::before {
+  display: none !important;
+}
+
+body .gonavi-theme-settings .ant-slider-handle::after {
+  width: 16px !important;
+  height: 16px !important;
+  inset-inline-start: 0 !important;
+  inset-block-start: 0 !important;
+  border-radius: 50% !important;
+  /* 实心白底 + 绿描边，禁用时也不靠整控件 opacity 变空心 */
+  background: #fff !important;
+  box-shadow:
+    0 0 0 2px var(--gn-settings-accent),
+    0 1px 4px rgba(15, 23, 42, 0.14) !important;
+  opacity: 1 !important;
+  transition: box-shadow 0.12s ease !important;
+}
+
+body .gonavi-theme-settings .ant-slider-handle:hover::after,
+body .gonavi-theme-settings .ant-slider-handle:focus::after {
+  box-shadow:
+    0 0 0 2px var(--gn-settings-accent),
+    0 0 0 4px color-mix(in srgb, var(--gn-settings-accent) 22%, transparent),
+    0 1px 4px rgba(15, 23, 42, 0.14) !important;
+}
+
+body .gonavi-theme-settings .ant-slider:hover .ant-slider-track,
+body .gonavi-theme-settings .ant-slider:focus-within .ant-slider-track {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--gn-settings-accent) 78%, #fff) 0%, var(--gn-settings-accent) 100%) !important;
+}
+
+/* 禁用：不要整条 opacity，否则白心被透掉只剩绿环 */
+body .gonavi-theme-settings .ant-slider-disabled {
+  opacity: 1 !important;
+}
+
+body .gonavi-theme-settings .ant-slider-disabled .ant-slider-rail {
+  background: color-mix(in srgb, var(--gn-settings-track) 70%, transparent) !important;
+}
+
+body .gonavi-theme-settings .ant-slider-disabled .ant-slider-track {
+  background: color-mix(in srgb, var(--gn-settings-accent) 35%, var(--gn-settings-track)) !important;
+}
+
+body .gonavi-theme-settings .ant-slider-disabled .ant-slider-handle {
+  cursor: not-allowed;
+}
+
+body .gonavi-theme-settings .ant-slider-disabled .ant-slider-handle::after {
+  background: #fff !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--gn-settings-accent) 40%, #94a3b8),
+    0 1px 3px rgba(15, 23, 42, 0.10) !important;
+  opacity: 1 !important;
+}
+
+/* 选项 Segmented：小胶囊；is-compact 不拉满整行 */
+body .gonavi-theme-settings .gonavi-settings-segmented-choice.ant-segmented {
+  width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice.is-compact.ant-segmented {
+  width: auto !important;
+  max-width: 100%;
+  display: inline-flex !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-group {
+  display: flex !important;
+  width: 100%;
+  gap: 6px !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice.is-compact .ant-segmented-group {
+  width: auto !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 8px !important;
+  border: 1px solid var(--gn-settings-line) !important;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice.is-compact .ant-segmented-item {
+  flex: 0 0 auto !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:not(.ant-segmented-item-selected) {
+  background: transparent !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+  background: var(--gn-settings-seg-bg) !important;
+  border-color: color-mix(in srgb, var(--gn-settings-accent) 28%, var(--gn-settings-line)) !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item-label {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px)) !important;
+  font-weight: 600 !important;
+  line-height: 30px !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:not(.ant-segmented-item-selected) .ant-segmented-item-label {
+  color: var(--gn-settings-muted) !important;
+}
+
+/*
+ * rc-segmented removes .ant-segmented-item-selected while its thumb moves.
+ * Do not hide that thumb: WebView2/WKWebView may not emit transitionend for
+ * a display:none node, leaving every item unstyled until the panel remounts.
+ * Keep the moving layer visually identical to the GoNavi selected state.
+ */
+body[data-ui-version='v2'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-thumb {
+  display: block !important;
+  box-sizing: border-box !important;
+  border: 1px solid var(--gn-settings-accent) !important;
+  border-radius: 8px !important;
+  background: var(--gn-settings-accent-soft) !important;
+  box-shadow: none !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected,
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item[aria-selected='true'] {
+  border-color: var(--gn-settings-accent) !important;
+  background: var(--gn-settings-accent-soft) !important;
+  box-shadow: none !important;
+}
+
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected .ant-segmented-item-label,
+body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item[aria-selected='true'] .ant-segmented-item-label {
+  color: var(--gn-settings-accent) !important;
+  font-weight: 700 !important;
+}
+
+/* The radio input updates before rc-segmented restores its selected class. */
+body[data-ui-version='v2'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item-input:checked + .ant-segmented-item-label {
+  color: var(--gn-settings-accent) !important;
+  font-weight: 700 !important;
+}
+
+/* Keep the parent pill selected while rc-segmented is moving its thumb. */
+body[data-ui-version='v2'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:has(> .ant-segmented-item-input:checked) {
+  border-color: var(--gn-settings-accent) !important;
+  background: var(--gn-settings-accent-soft) !important;
+  box-shadow: none !important;
+}
+
+body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected,
+body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item[aria-selected='true'] {
+  border-color: color-mix(in srgb, var(--gn-settings-accent) 70%, rgba(255, 255, 255, 0.2)) !important;
+  background: color-mix(in srgb, var(--gn-settings-accent) 22%, transparent) !important;
+}
+
+body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected .ant-segmented-item-label,
+body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item[aria-selected='true'] .ant-segmented-item-label {
+  color: #86efac !important;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item-input:checked + .ant-segmented-item-label {
+  color: #86efac !important;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:has(> .ant-segmented-item-input:checked) {
+  border-color: color-mix(in srgb, var(--gn-settings-accent) 70%, rgba(255, 255, 255, 0.2)) !important;
+  background: color-mix(in srgb, var(--gn-settings-accent) 22%, transparent) !important;
+}
+
+/* 顶部分段：原生 button Tab（不依赖 antd Segmented） */
+body .gonavi-theme-settings .gonavi-settings-tabs {
+  display: flex;
+  width: 100%;
+  border-bottom: 1px solid var(--gn-settings-line);
+}
+
+body .gonavi-theme-settings .gonavi-settings-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 -1px;
+  padding: 10px 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--gn-settings-muted);
+  font: inherit;
+  font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px));
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+body .gonavi-theme-settings .gonavi-settings-tab:hover {
+  color: var(--gn-settings-fg);
+}
+
+body .gonavi-theme-settings .gonavi-settings-tab.is-active {
+  color: var(--gn-settings-accent);
+  border-bottom-color: var(--gn-settings-accent);
+  font-weight: 700;
+}
+
+body .gonavi-theme-settings .gonavi-settings-tab-icon {
+  display: inline-flex;
+  font-size: 14px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-inline-choice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gn-settings-line);
+}
+
+body .gonavi-theme-settings .gonavi-settings-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+body .gonavi-theme-settings .gonavi-settings-pill {
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--gn-settings-line);
+  border-radius: 8px;
+  background: var(--gn-settings-card-bg);
+  color: var(--gn-settings-muted);
+  font: inherit;
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+body .gonavi-theme-settings .gonavi-settings-pill:hover {
+  border-color: #cbd5e1;
+  color: var(--gn-settings-fg);
+}
+
+body .gonavi-theme-settings .gonavi-settings-pill.is-active {
+  border-color: var(--gn-settings-accent);
+  background: var(--gn-settings-accent-soft);
+  color: var(--gn-settings-accent);
+  font-weight: 700;
+}
+
+body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-pill.is-active {
+  color: #86efac;
+  border-color: color-mix(in srgb, var(--gn-settings-accent) 70%, rgba(255, 255, 255, 0.2));
+  background: color-mix(in srgb, var(--gn-settings-accent) 22%, transparent);
+}
+
+body .gonavi-theme-settings .gonavi-settings-inline-meta {
+  margin-top: 8px;
+  color: var(--gn-settings-muted);
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  line-height: 1.5;
+}
+
+/* Beta：弱提示，不要大黄条 */
+body .gonavi-theme-settings .gonavi-settings-beta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-settings-accent) 12%, transparent);
+  color: var(--gn-settings-accent);
+  font-size: var(--gn-font-size-sm, 12px);
+  font-weight: 700;
+  line-height: 18px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-alert {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--gn-settings-muted);
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 1.45;
+}
+
+body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-alert {
+  border: none;
+  background: transparent;
+  color: var(--gn-settings-muted);
+}
+
+/* 主题模式：紧凑平面 radio 行。 */
+body .gonavi-theme-settings .gonavi-settings-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 12px;
+  row-gap: 0;
+  border-top: 1px solid var(--gn-settings-line);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--gn-settings-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-settings-fg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-tile:hover {
+  background: color-mix(in srgb, var(--gn-settings-fg) 4%, transparent);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-tile.is-active {
+  border-left-color: var(--gn-settings-accent);
+  box-shadow: none;
+  background: var(--gn-settings-accent-soft);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid var(--gn-settings-line);
+  display: grid;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview.is-system {
+  grid-template-columns: 1fr 1fr;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  padding: 7px 8px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-light {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-dark {
+  background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview-line {
+  height: 5px;
+  border-radius: 999px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-light .gonavi-settings-mode-preview-line:nth-child(1) {
+  width: 58%;
+  background: rgba(15, 23, 42, 0.14);
+}
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-light .gonavi-settings-mode-preview-line:nth-child(2) {
+  width: 78%;
+  background: rgba(22, 163, 74, 0.38);
+}
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-light .gonavi-settings-mode-preview-line:nth-child(3) {
+  width: 42%;
+  background: rgba(15, 23, 42, 0.10);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-dark .gonavi-settings-mode-preview-line:nth-child(1) {
+  width: 58%;
+  background: rgba(248, 250, 252, 0.22);
+}
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-dark .gonavi-settings-mode-preview-line:nth-child(2) {
+  width: 78%;
+  background: rgba(74, 222, 128, 0.45);
+}
+body .gonavi-theme-settings .gonavi-settings-mode-preview-pane.is-dark .gonavi-settings-mode-preview-line:nth-child(3) {
+  width: 42%;
+  background: rgba(248, 250, 252, 0.12);
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-meta {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-label {
+  font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px));
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+body .gonavi-theme-settings .gonavi-settings-mode-check {
+  color: var(--gn-settings-accent);
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  flex-shrink: 0;
+}
+

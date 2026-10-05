@@ -1,0 +1,88 @@
+{
+  "type": "cockroachdb",
+  "aliases": [
+    "cockroach",
+    "crdb"
+  ],
+  "displayName": "CockroachDB",
+  "group": "relational",
+  "order": 20,
+  "defaultPort": 26257,
+  "wire": "postgres",
+  "dialect": "cockroachdb",
+  "ddlDialect": "postgres",
+  "family": "postgres",
+  "objectKind": "table",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT version() AS version",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_cockroachdb_driver",
+    "goModule": "github.com/lib/pq",
+    "version": "1.11.1",
+    "sourcePrefixes": [
+      "cockroachdb",
+      "registry",
+      "postgres",
+      "pg"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v21",
+        "label": "CockroachDB 21.x – 22.x",
+        "descriptionKey": "datasource.variant.cockroachdb.v21",
+        "maxServer": "23.0"
+      },
+      {
+        "id": "v23",
+        "label": "CockroachDB 23.x – 24.x",
+        "descriptionKey": "datasource.variant.cockroachdb.v23",
+        "minServer": "23.0",
+        "maxServer": "25.0"
+      },
+      {
+        "id": "v25",
+        "label": "CockroachDB 25.x +",
+        "descriptionKey": "datasource.variant.cockroachdb.v25",
+        "minServer": "25.0"
+      }
+    ]
+  },
+  "ui": {
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "uriSchemes": [
+      "cockroachdb",
+      "cockroach",
+      "crdb",
+      "postgresql",
+      "postgres"
+    ],
+    "hint": "PostgreSQL wire / distributed SQL",
+    "icon": {
+      "color": "#6933FF",
+      "text": "Cr",
+      "scale": 0.72
+    },
+    "tableStats": [
+      {
+        "rows": "(SELECT s.estimated_row_count FROM crdb_internal.table_row_statistics s WHERE s.table_id = {{oid}}::INT8)",
+        "size": "NULL::INT8",
+        "indexSize": "NULL::INT8"
+      }
+    ]
+  }
+}

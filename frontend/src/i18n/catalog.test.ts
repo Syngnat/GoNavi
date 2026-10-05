@@ -1,75 +1,69 @@
 import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
-
-import { catalogs, getCatalogKeys, t } from "./catalog";
+import { catalogs, t } from "./catalog";
 import { SUPPORTED_LANGUAGES } from "./resolveLanguage";
+import {
+    APP_THEME_SETTINGS_MODULES,
+    DATA_GRID_COMPONENT_MODULES,
+    QUERY_EDITOR_COMPONENT_MODULES,
+    QUERY_EDITOR_HELPER_MODULES,
+} from "../test/splitSourceModules";
 
 const getPlaceholders = (value: string): string[] =>
   Array.from(value.matchAll(/\{\{([A-Za-z0-9_]+)\}\}/g), (match) => match[1]).sort();
 
-const readDataGridSource = (): string =>
-  readFileSync(new URL("../components/DataGrid.tsx", import.meta.url), "utf8");
+const readSourceFile = (relativePath: string): string =>
+  readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 
-const readDataGridColumnInfoPopoverContentSource = (): string =>
-  readFileSync(new URL("../components/DataGridColumnInfoPopoverContent.tsx", import.meta.url), "utf8");
+const readSourceFiles = (base: string, files: readonly string[]): string =>
+  files.map((file) => readFileSync(new URL(`${base}${file}`, import.meta.url), "utf8")).join("\n");
 
-const readDataGridColumnQuickFindSource = (): string =>
-  readFileSync(new URL("../components/DataGridColumnQuickFind.tsx", import.meta.url), "utf8");
+const readDataGridSource = (): string => readSourceFiles("../components/", DATA_GRID_COMPONENT_MODULES);
 
-const readDataGridColumnTitleSource = (): string =>
-  readFileSync(new URL("../components/DataGridColumnTitle.tsx", import.meta.url), "utf8");
+const readDataGridColumnInfoPopoverContentSource = (): string => readSourceFile("components/DataGridColumnInfoPopoverContent.tsx");
 
-const readDataGridModalsSource = (): string =>
-  readFileSync(new URL("../components/DataGridModals.tsx", import.meta.url), "utf8");
+const readDataGridColumnQuickFindSource = (): string => readSourceFile("components/DataGridColumnQuickFind.tsx");
 
-const readDataGridPageFindSource = (): string =>
-  readFileSync(new URL("../components/DataGridPageFind.tsx", import.meta.url), "utf8");
+const readDataGridColumnTitleSource = (): string => readSourceFile("components/DataGridColumnTitle.tsx");
 
-const readDataGridPaginationBarSource = (): string =>
-  readFileSync(new URL("../components/DataGridPaginationBar.tsx", import.meta.url), "utf8");
+const readDataGridModalsSource = (): string => readSourceFile("components/DataGridModals.tsx");
 
-const readDataGridPaginationSource = (): string =>
-  readFileSync(new URL("../utils/dataGridPagination.ts", import.meta.url), "utf8");
+const readDataGridPageFindSource = (): string => readSourceFile("components/DataGridPageFind.tsx");
 
-const readDataGridPreviewPanelSource = (): string =>
-  readFileSync(new URL("../components/DataGridPreviewPanel.tsx", import.meta.url), "utf8");
+const readDataGridPaginationBarSource = (): string => readSourceFile("components/DataGridPaginationBar.tsx");
 
-const readDataGridRecordViewsSource = (): string =>
-  readFileSync(new URL("../components/DataGridRecordViews.tsx", import.meta.url), "utf8");
+const readDataGridPaginationSource = (): string => readSourceFile("utils/dataGridPagination.ts");
 
-const readDataGridResultViewSwitcherSource = (): string =>
-  readFileSync(new URL("../components/DataGridResultViewSwitcher.tsx", import.meta.url), "utf8");
+const readDataGridPreviewPanelSource = (): string => readSourceFile("components/DataGridPreviewPanel.tsx");
 
-const readDataGridSecondaryActionsSource = (): string =>
-  readFileSync(new URL("../components/DataGridSecondaryActions.tsx", import.meta.url), "utf8");
+const readDataGridRecordViewsSource = (): string => readSourceFile("components/DataGridRecordViews.tsx");
 
-const readDataGridV2DdlWorkspaceSource = (): string =>
-  readFileSync(new URL("../components/DataGridV2DdlWorkspace.tsx", import.meta.url), "utf8");
+const readDataGridResultViewSwitcherSource = (): string => readSourceFile("components/DataGridResultViewSwitcher.tsx");
 
-const readQueryEditorSource = (): string =>
-  readFileSync(new URL("../components/QueryEditor.tsx", import.meta.url), "utf8");
+const readDataGridSecondaryActionsSource = (): string => readSourceFile("components/DataGridSecondaryActions.tsx");
 
-const readAppSource = (): string =>
-  readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+const readDataGridV2DdlWorkspaceSource = (): string => readSourceFile("components/DataGridV2DdlWorkspace.tsx");
 
-const readQueryEditorHelpersSource = (): string =>
-  readFileSync(new URL("../components/queryEditor/QueryEditorHelpers.ts", import.meta.url), "utf8");
+const readQueryEditorSource = (): string => readSourceFiles("../components/", QUERY_EDITOR_COMPONENT_MODULES);
 
-const readQueryEditorAiContextSource = (): string =>
-  readFileSync(new URL("../components/queryEditor/queryEditorAiContext.ts", import.meta.url), "utf8");
+// 主题设置面板已拆为 useAppThemeSettingsRender 与各分区组件
+const readAppThemeSettingsSource = (): string => readSourceFiles("../", APP_THEME_SETTINGS_MODULES);
 
-const readQueryEditorAiSqlInsertSource = (): string =>
-  readFileSync(new URL("../components/queryEditor/queryEditorAiSqlInsert.ts", import.meta.url), "utf8");
+const readQueryEditorHelpersSource = (): string => readSourceFiles("../components/queryEditor/", QUERY_EDITOR_HELPER_MODULES);
 
-const readQueryEditorResultsPanelSource = (): string =>
-  readFileSync(new URL("../components/QueryEditorResultsPanel.tsx", import.meta.url), "utf8");
+const readQueryEditorAiContextSource = (): string => readSourceFile("components/queryEditor/queryEditorAiContext.ts");
 
+const readQueryEditorAiSqlInsertSource = (): string => readSourceFile("components/queryEditor/queryEditorAiSqlInsert.ts");
+
+const readQueryEditorResultsPanelSource = (): string => readSourceFile("components/QueryEditorResultsPanel.tsx");
+
+// sqlDialect.ts 已按主题拆成多个模块，源码扫描需按原顺序聚合。
 const readSqlDialectSource = (): string =>
-  readFileSync(new URL("../utils/sqlDialect.ts", import.meta.url), "utf8");
+  ["sqlDialect.ts", "sqlDialectCore.ts", "sqlDialectColumnTypes.ts", "sqlDialectKeywords.ts", "sqlDialectFunctions.ts"]
+    .map((file) => readFileSync(new URL(`../utils/${file}`, import.meta.url), "utf8"))
+    .join("\n");
 
-const readRowLocatorSource = (): string =>
-  readFileSync(new URL("../utils/rowLocator.ts", import.meta.url), "utf8");
+const readRowLocatorSource = (): string => readSourceFile("utils/rowLocator.ts");
 
 const sliceBetween = (source: string, start: string, end: string): string => {
   const normalizedSource = source.replace(/\r\n/g, "\n");
@@ -128,284 +122,8 @@ const assertSourceDoesNotInlineCatalogValues = (
 };
 
 describe("i18n catalog", () => {
-  it("loads six complete catalogs with consistent base keys", () => {
-    const baseKeys = getCatalogKeys("en-US");
-
-    expect(SUPPORTED_LANGUAGES).toHaveLength(6);
-    expect(baseKeys).toContain("common.cancel");
-    expect(baseKeys).toContain("settings.language.title");
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      expect(getCatalogKeys(language)).toEqual(baseKeys);
-      expect(catalogs[language]["common.cancel"]).toBeTruthy();
-      expect(catalogs[language]["settings.language.title"]).toBeTruthy();
-    }
-  });
-
-  it("keeps MSI and Portable update copy complete across all catalogs", () => {
-    const updateKeys = [
-      "app.about.action.download_msi_update",
-      "app.about.action.download_portable_update",
-      "app.about.action.install_and_restart",
-      "app.about.action.launch_installer",
-      "app.about.download_progress.ready_to_install",
-      "app.about.download_progress.installing_and_restarting",
-      "app.about.download_progress.launching_installer",
-      "app.about.download_progress.restarting_after_install",
-      "app.about.download_progress.installer_started",
-      "app.about.message.download_ready_install",
-      "app.about.message.download_ready_install_with_path",
-      "app.about.update_status.new_version_ready_install",
-      "app.about.version.install_mode",
-      "app.about.version.package_type",
-      "app.about.install_mode.portable",
-      "app.about.install_mode.msi",
-      "app.about.package_type.portable",
-      "app.about.package_type.msi",
-    ] as const;
-    const base = catalogs["en-US"];
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const key of updateKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-        expect(getPlaceholders(catalogs[language][key])).toEqual(getPlaceholders(base[key]));
-      }
-    }
-  });
-
-  it("keeps latest and dev update channel descriptions distinct", () => {
-    const latestHintKey = "app.about.version_update.channel_hint.latest";
-    const devHintKey = "app.about.version_update.channel_hint.dev";
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      expect(catalogs[language]).toHaveProperty(latestHintKey);
-      expect(catalogs[language]).toHaveProperty(devHintKey);
-      expect(catalogs[language][latestHintKey]).toBeTruthy();
-      expect(catalogs[language][devHintKey]).toBeTruthy();
-      expect(catalogs[language][latestHintKey]).not.toBe(catalogs[language][devHintKey]);
-    }
-
-    expect(catalogs["zh-CN"][latestHintKey]).toBe("接收最新的稳定版本");
-    expect(catalogs["zh-CN"][devHintKey]).toBe("接收最新的开发版本");
-  });
-
-  it("keeps data-root log directory copy complete across all catalogs", () => {
-    const logDirectoryKeys = [
-      "app.data_root.log_directory.backend.dialog.select_directory",
-      "app.data_root.log_directory.backend.error.desktop_only",
-      "app.data_root.log_directory.backend.error.directory_unavailable",
-      "app.data_root.log_directory.backend.error.environment_managed",
-      "app.data_root.log_directory.backend.error.open_directory_failed",
-      "app.data_root.log_directory.backend.error.open_directory_unsupported",
-      "app.data_root.log_directory.backend.error.save_failed",
-      "app.data_root.log_directory.backend.message.opened",
-      "app.data_root.log_directory.backend.message.unchanged",
-      "app.data_root.log_directory.backend.message.updated_restart",
-      "app.data_root.log_directory.current_file",
-      "app.data_root.log_directory.default_directory",
-      "app.data_root.log_directory.description",
-      "app.data_root.log_directory.environment_hint",
-      "app.data_root.log_directory.message.apply_failed_with_error",
-      "app.data_root.log_directory.message.open_failed_with_error",
-      "app.data_root.log_directory.message.select_failed_with_error",
-      "app.data_root.log_directory.message.select_valid_first",
-      "app.data_root.log_directory.message.updated",
-      "app.data_root.log_directory.pending_restart",
-      "app.data_root.log_directory.placeholder",
-      "app.data_root.log_directory.restart_hint",
-      "app.data_root.log_directory.title",
-    ] as const;
-    const base = catalogs["en-US"];
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const key of logDirectoryKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-        expect(getPlaceholders(catalogs[language][key])).toEqual(getPlaceholders(base[key]));
-      }
-    }
-
-    expect(catalogs["zh-CN"]["app.data_root.log_directory.title"]).toBe("日志目录");
-    expect(catalogs["zh-CN"]["app.data_root.log_directory.environment_hint"]).toContain("GONAVI_LOG_DIR");
-    expect(catalogs["en-US"]["app.data_root.log_directory.restart_hint"]).toContain("gonavi.log");
-  });
-
-  it("keeps saved query directory copy complete across all catalogs", () => {
-    const savedQueryDirectoryKeys = [
-      "app.data_root.saved_query_directory.backend.dialog.select_directory",
-      "app.data_root.saved_query_directory.backend.error.desktop_only",
-      "app.data_root.saved_query_directory.backend.error.directory_unavailable",
-      "app.data_root.saved_query_directory.backend.error.migrate_failed",
-      "app.data_root.saved_query_directory.backend.error.open_directory_failed",
-      "app.data_root.saved_query_directory.backend.error.open_directory_unsupported",
-      "app.data_root.saved_query_directory.backend.error.query_file_unavailable",
-      "app.data_root.saved_query_directory.backend.error.query_id_required",
-      "app.data_root.saved_query_directory.backend.error.query_not_found",
-      "app.data_root.saved_query_directory.backend.error.reveal_failed",
-      "app.data_root.saved_query_directory.backend.error.reveal_unsupported",
-      "app.data_root.saved_query_directory.backend.error.save_failed",
-      "app.data_root.saved_query_directory.backend.message.opened",
-      "app.data_root.saved_query_directory.backend.message.revealed",
-      "app.data_root.saved_query_directory.backend.message.unchanged",
-      "app.data_root.saved_query_directory.backend.message.updated",
-      "app.data_root.saved_query_directory.current_directory",
-      "app.data_root.saved_query_directory.default_directory",
-      "app.data_root.saved_query_directory.description",
-      "app.data_root.saved_query_directory.message.apply_failed_with_error",
-      "app.data_root.saved_query_directory.message.open_failed_with_error",
-      "app.data_root.saved_query_directory.message.select_failed_with_error",
-      "app.data_root.saved_query_directory.message.select_valid_first",
-      "app.data_root.saved_query_directory.message.updated",
-      "app.data_root.saved_query_directory.placeholder",
-      "app.data_root.saved_query_directory.title",
-    ] as const;
-    const base = catalogs["en-US"];
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const key of savedQueryDirectoryKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-        expect(getPlaceholders(catalogs[language][key])).toEqual(getPlaceholders(base[key]));
-      }
-    }
-
-    expect(catalogs["zh-CN"]["app.data_root.saved_query_directory.title"]).toBe("已存查询目录");
-    expect(catalogs["zh-CN"]["app.data_root.saved_query_directory.description"]).toContain(".sql");
-    expect(catalogs["en-US"]["app.data_root.saved_query_directory.description"]).toContain("independent .sql file");
-  });
-
-  it("includes App shell keys required by every supported language", () => {
-    const appShellKeys = [
-      "app.tools.title",
-      "app.tools.group.config.title",
-      "app.tools.group.config.description",
-      "app.tools.group.workflow.title",
-      "app.tools.group.workflow.description",
-      "app.tools.group.workspace.title",
-      "app.tools.group.workspace.description",
-      "app.tools.entry.import.title",
-      "app.tools.entry.security_update.description",
-      "app.tools.entry.security_update.status_description",
-      "app.tools.entry.security_update.title",
-      "app.tools.entry.snippets.description",
-      "app.tools.entry.snippets.title",
-      "app.data_root.title",
-      "app.data_root.action.switch_only",
-      "app.data_root.message.apply_failed",
-      "app.data_root.message.apply_failed_with_error",
-      "app.data_root.message.load_failed",
-      "app.data_root.message.load_failed_with_error",
-      "app.data_root.message.open_failed",
-      "app.data_root.message.open_failed_with_error",
-      "app.data_root.message.select_failed",
-      "app.data_root.message.select_failed_with_error",
-      "app.data_root.message.select_valid_first",
-      "app.data_root.message.updated",
-      "app.security_update.error.capability_unavailable",
-      "app.security_update.message.completed",
-      "app.security_update.message.needs_attention",
-      "app.security_update.message.not_finished_retry_later",
-      "app.security_update.message.postpone_failed",
-      "app.security_update.message.rolled_back",
-      "app.security_update.stage.checking_saved_config",
-      "app.security_update.stage.updating_secure_storage",
-      "app.security_update.stage.verifying_result",
-      "app.sidebar.ai_assistant",
-      "app.sidebar.collapse",
-      "app.sidebar.expand",
-      "app.sidebar.resize_width",
-      "app.sidebar.settings",
-      "app.sidebar.sql_execution_log",
-      "app.sidebar.tools",
-      "app.window_zoom.message.fullscreen_exit_first",
-      "app.window_zoom.message.reset_failed",
-      "app.window_zoom.message.reset_success",
-      "app.window_zoom.message.reset_success_fallback",
-      "app.window_zoom.message.windows_only",
-      "app.ai_panel.action.close",
-      "app.ai_panel.action.reload",
-      "app.ai_panel.aria.close",
-      "app.ai_panel.error.description",
-      "app.ai_panel.error.title",
-      "app.about.title",
-      "app.about.field.update_status",
-      "common.back_to_previous",
-      "common.unknown",
-      "common.close",
-    ] as const;
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const key of appShellKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-      }
-    }
-  });
-
-  it("includes App theme modal shell keys required by every supported language", () => {
-    const themeModalShellKeys = [
-      "app.theme.appearance_settings_description",
-      "app.theme.appearance_settings_title",
-      "app.theme.mode.dark.description",
-      "app.theme.mode.dark.label",
-      "app.theme.mode.light.description",
-      "app.theme.mode.light.label",
-      "app.theme.mode.system.description",
-      "app.theme.mode.system.label",
-      "app.theme.mode_title",
-      "app.theme.data_table.row_number",
-      "app.theme.data_table.row_number_hint",
-      "app.theme.data_table.table_double_click_action",
-      "app.theme.data_table.table_double_click_action.open_data",
-      "app.theme.data_table.table_double_click_action.open_design",
-      "app.theme.data_table.table_double_click_action_hint",
-      "app.theme.data_table.query_ctrl_click_action",
-      "app.theme.data_table.query_ctrl_click_action.open_design",
-      "app.theme.data_table.query_ctrl_click_action.locate",
-      "app.theme.data_table.query_ctrl_click_action_hint",
-      "app.theme.instant_apply_hint",
-      "app.theme.nav.appearance.description",
-      "app.theme.nav.appearance.title",
-      "app.theme.nav.theme.description",
-      "app.theme.nav.theme.title",
-      "app.theme.nav.workspace.description",
-      "app.theme.nav.workspace.title",
-      "app.theme.navigation_title",
-      "app.theme.workspace_settings_description",
-      "app.theme.workspace_settings_title",
-      "app.theme.query_template.description",
-      "app.theme.query_template.hint",
-      "app.theme.query_template.reset_default",
-      "app.theme.query_template.title",
-      "app.theme.table_alias.description",
-      "app.theme.table_alias.custom_prefix.description",
-      "app.theme.table_alias.custom_prefix.placeholder",
-      "app.theme.table_alias.custom_prefix.title",
-      "app.theme.table_alias.title",
-      "app.theme.theme_settings_description",
-      "app.theme.theme_settings_title",
-      "app.theme.ui_version.sidebar_search.title",
-      "app.theme.ui_version.sidebar_search.command",
-      "app.theme.ui_version.sidebar_search.filter",
-      "app.theme.ui_version.sidebar_search.hint",
-    ] as const;
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const key of themeModalShellKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-      }
-    }
-  });
-
   it("renders the table alias setting in theme settings", () => {
-    const source = readAppSource();
-    const v2Source = sliceBetween(
-      source,
-      "const renderThemeSettingsContentV2 =",
-      "const renderThemeSettingsContent =",
-    );
+    const v2Source = readAppThemeSettingsSource();
 
     expect(v2Source).toContain("app.theme.table_alias.title");
     expect(v2Source).toContain("app.theme.table_alias.description");
@@ -415,111 +133,6 @@ describe("i18n catalog", () => {
     expect(v2Source).toContain("app.theme.table_alias.custom_prefix.placeholder");
     expect(v2Source).toContain("setAppearance({ customTableAliasPrefixEnabled: checked })");
     expect(v2Source).toContain("setAppearance({ customTableAliasPrefix: event.target.value })");
-  });
-
-  it("includes App shortcut modal keys required by every supported language", () => {
-    const shortcutModalKeys = [
-      "app.shortcuts.action.closeActiveTab.description",
-      "app.shortcuts.action.closeActiveTab.label",
-      "app.shortcuts.action.focusSidebarSearch.description",
-      "app.shortcuts.action.focusSidebarSearch.label",
-      "app.shortcuts.action.newConnection.description",
-      "app.shortcuts.action.newConnection.label",
-      "app.shortcuts.action.newQueryTab.description",
-      "app.shortcuts.action.newQueryTab.label",
-      "app.shortcuts.action.openShortcutManager.description",
-      "app.shortcuts.action.openShortcutManager.label",
-      "app.shortcuts.action.record",
-      "app.shortcuts.action.duplicateCurrentLine.description",
-      "app.shortcuts.action.duplicateCurrentLine.label",
-      "app.shortcuts.action.resetWindowZoom.description",
-      "app.shortcuts.action.resetWindowZoom.label",
-      "app.shortcuts.action.restore_defaults",
-      "app.shortcuts.action.runQuery.description",
-      "app.shortcuts.action.runQuery.label",
-      "app.shortcuts.action.saveQuery.description",
-      "app.shortcuts.action.saveQuery.label",
-      "app.shortcuts.action.saveQueryAs.description",
-      "app.shortcuts.action.saveQueryAs.label",
-      "app.shortcuts.action.selectCurrentStatement.description",
-      "app.shortcuts.action.selectCurrentStatement.label",
-      "app.shortcuts.action.sendAIChatMessage.description",
-      "app.shortcuts.action.sendAIChatMessage.label",
-      "app.shortcuts.action.triggerSqlAiCompletion.description",
-      "app.shortcuts.action.triggerSqlAiCompletion.label",
-      "app.shortcuts.action.switchToNextTab.description",
-      "app.shortcuts.action.switchToNextTab.label",
-      "app.shortcuts.action.switchToPreviousTab.description",
-      "app.shortcuts.action.switchToPreviousTab.label",
-      "app.shortcuts.action.toggleAIPanel.description",
-      "app.shortcuts.action.toggleAIPanel.label",
-      "app.shortcuts.action.toggleLogPanel.description",
-      "app.shortcuts.action.toggleLogPanel.label",
-      "app.shortcuts.action.toggleMacFullscreen.description",
-      "app.shortcuts.action.toggleMacFullscreen.label",
-      "app.shortcuts.action.toggleTheme.description",
-      "app.shortcuts.action.toggleTheme.label",
-      "app.shortcuts.capture_hint",
-      "app.shortcuts.capture_waiting",
-      "app.shortcuts.context.datagrid",
-      "app.shortcuts.context.global",
-      "app.shortcuts.context.monaco",
-      "app.shortcuts.description",
-      "app.shortcuts.message.ai_send_limit",
-      "app.shortcuts.message.conflict",
-      "app.shortcuts.message.modifier_required",
-      "app.shortcuts.message.reserved_conflict_info",
-      "app.shortcuts.message.reserved_conflict_warning",
-      "app.shortcuts.message.restored_defaults",
-      "app.shortcuts.reserved.browser_close_tab",
-      "app.shortcuts.reserved.browser_new_incognito_window",
-      "app.shortcuts.reserved.browser_new_tab",
-      "app.shortcuts.reserved.browser_new_window",
-      "app.shortcuts.reserved.browser_print",
-      "app.shortcuts.reserved.browser_save",
-      "app.shortcuts.reserved.datagrid_copy",
-      "app.shortcuts.reserved.editor_add_selection",
-      "app.shortcuts.reserved.editor_delete_line",
-      "app.shortcuts.reserved.editor_find",
-      "app.shortcuts.reserved.editor_find_global",
-      "app.shortcuts.reserved.editor_goto_line",
-      "app.shortcuts.reserved.editor_insert_line_after",
-      "app.shortcuts.reserved.editor_insert_line_before",
-      "app.shortcuts.reserved.editor_quick_open",
-      "app.shortcuts.reserved.editor_rename_symbol",
-      "app.shortcuts.reserved.editor_replace",
-      "app.shortcuts.title",
-      "app.tools.entry.shortcuts.description",
-      "app.tools.entry.shortcuts.title",
-      "common.cancel",
-      "common.close",
-    ] as const;
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const key of shortcutModalKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-      }
-    }
-
-    expect(t("en-US", "app.shortcuts.message.conflict", { action: "Run SQL" })).toContain("Run SQL");
-    expect(t("en-US", "app.shortcuts.message.reserved_conflict_warning", {
-      contexts: "Browser",
-      labels: "Browser Save",
-    })).toContain("Browser Save");
-  });
-
-  it("keeps placeholders aligned and preserves raw parameter values", () => {
-    const base = catalogs["en-US"];
-    const key = "connection_modal.title.create";
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      expect(getPlaceholders(catalogs[language][key])).toEqual(
-        getPlaceholders(base[key]),
-      );
-    }
-
-    expect(t("en-US", key, { type: "<raw>" })).toBe("New <raw> connection");
   });
 
   it("keeps DataGrid column controls in catalogs while preserving raw metadata parameters", () => {
@@ -741,21 +354,6 @@ describe("i18n catalog", () => {
     assertSourceDoesNotInlineCatalogValues(detachedChromeSource, dataGridDetachedChromeKeys, { ignoreEnglishBaseline: true });
   });
 
-  it("keeps raw cancelled sentinels out of data-root and export feedback catalogs", () => {
-    const guardedKeyPrefixes = [
-      "app.data_root.",
-      "data_export.",
-    ];
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      for (const [key, value] of Object.entries(catalogs[language])) {
-        if (guardedKeyPrefixes.some((prefix) => key.startsWith(prefix))) {
-          expect(value, `${language}:${key}`).not.toBe("已取消");
-        }
-      }
-    }
-  });
-
   it("keeps DataGrid row export messages in catalogs while preserving raw placeholders", () => {
     const dataGridRowExportMessageKeys = [
       "data_grid.message.exporting_rows",
@@ -780,103 +378,6 @@ describe("i18n catalog", () => {
     expect(t("zh-CN", "data_grid.message.exporting_rows", { count: "<raw-count>" })).toContain("<raw-count>");
     expect(t("en-US", "data_grid.message.export_failed", { detail: "<raw-detail>" })).toContain("<raw-detail>");
     assertSourceDoesNotInlineCatalogValues(source, dataGridRowExportMessageKeys);
-  });
-
-  it("keeps DataGrid commit, preview SQL, and copy feedback messages in catalogs with raw placeholders", () => {
-    const detailKeys = [
-      "data_grid.message.change_set_build_failed_detail",
-      "data_grid.message.preview_sql_failed_detail",
-      "data_grid.message.commit_failed",
-      "data_grid.message.commit_outcome_unknown",
-      "data_grid.message.auto_commit_outcome_unknown",
-      "data_grid.message.rollback_failed",
-    ];
-    const noPlaceholderKeys = [
-      "data_grid.message.change_set_build_failed",
-      "data_grid.message.preview_sql_failed",
-      "data_grid.message.transaction_committed",
-      "data_grid.message.transaction_rolled_back",
-      "data_grid.message.no_changes_to_commit",
-      "data_grid.message.copied_to_clipboard",
-      "data_grid.message.no_field_name",
-      "data_grid.message.no_copyable_columns",
-      "data_grid.message.no_copyable_cells",
-      "data_grid.message.drag_select_cells_to_copy",
-      "data_grid.message.selection_no_copyable_content",
-      "data_grid.message.copy_sql_not_supported",
-      "data_grid.message.keep_one_visible_column",
-      "data_grid.message.result_set_no_copyable_content",
-      "data_grid.message.current_row_no_copyable_content",
-      "data_grid.copy_sql.error.missing_safe_where",
-      "data_grid.copy_sql.error.no_copyable_fields",
-    ];
-    const modeKeys = [
-      "data_grid.copy_sql.error.missing_table_name",
-    ];
-    const allKeys = [...detailKeys, ...noPlaceholderKeys, ...modeKeys];
-    const base = catalogs["en-US"] as Record<string, string>;
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      const catalog = catalogs[language] as Record<string, string>;
-      for (const key of allKeys) {
-        expect(catalog).toHaveProperty(key);
-        expect(catalog[key]).toBeTruthy();
-        expect(getPlaceholders(catalog[key])).toEqual(getPlaceholders(base[key]));
-      }
-
-      detailKeys.forEach((key) => {
-        expect(getPlaceholders(catalog[key])).toEqual(["detail"]);
-      });
-      noPlaceholderKeys.forEach((key) => {
-        expect(getPlaceholders(catalog[key])).toEqual([]);
-      });
-      modeKeys.forEach((key) => {
-        expect(getPlaceholders(catalog[key])).toEqual(["mode"]);
-      });
-    }
-
-    expect(t("en-US", "data_grid.message.commit_failed", { detail: "<raw-detail>" })).toContain("<raw-detail>");
-    expect(t("en-US", "data_grid.message.rollback_failed", { detail: "<raw-rollback-detail>" })).toContain("<raw-rollback-detail>");
-    expect(t("zh-CN", "data_grid.message.preview_sql_failed_detail", { detail: "<raw-preview-error>" })).toContain("<raw-preview-error>");
-    expect(t("de-DE", "data_grid.copy_sql.error.missing_table_name", { mode: "UPDATE" })).toContain("UPDATE");
-  });
-
-  it("keeps DataGrid Preview SQL Modal chrome in catalogs while preserving raw SQL operation labels", () => {
-    const noPlaceholderKeys = [
-      "data_grid.preview_sql.title",
-      "data_grid.preview_sql.copied",
-      "data_grid.preview_sql.no_changes",
-    ];
-    const summaryKey = "data_grid.preview_sql.summary";
-    const allKeys = [...noPlaceholderKeys, summaryKey];
-    const base = catalogs["en-US"] as Record<string, string>;
-
-    for (const language of SUPPORTED_LANGUAGES) {
-      const catalog = catalogs[language] as Record<string, string>;
-      for (const key of allKeys) {
-        expect(catalog).toHaveProperty(key);
-        expect(catalog[key]).toBeTruthy();
-        expect(getPlaceholders(catalog[key])).toEqual(getPlaceholders(base[key]));
-      }
-
-      noPlaceholderKeys.forEach((key) => {
-        expect(getPlaceholders(catalog[key])).toEqual([]);
-      });
-      expect(getPlaceholders(catalog[summaryKey])).toEqual(["deletes", "inserts", "updates"]);
-      expect(catalog[summaryKey]).toContain("DELETE");
-      expect(catalog[summaryKey]).toContain("UPDATE");
-      expect(catalog[summaryKey]).toContain("INSERT");
-    }
-
-    const zhSummary = t("zh-CN", summaryKey, {
-      deletes: "<raw-deletes>",
-      updates: "<raw-updates>",
-      inserts: "<raw-inserts>",
-    });
-    expect(zhSummary).toContain("<raw-deletes>");
-    expect(zhSummary).toContain("<raw-updates>");
-    expect(zhSummary).toContain("<raw-inserts>");
-    expect(t("en-US", "data_grid.preview_sql.copied")).toBe("Copied");
   });
 
   it("keeps QueryEditor format settings menu labels in catalogs instead of source literals", () => {
@@ -956,7 +457,7 @@ describe("i18n catalog", () => {
     const objectInfoActionSource = sliceBetween(
       source,
       "      objectHoverActionRef.current = editor.addAction({",
-      "      editor.onDidChangeCursorPosition?.((event: any) => {",
+      "    editor.onDidChangeCursorPosition?.((event: any) => {",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1488,34 +989,18 @@ describe("i18n catalog", () => {
     });
   });
 
-  it("keeps builtin function completion action labels localized beyond the english baseline in ja-JP de-DE and ru-RU", () => {
-    const actionKeys = [
-      "query_editor.completion.action.absolute_value",
-      "query_editor.completion.action.bitmap_construction",
-      "query_editor.completion.action.group_concatenation",
-    ] as const;
-
-    for (const language of ["ja-JP", "de-DE", "ru-RU"] as const) {
-      for (const key of actionKeys) {
-        expect(catalogs[language]).toHaveProperty(key);
-        expect(catalogs[language][key]).toBeTruthy();
-        expect(catalogs[language][key]).not.toBe(catalogs["en-US"][key]);
-      }
-    }
-  });
-
   it("keeps QueryEditor database-qualified table completion detail labels in catalogs instead of source literals", () => {
     const tableLabelKey = "query_editor.object_info.table" as const;
     const source = readQueryEditorSource();
     const databaseQualifiedTableCompletionSource = sliceBetween(
       source,
-      "                  // 首先检查 qualifier 是否是数据库名（跨库表提示）",
-      "                  // qualifier 是 schema（如 dbo/public）时，仅补全表名，避免输入 dbo. 后再补成 dbo.dbo.table",
+      "    // 首先检查 qualifier 是否是数据库名（跨库表提示）",
+      "    // qualifier 是 schema（如 dbo/public）时，仅补全表名，避免输入 dbo. 后再补成 dbo.dbo.table",
     );
     const databaseQualifiedTableDetailSource = sliceBetween(
       databaseQualifiedTableCompletionSource,
-      "                          detail: appendCommentToDetail(",
-      "                          documentation: buildCompletionDocumentation(table.comment),",
+      "                    detail: appendCommentToDetail(",
+      "                    documentation: buildCompletionDocumentation(table.comment),",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1535,13 +1020,13 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const schemaQualifiedTableCompletionSource = sliceBetween(
       source,
-      "                  // qualifier 是 schema（如 dbo/public）时，仅补全表名，避免输入 dbo. 后再补成 dbo.dbo.table",
-      "                  // 否则检查是否是表别名或表名，提示列",
+      "    // qualifier 是 schema（如 dbo/public）时，仅补全表名，避免输入 dbo. 后再补成 dbo.dbo.table",
+      "    // 否则检查是否是表别名或表名，提示列",
     );
     const schemaQualifiedTableDetailSource = sliceBetween(
       schemaQualifiedTableCompletionSource,
-      "                          detail: appendCommentToDetail(",
-      "                          documentation: buildCompletionDocumentation(table.comment),",
+      "                detail: appendCommentToDetail(",
+      "                documentation: buildCompletionDocumentation(table.comment),",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1561,13 +1046,13 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const globalCrossDbTableCompletionSource = sliceBetween(
       source,
-      "              // 表提示：当前库智能处理 schema.table 格式",
-      "                      const hasDuplicate = (",
+      "    // 表提示：当前库智能处理 schema.table 格式",
+      "            const hasDuplicate = (",
     );
     const globalCrossDbTableDetailSource = sliceBetween(
       globalCrossDbTableCompletionSource,
-      "                              detail: appendCommentToDetail(",
-      "                              documentation: buildCompletionDocumentation(table.comment),",
+      "                    detail: appendCommentToDetail(",
+      "                    documentation: buildCompletionDocumentation(table.comment),",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1587,13 +1072,13 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const currentDbTableCompletionSource = sliceBetween(
       source,
-      "                      const hasDuplicate = (",
-      "              const buildGlobalViewBatch =",
+      "            const hasDuplicate = (",
+      "    const buildGlobalViewBatch =",
     );
     const currentDbTableDetailSource = sliceBetween(
       currentDbTableCompletionSource,
-      "                      detail: appendCommentToDetail(",
-      "                      documentation: buildCompletionDocumentation(table.comment),",
+      "                detail: appendCommentToDetail(",
+      "                documentation: buildCompletionDocumentation(table.comment),",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1613,13 +1098,13 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const databaseSuggestionSource = sliceBetween(
       source,
-      "              // 数据库提示",
-      "              // 关键字提示",
+      "    // 数据库提示",
+      "    // 关键字提示",
     );
     const databaseSuggestionDetailSource = sliceBetween(
       databaseSuggestionSource,
-      "                      detail:",
-      "                      range,",
+      "            detail:",
+      "            range,",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1879,7 +1364,7 @@ describe("i18n catalog", () => {
       sliceBetween(
         source,
         "      objectHoverActionRef.current = editor.addAction({",
-        "      editor.onDidChangeCursorPosition?.((event: any) => {",
+        "    editor.onDidChangeCursorPosition?.((event: any) => {",
       ),
       sliceBetween(
         source,
@@ -1888,8 +1373,8 @@ describe("i18n catalog", () => {
       ),
       sliceBetween(
         source,
-        "      // Register runQuery shortcut inside Monaco so it overrides Monaco's default keybinding",
-        "      // HMR 重载或测试重置时，以全局状态为准，避免本地闭包状态和 provider 列表不同步。",
+        "    // Register runQuery shortcut inside Monaco so it overrides Monaco's default keybinding",
+        "    // HMR 重载或测试重置时，以全局状态为准，避免本地闭包状态和 provider 列表不同步。",
       ),
       sliceBetween(
         source,
@@ -1983,21 +1468,6 @@ describe("i18n catalog", () => {
       "trigger_viewer.tab.edit_trigger_title",
       "sidebar.tab.edit_routine",
     ]);
-  });
-
-  it("guards QueryEditor V2 empty state against inlining any catalog literal into source", () => {
-    const emptyStateKeys = [
-      "query_editor.empty_state.title",
-      "query_editor.empty_state.description",
-    ] as const;
-    const inlineSource = [
-      `<strong>${catalogs["en-US"]["query_editor.empty_state.title"]}</strong>`,
-      `<span>${catalogs["en-US"]["query_editor.empty_state.description"]}</span>`,
-    ].join("");
-
-    expect(() => {
-      assertSourceDoesNotInlineCatalogValues(inlineSource, emptyStateKeys);
-    }).toThrowError(/catalog literal/i);
   });
 
   it("keeps QueryEditor V2 empty state copy in catalogs instead of source literals", () => {

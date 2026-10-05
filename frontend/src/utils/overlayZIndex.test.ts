@@ -23,7 +23,15 @@ const readSource = (path: string): string => readFileSync(
 const floatingAIChatSource = readSource('../components/FloatingAIChatWindow.tsx');
 const floatingWorkbenchSource = readSource('../components/FloatingWorkbenchWindows.tsx');
 const floatingQueryResultSource = readSource('../components/FloatingQueryResultWindows.tsx');
-const dataGridShellSource = readSource('../components/DataGridShell.tsx');
+// DataGridShell 已拆出 dataGrid/shell 子组件，按原顺序聚合源码
+const dataGridShellSource = [
+  '../components/DataGridShell.tsx',
+  '../components/dataGrid/shell/DataGridTableSurface.tsx',
+  '../components/dataGrid/shell/useDataGridShellRenderers.tsx',
+  '../components/dataGrid/shell/DataGridShellToolbar.tsx',
+  '../components/dataGrid/shell/DataGridShellBody.tsx',
+  '../components/dataGrid/shell/DataGridShellRowEditorModal.tsx',
+].map(readSource).join('\n');
 const sidebarSource = readSource('../components/Sidebar.tsx');
 const tableOverviewSource = readSource('../components/TableOverview.tsx');
 

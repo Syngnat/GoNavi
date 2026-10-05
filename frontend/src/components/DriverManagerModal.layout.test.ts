@@ -3,11 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { readV2ThemeCss } from '../test/readV2ThemeCss';
+import { readCssWithImports } from '../test/readCssWithImports';
 
-const appCss = readFileSync(
-  fileURLToPath(new globalThis.URL('../App.css', import.meta.url)),
-  'utf8',
-);
+const appCss = readCssWithImports(fileURLToPath(new globalThis.URL('../App.css', import.meta.url)));
 const driverManagerWorkbenchCss = readFileSync(
   fileURLToPath(new globalThis.URL('./DriverManagerWorkbench.css', import.meta.url)),
   'utf8',

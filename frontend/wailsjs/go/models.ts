@@ -1,5 +1,113 @@
 export namespace ai {
 	
+	export class BuiltinAIDeviceCode {
+	    deviceCode: string;
+	    userCode: string;
+	    verificationUri: string;
+	    verificationUriComplete?: string;
+	    expiresInSeconds: number;
+	    intervalSeconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuiltinAIDeviceCode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deviceCode = source["deviceCode"];
+	        this.userCode = source["userCode"];
+	        this.verificationUri = source["verificationUri"];
+	        this.verificationUriComplete = source["verificationUriComplete"];
+	        this.expiresInSeconds = source["expiresInSeconds"];
+	        this.intervalSeconds = source["intervalSeconds"];
+	    }
+	}
+	export class BuiltinAILoginResult {
+	    status: string;
+	    authenticated: boolean;
+	    message?: string;
+	    retryAfterSeconds?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuiltinAILoginResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.authenticated = source["authenticated"];
+	        this.message = source["message"];
+	        this.retryAfterSeconds = source["retryAfterSeconds"];
+	    }
+	}
+	export class BuiltinAIQuota {
+	    dailyTokensUsed: number;
+	    dailyTokenLimit: number;
+	    rolling5hTokensUsed: number;
+	    rolling5hTokenLimit: number;
+	    dailyResetAt?: string;
+	    rolling5hResetAt?: string;
+	    serviceAvailable?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuiltinAIQuota(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dailyTokensUsed = source["dailyTokensUsed"];
+	        this.dailyTokenLimit = source["dailyTokenLimit"];
+	        this.rolling5hTokensUsed = source["rolling5hTokensUsed"];
+	        this.rolling5hTokenLimit = source["rolling5hTokenLimit"];
+	        this.dailyResetAt = source["dailyResetAt"];
+	        this.rolling5hResetAt = source["rolling5hResetAt"];
+	        this.serviceAvailable = source["serviceAvailable"];
+	    }
+	}
+	export class BuiltinAIStatus {
+	    enabled: boolean;
+	    authenticated: boolean;
+	    state: string;
+	    gatewayUrl?: string;
+	    loginUrl?: string;
+	    model?: string;
+	    quota?: BuiltinAIQuota;
+	    message?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuiltinAIStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.authenticated = source["authenticated"];
+	        this.state = source["state"];
+	        this.gatewayUrl = source["gatewayUrl"];
+	        this.loginUrl = source["loginUrl"];
+	        this.model = source["model"];
+	        this.quota = this.convertValues(source["quota"], BuiltinAIQuota);
+	        this.message = source["message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CLICapabilityView {
 	    apiFormat: string;
 	    command: string;
@@ -241,6 +349,7 @@ export namespace ai {
 	    headers?: Record<string, string>;
 	    maxTokens?: number;
 	    contextWindow?: number;
+	    supportsImages?: boolean;
 	    cliPath?: string;
 	    cliEnv?: Record<string, string>;
 	    temperature: number;
@@ -271,6 +380,7 @@ export namespace ai {
 	        this.headers = source["headers"];
 	        this.maxTokens = source["maxTokens"];
 	        this.contextWindow = source["contextWindow"];
+	        this.supportsImages = source["supportsImages"];
 	        this.cliPath = source["cliPath"];
 	        this.cliEnv = source["cliEnv"];
 	        this.temperature = source["temperature"];
@@ -2308,6 +2418,7 @@ export namespace connection {
 	    uri?: string;
 	    clickHouseProtocol?: string;
 	    oceanBaseProtocol?: string;
+	    driverVariant?: string;
 	    hosts?: string[];
 	    topology?: string;
 	    mysqlReplicaUser?: string;
@@ -2363,6 +2474,7 @@ export namespace connection {
 	        this.uri = source["uri"];
 	        this.clickHouseProtocol = source["clickHouseProtocol"];
 	        this.oceanBaseProtocol = source["oceanBaseProtocol"];
+	        this.driverVariant = source["driverVariant"];
 	        this.hosts = source["hosts"];
 	        this.topology = source["topology"];
 	        this.mysqlReplicaUser = source["mysqlReplicaUser"];
@@ -3898,6 +4010,40 @@ export namespace runharness {
 	        this.connectionId = source["connectionId"];
 	        this.database = source["database"];
 	        this.command = source["command"];
+	    }
+	}
+	export class ContextPreview {
+	    windowTokens: number;
+	    reservedOutputTokens: number;
+	    instructionsBytes: number;
+	    workspaceBytes: number;
+	    boundBytes: number;
+	    userBytes: number;
+	    assistantBytes: number;
+	    toolBytes: number;
+	    retainedMessages: number;
+	    omittedMessages: number;
+	    workspaceTrimmed?: string;
+	    overflow?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.windowTokens = source["windowTokens"];
+	        this.reservedOutputTokens = source["reservedOutputTokens"];
+	        this.instructionsBytes = source["instructionsBytes"];
+	        this.workspaceBytes = source["workspaceBytes"];
+	        this.boundBytes = source["boundBytes"];
+	        this.userBytes = source["userBytes"];
+	        this.assistantBytes = source["assistantBytes"];
+	        this.toolBytes = source["toolBytes"];
+	        this.retainedMessages = source["retainedMessages"];
+	        this.omittedMessages = source["omittedMessages"];
+	        this.workspaceTrimmed = source["workspaceTrimmed"];
+	        this.overflow = source["overflow"];
 	    }
 	}
 	export class LedgerStorageStats {

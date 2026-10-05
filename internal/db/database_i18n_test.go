@@ -280,7 +280,7 @@ func TestDatabaseConnectionWrapperSourcesUseI18nHelpers(t *testing.T) {
 			},
 		},
 		{
-			path: "iris_impl.go",
+			path: "iris_impl_connect.go",
 			requiredTexts: []string{
 				"wrapDatabaseConnectionOpenError(err)",
 				"wrapDatabaseConnectionVerifyError(err)",

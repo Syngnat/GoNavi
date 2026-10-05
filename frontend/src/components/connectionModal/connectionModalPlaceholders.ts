@@ -1,13 +1,14 @@
 import { t } from '../../i18n';
 import { isMySQLCompatibleType, isFileDatabaseType } from '../../utils/connectionTypeCapabilities';
 import { getConnectionTypeDefaultPort as getDefaultPortByType } from '../../utils/connectionTypeCatalog';
+import { getRegistryUriScheme, usesTrinoStyleConnection } from '../../utils/dataSourceRegistry/uriScheme';
 import type { OceanBaseProtocolChoice } from './connectionModalUri';
 
 export const getUriPlaceholder = (dbType: string) => {
   if (isMySQLCompatibleType(dbType)) {
     const defaultPort = getDefaultPortByType(dbType);
     const scheme =
-      dbType === "diros" ? "doris" : dbType === "starrocks" ? "starrocks" : dbType === "oceanbase" ? "oceanbase" : dbType === "goldendb" ? "goldendb" : "mysql";
+      getRegistryUriScheme(dbType) ?? (dbType === "diros" ? "doris" : dbType === "starrocks" ? "starrocks" : dbType === "oceanbase" ? "oceanbase" : dbType === "goldendb" ? "goldendb" : "mysql");
     if (dbType === "oceanbase") {
       return `${scheme}://sys%40oracle001:pass@127.0.0.1:${defaultPort}?protocol=oracle`;
     }
@@ -24,7 +25,7 @@ export const getUriPlaceholder = (dbType: string) => {
   if (dbType === "clickhouse") {
     return "clickhouse://default:pass@127.0.0.1:9000/default";
   }
-  if (dbType === "trino") {
+  if (usesTrinoStyleConnection(dbType)) {
     return "http://user@127.0.0.1:8080?catalog=hive&schema=default&source=GoNavi";
   }
   if (dbType === "chroma") {
@@ -80,8 +81,11 @@ export const getUriPlaceholder = (dbType: string) => {
   if (dbType === "gaussdb") {
     return "gaussdb://user:pass@127.0.0.1:5432/db_name";
   }
+  const registryScheme = getRegistryUriScheme(dbType);
   return t("connection.modal.example", {
-    value: "postgres://user:pass@127.0.0.1:5432/db_name",
+    value: registryScheme
+      ? `${registryScheme}://user:pass@127.0.0.1:${getDefaultPortByType(dbType)}/db_name`
+      : "postgres://user:pass@127.0.0.1:5432/db_name",
   });
 };
 
@@ -116,6 +120,12 @@ export const getConnectionParamsPlaceholder = (
       return "max_execution_time=60&compress=lz4";
     case "trino":
       return "session_properties=query_max_execution_time:30m&query_timeout=30s";
+    case "presto":
+      return "session.query_max_run_time=30m&timeZone=Asia%2FShanghai&clientTags=gonavi";
+    case "etcd":
+      return "prefix=/app&endpoints=10.0.0.2:2379,10.0.0.3:2379&delimiter=/";
+    case "zookeeper":
+      return "servers=10.0.0.2:2181,10.0.0.3:2181&chroot=/app&acl=auth::cdrwa";
     case "mongodb":
       return "retryWrites=true&readPreference=secondaryPreferred";
     case "chroma":

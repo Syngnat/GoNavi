@@ -249,7 +249,7 @@ Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](htt
 | | |
 |---|---|
 | **Built-in** | MySQL · GoldenDB · PostgreSQL · Oracle · Redis · Chroma · Qdrant · Milvus · RocketMQ · MQTT · Kafka · RabbitMQ |
-| **Optional** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · Dameng · Kingbase · HighGo · Vastbase · OpenGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · Custom Driver/DSN |
+| **Optional** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · Dameng · Kingbase · HighGo · Vastbase · OpenGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · TiDB · CockroachDB · KWDB · TimescaleDB · GBase 8a · GBase 8c · GBase 8s · YashanDB · Firebird · QuestDB · GreptimeDB · InfluxDB · Presto · OpenSearch · Weaviate · Meilisearch · Typesense · etcd · ZooKeeper · Custom Driver/DSN |
 
 <details>
 <summary><b>Full capability matrix</b></summary>
@@ -290,6 +290,25 @@ Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](htt
 | Columnar Analytics | ClickHouse | Optional driver agent | Analytical query, object browsing, SQL execution |
 | Federated Query | Trino | Optional driver agent | Cross-source SQL via multiple catalogs, `catalog.schema` browsing, SQL execution |
 | Search | Elasticsearch | Optional driver agent | Index browsing, mapping inspection, guarded REST console, JSON DSL / query_string search |
+| Relational | TiDB | Optional driver agent | MySQL-compatible querying, TiDB execution plans, data editing, sync / migration |
+| Relational | CockroachDB | Optional driver agent | PostgreSQL-wire querying, SHOW CREATE DDL, data editing, sync / migration |
+| Time-series | KWDB | Optional driver agent | Relational and time-series databases over the PostgreSQL wire, data editing, sync / migration |
+| Time-series | TimescaleDB | Optional driver agent | Hypertables and continuous aggregates, chunk statistics, PostgreSQL workflow, sync / migration |
+| Domestic DB | GBase 8a | Optional driver agent | MySQL-protocol MPP querying, HASH indexes, single-kind grid commits, sync / migration |
+| Domestic DB | GBase 8c | Optional driver agent | openGauss kernel (A / B / PG modes), sha256 authentication, object management, sync / migration |
+| Domestic DB | GBase 8s | Optional driver agent | Informix SQLI via your GBase 8s CSDK, object browsing, data editing, SQL backup / restore |
+| Domestic DB | YashanDB | Optional driver agent | Oracle-compatible querying via your YashanDB client, PL/SQL objects, execution plans, sync / migration |
+| Relational | Firebird | Optional driver agent | Firebird 2.5 / 3.0 / 4-5, procedures / triggers / packages, data editing, SQL backup / restore |
+| Time-series | QuestDB | Optional driver agent | Partitioned time-series tables, SQL querying, execution plans, append-only import |
+| Time-series | GreptimeDB | Optional driver agent | MySQL-protocol querying, TIME INDEX / tag metadata, append-only import |
+| Time-series | InfluxDB | Optional driver agent | InfluxDB 1.x (InfluxQL) / 2.x (Flux) / 3.x (SQL), line-protocol writes, grid editing |
+| Federated Query | Presto | Optional driver agent | PrestoDB / PrestoSQL catalogs, SQL execution, cancellation, migration source |
+| Search | OpenSearch | Optional driver agent | OpenSearch 1.x / 2.x / 3.x indices, guarded REST console, SQL / PPL |
+| Vector Database | Weaviate | Optional driver agent | Classes and tenants, GraphQL-backed grid browsing and editing, vector columns |
+| Search | Meilisearch | Optional driver agent | Indexes as tables, filter / sort push-down, document editing, REST console |
+| Search | Typesense | Optional driver agent | Collections as tables, filter_by push-down, document editing, REST console |
+| Key-Value | etcd | Optional driver agent | Prefix tree browsing, key / lease editing, etcdctl-style console (v2 / v3 APIs) |
+| Coordination | ZooKeeper | Optional driver agent | Znode tree browsing, data and ACL inspection, node editing, zkCli-style console |
 | Extensibility | Custom Driver/DSN | Custom | Extend to more data sources via Driver + DSN |
 
 </details>

@@ -1,0 +1,511 @@
+/* ── 网络提示条 ──
+   antd Alert 默认内边距与图标尺寸是为「独立消息卡」设计的，放在驱动页顶部
+   会占掉整屏高度的一截。这里收窄为一行摘要 + 内联明细的紧凑形态。 */
+.driver-manager-network-notice.ant-alert {
+    padding: 8px 12px;
+    border-radius: 8px;
+    align-items: flex-start;
+}
+
+.driver-manager-network-notice.ant-alert .ant-alert-icon {
+    margin-inline-end: 8px;
+    font-size: 15px;
+    line-height: 22px;
+}
+
+.driver-manager-network-notice.ant-alert .ant-alert-message {
+    font-size: var(--driver-manager-font-body, 14px);
+    line-height: 22px;
+}
+
+.driver-manager-network-notice.ant-alert .ant-alert-description {
+    font-size: var(--driver-manager-font-secondary);
+    line-height: 20px;
+}
+
+/* 明细折叠器嵌在 Alert 内：去掉 antd Collapse 自带的外框与背景，
+   让它读起来像「一行可展开文案」而不是嵌了第二个卡片。 */
+.driver-manager-network-notice.ant-alert .ant-collapse {
+    background: transparent;
+    border: none;
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse > .ant-collapse-item {
+    border-bottom: none;
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse-header {
+    padding: 2px 0 !important;
+    font-size: var(--driver-manager-font-secondary);
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse-content {
+    background: transparent;
+    border-top: none;
+}
+
+.driver-manager-network-notice.ant-alert .ant-collapse-content-box {
+    padding: 4px 0 0 !important;
+}
+
+/* 关闭按钮默认低对比度，悬停才明显：避免它和提示内容抢注意力。 */
+.driver-manager-network-notice.ant-alert .ant-alert-close-icon {
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
+}
+
+.driver-manager-network-notice.ant-alert:hover .ant-alert-close-icon,
+.driver-manager-network-notice.ant-alert .ant-alert-close-icon:focus-visible {
+    opacity: 0.85;
+}
+
+/* 窄容器下明细行允许换行，否则长 host 列表会撑破提示条。 */
+.driver-manager-network-notice.ant-alert .ant-alert-description .ant-typography {
+    word-break: break-word;
+}
+
+/* ── 批量操作条 ── */
+.driver-manager-bulkbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.driver-manager-bulkbar-primary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-bulkbar-dir {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    /* 紧跟主按钮组排列，不推到最右 —— 按钮独占一行时那会在中间留大片空白。 */
+    margin-left: 0;
+}
+
+/* 设置中心内嵌：浅底工具条，不加描边，避免与设置内容区边框套边框 */
+.driver-manager-bulkbar.is-embedded-toolbar {
+    gap: 8px;
+    padding: 8px 4px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-primary,
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-dir {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .ant-btn {
+    font-weight: 500;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-import-directory-dropdown {
+    flex-shrink: 0;
+}
+
+/* antd 的 Dropdown.Button 内部是 Space.Compact block，自带 width: 100%。
+   工具条按内容定宽，这个 100% 会被解析成整条工具条的宽度，把同排后面的
+   按钮顶出可视区（实测「导入驱动包」右边界超出容器 125px 后被裁掉）。
+   这里改回按内容定宽，让它只占按钮本身的位置。 */
+.driver-manager-bulkbar-dir .driver-manager-import-directory-dropdown {
+    width: auto;
+    flex: 0 0 auto;
+}
+
+/* Mirror-source chip (Driver Manager + About) — accent bar + hover */
+.driver-manager-mirror-chip,
+.gonavi-about-download-source {
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+/* About：按内容确定宽度，字体放大或空间不足时允许换行。 */
+.gonavi-about-download-source {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+    margin-top: 10px;
+    padding: 6px 10px 6px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    box-sizing: border-box;
+}
+
+.gonavi-about-download-source-label {
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* 弹窗内的镜像源条：无描边的浅底色条，仅保留左侧来源色条。 */
+.driver-manager-mirror-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: rgba(5, 5, 5, 0.03);
+}
+
+.driver-manager-mirror-chip::before,
+.gonavi-about-download-source::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: #94a3b8;
+}
+
+.driver-manager-mirror-chip[data-download-source='cst']::before,
+.gonavi-about-download-source[data-download-source='cst']::before {
+    background: #f59e0b;
+}
+
+.driver-manager-mirror-chip[data-download-source='bero']::before,
+.gonavi-about-download-source[data-download-source='bero']::before {
+    background: #0ea5e9;
+}
+
+.driver-manager-mirror-chip[data-download-source='github']::before,
+.gonavi-about-download-source[data-download-source='github']::before {
+    background: #64748b;
+}
+
+.driver-manager-mirror-chip:hover,
+.gonavi-about-download-source:hover {
+    box-shadow: 0 3px 14px rgba(15, 23, 42, 0.09);
+}
+
+body[data-theme='dark'] .driver-manager-mirror-chip:hover,
+body[data-theme='dark'] .gonavi-about-download-source:hover {
+    box-shadow: 0 3px 16px rgba(0, 0, 0, 0.4);
+}
+
+.driver-manager-mirror-chip .ant-btn,
+.gonavi-about-download-source .ant-btn {
+    color: var(--ant-color-primary, #1677ff);
+}
+
+/* Keep the mirror chip content-driven while allowing safe truncation in narrow toolbars. */
+.driver-manager-mirror-chip-copy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 0 1 auto;
+}
+
+.driver-manager-mirror-chip-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.driver-manager-mirror-chip.is-compact > .ant-select,
+.gonavi-about-download-source > .ant-select {
+    margin-left: auto;
+}
+
+/* 工具栏内嵌镜像源：为完整名称、切换按钮和加载图标保留空间。 */
+.driver-manager-mirror-chip.is-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+    gap: 8px;
+    min-height: 32px;
+    padding: 3px 12px 3px 14px;
+    margin-left: auto;
+    margin-right: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+.driver-manager-mirror-chip.is-compact::before {
+    border-radius: 8px 0 0 8px;
+}
+
+.driver-manager-mirror-chip.is-compact > .ant-btn {
+    flex-shrink: 0;
+}
+
+.driver-manager-list-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-list-head-left {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.driver-manager-list-search.is-in-head {
+    flex: 1 1 auto;
+    min-width: 140px;
+    max-width: none;
+    width: auto !important;
+}
+
+.driver-manager-list-search.is-in-head.ant-input-search {
+    flex: 1 1 auto !important;
+}
+
+.driver-manager-list-head-left {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: visible;
+}
+
+.driver-manager-list-head-right {
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-search-row.is-embedded {
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: visible;
+}
+
+.driver-manager-list-search-row.is-embedded .ant-btn,
+.driver-manager-list-search-row-left .ant-btn {
+    height: 32px;
+}
+
+.driver-manager-list-search-row-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-search-row.is-embedded .driver-manager-list-search-row-left .ant-btn {
+    padding-inline: 12px;
+}
+
+.driver-manager-list-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-list-search-row .driver-manager-list-search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* embedded search moved to list head */
+
+
+.driver-manager-list-search-row > .ant-btn,
+.driver-manager-list-search-row > .ant-tooltip-disabled-compatible-wrapper {
+    flex: 0 0 auto;
+}
+
+
+.driver-manager-directory-panel {
+    min-width: 0;
+}
+
+.driver-manager-filterbar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    align-items: stretch;
+    flex: 0 0 auto;
+    min-width: 0;
+    overflow: visible;
+}
+
+.driver-manager-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    gap: 5px;
+    min-width: 0;
+    min-height: 32px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.62));
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.driver-manager-filter-chip:hover {
+    color: #1677ff;
+}
+
+.driver-manager-filter-chip.is-active {
+    background: rgba(22, 119, 255, 0.10);
+    color: #1677ff;
+    font-weight: 600;
+}
+
+.driver-manager-filter-chip-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(5, 5, 5, 0.06);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-manager-filter-chip.is-active .driver-manager-filter-chip-count {
+    background: rgba(22, 119, 255, 0.18);
+}
+
+.driver-manager-filter-chip[data-tone='needsUpdate'] .driver-manager-filter-chip-count {
+    color: #d48806;
+    font-weight: 600;
+}
+
+.driver-manager-net-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    background: #bfbfbf;
+}
+
+.driver-manager-net-dot-ok {
+    background: #52c41a;
+    box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.18);
+}
+
+.driver-manager-net-dot-warning {
+    background: #faad14;
+    box-shadow: 0 0 0 3px rgba(250, 173, 20, 0.18);
+}
+
+.driver-manager-net-dot-error {
+    background: #ff4d4f;
+    box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.18);
+}
+
+.driver-manager-net-dot-checking {
+    background: #1677ff;
+    animation: driver-net-pulse 1.1s ease-in-out infinite;
+}
+
+
+.driver-manager-network-check-btn .ant-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.driver-manager-network-check-btn .driver-manager-net-dot {
+    margin: 0;
+}
+
+.driver-manager-net-dot-idle {
+    background: #bfbfbf;
+}
+
+@keyframes driver-net-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+.driver-manager-net-text {
+    font-size: 12px;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+}
+
+.driver-manager-batch-progress-panel {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 8px;
+}
+
+.driver-manager-batch-progress-header,
+.driver-manager-batch-progress-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+}
+
+.driver-manager-batch-progress-header span,
+.driver-manager-batch-progress-meta span {
+    min-width: 0;
+    word-break: break-word;
+}
+
+.driver-manager-list-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex: 0 0 auto;
+    min-height: 24px;
+}
+
+.driver-manager-list-head-sort.ant-select {
+    min-width: 96px;
+    font-size: 12px;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+}
+
+.driver-manager-list-head-sort .ant-select-selector {
+    padding-inline: 4px !important;
+}
+
+.driver-manager-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+}
+

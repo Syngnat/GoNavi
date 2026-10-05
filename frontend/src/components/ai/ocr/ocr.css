@@ -1,0 +1,102 @@
+/* Text recognition of images: the badge under a thumbnail in the composer, and the install prompt. */
+
+.gn-ocr-thumb-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 64px;
+}
+
+.gn-ocr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 64px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--gn-fg-3, #8a8f98);
+  white-space: nowrap;
+}
+
+.gn-ocr-badge-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gn-ocr-badge[data-status="done"] {
+  color: var(--gn-ok, #3f9b5f);
+}
+
+.gn-ocr-badge[data-status="failed"] {
+  color: var(--gn-danger, #e75d66);
+}
+
+.gn-ocr-badge[data-status="needs_install"] {
+  color: var(--gn-warn, #d48806);
+}
+
+.gn-ocr-badge[role="button"] {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.gn-ocr-badge[role="button"]:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.gn-ocr-prompt-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-ocr-prompt-title .anticon {
+  color: var(--gn-warn, #d48806);
+  font-size: 18px;
+}
+
+.gn-ocr-prompt-intro {
+  margin: 0 0 12px;
+  line-height: 1.6;
+}
+
+.gn-ocr-prompt-rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.gn-ocr-prompt-rows dt {
+  margin: 0;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.gn-ocr-prompt-rows dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gn-ocr-prompt-note {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+.gn-ocr-prompt-progress {
+  margin-top: 12px;
+}
+
+.gn-ocr-prompt-file {
+  margin-top: 2px;
+  font-size: 11px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  overflow-wrap: anywhere;
+}

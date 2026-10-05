@@ -39,6 +39,7 @@ import {
 } from '../sidebarV2Utils';
 import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
 import { supportsTableClearAction } from '../tableDataDangerActions';
+import { isElasticsearchFamilyType } from '../../utils/elasticsearchFamily';
 
 type UseSidebarV2ActionHandlersArgs = {
   connections: SavedConnection[];
@@ -563,7 +564,7 @@ export const useSidebarV2ActionHandlers = ({
     switch (action) {
       case 'new-db': {
         const capabilities = getDataSourceCapabilities(node?.dataRef?.config);
-        if (capabilities.type === 'elasticsearch') {
+        if (isElasticsearchFamilyType(capabilities.type)) {
           if (!capabilities.supportsCreateIndex) return;
           const query = buildElasticsearchConsoleTemplates('')
             .find((template) => template.id === 'create_index')?.source || '';

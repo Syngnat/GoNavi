@@ -91,7 +91,6 @@ describe('built-in custom theme presets', () => {
     expect(comfortDark.css).not.toMatch(
       /\.gn-v2-query-toolbar-save-action[\s\S]{0,200}background:\s*transparent\s*!important/,
     );
-    expect(comfortDark.css).toContain('.gn-v2-ai-panel .ai-logo');
     expect(comfortDark.css).toContain('.monaco-editor-background');
     expect(comfortDark.css).not.toContain('background-color: var(--gn-bg-input) !important;');
   });

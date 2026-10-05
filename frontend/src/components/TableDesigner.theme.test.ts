@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { readCssWithImports } from '../test/readCssWithImports';
 
 /**
  * 对象设计表（TableDesigner）工作台样式断言。
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
  * resolveDataTableVerticalBorderRule 统一给出，其行为断言见 dataGridDisplay.test.ts。
  */
 
-const workbenchCss = readFileSync(new URL('../styles/v2-theme-workbench.css', import.meta.url), 'utf8');
+const workbenchCss = readCssWithImports(new URL('../styles/v2-theme-workbench.css', import.meta.url));
 
 describe('TableDesigner workbench surfaces', () => {
   it('uses the same workbench panel token as the data preview grid', () => {

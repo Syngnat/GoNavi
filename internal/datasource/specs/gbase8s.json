@@ -1,0 +1,115 @@
+{
+  "type": "gbase8s",
+  "aliases": [
+    "gbase-8s"
+  ],
+  "displayName": "GBase 8s",
+  "group": "domestic",
+  "order": 30,
+  "defaultPort": 9088,
+  "wire": "odbc",
+  "dialect": "gbase8s",
+  "family": "informix",
+  "objectKind": "table",
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT DBINFO('version', 'full') AS version FROM sysmaster:sysdual",
+  "clientLibrary": {
+    "param": "clientDir",
+    "homeEnv": [
+      "GBASEDBTDIR",
+      "INFORMIXDIR"
+    ],
+    "libraryDirs": [
+      "lib",
+      "lib/esql",
+      "lib/cli"
+    ],
+    "windowsLibraryDirs": [
+      "bin"
+    ]
+  },
+  "agent": {
+    "buildTag": "gonavi_gbase8s_driver",
+    "goModule": "github.com/ebitengine/purego",
+    "version": "0.10.0",
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64",
+      "windows/amd64"
+    ],
+    "sourcePrefixes": [
+      "gbase8s",
+      "purego_library"
+    ]
+  },
+  "variants": {
+    "default": "v8",
+    "items": [
+      {
+        "id": "v8",
+        "label": "GBase 8s V8.7 / V8.8",
+        "descriptionKey": "datasource.variant.gbase8s.v8"
+      }
+    ]
+  },
+  "ui": {
+    "uriSchemes": [
+      "gbase8s"
+    ],
+    "defaultUser": "gbasedbt",
+    "paramFields": [
+      {
+        "key": "clientDir",
+        "labelKey": "connection_modal.field.gbase8s.client_dir",
+        "helpKey": "connection_modal.field.gbase8s.client_dir.help",
+        "placeholder": "C:\\GBASE\\GBase Client-SDK  /  /opt/gbase"
+      },
+      {
+        "key": "server",
+        "labelKey": "connection_modal.field.gbase8s.server",
+        "helpKey": "connection_modal.field.gbase8s.server.help",
+        "placeholder": "gbase01"
+      }
+    ],
+    "connectionParams": true,
+    "quoting": "pg",
+    "pagination": "skip-first",
+    "objectStatements": {
+      "renameTable": "RENAME TABLE {old} TO {new}",
+      "dropTable": "DROP TABLE {table}",
+      "dropView": "DROP VIEW {view}",
+      "dropRoutine": "DROP {type} {name}",
+      "truncateTable": "TRUNCATE TABLE {table}",
+      "clearTable": "DELETE FROM {table}"
+    },
+    "hiddenObjectGroups": [
+      "materializedViews",
+      "events",
+      "packages"
+    ],
+    "metadataQueries": {
+      "views": [
+        "SELECT TRIM(tabname) AS view_name FROM systables WHERE tabtype = 'V' AND tabid > (SELECT tabid FROM systables WHERE tabname = ' VERSION') ORDER BY tabname",
+        "SELECT TRIM(tabname) AS view_name FROM systables WHERE tabtype = 'V' AND tabid >= 100 ORDER BY tabname"
+      ],
+      "triggers": [
+        "SELECT TRIM(g.trigname) AS trigger_name, TRIM(t.tabname) AS table_name FROM systriggers g, systables t WHERE g.tabid = t.tabid ORDER BY 2, 1"
+      ],
+      "routines": [
+        "SELECT TRIM(procname) AS routine_name, CASE WHEN isproc = 't' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS routine_type FROM sysprocedures WHERE mode IN ('D', 'O', 'P', 'R') ORDER BY procname"
+      ],
+      "sequences": [
+        "SELECT TRIM(tabname) AS sequence_name FROM systables WHERE tabtype = 'Q' AND tabid > (SELECT tabid FROM systables WHERE tabname = ' VERSION') ORDER BY tabname",
+        "SELECT TRIM(tabname) AS sequence_name FROM systables WHERE tabtype = 'Q' AND tabid >= 100 ORDER BY tabname"
+      ]
+    },
+    "hint": "Informix kernel / user-installed CSDK",
+    "icon": {
+      "color": "#E60012",
+      "text": "8s",
+      "scale": 0.9
+    }
+  }
+}

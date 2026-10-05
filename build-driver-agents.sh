@@ -5,7 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-DEFAULT_DRIVERS=(mariadb oceanbase doris starrocks sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase opengauss gaussdb iris cache mongodb tdengine iotdb clickhouse elasticsearch trino)
+DEFAULT_DRIVERS=(mariadb oceanbase doris starrocks sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase opengauss gaussdb iris cache mongodb tdengine iotdb clickhouse elasticsearch trino kafka rocketmq pulsar)
+# shellcheck source=tools/datasource-registry.sh
+source "$SCRIPT_DIR/tools/datasource-registry.sh"
+load_datasource_registry "$SCRIPT_DIR"
+DEFAULT_DRIVERS+=("${REGISTRY_DRIVERS[@]}")
 DEFAULT_PLATFORMS=(darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 linux/amd64 linux/arm64)
 DUCKDB_WINDOWS_LIBRARY_VERSION="v1.4.4"
 DUCKDB_WINDOWS_LIBRARY_URL="https://github.com/duckdb/duckdb/releases/download/${DUCKDB_WINDOWS_LIBRARY_VERSION}/libduckdb-windows-amd64.zip"
@@ -44,11 +48,11 @@ normalize_driver() {
     open_gauss|open-gauss) echo "opengauss" ;;
     gaussdb|gauss_db|gauss-db) echo "gaussdb" ;;
     elasticsearch|elastic) echo "elasticsearch" ;;
-    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino)
+    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino|kafka|rocketmq|pulsar)
       echo "$name"
       ;;
     *)
-      return 1
+      registry_normalize_driver "$name"
       ;;
   esac
 }
@@ -385,8 +389,17 @@ for platform in "${platforms[@]}"; do
       continue
     fi
 
+    if ! registry_driver_platform_supported "$driver" "$platform"; then
+      echo "⚠️  跳过 $driver（数据源描述表未声明 $platform）"
+      skipped_drivers+=("$driver($platform)")
+      continue
+    fi
+
     build_driver="$(build_driver_name "$driver")"
     tag="gonavi_${build_driver}_driver"
+    if registry_tag="$(registry_driver_build_tag "$driver")"; then
+      tag="$registry_tag"
+    fi
     build_tags="$tag"
     asset_name="${driver}-driver-agent-${goos}-${goarch}"
     if [[ "$goos" == "windows" ]]; then
@@ -394,7 +407,7 @@ for platform in "${platforms[@]}"; do
     fi
     output_path="$output_dir_abs/$asset_name"
 
-    cgo_enabled=0
+    cgo_enabled="$(registry_driver_cgo "$driver")"
     if [[ "$driver" == "duckdb" ]]; then
       cgo_enabled=1
     fi

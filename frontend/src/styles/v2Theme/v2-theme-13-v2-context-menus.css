@@ -1,0 +1,572 @@
+/* ─── V2 context menus, including portal-rendered custom menus ─ */
+body[data-ui-version="v2"] .gn-v2-action-menu-surface {
+  width: 264px;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: var(--gn-v2-menu-surface-radius);
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-1);
+  box-shadow: var(--gn-shadow-lg);
+  font-size: 12.5px;
+  animation: gnV2ContextMenuFadeIn 0.08s ease-out;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-surface .gn-v2-action-menu-header {
+  border-radius: calc(var(--gn-v2-menu-surface-radius) - 1px) calc(var(--gn-v2-menu-surface-radius) - 1px) 0 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-header-icon:empty::before {
+  content: "\2022";
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body {
+  overflow: hidden;
+  padding: 4px 4px 8px;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body > .ant-dropdown-menu {
+  width: 100%;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body > .gn-v2-sidebar-node-menu.ant-menu {
+  width: 100%;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-item,
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-item,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-submenu-title {
+  width: 100%;
+  height: var(--gn-v2-menu-row-height, 28px);
+  min-height: var(--gn-v2-menu-row-height, 28px);
+  margin: 0 !important;
+  padding: 0 8px 0 10px !important;
+  border-radius: var(--gn-v2-menu-item-radius, 5px);
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: var(--gn-v2-menu-row-height, 28px);
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup > .ant-menu {
+  min-width: 180px;
+  padding: 4px !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: var(--gn-v2-menu-surface-radius, 10px) !important;
+  background: var(--gn-bg-panel) !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-item-divider,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-item-divider {
+  margin: 4px !important;
+  border-color: var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-submenu-title {
+  padding: 0 8px 0 10px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-item-group-title {
+  padding: 8px 12px 2px !important;
+  color: var(--gn-fg-5) !important;
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-item-group-list {
+  margin: 0 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-title-content > .gn-v2-context-menu-item-title {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-item:not(:has(.ant-dropdown-menu-item-icon))::before,
+body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-submenu-title:not(:has(.ant-dropdown-menu-item-icon))::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin-inline-end: 8px;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu {
+  width: 260px !important;
+  min-width: 220px !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: var(--gn-v2-menu-surface-radius) !important;
+  background: var(--gn-bg-panel) !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+  color: var(--gn-fg-1) !important;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu > div {
+  color: inherit;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu > div:not(:empty) {
+  font-size: 12.5px;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-context-menu-popup .ant-dropdown-menu {
+  display: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-context-menu-popup {
+  width: 264px !important;
+  max-width: calc(100vw - 24px);
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal {
+  width: 264px;
+  max-width: calc(100vw - 24px);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-context-menu-portal {
+  width: 264px;
+  max-width: calc(100vw - 24px);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-context-menu {
+  width: 264px;
+  max-height: min(582px, var(--gn-v2-context-menu-max-height, calc(100vh - 28px)));
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 0;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: var(--gn-v2-menu-surface-radius);
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-1);
+  box-shadow: var(--gn-shadow-lg);
+  font-size: 12.5px;
+  animation: gnV2ContextMenuFadeIn 0.08s ease-out;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 20px;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 20px;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-body::-webkit-scrollbar {
+  width: 7px;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-fg-5) 58%, transparent);
+  background-clip: padding-box;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-header {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 6px;
+  row-gap: 3px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--gn-br-1);
+  background: var(--gn-bg-panel-2);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-table-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gn-accent);
+  font-size: 13px;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-heading {
+  min-width: 0;
+  display: contents;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-heading strong {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-heading small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 10.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-engine-pill {
+  grid-column: 3;
+  max-width: 62px;
+  overflow: hidden;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-section-title {
+  padding: 8px 12px 2px;
+  color: var(--gn-fg-5);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item {
+  width: 100%;
+  height: var(--gn-v2-menu-row-height);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  border-radius: var(--gn-v2-menu-item-radius);
+  padding: 0 8px 0 10px;
+  background: transparent;
+  color: var(--gn-fg-1);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item:hover {
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-disabled,
+body[data-ui-version="v2"] .gn-v2-context-menu-item:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-disabled:hover,
+body[data-ui-version="v2"] .gn-v2-context-menu-item:disabled:hover {
+  background: transparent;
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-featured {
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-featured:hover {
+  background: var(--gn-info-soft);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-ai {
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-ai:not(.is-featured) {
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-ai:not(.is-featured):hover {
+  background: var(--gn-info-soft);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-danger {
+  color: var(--gn-danger);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+body[data-ui-version="v2"][data-theme="dark"] .gn-v2-context-menu-item.is-danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item-icon {
+  width: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gn-fg-4);
+  font-size: 13px;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-featured .gn-v2-context-menu-item-icon,
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-ai .gn-v2-context-menu-item-icon {
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-group-context-menu .gn-v2-context-menu-item .anticon-check-square,
+body[data-ui-version="v2"] .gn-v2-group-context-menu .gn-v2-context-menu-item.is-selected {
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-database-context-menu .gn-v2-context-menu-table-icon {
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item.is-danger .gn-v2-context-menu-item-icon {
+  color: var(--gn-danger);
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-context-menu-kbd {
+  flex: 0 0 auto;
+  color: var(--gn-fg-5);
+  font-family: var(--gn-font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: center;
+}
+
+@keyframes gnV2ContextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Settings center and explorer tree share the same 8px bar with a visible track. */
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench,
+body[data-ui-version="v2"] .gonavi-settings-center-modal,
+body[data-ui-version="v2"] .gonavi-settings-center-tree,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder {
+  scrollbar-width: thin;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 8px;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar:horizontal,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar:horizontal,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar:horizontal,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar:horizontal {
+  height: 8px;
+  background: color-mix(in srgb, var(--gn-fg-4) 14%, var(--gn-bg-panel));
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-track,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-track,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-track,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--gn-fg-4) 14%, var(--gn-bg-panel));
+  border-radius: 999px;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-track:vertical,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-track:vertical,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-track:vertical,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-track:vertical {
+  margin: 2px 0;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-track:horizontal,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-track:horizontal,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-track:horizontal,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-track:horizontal {
+  margin: 0;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--gn-fg-4) 38%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:vertical,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb:vertical,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb:vertical,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-thumb:vertical {
+  min-height: 36px;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:horizontal,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb:horizontal,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb:horizontal,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-thumb:horizontal {
+  min-width: 36px;
+  border-width: 1px 2px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--gn-fg-4) 42%, var(--gn-bg-panel));
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:hover,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb:hover,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb:hover,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--gn-accent) 50%, var(--gn-fg-4));
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:horizontal:hover,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb:horizontal:hover,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb:horizontal:hover,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-thumb:horizontal:hover {
+  border-width: 1px 2px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--gn-accent) 50%, var(--gn-fg-4));
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-corner,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-corner,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-corner,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-corner {
+  background: color-mix(in srgb, var(--gn-fg-4) 14%, var(--gn-bg-panel));
+}
+body[data-ui-version="v2"] .gonavi-settings-center-pane-scroll,
+body[data-ui-version="v2"] .gonavi-settings-center-content {
+  scrollbar-gutter: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * Nacos service-group health badge (sidebar)
+ *
+ * A dedicated class family on purpose: .gn-v2-tree-count and .gn-v2-tree-status
+ * are pinned by byte-level CSS contract assertions in
+ * Sidebar.locate-toolbar.test.tsx, and their positioning rules only apply to
+ * .is-group / .is-connection-group rows, which a nacos-service-group row is not.
+ * Reusing them would both break those assertions and pick up wrong positioning.
+ * ------------------------------------------------------------------------- */
+body[data-ui-version="v2"] .gn-v2-tree-nacos-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 0 6px;
+  margin-left: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-fg-4) 8%, transparent);
+  color: var(--gn-fg-4);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  opacity: 0.92;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-nacos-health {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-height: 16px;
+  padding: 0 6px;
+  margin-left: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-nacos-health.is-ok {
+  border-color: color-mix(in srgb, var(--gn-status-connected) 42%, transparent);
+  background: color-mix(in srgb, var(--gn-status-connected) 13%, transparent);
+  color: var(--gn-status-connected);
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-nacos-health.is-partial {
+  border-color: color-mix(in srgb, var(--gn-warn) 45%, transparent);
+  background: color-mix(in srgb, var(--gn-warn) 14%, transparent);
+  color: var(--gn-warn);
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-nacos-health.is-down {
+  border-color: color-mix(in srgb, var(--gn-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--gn-danger) 13%, transparent);
+  color: var(--gn-danger);
+}
+
+/* Unknown is deliberately muted, not red: "this Nacos does not report the data"
+   must not read as "everything is broken". */
+body[data-ui-version="v2"] .gn-v2-tree-nacos-health.is-unknown {
+  border-color: color-mix(in srgb, var(--gn-fg-4) 26%, transparent);
+  background: color-mix(in srgb, var(--gn-fg-4) 7%, transparent);
+  color: var(--gn-fg-4);
+  opacity: 0.85;
+}

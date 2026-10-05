@@ -112,7 +112,7 @@ func (p *Provider) Probe(ctx context.Context, env dbuser.Env, target dbuser.Targ
 	}
 	encryption, choices := probePasswordEncryption(ctx, env, p.variant)
 	profile.Dialect[dialectEncryption] = encryption
-	profile.Permissions = probePermissions(ctx, env, profile)
+	profile.Permissions = probePermissions(ctx, env, profile, p.variant)
 	if p.variant == variantOpenGauss {
 		profile.PasswordPolicy = probeOpenGaussPolicy(ctx, env)
 	}
@@ -214,13 +214,18 @@ func probePasswordEncryption(ctx context.Context, env dbuser.Env, variant varian
 	return setting, choices
 }
 
-func probePermissions(ctx context.Context, env dbuser.Env, profile dbuser.ServerProfile) dbuser.Permissions {
+// probePermissions 判断当前账号能否管理角色；openGauss 系的 SYSADMIN（rolsystemadmin）同样可以建、改、删用户。
+func probePermissions(ctx context.Context, env dbuser.Env, profile dbuser.ServerProfile, variant variant) dbuser.Permissions {
 	relation := profile.Dialect[dialectRolesRelation]
-	rows, err := env.SQL.Query(ctx, "", "SELECT rolsuper, rolcreaterole FROM "+relation+" WHERE rolname = current_user")
+	columns := "rolsuper, rolcreaterole"
+	if variant == variantOpenGauss {
+		columns += ", rolsystemadmin"
+	}
+	rows, err := env.SQL.Query(ctx, "", "SELECT "+columns+" FROM "+relation+" WHERE rolname = current_user")
 	if err != nil || len(rows) == 0 {
 		return dbuser.Permissions{CanList: true, CanCreate: true, CanAlter: true, CanDrop: true, CanGrant: true}
 	}
-	manage := dbuser.CellBool(rows[0], "rolsuper") || dbuser.CellBool(rows[0], "rolcreaterole")
+	manage := dbuser.CellBool(rows[0], "rolsuper") || dbuser.CellBool(rows[0], "rolcreaterole") || dbuser.CellBool(rows[0], "rolsystemadmin")
 	return dbuser.Permissions{CanList: true, CanCreate: manage, CanAlter: manage, CanDrop: manage, CanGrant: true}
 }
 

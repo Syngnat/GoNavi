@@ -71,6 +71,38 @@ export const clearAIEditorSelection = (tabId: string): void => {
   }
 };
 
+// A live editor registers a way to read its selection on demand. The event-driven
+// copy above can lag or miss a change (select-all by keyboard, focus moving to
+// the AI panel), so an explicit "bind" reads the editor itself.
+const refreshers = new Map<string, () => unknown>();
+
+export const registerAIEditorSelectionRefresher = (tabId: string, refresh: () => unknown): (() => void) => {
+  const key = String(tabId || '').trim();
+  if (!key) {
+    return () => {};
+  }
+  refreshers.set(key, refresh);
+  return () => {
+    if (refreshers.get(key) === refresh) {
+      refreshers.delete(key);
+    }
+  };
+};
+
+/** Re-read the tab's editor selection now, then return what is registered for it. */
+export const refreshAIEditorSelection = (tabId: string | null | undefined): AIEditorSelection | null => {
+  const key = String(tabId || '').trim();
+  if (!key) {
+    return null;
+  }
+  try {
+    refreshers.get(key)?.();
+  } catch {
+    // A disposed editor must not break the composer; fall back to the stored copy.
+  }
+  return selections.get(key) || null;
+};
+
 export const getAIEditorSelection = (tabId: string | null | undefined): AIEditorSelection | null => {
   const key = String(tabId || '').trim();
   return key ? selections.get(key) || null : null;
@@ -121,5 +153,26 @@ export const buildAIEditorSelectionContextItem = (
 export const isAIEditorSelectionContext = (item: AIContextItem | null | undefined): boolean =>
   item?.kind === 'editor_selection';
 
+export const isAIChatQuoteContext = (item: AIContextItem | null | undefined): boolean =>
+  item?.kind === 'chat_quote';
+
 export const isAITableSchemaContext = (item: AIContextItem | null | undefined): boolean =>
-  !isAIEditorSelectionContext(item);
+  !isAIEditorSelectionContext(item) && !isAIChatQuoteContext(item);
+
+// A short, stable key for a quoted passage: quoting the same text twice is one
+// attachment, and different passages never replace each other.
+const quoteKey = (text: string): string => {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+};
+
+/** A passage quoted from an answer, as a context item for the next message. */
+export const buildAIChatQuoteContextItem = (text: string, messageId: string, dbName = ''): AIContextItem => ({
+  kind: 'chat_quote',
+  dbName,
+  tableName: `__gonavi_chat_quote__:${quoteKey(text)}`,
+  ddl: '',
+  content: text,
+  quoteOf: messageId,
+});

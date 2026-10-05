@@ -54,6 +54,14 @@ export function AIGetAutoApprovalSettings() {
   return window['go']['aiservice']['Service']['AIGetAutoApprovalSettings']();
 }
 
+export function AIGetBuiltinAIProvider() {
+  return window['go']['aiservice']['Service']['AIGetBuiltinAIProvider']();
+}
+
+export function AIGetBuiltinAIStatus() {
+  return window['go']['aiservice']['Service']['AIGetBuiltinAIStatus']();
+}
+
 export function AIGetBuiltinPrompts() {
   return window['go']['aiservice']['Service']['AIGetBuiltinPrompts']();
 }
@@ -166,6 +174,10 @@ export function AIListProviderModels(arg1) {
   return window['go']['aiservice']['Service']['AIListProviderModels'](arg1);
 }
 
+export function AILogoutBuiltinAI() {
+  return window['go']['aiservice']['Service']['AILogoutBuiltinAI']();
+}
+
 export function AIMutateAgentSession(arg1) {
   return window['go']['aiservice']['Service']['AIMutateAgentSession'](arg1);
 }
@@ -176,6 +188,14 @@ export function AIOpenAgentDataDirectory() {
 
 export function AIOptimizeAgentData() {
   return window['go']['aiservice']['Service']['AIOptimizeAgentData']();
+}
+
+export function AIPollBuiltinAILogin(arg1) {
+  return window['go']['aiservice']['Service']['AIPollBuiltinAILogin'](arg1);
+}
+
+export function AIPreviewAgentContext(arg1) {
+  return window['go']['aiservice']['Service']['AIPreviewAgentContext'](arg1);
 }
 
 export function AIReadAgentRun(arg1) {
@@ -236,6 +256,10 @@ export function AISetSafetyLevel(arg1) {
 
 export function AISetSessionAutoApproval(arg1, arg2) {
   return window['go']['aiservice']['Service']['AISetSessionAutoApproval'](arg1, arg2);
+}
+
+export function AIStartBuiltinAILogin() {
+  return window['go']['aiservice']['Service']['AIStartBuiltinAILogin']();
 }
 
 export function AIStartMCPHTTPServer(arg1) {

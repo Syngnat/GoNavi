@@ -122,7 +122,7 @@ func supportsMigrationSourceEndpoint(config connection.ConnectionConfig, dbType 
 		"clickhouse", "tdengine", "iotdb", "trino", "mongodb":
 		return true
 	default:
-		return normalizeMigrationDBType(config.Type) == "custom"
+		return registryMigrationEndpoint(dbType, false) || normalizeMigrationDBType(config.Type) == "custom"
 	}
 }
 
@@ -134,6 +134,6 @@ func supportsMigrationTargetEndpoint(config connection.ConnectionConfig, dbType 
 		"clickhouse", "tdengine", "iotdb", "mongodb":
 		return true
 	default:
-		return normalizeMigrationDBType(config.Type) == "custom"
+		return registryMigrationEndpoint(dbType, true) || normalizeMigrationDBType(config.Type) == "custom"
 	}
 }

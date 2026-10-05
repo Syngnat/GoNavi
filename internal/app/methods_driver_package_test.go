@@ -542,8 +542,9 @@ func TestInspectDriverPackageReportsRevisionMismatch(t *testing.T) {
 	if item.PackageRevision != "src-deadbeefdeadbeef" {
 		t.Fatalf("应回放包内 revision，实际: %q", item.PackageRevision)
 	}
-	if item.ExpectedRevision != "src-0a451007282c8777" {
-		t.Fatalf("应给出当前构建期望的 revision，实际: %q", item.ExpectedRevision)
+	// 期望值随 driver_agent_revisions_gen.go 重新生成而变化，不能写死。
+	if want := db.OptionalDriverAgentRevision("mariadb"); want == "" || item.ExpectedRevision != want {
+		t.Fatalf("应给出当前构建期望的 revision %q，实际: %q", want, item.ExpectedRevision)
 	}
 }
 
@@ -662,10 +663,10 @@ func exportDriverPackageSelectionTo(t *testing.T, app *App, root string, target 
 	return app.ExportDriverPackageSelection(root, "", driverTypes)
 }
 
-func TestDriverPackageZipDialogAllowsOnlyZip(t *testing.T) {
-	zipDialog := driverPackageFileDialogOptions("选择驱动包（ZIP）", "/tmp", true)
-	if len(zipDialog.Filters) != 1 || zipDialog.Filters[0].Pattern != "*.zip" {
-		t.Fatalf("ZIP 导入对话框应只允许 *.zip，实际: %#v", zipDialog.Filters)
+func TestDriverPackageZipDialogAllowsOnlyArchives(t *testing.T) {
+	zipDialog := driverPackageFileDialogOptions("选择驱动包（ZIP / 7z）", "/tmp", true)
+	if len(zipDialog.Filters) != 1 || zipDialog.Filters[0].Pattern != "*.zip;*.7z" {
+		t.Fatalf("驱动包导入对话框应只允许 *.zip 与 *.7z，实际: %#v", zipDialog.Filters)
 	}
 	plainDialog := driverPackageFileDialogOptions("选择驱动包文件", "/tmp", false)
 	if len(plainDialog.Filters) != 0 {

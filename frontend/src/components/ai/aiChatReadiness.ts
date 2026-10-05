@@ -2,11 +2,13 @@ import { t as catalogTranslate } from '../../i18n/catalog';
 import type { I18nParams } from '../../i18n/types';
 import type { AIContextItem, AIProviderConfig } from '../../types';
 import { isLocalCLISubscriptionProvider } from '../../utils/aiProviderPresets';
+import { isBuiltinAIProvider } from './builtinAILogin';
 
-export type AIChatReadinessActionKey = 'open-settings' | 'reload-models';
+export type AIChatReadinessActionKey = 'open-settings' | 'reload-models' | 'builtin-login';
 
 export type AIChatReadinessStatus =
   | 'missing_provider'
+  | 'login_required'
   | 'provider_incomplete'
   | 'missing_model'
   | 'loading_models'
@@ -191,6 +193,33 @@ export const buildAIChatReadinessSnapshot = (params: {
     declaredModelCount: declaredModels.length,
     dynamicModelCount: dynamicModels.length,
   };
+
+  // The built-in provider has no key to fill in: the actionable state is "sign
+  // in", never "missing secret" / "missing address".
+  if (isBuiltinAIProvider(activeProvider) && !providerSummary.hasSecret) {
+    const title = translate('ai_chat.input.status.builtin_login.title');
+    const description = translate('ai_chat.input.status.builtin_login.description');
+    return {
+      status: 'login_required',
+      ready: false,
+      severity: 'warning',
+      label: translate('ai_chat.input.status.label.login_required'),
+      title,
+      description,
+      providerCount,
+      hasActiveProvider: true,
+      hasConnectionContext,
+      contextAttachedCount,
+      selectableModelCount,
+      issues: ['missing_secret'],
+      action: {
+        key: 'builtin-login',
+        label: translate('ai_chat.input.status.action.builtin_login'),
+      },
+      activeProvider: providerSummary,
+      message: [title, description].filter(Boolean).join(' '),
+    };
+  }
 
   const blockingProviderIssues = issues.filter((issue) => issue !== 'missing_selected_model');
   if (blockingProviderIssues.length > 0) {

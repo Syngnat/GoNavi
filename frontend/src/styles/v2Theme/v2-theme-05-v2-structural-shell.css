@@ -1,0 +1,421 @@
+/* ─── V2 structural shell: redesigned sidebar / workbench ─ */
+body[data-ui-version="v2"] .gn-v2-sidebar-shell {
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-app-sider {
+  min-width: 232px !important;
+  max-width: min(960px, calc(100vw - 360px)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-redesign {
+  --gn-v2-rail-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
+  --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
+  width: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-connection-rail {
+  width: calc(38px * var(--gn-v2-rail-scale));
+  flex: 0 0 calc(38px * var(--gn-v2-rail-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  padding: calc(6px * var(--gn-v2-rail-scale)) 0 0;
+  border-right: 0.5px solid var(--gn-br-1);
+  /* Match explorer panel — no tint strip (tinted empty rail looked worse) */
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .ant-layout-sider[data-sidebar-actions-placement='titlebar'] .gn-v2-connection-rail {
+  display: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-sidebar-toggle-slot {
+  width: 100%;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 1px;
+}
+
+/* Sidebar-rail placement: the rail stays visible while the explorer is expanded
+   (App.css hides it by default) and carries the search / locate / scroll-to-top /
+   connection-menu / collapse actions as a vertical column. */
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-sidebar-redesign[data-sidebar-actions-rail='true'] > .gn-v2-connection-rail {
+  display: flex;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-explorer-actions {
+  width: 100%;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-explorer-actions .gn-v2-explorer-action-group {
+  flex-direction: column;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+/* The collapse and expand toggles share one slot; the Sider state picks the visible one. */
+body[data-ui-version="v2"] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-rail-explorer-actions .gn-v2-explorer-tool[data-sidebar-toggle-placement='rail-expand'],
+body[data-ui-version="v2"] .ant-layout-sider[data-sidebar-collapsed='true'] .gn-v2-rail-explorer-actions .gn-v2-explorer-tool[data-sidebar-toggle-placement='rail-collapse'] {
+  display: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-items {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+  width: 100%;
+  box-sizing: border-box;
+  padding-top: calc(4px * var(--gn-v2-rail-scale));
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gn-accent) 45%, transparent) transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-items::-webkit-scrollbar {
+  width: 5px;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-items::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-accent) 38%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(3px * var(--gn-v2-rail-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group + .gn-v2-rail-group {
+  padding-top: calc(5px * var(--gn-v2-rail-scale));
+  border-top: 0.5px solid var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group-header {
+  position: relative;
+  width: 100%;
+  min-height: calc(24px * var(--gn-v2-rail-scale));
+  overflow: visible;
+  border: none;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+  padding: 0 calc(4px * var(--gn-v2-rail-scale)) 0 calc(6px * var(--gn-v2-rail-scale));
+  background: transparent;
+  color: var(--gn-fg-5);
+  box-shadow: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group-header:hover {
+  background: transparent;
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group-chevron {
+  position: static;
+  display: inline-flex;
+  color: var(--gn-fg-5);
+  font-size: calc(9px * var(--gn-v2-rail-scale));
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 120ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group.is-collapsed .gn-v2-rail-group-chevron {
+  transform: rotate(-90deg);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group-title {
+  min-width: 0;
+  color: var(--gn-fg-4);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group-count {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  min-width: calc(16px * var(--gn-v2-rail-scale));
+  height: calc(16px * var(--gn-v2-rail-scale));
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(4px * var(--gn-v2-rail-scale));
+  border: 2px solid var(--gn-bg-panel-2);
+  background: var(--gn-accent);
+  color: var(--gn-on-accent, #fff);
+  font-family: var(--gn-font-mono);
+  font-size: calc(9px * var(--gn-v2-rail-scale));
+  font-weight: 800;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-group-items {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-primary-actions,
+body[data-ui-version="v2"] .gn-v2-rail-secondary-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+/* Top tool cluster — compact, not floating in empty space */
+body[data-ui-version="v2"] .gn-v2-rail-primary-actions {
+  padding: calc(2px * var(--gn-v2-rail-scale)) 0 calc(4px * var(--gn-v2-rail-scale));
+}
+
+/* Bottom system actions — pin to foot with a hairline only, no fill */
+body[data-ui-version="v2"] .gn-v2-rail-secondary-actions {
+  margin-top: auto;
+  flex: 0 0 auto;
+  padding: calc(6px * var(--gn-v2-rail-scale)) 0 calc(8px * var(--gn-v2-rail-scale));
+  border-top: 0.5px solid var(--gn-br-1);
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-action-group,
+body[data-ui-version="v2"] .gn-v2-rail-workbench-actions,
+body[data-ui-version="v2"] .gn-v2-rail-system-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--gn-v2-rail-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-action-group {
+  padding-bottom: calc(6px * var(--gn-v2-rail-scale));
+  border-bottom: 0.5px solid var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-workbench-actions {
+  padding-bottom: calc(6px * var(--gn-v2-rail-scale));
+  border-bottom: 0.5px solid var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-action-wrap {
+  display: inline-flex;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-action {
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-action:disabled {
+  opacity: 0.42;
+  color: var(--gn-fg-5);
+  cursor: not-allowed;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-item,
+body[data-ui-version="v2"] .gn-v2-rail-tool {
+  position: relative;
+  width: calc(36px * var(--gn-v2-rail-scale));
+  height: calc(38px * var(--gn-v2-rail-scale));
+  border-radius: calc(9px * var(--gn-v2-rail-scale));
+  border: none;
+  background: transparent;
+  color: var(--gn-fg-4);
+  font-size: calc(var(--gn-font-size-sm, 12px) * var(--gn-sidebar-rail-scale, 1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+/* Compact square hit target for rail tools (locate / AI / settings) */
+body[data-ui-version="v2"] .gn-v2-rail-tool {
+  width: calc(28px * var(--gn-v2-rail-scale));
+  height: calc(28px * var(--gn-v2-rail-scale));
+  border-radius: calc(7px * var(--gn-v2-rail-scale));
+  justify-content: center;
+  padding: 0;
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool .anticon {
+  font-size: calc(15px * var(--gn-v2-rail-scale));
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-item:hover,
+body[data-ui-version="v2"] .gn-v2-rail-tool:hover:not(:disabled) {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--gn-accent) 12%, var(--gn-bg-hover));
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 1px;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool.is-active {
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-active));
+  color: var(--gn-accent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 28%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-item.is-active {
+  background: var(--gn-bg-active);
+  box-shadow: inset 0 0 0 0.5px var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-active-bar {
+  display: none;
+  position: absolute;
+  left: calc(-8px * var(--gn-v2-rail-scale));
+  top: calc(7px * var(--gn-v2-rail-scale));
+  bottom: calc(7px * var(--gn-v2-rail-scale));
+  width: calc(3px * var(--gn-v2-rail-scale));
+  border-radius: calc(3px * var(--gn-v2-rail-scale));
+  background: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-item.is-active .gn-v2-rail-active-bar {
+  display: block;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-icon {
+  display: flex;
+  width: calc(24px * var(--gn-v2-rail-scale));
+  height: calc(24px * var(--gn-v2-rail-scale));
+  align-items: center;
+  justify-content: center;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-badge {
+  width: calc(22px * var(--gn-v2-rail-scale));
+  height: calc(22px * var(--gn-v2-rail-scale));
+  border-radius: calc(6px * var(--gn-v2-rail-scale));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--gn-font-mono);
+  font-size: calc(9.5px * var(--gn-sidebar-rail-scale, 1));
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.3), 0 0.5px 1px rgba(0,0,0,0.2);
+  letter-spacing: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-badge-wrap {
+  position: relative;
+  width: calc(22px * var(--gn-v2-rail-scale));
+  height: calc(22px * var(--gn-v2-rail-scale));
+  flex: 0 0 calc(22px * var(--gn-v2-rail-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-fallback {
+  display: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-status {
+  position: absolute;
+  right: calc(-2px * var(--gn-v2-rail-scale));
+  bottom: calc(-2px * var(--gn-v2-rail-scale));
+  width: calc(8px * var(--gn-v2-rail-scale));
+  height: calc(8px * var(--gn-v2-rail-scale));
+  border-radius: 50%;
+  border: calc(1.5px * var(--gn-sidebar-rail-scale, 1)) solid var(--gn-bg-panel);
+  background: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-status.is-live {
+  background: var(--gn-status-connected);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-status.is-error {
+  background: var(--gn-danger);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-create-button {
+  margin-top: calc(4px * var(--gn-v2-rail-scale));
+  width: calc(40px * var(--gn-v2-rail-scale));
+  height: calc(40px * var(--gn-v2-rail-scale));
+  border: 1px dashed var(--gn-br-2);
+  border-radius: calc(14px * var(--gn-v2-rail-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--gn-v2-rail-scale));
+  padding: 0;
+  color: var(--gn-fg-5);
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-create-button:hover {
+  background: color-mix(in srgb, var(--gn-bg-hover) 54%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-create-icon {
+  width: calc(24px * var(--gn-v2-rail-scale));
+  height: calc(24px * var(--gn-v2-rail-scale));
+  border-radius: calc(8px * var(--gn-v2-rail-scale));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--gn-bg-panel) 72%, var(--gn-accent) 28%);
+  color: var(--gn-accent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 28%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-create-label {
+  color: var(--gn-fg-5);
+  font-size: calc(10px * var(--gn-sidebar-rail-scale, 1));
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-object-explorer {
+  min-width: 0;
+  flex: 1 1 0;
+  background: transparent;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: gn-v2-object-explorer;
+}
+

@@ -1,0 +1,493 @@
+/* The explorer tree only scrolls vertically. Long labels ellipsize; the user
+   widens the sidebar to read them. */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder {
+  box-sizing: border-box;
+  height: 100%;
+  max-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-horizontal {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder-inner {
+  width: 100%;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Every row spans exactly the visible width, so right-pinned indicators sit on
+   the visible edge and never depend on scroll state. */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode {
+  position: relative;
+  width: 100% !important;
+  min-height: 26px !important;
+  padding: 0 6px !important;
+  align-items: center;
+  transition: background-color 80ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher {
+  flex: 0 0 16px !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  line-height: 1 !important;
+  font-size: 12px !important;
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .anticon {
+  font-size: 12px;
+  transition: color 80ms ease;
+}
+
+/* 懒加载节点展开时用转圈替代箭头。上面的 hover / 展开规则会把颜色拉到
+   --gn-fg-2/3，loading 态需要更醒目且不随行 hover 变化。 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .gn-v2-tree-switcher-loading {
+  color: var(--gn-accent, #2E6BE6);
+  animation: gn-v2-tree-switcher-spin 0.8s linear infinite;
+}
+
+@keyframes gn-v2-tree-switcher-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Ant Design transitions `all` here. Collapsing the sidebar hides the explorer
+   through inherited visibility, which must not animate on every visible row. */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher::before {
+  transition: color 0.3s, background-color 0.3s;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:hover > .ant-tree-switcher,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher_open {
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher:hover {
+  color: var(--gn-fg-2) !important;
+}
+
+/* 整行已有 hover / 选中底色，antd 在展开箭头上再叠一层 hover 框显得多余，直接去掉。 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher::before {
+  display: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher-noop .ant-tree-switcher-icon {
+  visibility: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-indent-unit {
+  width: 16px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper {
+  min-width: 0;
+  width: max-content !important;
+  min-height: 26px !important;
+  padding: 0 6px 0 6px !important;
+  display: flex !important;
+  align-items: center;
+  border-radius: 6px !important;
+  color: var(--gn-fg-3) !important;
+  transition: color 0.2s, background-color 0.2s;
+  cursor: default !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title {
+  cursor: default !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title.is-connection,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title.is-connection-group {
+  padding-right: 2px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: -2px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-draggable {
+  cursor: default !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-draggable:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-draggable.ant-tree-treenode-selected {
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-selected)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-selected)) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 400 !important;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 16%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle {
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  margin-right: 4px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--gn-fg-4);
+  font-size: 14px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle [data-db-icon-frame="true"] {
+  max-width: 16px !important;
+  max-height: 16px !important;
+}
+
+/* 树节点的字体图标（antd 与自绘线性图标）跟随侧栏树字号缩放：默认 13px 字号下 17px，
+   图标槽 20px，与文件夹、连接图标同宽，整棵树的图标大小才一致。
+   连接 logo 等图片图标不走这条规则，仍受上面的 16px 上限约束。 */
+body[data-ui-version="v2"] {
+  --gn-tree-icon-size: calc(var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px)) * 17 / 13);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle:has(> .anticon) {
+  width: calc(var(--gn-tree-icon-size) + 3px) !important;
+  min-width: calc(var(--gn-tree-icon-size) + 3px) !important;
+  height: calc(var(--gn-tree-icon-size) + 3px) !important;
+  font-size: var(--gn-tree-icon-size);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle > .anticon,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle > .anticon svg {
+  max-width: none !important;
+  max-height: none !important;
+  font-size: var(--gn-tree-icon-size);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-folder-icon) .ant-tree-iconEle {
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 20px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle [data-db-icon-frame="true"],
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle [data-db-icon-frame="true"],
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-folder-icon) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-folder-icon) .ant-tree-iconEle svg {
+  max-width: 20px !important;
+  max-height: 20px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-table,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-eye,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-code,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-function,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-thunderbolt {
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-folder-open {
+  color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .gn-icon-folder-open {
+  color: #d48806;
+  font-size: 17px;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .gn-icon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .gn-icon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .gn-icon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .gn-icon-folder-open {
+  color: #d48806;
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* Title chain shrinks with the row; the label ellipsizes while trailing
+   metadata / pin indicators keep their natural width. */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title > span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title > .gn-v2-tree-title {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title {
+  width: max-content;
+  min-width: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--gn-fg-2);
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  font-weight: 400 !important;
+  line-height: 1.5;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-mono {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-mono .gn-v2-tree-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-object-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-object-status.is-valid {
+  border-color: color-mix(in srgb, #2f9e44 42%, transparent);
+  background: color-mix(in srgb, #2f9e44 13%, transparent);
+  color: #16803a;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-object-status.is-invalid {
+  border-color: color-mix(in srgb, #d94841 45%, transparent);
+  background: color-mix(in srgb, #d94841 13%, transparent);
+  color: #c92a2a;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-group {
+  font-weight: 500 !important;
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection-group {
+  color: var(--gn-fg-3);
+  font-weight: 600 !important;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection {
+  align-items: center;
+  gap: 6px;
+  font-weight: 500 !important;
+  color: var(--gn-fg-1);
+}
+
+/* Host / folder rows fill the sidebar and ellipsize; object identifiers keep
+   the existing horizontal scroll so long table names stay readable. */
+/* 可见层长标签按内容撑开（横滚由 estimate 按展开层计算）；短标签自然不溢出 */
+
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:not(.ant-tree-treenode-selected):has(.gn-v2-tree-title:not(.is-mono)):hover {
+  background: var(--gn-bg-hover) !important;
+  border-radius: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:not(.ant-tree-treenode-selected):has(.gn-v2-tree-title:not(.is-mono)):hover .ant-tree-node-content-wrapper {
+  background: transparent !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected {
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-selected)) !important;
+  border-radius: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected:hover {
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-selected)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:not(.ant-tree-treenode-selected):has(.gn-v2-tree-title:not(.is-mono)):active {
+  background: var(--gn-bg-active) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected:active {
+  background: color-mix(in srgb, var(--gn-accent) 16%, var(--gn-bg-selected)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected .ant-tree-node-content-wrapper,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title:not(.is-mono) {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection .gn-v2-tree-connection-copy {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection-group .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title.is-group .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="database"] .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="queries-folder"] .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="external-sql-root"] .gn-v2-tree-label {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Connection / database status dot pinned to the visible right edge. The
+   content wrapper reserves the slot so the ellipsized label never runs under it. */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-status {
+  position: absolute;
+  top: 50%;
+  right: var(--gn-v2-tree-trailing-inset, 2px);
+  z-index: 1;
+  margin: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-status) .ant-tree-node-content-wrapper {
+  padding-right: calc(var(--gn-v2-tree-trailing-inset, 2px) + var(--gn-v2-tree-trailing-status-slot, 16px) + 6px) !important;
+}
+
+/* Count pills sit inline right after the label (title gap provides spacing). */
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection-group .gn-v2-tree-count,
+body[data-ui-version="v2"] .gn-v2-tree-title.is-group .gn-v2-tree-count {
+  margin-left: 0;
+  padding: 0 6px;
+  min-width: 16px;
+  min-height: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-fg-4) 8%, transparent);
+  color: var(--gn-fg-4);
+  font-size: 10px;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em;
+  opacity: 0.92;
+}
+
+/* 分组/对象组的数字徽章紧跟名称内联显示，不钉在右缘 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .gn-v2-tree-count,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-group) .gn-v2-tree-count {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  margin-left: 0;
+  transform: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+

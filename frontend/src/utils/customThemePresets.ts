@@ -486,11 +486,6 @@ body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-
   color: inherit !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-ai-panel .ai-logo {
-  background: var(--gn-info) !important;
-  color: var(--gn-on-info, #fff) !important;
-}
-
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-ai-quick-card.tone-purple .gn-v2-ai-quick-icon {
   background: var(--gn-purple-soft) !important;
   color: var(--gn-purple) !important;

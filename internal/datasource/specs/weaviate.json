@@ -1,0 +1,81 @@
+{
+  "type": "weaviate",
+  "aliases": [
+    "weaviate-db",
+    "weaviatedb"
+  ],
+  "displayName": "Weaviate",
+  "group": "vector",
+  "order": 40,
+  "defaultPort": 8080,
+  "wire": "http",
+  "dialect": "weaviate",
+  "objectKind": "collection",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "excelImport": true,
+  "agent": {
+    "buildTag": "gonavi_weaviate_driver",
+    "version": "1.0.0",
+    "sourcePrefixes": [
+      "weaviate",
+      "registry",
+      "vector_sql_where"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v1",
+        "label": "Weaviate 1.14–1.19",
+        "descriptionKey": "datasource.variant.weaviate.v1",
+        "maxServer": "1.20"
+      },
+      {
+        "id": "v2",
+        "label": "Weaviate 1.20–1.23",
+        "descriptionKey": "datasource.variant.weaviate.v2",
+        "minServer": "1.20",
+        "maxServer": "1.24"
+      },
+      {
+        "id": "v3",
+        "label": "Weaviate 1.24+",
+        "descriptionKey": "datasource.variant.weaviate.v3",
+        "minServer": "1.24"
+      }
+    ]
+  },
+  "ui": {
+    "layout": "vector",
+    "usernameOptional": true,
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "uriSchemes": [
+      "http",
+      "https",
+      "weaviate"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "tableAlias": "none",
+    "formatDdl": false,
+    "hint": "Collection browsing, GraphQL / REST console, multi-tenancy",
+    "icon": {
+      "color": "#75BE2C",
+      "text": "Wv",
+      "scale": 0.72
+    }
+  }
+}

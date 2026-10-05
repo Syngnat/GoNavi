@@ -1,0 +1,88 @@
+{
+  "type": "typesense",
+  "aliases": [
+    "typesense-cloud"
+  ],
+  "displayName": "Typesense",
+  "group": "search",
+  "order": 40,
+  "defaultPort": 8108,
+  "wire": "http",
+  "dialect": "typesense",
+  "objectKind": "collection",
+  "caseSensitiveIdentifiers": true,
+  "syntheticDatabase": true,
+  "protection": true,
+  "excelImport": true,
+  "agent": {
+    "buildTag": "gonavi_typesense_driver",
+    "version": "1.0.0",
+    "sourcePrefixes": [
+      "typesense",
+      "registry",
+      "document_filter",
+      "document_rest",
+      "vector_sql_where"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v0",
+        "label": "Typesense 0.20 – 0.23",
+        "descriptionKey": "datasource.variant.typesense.v0",
+        "maxServer": "0.24"
+      },
+      {
+        "id": "v1",
+        "label": "Typesense 0.24 – 0.25",
+        "descriptionKey": "datasource.variant.typesense.v1",
+        "minServer": "0.24",
+        "maxServer": "26.0"
+      },
+      {
+        "id": "v2",
+        "label": "Typesense 26+",
+        "descriptionKey": "datasource.variant.typesense.v2",
+        "minServer": "26.0"
+      }
+    ]
+  },
+  "ui": {
+    "layout": "search",
+    "usernameOptional": true,
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "uriSchemes": [
+      "http",
+      "https",
+      "typesense"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "tableAlias": "none",
+    "naturalOrder": true,
+    "formatDdl": false,
+    "objectStatements": {
+      "dropTable": "DROP TABLE {table}",
+      "truncateTable": "TRUNCATE TABLE {table}",
+      "clearTable": "DELETE FROM {table}"
+    },
+    "hint": "Collection browsing, REST console, schema-aware data grid",
+    "icon": {
+      "color": "#D52B83",
+      "text": "Ts"
+    }
+  }
+}

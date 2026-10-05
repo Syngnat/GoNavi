@@ -28,6 +28,8 @@ import { AIActivityTimeline } from './messageBubble/AIActivityTimeline';
 import { AIMessageFooter } from './messageBubble/AIMessageFooter';
 import { AIThinkingBlock, AIToolCallingBlock } from './messageBubble/AIMessageStatusBlocks';
 import { formatAIChatAttachmentSize } from './aiChatAttachments';
+import { AIContextChips } from './AIContextChipRow';
+import { QUOTE_SOURCE_ATTRIBUTE } from './aiReplySelection';
 import type { AIToolResultIndex } from './aiToolResultIndex';
 import { useAIChatTypewriter } from './useAIChatTypewriter';
 import { aiPx } from './aiScale';
@@ -67,7 +69,7 @@ const AIMessageAttachmentSummary: React.FC<{
   msg: AIChatMessage;
   overlayTheme: OverlayWorkbenchTheme;
 }> = ({ msg, overlayTheme }) => {
-  const fileAttachments = (msg.attachments || []).filter((attachment) => attachment.kind !== 'image');
+  const fileAttachments = (msg.attachments || []).filter((attachment) => attachment.kind !== 'image' && attachment.kind !== 'context');
   if (fileAttachments.length === 0) {
     return null;
   }
@@ -360,7 +362,11 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
           />
         </div>
 
-        <div className="ai-ide-message-content ai-markdown-content" style={{ color: textColor }}>
+        <div
+          className="ai-ide-message-content ai-markdown-content"
+          style={{ color: textColor }}
+          {...(!isUser && msg.id ? { [QUOTE_SOURCE_ATTRIBUTE]: msg.id } : {})}
+        >
           {msg.images && msg.images.length > 0 && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
               {msg.images.map((image, index) => (
@@ -368,6 +374,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
               ))}
             </div>
           )}
+          <AIContextChips attachments={msg.attachments} copy={copy} />
           <AIMessageAttachmentSummary msg={msg} overlayTheme={overlayTheme} />
 
           {!isUser && hasActivityTimeline && (

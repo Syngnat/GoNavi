@@ -1,0 +1,100 @@
+{
+  "type": "timescaledb",
+  "aliases": [
+    "timescale",
+    "tsdb-timescale"
+  ],
+  "displayName": "TimescaleDB",
+  "group": "timeseries",
+  "order": 30,
+  "defaultPort": 5432,
+  "wire": "postgres",
+  "dialect": "timescaledb",
+  "ddlDialect": "postgres",
+  "family": "postgres",
+  "objectKind": "table",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT extversion AS version FROM pg_extension WHERE extname = 'timescaledb'",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_timescaledb_driver",
+    "goModule": "github.com/lib/pq",
+    "version": "1.11.1",
+    "sourcePrefixes": [
+      "timescaledb",
+      "registry",
+      "postgres",
+      "pg"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v1",
+        "label": "TimescaleDB 1.x",
+        "descriptionKey": "datasource.variant.timescaledb.v1",
+        "maxServer": "2.0"
+      },
+      {
+        "id": "v2",
+        "label": "TimescaleDB 2.0 – 2.12",
+        "descriptionKey": "datasource.variant.timescaledb.v2",
+        "minServer": "2.0",
+        "maxServer": "2.13"
+      },
+      {
+        "id": "v213",
+        "label": "TimescaleDB 2.13 +",
+        "descriptionKey": "datasource.variant.timescaledb.v213",
+        "minServer": "2.13"
+      }
+    ]
+  },
+  "ui": {
+    "defaultUser": "postgres",
+    "hideExtensionRoutines": true,
+    "tableStats": [
+      {
+        "minServer": "2.0",
+        "rows": "approximate_row_count({{oid}})",
+        "size": "COALESCE(hypertable_size({{oid}}), pg_total_relation_size({{oid}}))",
+        "indexSize": "COALESCE((SELECT index_bytes FROM hypertable_detailed_size({{oid}})), pg_indexes_size({{oid}}))"
+      },
+      {
+        "maxServer": "2.0",
+        "rows": "COALESCE((SELECT row_estimate FROM hypertable_approximate_row_count({{oid}})), {{reltuples}})",
+        "size": "COALESCE((hypertable_relation_size({{oid}})).total_bytes, pg_total_relation_size({{oid}}))",
+        "indexSize": "COALESCE((hypertable_relation_size({{oid}})).index_bytes, pg_indexes_size({{oid}}))"
+      }
+    ],
+    "hiddenSchemaPrefixes": [
+      "_timescaledb_",
+      "timescaledb_"
+    ],
+    "uriSchemes": [
+      "timescaledb",
+      "timescale",
+      "postgresql",
+      "postgres"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "hint": "PostgreSQL + time-series extension",
+    "icon": {
+      "color": "#FDB515",
+      "text": "Ts",
+      "scale": 0.72
+    }
+  }
+}

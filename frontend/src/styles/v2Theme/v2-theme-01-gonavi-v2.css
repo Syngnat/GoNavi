@@ -1,0 +1,486 @@
+/* ──────────────────────────────────────────────────────────────────────
+   GoNavi V2 — UI
+   ──────────────────────────────────────────────────────────────────────
+   This stylesheet contains the v2 tokens and the structural workbench
+   rules used by the React layout when:
+
+       body[data-ui-version="v2"]
+
+   is set by App.tsx as the stable scope for the current UI.
+
+   Strategy:
+     1. Define design tokens (light + dark) as CSS variables on the body.
+     2. Override the small handful of Ant Design / project class selectors
+        that drive the visual impression: surfaces, typography, sidebar
+        tree, tabs, buttons, tables, inputs, dropdowns, modals.
+     3. Keep specificity tight to the application UI scope.
+
+   Workbench-specific rules are imported after this file at app entry.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* ─── Light tokens ─────────────────────────────────────── */
+body[data-ui-version="v2"][data-theme="light"] {
+  --gn-font-sans: "Inter", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Ubuntu", sans-serif;
+  --gn-font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+  --gn-bg-app:      rgb(246 246 244 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome:   rgb(236 236 234 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome-strong: rgb(232 238 235 / var(--gn-window-opacity, 1));
+  --gn-bg-titlebar: rgb(250 250 248 / var(--gn-window-opacity, 1));
+  --gn-bg-panel:    rgb(255 255 255 / var(--gn-window-opacity, 1));
+  --gn-bg-panel-2:  rgb(250 250 248 / var(--gn-window-opacity, 1));
+  /* All Monaco editors share this surface token (see .gn-monaco-surface). */
+  --gn-monaco-bg:   var(--gn-bg-panel);
+  --gn-bg-hover:    rgba(15, 23, 42, 0.045);
+  --gn-bg-active:   rgba(15, 23, 42, 0.075);
+  --gn-bg-selected: color-mix(in srgb, var(--gn-accent) 16%, transparent);
+  --gn-bg-input:    rgb(255 255 255 / var(--gn-window-opacity, 1));
+
+  --gn-fg-1: #0c1322;
+  --gn-fg-2: #1f2937;
+  --gn-fg-3: #4b5563;
+  --gn-fg-4: #6b7280;
+  --gn-fg-5: #9ca3af;
+
+  --gn-br-1: rgba(15, 23, 42, 0.08);
+  --gn-br-2: rgba(15, 23, 42, 0.12);
+  --gn-br-3: rgba(15, 23, 42, 0.18);
+
+  --gn-accent:      #15803d;
+  --gn-accent-2:    #166534;
+  --gn-accent-soft: color-mix(in srgb, var(--gn-accent) 16%, var(--gn-bg-panel));
+  /* 一般强调面与实心主操作都使用深绿填充，白色前景满足 WCAG AA。 */
+  --gn-on-accent:   #ffffff;
+  --gn-accent-strong: #15803d;
+  --gn-accent-strong-hover: #126634;
+  --gn-accent-strong-active: #0d4d27;
+  --gn-info:        #0369a1;
+  --gn-info-soft:   #e0f2fe;
+  --gn-warn:        #d97706;
+  --gn-warn-soft:   rgba(245, 158, 11, 0.14);
+  --gn-column-type-pk: var(--gn-warn);
+  --gn-column-type-unique: #0f766e;
+  --gn-column-type-fk: var(--gn-info);
+  --gn-column-type-index: #6d28d9;
+  --gn-danger:      #dc2626;
+  --gn-danger-strong: #dc2626;
+  --gn-danger-strong-hover: #b91c1c;
+  --gn-status-connected: #15803d;
+
+  --gn-shadow-sm:   0 1px 2px rgba(15, 23, 42, 0.05);
+  --gn-shadow-md:   0 4px 14px rgba(15, 23, 42, 0.08);
+  --gn-shadow-lg:   0 12px 40px rgba(15, 23, 42, 0.14);
+  --gn-shadow-card: 0 0 0 0.5px rgba(15, 23, 42, 0.10), 0 1px 3px rgba(15, 23, 42, 0.06);
+
+  --gn-kbd-bg: #f3f4f6;
+  --gn-kbd-fg: #374151;
+}
+
+/* ─── Dark tokens ──────────────────────────────────────── */
+body[data-ui-version="v2"][data-theme="dark"] {
+  --gn-font-sans: "Inter", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Ubuntu", sans-serif;
+  --gn-font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+  --gn-bg-app:      rgb(12 14 18 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome:   rgb(20 23 28 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome-strong: rgb(17 22 27 / var(--gn-window-opacity, 1));
+  --gn-bg-titlebar: rgb(27 31 39 / var(--gn-window-opacity, 1));
+  --gn-bg-panel:    rgb(22 26 33 / var(--gn-window-opacity, 1));
+  --gn-bg-panel-2:  rgb(27 31 39 / var(--gn-window-opacity, 1));
+  --gn-monaco-bg:   var(--gn-bg-panel);
+  --gn-bg-hover:    rgba(255, 255, 255, 0.05);
+  --gn-bg-active:   rgba(255, 255, 255, 0.08);
+  --gn-bg-selected: color-mix(in srgb, var(--gn-accent) 18%, transparent);
+  --gn-bg-input:    rgb(15 18 23 / var(--gn-window-opacity, 1));
+
+  --gn-fg-1: #ffffff;
+  --gn-fg-2: #f5f5f5;
+  --gn-fg-3: #e6e6e6;
+  --gn-fg-4: #d9d9d9;
+  --gn-fg-5: #cccccc;
+
+  --gn-br-1: rgba(255, 255, 255, 0.06);
+  --gn-br-2: rgba(255, 255, 255, 0.10);
+  --gn-br-3: rgba(255, 255, 255, 0.16);
+
+  --gn-accent:      #22c55e;
+  --gn-accent-2:    #16a34a;
+  --gn-accent-soft: color-mix(in srgb, var(--gn-accent) 22%, transparent);
+  /* 亮绿强调面继续使用深色前景；实心主操作使用更深的三态填充与白色前景。
+     两种语义不能共用前景色，否则徽标或主按钮必有一方达不到 WCAG AA。 */
+  --gn-on-accent:   #0a2417;
+  --gn-accent-strong: #15803d;
+  --gn-accent-strong-hover: #126634;
+  --gn-accent-strong-active: #0d4d27;
+  --gn-info:        #38bdf8;
+  --gn-info-soft:   rgba(56, 189, 248, 0.14);
+  --gn-warn:        #f59e0b;
+  --gn-warn-soft:   rgba(245, 158, 11, 0.16);
+  --gn-column-type-pk: var(--gn-warn);
+  --gn-column-type-unique: #5eead4;
+  --gn-column-type-fk: var(--gn-info);
+  --gn-column-type-index: #c4b5fd;
+  --gn-danger:      #f87171;
+  --gn-danger-strong: #dc2626;
+  --gn-danger-strong-hover: #b91c1c;
+  --gn-status-connected: #4ade80;
+
+  --gn-shadow-sm:   0 1px 2px rgba(0, 0, 0, 0.4);
+  --gn-shadow-md:   0 4px 14px rgba(0, 0, 0, 0.45);
+  --gn-shadow-lg:   0 12px 40px rgba(0, 0, 0, 0.55);
+  --gn-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.35);
+
+  --gn-kbd-bg: #20242c;
+  --gn-kbd-fg: #c7ccd2;
+}
+
+/* 自定义主题可显式提供 --gn-ant-on-primary；未提供时回退到它自己的 --gn-on-accent。 */
+body[data-ui-version="v2"]:not([data-custom-theme]) {
+  --gn-ant-on-primary: #ffffff;
+}
+
+/* ─── Base typography & body ──────────────────────────── */
+body[data-ui-version="v2"] {
+  --gn-v2-menu-row-height: 28px;
+  --gn-v2-menu-item-radius: 5px;
+  --gn-v2-menu-surface-radius: 10px;
+  --gn-v2-menu-surface-padding: 4px;
+
+  /* Query/DataGrid 工具栏按钮的公开主题契约。
+     自定义主题可覆盖这组通用变量，也可用 --gn-query-toolbar-* /
+     --gn-result-toolbar-* 变量只调整其中一组。 */
+  --gn-toolbar-button-fg: var(--gn-fg-2);
+  --gn-toolbar-button-bg: var(--gn-bg-panel);
+  --gn-toolbar-button-border: var(--gn-br-2);
+  --gn-toolbar-button-hover-fg: var(--gn-fg-1);
+  --gn-toolbar-button-hover-bg: var(--gn-bg-hover);
+  --gn-toolbar-button-hover-border: var(--gn-br-3);
+  --gn-toolbar-button-active-fg: var(--gn-fg-1);
+  --gn-toolbar-button-active-bg: var(--gn-bg-active);
+  --gn-toolbar-button-active-border: var(--gn-br-3);
+  --gn-toolbar-button-disabled-fg: var(--gn-fg-5);
+  --gn-toolbar-button-disabled-bg: var(--gn-bg-active);
+  --gn-toolbar-button-disabled-border: var(--gn-br-2);
+  --gn-toolbar-primary-fg: var(--gn-ant-on-primary, var(--gn-on-accent, #fff));
+  --gn-toolbar-primary-bg: var(--gn-accent-strong, var(--gn-accent));
+  --gn-toolbar-primary-border: var(--gn-accent-strong, var(--gn-accent-2));
+  --gn-toolbar-primary-hover-fg: var(--gn-ant-on-primary, var(--gn-on-accent, #fff));
+  --gn-toolbar-primary-hover-bg: var(--gn-accent-strong-hover, var(--gn-accent-2));
+  --gn-toolbar-primary-hover-border: var(--gn-accent-strong-hover, var(--gn-accent-2));
+  --gn-toolbar-primary-active-fg: var(--gn-ant-on-primary, var(--gn-on-accent, #fff));
+  --gn-toolbar-primary-active-bg: var(--gn-accent-strong-active, var(--gn-accent-2));
+  --gn-toolbar-primary-active-border: var(--gn-accent-strong-active, var(--gn-accent-2));
+  --gn-toolbar-primary-disabled-fg: var(--gn-fg-5);
+  --gn-toolbar-primary-disabled-bg: var(--gn-bg-active);
+  --gn-toolbar-primary-disabled-border: var(--gn-br-2);
+  font-family: var(--gn-font-sans) !important;
+  font-size: var(--gn-font-size, var(--gonavi-font-size, 14px));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  font-feature-settings: "cv11", "ss01";
+}
+
+body[data-ui-version="v2"][data-platform="darwin"] {
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+}
+
+body[data-ui-version="v2"] code,
+body[data-ui-version="v2"] pre,
+body[data-ui-version="v2"] kbd,
+body[data-ui-version="v2"] .ant-typography code,
+body[data-ui-version="v2"] .gonavi-mono,
+body[data-ui-version="v2"] [class*="monospace"] {
+  font-family: var(--gn-font-mono) !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   ANT DESIGN OVERRIDES — surfaces & chrome
+   ────────────────────────────────────────────────────────── */
+
+body[data-ui-version="v2"] .ant-layout {
+  background: transparent !important;
+}
+
+/* 主内容区与左侧 sider 同用 panel-2：原先 app 近黑、panel 更深一档，
+   与 sider 的 panel-2 并排时会出现明显色差（表概览空白区尤其扎眼）。 */
+body[data-ui-version="v2"] .ant-layout-content {
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .ant-layout-sider {
+  background: var(--gn-bg-panel-2) !important;
+  border-right: 0.5px solid var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .ant-layout-header {
+  background: var(--gn-bg-chrome) !important;
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+}
+
+/* ─── Tabs (top tab bar) ───────────────────────────────── */
+body[data-ui-version="v2"] .ant-tabs > .ant-tabs-nav {
+  background: var(--gn-bg-panel-2);
+  margin-bottom: 0;
+}
+
+body[data-ui-version="v2"] .ant-tabs > .ant-tabs-nav::before {
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .ant-tabs-tab {
+  padding: 8px 12px !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border-right: 0.5px solid var(--gn-br-1) !important;
+  font-weight: 500 !important;
+  color: var(--gn-fg-3) !important;
+  transition: background 0.08s !important;
+}
+
+body[data-ui-version="v2"] .ant-tabs-tab:hover {
+  background: var(--gn-bg-hover) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+body[data-ui-version="v2"] .ant-tabs-tab.ant-tabs-tab-active {
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 600 !important;
+  position: relative;
+}
+
+body[data-ui-version="v2"] .ant-tabs-tab.ant-tabs-tab-active::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .ant-tabs-tab .ant-tabs-tab-btn {
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
+body[data-ui-version="v2"] .ant-tabs-ink-bar {
+  display: none !important;
+}
+
+/* ─── Tree (sidebar database tree) ─────────────────────── */
+body[data-ui-version="v2"] .ant-tree {
+  background: transparent !important;
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  color: var(--gn-fg-2);
+}
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-treenode {
+  padding: 1px 4px !important;
+}
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-node-content-wrapper {
+  border-radius: 6px !important;
+  padding: 2px 6px !important;
+  min-height: 26px !important;
+  transition: background 0.06s !important;
+}
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-node-content-wrapper:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: var(--gn-bg-selected) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 400;
+}
+
+/* table names — mono */
+body[data-ui-version="v2"] .ant-tree .ant-tree-title {
+  font-family: var(--gn-font-sans);
+}
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-table,
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-eye,
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-function {
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .anticon-database,
+body[data-ui-version="v2"] .ant-tree .ant-tree-iconEle .gn-icon-database {
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .ant-tree-switcher {
+  color: var(--gn-fg-4) !important;
+}
+
+/* ─── Buttons ──────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-btn {
+  font-weight: 500;
+  border-radius: 7px !important;
+  height: 30px !important;
+  padding: 0 12px !important;
+  box-shadow: none !important;
+  border-color: var(--gn-br-2) !important;
+  transition: background 0.08s, border-color 0.08s !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-sm {
+  height: 24px !important;
+  padding: 0 8px !important;
+  font-size: 12px !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-default {
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-2) !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-default:hover {
+  background: var(--gn-bg-hover) !important;
+  border-color: var(--gn-br-3) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+/* 主操作按钮用提饱和的 --gn-accent-strong 填充：内置主题的 accent 刻意低饱和
+   （Comfort Dark 仅 20%、Deep Ocean 28%），直接填在按钮上读起来"没有颜色"、不像主操作。
+   只改按钮填充，侧边栏高亮与文字仍用原 accent，保持主题整体淡雅。
+   主按钮前景单独使用 --gn-ant-on-primary，避免与亮色强调面的前景语义冲突。 */
+body[data-ui-version="v2"] .ant-btn-primary {
+  background: var(--gn-accent-strong, var(--gn-accent)) !important;
+  border-color: var(--gn-accent-strong, var(--gn-accent-2)) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+  font-weight: 600 !important;
+  box-shadow: var(--gn-shadow-sm), inset 0 0.5px 0 rgba(255,255,255,0.15) !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-primary:hover {
+  background: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;
+  border-color: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-primary:active {
+  background: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;
+  border-color: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+}
+
+/* 查询工具栏「保存」在 v2 已改为 default 图标按钮；样式见 v2-theme-workbench.css。 */
+
+body[data-ui-version="v2"] .ant-btn-primary:disabled {
+  background: var(--gn-bg-active) !important;
+  border-color: var(--gn-br-2) !important;
+  color: var(--gn-fg-5) !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-dangerous {
+  color: var(--gn-danger) !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled) {
+  background: var(--gn-danger-strong) !important;
+  border-color: var(--gn-danger-strong) !important;
+  color: #fff !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):hover {
+  background: var(--gn-danger-strong-hover) !important;
+  border-color: var(--gn-danger-strong-hover) !important;
+  color: #fff !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-link {
+  color: var(--gn-info) !important;
+}
+
+body[data-ui-version="v2"] .ant-btn-text {
+  color: var(--gn-fg-3) !important;
+}
+body[data-ui-version="v2"] .ant-btn-text:hover {
+  background: var(--gn-bg-hover) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+/* ─── Inputs ──────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-input,
+body[data-ui-version="v2"] .ant-input-affix-wrapper,
+body[data-ui-version="v2"] .ant-input-number,
+body[data-ui-version="v2"] .ant-select-selector,
+body[data-ui-version="v2"] .ant-picker {
+  background: var(--gn-bg-input) !important;
+  border-color: var(--gn-br-2) !important;
+  border-radius: 7px !important;
+  color: var(--gn-fg-1) !important;
+  box-shadow: none !important;
+  transition: border-color 0.08s, background 0.08s !important;
+}
+
+/*
+ * allowClear / prefix / suffix wraps input in .ant-input-affix-wrapper.
+ * Only the wrapper should draw the border — otherwise it looks double-layered.
+ */
+body[data-ui-version="v2"] .ant-input-affix-wrapper > input.ant-input,
+body[data-ui-version="v2"] .ant-input-affix-wrapper .ant-input {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  outline: none !important;
+}
+
+body[data-ui-version="v2"] .ant-input-affix-wrapper > input.ant-input:focus,
+body[data-ui-version="v2"] .ant-input-affix-wrapper > input.ant-input:focus-visible,
+body[data-ui-version="v2"] .ant-input-affix-wrapper .ant-input:focus,
+body[data-ui-version="v2"] .ant-input-affix-wrapper .ant-input:focus-visible {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+body[data-ui-version="v2"] .ant-input::placeholder,
+body[data-ui-version="v2"] .ant-input-affix-wrapper input::placeholder {
+  color: var(--gn-fg-5) !important;
+}
+
+body[data-ui-version="v2"] .ant-input:focus,
+body[data-ui-version="v2"] .ant-input-affix-wrapper-focused,
+body[data-ui-version="v2"] .ant-input-number-focused,
+body[data-ui-version="v2"] .ant-select-focused .ant-select-selector,
+body[data-ui-version="v2"] .ant-picker-focused {
+  border-color: var(--gn-info) !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12) !important;
+}
+
+/* Focus ring only on the wrapper when affix is present (not also on inner input). */
+body[data-ui-version="v2"] .ant-input-affix-wrapper-focused > input.ant-input,
+body[data-ui-version="v2"] .ant-input-affix-wrapper-focused .ant-input {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .ant-input-search-button {
+  background: var(--gn-accent) !important;
+  border-color: var(--gn-accent-2) !important;
+  color: #fff !important;
+}
+
+/* 搜索框和按钮共用边界，避免全局圆角影响拼接。 */
+body[data-ui-version="v2"] .ant-input-search > .ant-input-group > .ant-input-affix-wrapper {
+  border-inline-end: none !important;
+  border-start-end-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-input-search > .ant-input-group > .ant-input-group-addon:last-child {
+  inset-inline-start: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-input-search > .ant-input-group > .ant-input-group-addon:last-child .ant-input-search-button {
+  margin-inline-end: 0 !important;
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
+}
+

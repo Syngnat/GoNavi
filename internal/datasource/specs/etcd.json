@@ -1,0 +1,80 @@
+{
+  "type": "etcd",
+  "aliases": [
+    "etcd3",
+    "etcd-v3",
+    "etcdv3"
+  ],
+  "displayName": "etcd",
+  "group": "config_center",
+  "order": 10,
+  "defaultPort": 2379,
+  "wire": "http",
+  "dialect": "etcd",
+  "objectKind": "key",
+  "caseSensitiveIdentifiers": true,
+  "syntheticDatabase": true,
+  "proxyMode": "driver",
+  "protection": true,
+  "versionQuery": "version",
+  "excelImport": true,
+  "agent": {
+    "buildTag": "gonavi_etcd_driver",
+    "goModule": "go.etcd.io/etcd/client/v3",
+    "version": "3.6.14",
+    "sourcePrefixes": [
+      "etcd",
+      "kv",
+      "registry"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v2",
+        "label": "etcd v2 API",
+        "descriptionKey": "datasource.variant.etcd.v2",
+        "maxServer": "3.0"
+      },
+      {
+        "id": "v3",
+        "label": "etcd v3 API",
+        "descriptionKey": "datasource.variant.etcd.v3",
+        "minServer": "3.0"
+      }
+    ]
+  },
+  "ui": {
+    "usernameOptional": true,
+    "uriSchemes": [
+      "etcd",
+      "http",
+      "https"
+    ],
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "flatObjectNames": true,
+    "tableAlias": "none",
+    "formatDdl": false,
+    "quoting": "double",
+    "hint": "Key-value store / etcdctl-style console",
+    "icon": {
+      "color": "#419EDA",
+      "text": "e",
+      "scale": 0.72
+    }
+  }
+}

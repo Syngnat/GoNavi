@@ -1,11 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readCssWithImports } from '../../test/readCssWithImports';
 
-const appCss = readFileSync(
-  fileURLToPath(new globalThis.URL('../../App.css', import.meta.url)),
-  'utf8',
-);
+const appCss = readCssWithImports(fileURLToPath(new globalThis.URL('../../App.css', import.meta.url)));
 
 describe('SSHConnectionProgressPanel stepper layout', () => {
   it('keeps every desktop step dot, connector, and label on one center axis', () => {

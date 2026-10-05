@@ -3,146 +3,156 @@
 package main
 
 import (
-	"archive/zip"
+	"archive/tar"
 	"bytes"
-	"embed"
+	_ "embed"
 	"errors"
 	"io"
 	"io/fs"
 	"path"
 	"sort"
 	"time"
+
+	"github.com/andybalholm/brotli"
 )
 
-//go:embed frontend/dist.zip
-var embeddedDistZip embed.FS
+// frontend/scripts/pack-dist.mjs 在 vite build 之后产出 frontend/dist.tar.br:
+// 整个 dist 打成 tar 后整体 brotli 压缩。固实压缩让各 JS chunk 之间的重复代码
+// 互相引用,比逐文件 deflate 的 zip 小约 2.2 MB,且这部分节省会原样体现在安装包
+// 与安装后体积上(安装包的 LZMA 对已压缩数据无能为力)。
+//
+//go:embed frontend/dist.tar.br
+var embeddedDistBundle []byte
 
-// frontend/scripts/zip-dist.mjs 在 vite build 之后产出 frontend/dist.zip;
-// 启动时把 zip 挂成只读 fs.FS 交给 Wails assetserver,前端资源以压缩形态
-// 驻留二进制,避免未压缩 dist 直接撑大安装包与绿色版体积。
-var assets fs.FS = mustEmbedDistFS()
+// 启动时在后台把包解到内存(约 27 MB、约 0.1 s),与 Wails / WebView 初始化并行;
+// 首次访问资源时若尚未解完则等待。
+var assets fs.FS = newBundleAssetFS(embeddedDistBundle)
 
-func mustEmbedDistFS() fs.FS {
-	f, err := embeddedDistZip.Open("frontend/dist.zip")
-	if err != nil {
-		panic("加载内置前端资源失败: " + err.Error())
-	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
-	if err != nil {
-		panic("读取内置前端资源失败: " + err.Error())
-	}
-	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		panic("解析内置前端资源失败: " + err.Error())
-	}
-	return newZipAssetFS(reader)
-}
-
-// zipAssetFS 将 archive/zip 适配为 fs.FS。归档只存文件条目,目录从文件路径
-// 推导出来,保证 fs.WalkDir/fs.ReadDir 可用(Wails 启动时靠它们定位 index.html)。
-type zipAssetFS struct {
-	files map[string]*zip.File
+// bundleAssetFS 是 tar.br 包解压后的只读 fs.FS。归档只存文件条目,目录从文件
+// 路径推导出来,保证 fs.WalkDir/fs.ReadDir 可用(Wails 启动时靠它们定位 index.html)。
+type bundleAssetFS struct {
+	ready chan struct{}
+	files map[string][]byte
 	dirs  map[string]map[string]bool // 目录路径 -> 直接子项名(文件或子目录)
 }
 
-func newZipAssetFS(reader *zip.Reader) *zipAssetFS {
-	za := &zipAssetFS{
-		files: make(map[string]*zip.File, len(reader.File)),
+func newBundleAssetFS(bundle []byte) *bundleAssetFS {
+	fsys := &bundleAssetFS{
+		ready: make(chan struct{}),
+		files: map[string][]byte{},
 		dirs:  map[string]map[string]bool{".": {}},
 	}
-	for _, file := range reader.File {
-		if file.FileInfo().IsDir() {
+	go func() {
+		defer close(fsys.ready)
+		if err := fsys.load(bundle); err != nil {
+			// 内置资源损坏属于构建缺陷,与原先 zip 解析失败一样直接中止启动。
+			panic("加载内置前端资源失败: " + err.Error())
+		}
+	}()
+	return fsys
+}
+
+func (b *bundleAssetFS) load(bundle []byte) error {
+	reader := tar.NewReader(brotli.NewReader(bytes.NewReader(bundle)))
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if header.Typeflag != tar.TypeReg {
 			continue
 		}
-		name := path.Clean(file.Name)
+		name := path.Clean(header.Name)
 		if !fs.ValidPath(name) || name == "." {
 			continue
 		}
-		za.files[name] = file
+		data := make([]byte, header.Size)
+		if _, err := io.ReadFull(reader, data); err != nil {
+			return err
+		}
+		b.files[name] = data
 		parent := path.Dir(name)
-		za.dir(parent)[path.Base(name)] = true
-		za.ensureDirChain(parent)
+		b.dir(parent)[path.Base(name)] = true
+		b.ensureDirChain(parent)
 	}
-	return za
 }
 
-func (za *zipAssetFS) dir(name string) map[string]bool {
-	children, ok := za.dirs[name]
+func (b *bundleAssetFS) dir(name string) map[string]bool {
+	children, ok := b.dirs[name]
 	if !ok {
 		children = make(map[string]bool)
-		za.dirs[name] = children
+		b.dirs[name] = children
 	}
 	return children
 }
 
-func (za *zipAssetFS) ensureDirChain(dir string) {
+func (b *bundleAssetFS) ensureDirChain(dir string) {
 	for dir != "." {
 		parent := path.Dir(dir)
-		za.dir(parent)[path.Base(dir)] = true
+		b.dir(parent)[path.Base(dir)] = true
 		dir = parent
 	}
 }
 
-func (za *zipAssetFS) Open(name string) (fs.File, error) {
+func (b *bundleAssetFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
-	if _, ok := za.dirs[name]; ok {
-		return newZipAssetDir(za, name), nil
+	<-b.ready
+	if _, ok := b.dirs[name]; ok {
+		return newBundleAssetDir(b, name), nil
 	}
-	file, ok := za.files[name]
+	data, ok := b.files[name]
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
-	rc, err := file.Open()
-	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
-	}
-	return &zipAssetFile{file: file, rc: rc}, nil
+	return &bundleAssetFile{info: bundleAssetFileInfo{name: path.Base(name), size: int64(len(data))}, Reader: bytes.NewReader(data)}, nil
 }
 
-func (za *zipAssetFS) childEntry(dir, child string) fs.DirEntry {
-	if file, ok := za.files[path.Join(dir, child)]; ok {
-		return zipAssetFileEntry{file: file}
+func (b *bundleAssetFS) childEntry(dir, child string) fs.DirEntry {
+	if data, ok := b.files[path.Join(dir, child)]; ok {
+		return bundleAssetFileEntry{info: bundleAssetFileInfo{name: child, size: int64(len(data))}}
 	}
-	return zipAssetDirEntry{name: child}
+	return bundleAssetDirEntry{name: child}
 }
 
-// zipAssetDir 实现 fs.File + fs.ReadDirFile 的合成目录。
-type zipAssetDir struct {
-	za       *zipAssetFS
+// bundleAssetDir 实现 fs.File + fs.ReadDirFile 的合成目录。
+type bundleAssetDir struct {
+	fsys     *bundleAssetFS
 	name     string
 	children []string
 	offset   int
 }
 
-func newZipAssetDir(za *zipAssetFS, name string) *zipAssetDir {
-	children := make([]string, 0, len(za.dirs[name]))
-	for child := range za.dirs[name] {
+func newBundleAssetDir(fsys *bundleAssetFS, name string) *bundleAssetDir {
+	children := make([]string, 0, len(fsys.dirs[name]))
+	for child := range fsys.dirs[name] {
 		children = append(children, child)
 	}
 	sort.Strings(children)
-	return &zipAssetDir{za: za, name: name, children: children}
+	return &bundleAssetDir{fsys: fsys, name: name, children: children}
 }
 
-func (d *zipAssetDir) Stat() (fs.FileInfo, error) {
-	return zipAssetDirInfo{name: path.Base(d.name)}, nil
+func (d *bundleAssetDir) Stat() (fs.FileInfo, error) {
+	return bundleAssetDirInfo{name: path.Base(d.name)}, nil
 }
 
-func (d *zipAssetDir) Read([]byte) (int, error) {
+func (d *bundleAssetDir) Read([]byte) (int, error) {
 	return 0, &fs.PathError{Op: "read", Path: d.name, Err: errors.New("is a directory")}
 }
 
-func (d *zipAssetDir) Close() error { return nil }
+func (d *bundleAssetDir) Close() error { return nil }
 
-func (d *zipAssetDir) ReadDir(count int) ([]fs.DirEntry, error) {
+func (d *bundleAssetDir) ReadDir(count int) ([]fs.DirEntry, error) {
 	remaining := d.children[d.offset:]
 	if count <= 0 {
 		d.offset = len(d.children)
 		entries := make([]fs.DirEntry, 0, len(remaining))
 		for _, child := range remaining {
-			entries = append(entries, d.za.childEntry(d.name, child))
+			entries = append(entries, d.fsys.childEntry(d.name, child))
 		}
 		return entries, nil
 	}
@@ -155,45 +165,56 @@ func (d *zipAssetDir) ReadDir(count int) ([]fs.DirEntry, error) {
 	d.offset += count
 	entries := make([]fs.DirEntry, 0, count)
 	for _, child := range remaining[:count] {
-		entries = append(entries, d.za.childEntry(d.name, child))
+		entries = append(entries, d.fsys.childEntry(d.name, child))
 	}
 	return entries, nil
 }
 
-// zipAssetFile 是 zip 文件条目的 fs.File 视图(archive/zip 只给出 io.ReadCloser)。
-type zipAssetFile struct {
-	file *zip.File
-	rc   io.ReadCloser
+// bundleAssetFile 是内存文件的 fs.File 视图;嵌入的 *bytes.Reader 额外提供 Seek,
+// 资源服务可据此支持 Range 请求。
+type bundleAssetFile struct {
+	info bundleAssetFileInfo
+	*bytes.Reader
 }
 
-func (f *zipAssetFile) Stat() (fs.FileInfo, error) { return f.file.FileInfo(), nil }
-func (f *zipAssetFile) Read(p []byte) (int, error) { return f.rc.Read(p) }
-func (f *zipAssetFile) Close() error               { return f.rc.Close() }
+func (f *bundleAssetFile) Stat() (fs.FileInfo, error) { return f.info, nil }
+func (f *bundleAssetFile) Close() error               { return nil }
 
-// zipAssetFileEntry 是 zip 文件条目的 fs.DirEntry 视图。
-type zipAssetFileEntry struct{ file *zip.File }
-
-func (e zipAssetFileEntry) Name() string { return path.Base(e.file.Name) }
-func (e zipAssetFileEntry) IsDir() bool  { return false }
-func (e zipAssetFileEntry) Type() fs.FileMode {
-	return e.file.FileInfo().Mode().Type()
+// bundleAssetFileInfo 是内存文件的 fs.FileInfo 视图。
+type bundleAssetFileInfo struct {
+	name string
+	size int64
 }
-func (e zipAssetFileEntry) Info() (fs.FileInfo, error) { return e.file.FileInfo(), nil }
 
-// zipAssetDirEntry 是推导目录的 fs.DirEntry 视图。
-type zipAssetDirEntry struct{ name string }
+func (i bundleAssetFileInfo) Name() string       { return i.name }
+func (i bundleAssetFileInfo) Size() int64        { return i.size }
+func (i bundleAssetFileInfo) Mode() fs.FileMode  { return 0o444 }
+func (i bundleAssetFileInfo) ModTime() time.Time { return time.Time{} }
+func (i bundleAssetFileInfo) IsDir() bool        { return false }
+func (i bundleAssetFileInfo) Sys() any           { return nil }
 
-func (e zipAssetDirEntry) Name() string               { return e.name }
-func (e zipAssetDirEntry) IsDir() bool                { return true }
-func (e zipAssetDirEntry) Type() fs.FileMode          { return fs.ModeDir }
-func (e zipAssetDirEntry) Info() (fs.FileInfo, error) { return zipAssetDirInfo{name: e.name}, nil }
+// bundleAssetFileEntry 是内存文件的 fs.DirEntry 视图。
+type bundleAssetFileEntry struct{ info bundleAssetFileInfo }
 
-// zipAssetDirInfo 是推导目录的 fs.FileInfo 视图。
-type zipAssetDirInfo struct{ name string }
+func (e bundleAssetFileEntry) Name() string               { return e.info.name }
+func (e bundleAssetFileEntry) IsDir() bool                { return false }
+func (e bundleAssetFileEntry) Type() fs.FileMode          { return 0 }
+func (e bundleAssetFileEntry) Info() (fs.FileInfo, error) { return e.info, nil }
 
-func (i zipAssetDirInfo) Name() string       { return i.name }
-func (i zipAssetDirInfo) Size() int64        { return 0 }
-func (i zipAssetDirInfo) Mode() fs.FileMode  { return fs.ModeDir | 0o555 }
-func (i zipAssetDirInfo) ModTime() time.Time { return time.Time{} }
-func (i zipAssetDirInfo) IsDir() bool        { return true }
-func (i zipAssetDirInfo) Sys() any           { return nil }
+// bundleAssetDirEntry 是推导目录的 fs.DirEntry 视图。
+type bundleAssetDirEntry struct{ name string }
+
+func (e bundleAssetDirEntry) Name() string               { return e.name }
+func (e bundleAssetDirEntry) IsDir() bool                { return true }
+func (e bundleAssetDirEntry) Type() fs.FileMode          { return fs.ModeDir }
+func (e bundleAssetDirEntry) Info() (fs.FileInfo, error) { return bundleAssetDirInfo{name: e.name}, nil }
+
+// bundleAssetDirInfo 是推导目录的 fs.FileInfo 视图。
+type bundleAssetDirInfo struct{ name string }
+
+func (i bundleAssetDirInfo) Name() string       { return i.name }
+func (i bundleAssetDirInfo) Size() int64        { return 0 }
+func (i bundleAssetDirInfo) Mode() fs.FileMode  { return fs.ModeDir | 0o555 }
+func (i bundleAssetDirInfo) ModTime() time.Time { return time.Time{} }
+func (i bundleAssetDirInfo) IsDir() bool        { return true }
+func (i bundleAssetDirInfo) Sys() any           { return nil }

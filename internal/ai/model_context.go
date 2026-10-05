@@ -16,6 +16,7 @@ type ModelContextProfile struct {
 }
 
 const (
+	contextWindow4K   = 4_096
 	contextWindow128K = 128_000
 	contextWindow200K = 200_000
 	contextWindow258K = 258_000
@@ -40,6 +41,8 @@ var unknownModelContextOptions = []int{
 }
 
 type modelContextRule struct {
+	// dynamic, when set, replaces profile at lookup time (limits learned at run time).
+	dynamic func() ModelContextProfile
 	// all 中的片段必须全部出现在模型名里；any 非空时至少命中一个；
 	// prefix 非空时模型名（去掉 provider/ 前缀后）必须以其中之一开头。
 	all     []string
@@ -58,6 +61,11 @@ func adjustableContextProfile(defaultWindow int, options ...int) ModelContextPro
 
 // modelContextRules 按顺序匹配，先命中先生效；更具体的规则放在前面。
 var modelContextRules = []modelContextRule{
+	// GoNavi 托管的 SQL 小模型：窗口由 Gateway 决定（运维后台可调），客户端从 /v1/quota 读取。
+	{prefix: []string{"gonavi-sql"}, profile: fixedContextProfile(contextWindow4K), dynamic: func() ModelContextProfile {
+		limits, _ := CurrentHostedModelLimits()
+		return fixedContextProfile(limits.ContextWindow)
+	}},
 	{all: []string{"gemini-1.5-pro"}, profile: fixedContextProfile(contextWindow2M)},
 	{any: []string{"gemini-3.8", "gemini-3.7", "gemini-3.1"}, profile: fixedContextProfile(contextWindow1M)},
 	{all: []string{"gemini"}, profile: fixedContextProfile(contextWindow1M)},
@@ -125,6 +133,9 @@ func ResolveModelContextProfile(model string) ModelContextProfile {
 		for _, rule := range modelContextRules {
 			if modelNameMatches(lower, rule) {
 				profile = rule.profile
+				if rule.dynamic != nil {
+					profile = rule.dynamic()
+				}
 				break
 			}
 		}

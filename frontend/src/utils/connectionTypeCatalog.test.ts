@@ -13,8 +13,10 @@ const translatedCopy: Record<string, string> = {
   'connection_modal.step1.group.relational': 'T:relational',
   'connection_modal.step1.group.domestic': 'T:domestic',
   'connection_modal.step1.group.nosql': 'T:nosql',
+  'connection_modal.step1.group.search': 'T:search',
   'connection_modal.step1.group.vector': 'T:vector',
   'connection_modal.step1.group.timeseries': 'T:timeseries',
+  'connection_modal.step1.group.bigdata': 'T:bigdata',
   'connection_modal.step1.group.message_queue': 'T:message-queue',
   'connection_modal.step1.group.config_center': 'T:config-center',
   'connection_modal.step1.group.other': 'T:other',
@@ -41,8 +43,10 @@ describe('connectionTypeCatalog', () => {
       'connection_modal.step1.group.relational',
       'connection_modal.step1.group.domestic',
       'connection_modal.step1.group.nosql',
+      'connection_modal.step1.group.search',
       'connection_modal.step1.group.vector',
       'connection_modal.step1.group.timeseries',
+      'connection_modal.step1.group.bigdata',
       'connection_modal.step1.group.message_queue',
       'connection_modal.step1.group.config_center',
       'connection_modal.step1.group.other',
@@ -51,8 +55,10 @@ describe('connectionTypeCatalog', () => {
       'T:relational',
       'T:domestic',
       'T:nosql',
+      'T:search',
       'T:vector',
       'T:timeseries',
+      'T:bigdata',
       'T:message-queue',
       'T:config-center',
       'T:other',
@@ -73,6 +79,8 @@ describe('connectionTypeCatalog', () => {
     expect(keys).toContain('mongodb');
     expect(keys).toContain('redis');
     expect(keys).toContain('elasticsearch');
+    expect(CONNECTION_TYPE_GROUPS.find((group) => group.labelKey.endsWith('.search'))?.items.map((item) => item.key))
+      .toEqual(['elasticsearch', 'opensearch', 'meilisearch', 'typesense']);
     expect(keys).toContain('chroma');
     expect(keys).toContain('qdrant');
     expect(keys).toContain('milvus');

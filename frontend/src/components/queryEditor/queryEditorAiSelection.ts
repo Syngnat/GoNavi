@@ -1,6 +1,7 @@
 import {
   clearAIEditorSelection,
   publishAIEditorSelection,
+  registerAIEditorSelectionRefresher,
 } from '../ai/aiEditorSelectionContext';
 import type { AIEditorSelection } from '../../types';
 
@@ -61,6 +62,33 @@ export const publishQueryEditorSelection = ({
     endLine: Number(selection.endLineNumber),
     endColumn: Number(selection.endColumn),
   });
+};
+
+interface QueryEditorSelectionBindingEditor extends QueryEditorSelectionEditor {
+  onDidChangeCursorSelection?: (listener: () => void) => { dispose?: () => void } | void;
+  onDidDispose?: (listener: () => void) => unknown;
+}
+
+/**
+ * Keep the AI selection registry in step with a Monaco editor: publish on every
+ * selection change, and let the composer ask for the current selection on
+ * demand. `options` is read each time so a connection or database switch is
+ * picked up. Returns a disposer; it also runs when the editor is disposed.
+ */
+export const bindQueryEditorSelectionPublisher = (
+  editor: QueryEditorSelectionBindingEditor,
+  options: () => Omit<QueryEditorSelectionPublishOptions, 'editor'>,
+): (() => void) => {
+  const publish = () => publishQueryEditorSelection({ editor, ...options() });
+  const subscription = editor.onDidChangeCursorSelection?.(publish);
+  const unregister = registerAIEditorSelectionRefresher(options().tabId, publish);
+  publish();
+  const dispose = () => {
+    subscription?.dispose?.();
+    unregister();
+  };
+  editor.onDidDispose?.(dispose);
+  return dispose;
 };
 
 export { clearAIEditorSelection };

@@ -1,0 +1,484 @@
+/* ─── Select dropdown ─────────────────────────────────── */
+body[data-ui-version="v2"] .ant-select-dropdown,
+body[data-ui-version="v2"] .ant-dropdown-menu,
+body[data-ui-version="v2"] .ant-picker-dropdown .ant-picker-panel-container {
+  background: var(--gn-bg-panel) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: var(--gn-v2-menu-surface-radius) !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+  padding: var(--gn-v2-menu-surface-padding) !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .ant-select-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0;
+  border-radius: 6px !important;
+  padding: 6px 10px !important;
+  color: var(--gn-fg-1) !important;
+  min-height: 32px !important;
+  line-height: 1.25 !important;
+  font-size: 12.5px !important;
+  /* Flat item surface — no outline/box that makes submenu rows look different */
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Compact action menus share the table context-menu geometry. */
+body[data-ui-version="v2"] .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title {
+  height: var(--gn-v2-menu-row-height) !important;
+  min-height: var(--gn-v2-menu-row-height) !important;
+  box-sizing: border-box !important;
+  padding: 4px 8px !important;
+  border-radius: var(--gn-v2-menu-item-radius) !important;
+  font-weight: 500 !important;
+}
+
+/* Icon + label share one baseline/vertical center (leaf and submenu rows) */
+body[data-ui-version="v2"] .ant-dropdown-menu-title-content {
+  display: inline-flex !important;
+  align-items: center !important;
+  min-width: 0;
+  line-height: 1.25 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item:hover,
+body[data-ui-version="v2"] .ant-dropdown-menu-item-active,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title:hover,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-active > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-open > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: var(--gn-bg-active) !important;
+  color: var(--gn-fg-1) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-selected > .ant-dropdown-menu-submenu-title {
+  background: var(--gn-bg-active) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 400 !important;
+}
+
+body[data-ui-version="v2"] .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: var(--gn-bg-selected) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 600 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item-divider {
+  background: var(--gn-br-1) !important;
+  margin: 4px 0 !important;
+}
+
+/* Right-click menu items get a tighter, sectioned look */
+body[data-ui-version="v2"] .ant-dropdown-menu-item-icon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title .ant-dropdown-menu-item-icon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-expand-icon {
+  color: var(--gn-fg-4) !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item-icon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title .ant-dropdown-menu-item-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 14px !important;
+  width: 14px !important;
+  height: 14px !important;
+  margin-inline-end: 8px !important;
+  margin-right: 8px !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item-icon > .anticon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title .ant-dropdown-menu-item-icon > .anticon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+
+.gn-query-format-case-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+  font-family: var(--gn-font-sans);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-expand-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  margin-inline-end: 2px !important;
+  height: 16px !important;
+  line-height: 1 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item-danger {
+  color: var(--gn-danger) !important;
+}
+body[data-ui-version="v2"] .ant-dropdown-menu-item-danger:hover {
+  background: rgba(220, 38, 38, 0.08) !important;
+}
+
+/* Monaco context menu follows the same compact action-menu surface. */
+body[data-ui-version="v2"] .monaco-menu {
+  min-width: 264px !important;
+  overflow: hidden !important;
+  padding: var(--gn-v2-menu-surface-padding) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: var(--gn-v2-menu-surface-radius) !important;
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-1) !important;
+  font-family: var(--gn-font-sans) !important;
+  font-size: 12.5px !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+}
+
+body[data-ui-version="v2"] .monaco-menu-option,
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar.vertical .action-menu-item,
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar.vertical .action-label:not(.separator) {
+  min-height: var(--gn-v2-menu-row-height) !important;
+  border-radius: var(--gn-v2-menu-item-radius) !important;
+  background: transparent !important;
+  color: var(--gn-fg-1) !important;
+  font-family: var(--gn-font-sans) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  line-height: var(--gn-v2-menu-row-height) !important;
+}
+
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar.vertical .action-menu-item {
+  margin: 0 !important;
+}
+
+body[data-ui-version="v2"] .monaco-menu-option,
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar.vertical .action-label:not(.separator) {
+  padding: 0 8px !important;
+}
+
+body[data-ui-version="v2"] .monaco-menu-option.active,
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar.vertical .action-item > .action-menu-item:hover,
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar.vertical .action-item > .action-menu-item:focus {
+  background: var(--gn-bg-active) !important;
+  color: var(--gn-fg-1) !important;
+  outline: none !important;
+}
+
+body[data-ui-version="v2"] .monaco-menu .keybinding {
+  color: var(--gn-fg-4) !important;
+  font-family: var(--gn-font-mono) !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+}
+
+body[data-ui-version="v2"] .monaco-menu .monaco-action-bar .action-item .action-label.separator {
+  width: auto !important;
+  height: 1px !important;
+  min-height: 1px !important;
+  margin: 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: var(--gn-br-1) !important;
+}
+
+/* Nested dropdown menus: collapse double border, no glow/halo */
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-popup,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-submenu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-popup {
+  margin-inline-start: -2px !important;
+  padding: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-popup > .ant-dropdown-menu,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-popup.ant-dropdown-menu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-submenu .ant-dropdown-menu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-submenu.ant-dropdown-menu {
+  /* Match primary menu border only — strip outer glow that reads as white rim in dark theme */
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-inline-start: none !important;
+  border-radius: 10px !important;
+  border-start-start-radius: 8px !important;
+  border-end-start-radius: 8px !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+/* Title-bar cascade: keep both levels flat (no shadow/halo on either panel) */
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+/* Title-bar more menu: leaf rows and submenu rows share the same hover fill + alignment */
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-title {
+  display: flex !important;
+  align-items: center !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: var(--gn-v2-menu-row-height) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-item:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-item-active,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-title:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-active > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-open > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-item:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-item-active,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-title:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-active > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-open > .ant-dropdown-menu-submenu-title {
+  background: var(--gn-bg-active) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* ─── Tables (ant-table, used by some legacy panes) ────── */
+body[data-ui-version="v2"] .ant-table {
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .ant-table-thead > tr > th {
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-3) !important;
+  font-weight: 600 !important;
+  font-size: 11.5px !important;
+  border-bottom: 0.5px solid var(--gn-br-2) !important;
+  padding: 8px 12px !important;
+}
+
+body[data-ui-version="v2"] .ant-table-tbody > tr > td {
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+  padding: 6px 12px !important;
+  font-size: 12px;
+}
+
+body[data-ui-version="v2"] .ant-table-tbody > tr:hover > td {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .ant-table-tbody > tr.ant-table-row-selected > td,
+body[data-ui-version="v2"] .ant-table-tbody .ant-table-row.ant-table-row-selected > .ant-table-cell,
+body[data-ui-version="v2"] .ant-table-tbody-virtual .ant-table-row.ant-table-row-selected > .ant-table-cell,
+body[data-ui-version="v2"] .ant-table-tbody-virtual-holder .ant-table-row.ant-table-row-selected > .ant-table-cell,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-row.ant-table-row-selected > .ant-table-cell {
+  background: var(--gn-bg-selected) !important;
+  background-color: var(--gn-bg-selected) !important;
+  background-image: none !important;
+}
+
+body[data-ui-version="v2"] .ant-table-tbody > tr.ant-table-row-selected:hover > td,
+body[data-ui-version="v2"] .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell,
+body[data-ui-version="v2"] .ant-table-tbody-virtual .ant-table-row.ant-table-row-selected:hover > .ant-table-cell,
+body[data-ui-version="v2"] .ant-table-tbody-virtual-holder .ant-table-row.ant-table-row-selected:hover > .ant-table-cell,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-row.ant-table-row-selected:hover > .ant-table-cell {
+  background: var(--gn-bg-selected) !important;
+  background-color: var(--gn-bg-selected) !important;
+  background-image: none !important;
+}
+
+/* ─── Tags / Badges ────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-tag {
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-font-size-xs, 10px) !important;
+  font-weight: 600;
+  padding: 1px 6px !important;
+  border-radius: 4px !important;
+  line-height: 16px !important;
+  border: none !important;
+  letter-spacing: 0;
+}
+
+body[data-ui-version="v2"] .ant-tag-success,
+body[data-ui-version="v2"] .ant-tag-green {
+  background: var(--gn-accent-soft) !important;
+  color: var(--gn-accent-2) !important;
+}
+
+body[data-ui-version="v2"] .ant-tag-processing,
+body[data-ui-version="v2"] .ant-tag-blue {
+  background: var(--gn-info-soft) !important;
+  color: var(--gn-info) !important;
+}
+
+body[data-ui-version="v2"] .ant-tag-warning,
+body[data-ui-version="v2"] .ant-tag-orange,
+body[data-ui-version="v2"] .ant-tag-gold {
+  background: var(--gn-warn-soft) !important;
+  color: var(--gn-warn) !important;
+}
+
+body[data-ui-version="v2"] .ant-tag-error,
+body[data-ui-version="v2"] .ant-tag-red {
+  background: rgba(220, 38, 38, 0.10) !important;
+  color: var(--gn-danger) !important;
+}
+
+/* ─── Switch ──────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-switch-checked {
+  background: var(--gn-accent) !important;
+}
+
+/* ─── Modal ───────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-modal .ant-modal-content {
+  background: var(--gn-bg-panel) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .ant-modal .ant-modal-header {
+  background: var(--gn-bg-panel-2) !important;
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+  /* Right padding reserves room for absolute close on content */
+  padding: 14px 48px 14px 18px !important;
+  margin: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-modal .ant-modal-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--gn-fg-1) !important;
+  line-height: 22px !important;
+}
+
+/*
+ * Ant mounts .ant-modal-close on .ant-modal-content (absolute).
+ * Center X against the title row: header padding 14 + title 22 ≈ 50 → top (50-28)/2 ≈ 11.
+ */
+body[data-ui-version="v2"] .ant-modal .ant-modal-close {
+  top: 11px !important;
+  inset-inline-end: 12px !important;
+  width: 28px !important;
+  height: 28px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  color: var(--gn-fg-3) !important;
+  background: transparent !important;
+  border-radius: 6px !important;
+}
+
+body[data-ui-version="v2"] .ant-modal .ant-modal-close:hover {
+  color: var(--gn-fg-1) !important;
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .ant-modal .ant-modal-close-x {
+  width: 28px !important;
+  height: 28px !important;
+  line-height: 28px !important;
+  font-size: 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+body[data-ui-version="v2"] .ant-modal .ant-modal-body {
+  padding: 18px !important;
+}
+
+body[data-ui-version="v2"] .ant-modal-confirm .ant-modal-confirm-title {
+  color: var(--gn-fg-1) !important;
+}
+
+body[data-ui-version="v2"] .ant-modal-confirm .ant-modal-confirm-content {
+  color: var(--gn-fg-2) !important;
+}
+
+body[data-ui-version="v2"] .ant-modal .ant-modal-footer {
+  border-top: 0.5px solid var(--gn-br-1) !important;
+  padding: 10px 18px !important;
+  margin: 0 !important;
+}
+
+/* ─── Tooltip ─────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-tooltip-inner {
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-1) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: 7px !important;
+  box-shadow: var(--gn-shadow-md) !important;
+  font-size: 11.5px !important;
+  padding: 5px 8px !important;
+}
+
+body[data-ui-version="v2"] .ant-tooltip-arrow::before {
+  background: var(--gn-bg-panel) !important;
+}
+
+/* ─── Badge ───────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-badge-status-dot {
+  width: 7px;
+  height: 7px;
+}
+
+body[data-ui-version="v2"] .ant-badge-status-success {
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+
+/* ─── Segmented (used in some places like density picker) ─ */
+body[data-ui-version="v2"] .ant-segmented {
+  background: var(--gn-bg-active) !important;
+  padding: 2px !important;
+  border-radius: 7px !important;
+}
+
+body[data-ui-version="v2"] .ant-segmented .ant-segmented-item {
+  border-radius: 5px !important;
+  color: var(--gn-fg-4) !important;
+  font-weight: 500 !important;
+  transition: color 0.08s !important;
+}
+
+body[data-ui-version="v2"] .ant-segmented .ant-segmented-item-selected,
+body[data-ui-version="v2"] .ant-segmented .ant-segmented-thumb {
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-1) !important;
+  box-shadow: var(--gn-shadow-sm) !important;
+}
+
+/* ─── Scrollbars ──────────────────────────────────────── */
+body[data-ui-version="v2"]:not([data-platform="windows"]) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+body[data-ui-version="v2"]:not([data-platform="windows"]) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-track {
+  background: transparent;
+}
+body[data-ui-version="v2"]:not([data-platform="windows"]) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb {
+  background: var(--gn-br-3);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 10px;
+}
+body[data-ui-version="v2"]:not([data-platform="windows"]) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb:hover {
+  background: var(--gn-fg-5);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+

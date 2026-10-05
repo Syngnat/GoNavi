@@ -8,6 +8,7 @@ import { useDataGridBatchActions } from './useDataGridBatchActions';
 const messageApi = vi.hoisted(() => ({
   info: vi.fn(),
   success: vi.fn(),
+  warning: vi.fn(),
 }));
 
 vi.mock('antd', () => ({ message: messageApi }));
@@ -54,12 +55,15 @@ const createEventTarget = () => {
 
 describe('useDataGridBatchActions clipboard paste', () => {
   let renderer: ReactTestRenderer | null = null;
+  let debugSpy: ReturnType<typeof vi.spyOn> | null = null;
   let windowTarget: ReturnType<typeof createEventTarget>;
   let documentTarget: ReturnType<typeof createEventTarget> & { activeElement: MockHTMLElement | null; elementFromPoint: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     messageApi.info.mockReset();
     messageApi.success.mockReset();
+    messageApi.warning.mockReset();
+    debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
     windowTarget = createEventTarget();
     documentTarget = {
       ...createEventTarget(),
@@ -74,6 +78,7 @@ describe('useDataGridBatchActions clipboard paste', () => {
   afterEach(() => {
     act(() => renderer?.unmount());
     renderer = null;
+    debugSpy?.mockRestore();
     vi.unstubAllGlobals();
   });
 
@@ -1020,6 +1025,94 @@ describe('useDataGridBatchActions clipboard paste', () => {
     });
     expect(editablePreventDefault).not.toHaveBeenCalled();
     expect(editableHook.setModifiedRows).not.toHaveBeenCalled();
+  });
+
+  describe('paste feedback', () => {
+    const firePaste = (target: MockHTMLElement, types: string[], text = '') => {
+      const preventDefault = vi.fn();
+      act(() => {
+        (windowTarget.listeners.get('paste') as any)?.({
+          target,
+          clipboardData: { types, getData: vi.fn(() => text) },
+          preventDefault,
+        });
+      });
+      return preventDefault;
+    };
+
+    it('explains why a read-only result ignores paste once a cell is selected', () => {
+      const hook = renderHook({ canModifyData: false });
+      const cell = selectCell(hook.container, 'row-1', 'id');
+
+      const preventDefault = firePaste(cell, ['text/plain'], '11');
+
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(messageApi.info).toHaveBeenCalledWith('data_grid.message.paste_blocked_read_only:{}');
+      expect(hook.setModifiedRows).not.toHaveBeenCalled();
+    });
+
+    it('asks for a start cell when cell selection mode is on but nothing is selected', () => {
+      const hook = renderHook();
+      hook.ctx.cellEditModeRef.current = true;
+
+      const preventDefault = firePaste(new MockHTMLElement(), ['text/plain'], '11');
+
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(messageApi.info).toHaveBeenCalledWith('data_grid.message.paste_no_anchor:{}');
+    });
+
+    it('stays silent for pastes that show no intent to fill the grid', () => {
+      renderHook();
+
+      firePaste(new MockHTMLElement(), ['text/plain'], '11');
+
+      expect(messageApi.info).not.toHaveBeenCalled();
+      expect(messageApi.warning).not.toHaveBeenCalled();
+    });
+
+    it('reports a clipboard without tabular data instead of silently doing nothing', () => {
+      const hook = renderHook();
+      const cell = selectCell(hook.container, 'row-1', 'name');
+
+      const preventDefault = firePaste(cell, ['Files']);
+
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(messageApi.info).toHaveBeenCalledWith('data_grid.message.paste_clipboard_empty:{}');
+      expect(hook.setModifiedRows).not.toHaveBeenCalled();
+    });
+
+    it('reports a paste anchor that no longer exists in the current data', () => {
+      const hook = renderHook();
+      const cell = selectCell(hook.container, 'row-1', 'name');
+      hook.ctx.displayDataRef.current = [];
+
+      const preventDefault = firePaste(cell, ['text/plain'], 'x');
+
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(messageApi.info).toHaveBeenCalledWith('data_grid.message.paste_anchor_missing:{}');
+    });
+
+    it('warns about rows and columns that fall outside the table while still pasting the rest', () => {
+      const hook = renderHook();
+      const cell = selectCell(hook.container, 'row-2', 'name');
+
+      // 3 rows in the grid, anchored at row 2 / column 3 of 3: only 1 cell fits.
+      const preventDefault = firePaste(cell, ['text/plain'], 'a\tb\nc\td\ne\tf\n');
+
+      expect(preventDefault).toHaveBeenCalledOnce();
+      expect(messageApi.success).toHaveBeenCalledWith('data_grid.message.pasted_columns_to_rows:{"rows":2,"cells":2}');
+      expect(messageApi.warning).toHaveBeenCalledWith('data_grid.message.paste_overflow_ignored:{"rows":1,"columns":1}');
+    });
+
+    it('does not warn when the pasted matrix fits inside the table', () => {
+      const hook = renderHook();
+      const cell = selectCell(hook.container, 'row-1', 'id');
+
+      firePaste(cell, ['text/plain'], '11\tx\tAda\n12\ty\tBob\n');
+
+      expect(messageApi.success).toHaveBeenCalled();
+      expect(messageApi.warning).not.toHaveBeenCalled();
+    });
   });
 
   it('selects a single cell in read-only results without enabling mutation actions', () => {

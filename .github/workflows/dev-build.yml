@@ -25,6 +25,17 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
+      - name: Install 7-Zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 驱动总包是 LZMA2 固实 7z（tools/driver_bundle_7z.py），打包、补齐与其测试都依赖 7z 命令行。
+          if ! command -v 7zz >/dev/null 2>&1 && ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq 7zip || sudo apt-get install -y -qq p7zip-full
+          fi
+          echo "Using 7-Zip: $(command -v 7zz || command -v 7z)"
+
       - name: Test release asset contracts
         run: |
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= \
@@ -75,11 +86,11 @@ jobs:
           set -euo pipefail
           mkdir -p frontend/dist
           printf '<!doctype html><title>GoNavi</title>\n' > frontend/dist/index.html
-          cp tools/stub-dist.zip frontend/dist.zip
+          cp tools/stub-dist.tar.br frontend/dist.tar.br
           wails generate module
           node frontend/scripts/wails-frontend-install.mjs
           npm --prefix frontend run build
-          test -s frontend/dist.zip
+          test -s frontend/dist.tar.br
 
       - name: Test frontend virtual scrolling
         run: npm --prefix frontend test -- src/components/dataGridVirtualScroll.test.ts src/components/virtualListNativeScroll.test.tsx src/components/DataGrid.layout.test.tsx
@@ -87,10 +98,10 @@ jobs:
       - name: Pack frontend dist
         shell: bash
         run: |
-          test -s frontend/dist.zip
+          test -s frontend/dist.tar.br
           # 注意 GNU tar 的 -C 是叠加语义,拆成两条命令避免相对路径踩坑
           tar -cf frontend-dist.tar -C frontend/dist .
-          tar -rf frontend-dist.tar -C frontend dist.zip
+          tar -rf frontend-dist.tar -C frontend dist.tar.br
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v6
@@ -594,9 +605,9 @@ jobs:
           test -s frontend-artifact/frontend-dist.tar
           tar -xf frontend-artifact/frontend-dist.tar -C frontend/dist
           test -s frontend/dist/index.html
-          # dist.zip 与 dist 内容一起打在 tar 里,移到 frontend/ 下供 go:embed
-          mv frontend/dist/dist.zip frontend/dist.zip
-          test -s frontend/dist.zip
+          # dist.tar.br 与 dist 内容一起打在 tar 里,移到 frontend/ 下供 go:embed
+          mv frontend/dist/dist.tar.br frontend/dist.tar.br
+          test -s frontend/dist.tar.br
 
       - name: Install WiX Toolset (Windows)
         if: contains(matrix.platform, 'windows')
@@ -839,6 +850,9 @@ jobs:
           # driver agent 经 internal/db 间接嵌入 shared/i18n，catalog.zip 漂移
           # 同样会让其编译进过期目录；先重新生成再编译。
           go generate ./shared/i18n
+          # 数据源描述表里声明的驱动（TiDB、崖山等）按描述表归一、取构建标签与发布平台。
+          source ./tools/datasource-registry.sh
+          load_datasource_registry "$PWD"
           REVISION_HASH="$(python3 - <<'PY'
           import hashlib
           from pathlib import Path
@@ -858,10 +872,13 @@ jobs:
               open_gauss|open-gauss) echo "opengauss" ;;
               gaussdb|gauss_db|gauss-db) echo "gaussdb" ;;
               elastic|elasticsearch) echo "elasticsearch" ;;
-              mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino)
+              mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino|kafka|rocketmq|pulsar)
                 echo "$value"
                 ;;
               *)
+                if registry_normalize_driver "$value"; then
+                  return 0
+                fi
                 echo "❌ 不支持的 driver-agent：${1:-}" >&2
                 return 1
                 ;;
@@ -879,7 +896,12 @@ jobs:
           declare -a DRIVERS=()
           IFS=',' read -r -a RAW_DRIVERS <<< "$CHANGED_DRIVER_AGENTS"
           for RAW_DRIVER in "${RAW_DRIVERS[@]}"; do
-            DRIVER="$(normalize_driver_token "$RAW_DRIVER")" || continue
+            [[ -n "${RAW_DRIVER//[[:space:]]/}" ]] || continue
+            # 清单里出现无法识别的驱动时直接失败：此前这里静默跳过，新驱动整批漏发而 CI 仍然是绿的。
+            if ! DRIVER="$(normalize_driver_token "$RAW_DRIVER")"; then
+              echo "❌ 驱动构建清单里有无法识别的 driver-agent：${RAW_DRIVER}" >&2
+              exit 1
+            fi
             DRIVERS+=("$DRIVER")
           done
           if [ ${#DRIVERS[@]} -eq 0 ]; then
@@ -948,12 +970,17 @@ jobs:
               echo "⚠️ 跳过 DuckDB driver（当前平台 ${GOOS}/${GOARCH} 不受支持，仅支持 windows/amd64）"
               continue
             fi
+            if ! registry_driver_platform_supported "$DRIVER" "$TARGET_PLATFORM"; then
+              echo "⚠️ 跳过 ${DRIVER} driver（描述表未声明 ${TARGET_PLATFORM} 平台）"
+              continue
+            fi
+            DRIVER_CGO="$(registry_driver_cgo "$DRIVER" 2>/dev/null || echo 0)"
             DRIVER_VARIANTS=("")
             if [ "$DRIVER" = "mongodb" ]; then
               DRIVER_VARIANTS=("v1" "v2" "")
             fi
             for DRIVER_VARIANT in "${DRIVER_VARIANTS[@]}"; do
-              TAG="gonavi_${BUILD_DRIVER}_driver"
+              TAG="$(registry_driver_build_tag "$DRIVER" 2>/dev/null || echo "gonavi_${BUILD_DRIVER}_driver")"
               BUILD_TAGS="$TAG"
               OUTPUT_STEM="${DRIVER}-driver-agent"
               if [ "$DRIVER" = "mongodb" ]; then
@@ -1001,7 +1028,7 @@ jobs:
                     ./cmd/optional-driver-agent
                 fi
               else
-                CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
+                CGO_ENABLED="${DRIVER_CGO:-0}" GOOS="$GOOS" GOARCH="$GOARCH" go build \
                   -tags "${BUILD_TAGS}" \
                   -trimpath \
                   -ldflags "-s -w" \
@@ -1427,6 +1454,17 @@ jobs:
             echo "⚠️ 上一版 driver manifest 不可用；未重建资产将由 manifest 生成阶段拒绝"
           fi
 
+      - name: Install 7-Zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 驱动总包是 LZMA2 固实 7z（tools/driver_bundle_7z.py），打包、补齐与其测试都依赖 7z 命令行。
+          if ! command -v 7zz >/dev/null 2>&1 && ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq 7zip || sudo apt-get install -y -qq p7zip-full
+          fi
+          echo "Using 7-Zip: $(command -v 7zz || command -v 7z)"
+
       - name: Complete Driver Agent Assets
         if: needs.driver_agents.outputs.has_changes == 'true'
         env:
@@ -1455,7 +1493,7 @@ jobs:
             exit 0
           fi
 
-          echo "📦 打包驱动总包：GoNavi-DriverAgents.zip"
+          echo "📦 打包驱动总包：GoNavi-DriverAgents.7z"
           python3 ../tools/package-driver-release-assets.py \
             drivers \
             ../driver-release-assets
@@ -1940,7 +1978,7 @@ jobs:
             jq \
               --arg tag "${DEV_VERSION}" \
               --arg mirror_tag "${DEV_VERSION}" \
-              '.tagName = $tag | del(.mirrorTagName) | del(.assets["GoNavi-DriverAgents.zip"]) | del(.assetSha256)' \
+              '.tagName = $tag | del(.mirrorTagName) | del(.assets["GoNavi-DriverAgents.7z"], .assets["GoNavi-DriverAgents.zip"]) | del(.assetSha256)' \
               "${driver_dir}/GoNavi-DriverAgents-Index.json" \
               > "${RUNNER_TEMP}/driver-dev-version-index-base.json"
             while IFS= read -r name; do

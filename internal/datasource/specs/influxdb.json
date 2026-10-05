@@ -1,0 +1,80 @@
+{
+  "type": "influxdb",
+  "aliases": [
+    "influx",
+    "influxdb2",
+    "influxdb3"
+  ],
+  "displayName": "InfluxDB",
+  "group": "timeseries",
+  "order": 30,
+  "defaultPort": 8086,
+  "wire": "http",
+  "dialect": "influxdb",
+  "objectKind": "measurement",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "excelImport": true,
+  "agent": {
+    "buildTag": "gonavi_influxdb_driver",
+    "version": "1.0.0",
+    "sourcePrefixes": [
+      "influxdb",
+      "registry",
+      "vector_sql_where"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v1",
+        "label": "InfluxDB 1.x",
+        "descriptionKey": "datasource.variant.influxdb.v1",
+        "maxServer": "2.0"
+      },
+      {
+        "id": "v2",
+        "label": "InfluxDB 2.x",
+        "descriptionKey": "datasource.variant.influxdb.v2",
+        "minServer": "2.0",
+        "maxServer": "3.0"
+      },
+      {
+        "id": "v3",
+        "label": "InfluxDB 3.x",
+        "descriptionKey": "datasource.variant.influxdb.v3",
+        "minServer": "3.0"
+      }
+    ]
+  },
+  "ui": {
+    "usernameOptional": true,
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "uriSchemes": [
+      "http",
+      "https",
+      "influxdb"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "tableAlias": "none",
+    "formatDdl": false,
+    "hint": "InfluxQL / Flux / SQL console, measurements, line protocol writes",
+    "icon": {
+      "color": "#22ADF6",
+      "text": "Ix"
+    }
+  }
+}

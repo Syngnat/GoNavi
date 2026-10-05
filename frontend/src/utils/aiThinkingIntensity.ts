@@ -93,11 +93,17 @@ export interface ProviderThinkingIntensityControl {
   defaultValue: string;
 }
 
+// The hosted SQL model has no reasoning mode, and the Gateway drops reasoning
+// parameters, so offering levels would be a control that does nothing.
+const isHostedSQLModel = (provider: { id?: string; model?: string }): boolean =>
+  String(provider.id || '').trim() === 'gonavi-ai' || /^gonavi-sql(-|$)/i.test(String(provider.model || '').trim());
+
 export const resolveProviderThinkingIntensityControl = (
-  provider: Pick<AIProviderConfig, 'type' | 'authMode' | 'apiFormat' | 'model' | 'effort'> & { baseUrl?: string },
+  provider: Pick<AIProviderConfig, 'type' | 'authMode' | 'apiFormat' | 'model' | 'effort'> & { baseUrl?: string; id?: string },
   cliCapability?: CLIThinkingCapability,
   catalog?: CLIModelCatalog | null,
 ): ProviderThinkingIntensityControl => {
+  if (isHostedSQLModel(provider)) return { options: [], defaultValue: '' };
   const isLocalCLI = String(provider.authMode || '').toLowerCase() === 'local-cli'
     && String(provider.apiFormat || '').toLowerCase().endsWith('-cli');
   if (isLocalCLI) {

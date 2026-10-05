@@ -6,11 +6,14 @@ import { createAIChatAttachmentFromFile, type AIChatAttachmentTranslator } from 
 interface UseAIChatDraftAttachmentsParams {
   setDraftAttachments: React.Dispatch<React.SetStateAction<AIChatAttachment[]>>;
   translate?: AIChatAttachmentTranslator;
+  /** Called with each attachment once it is added (images are read from here, for a model that cannot see them). */
+  onAttachmentAdded?: (attachment: AIChatAttachment) => void;
 }
 
 export const useAIChatDraftAttachments = ({
   setDraftAttachments,
   translate,
+  onAttachmentAdded,
 }: UseAIChatDraftAttachmentsParams) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const translateAttachmentMessage = React.useCallback((
@@ -30,6 +33,7 @@ export const useAIChatDraftAttachments = ({
       try {
         const attachment = await createAIChatAttachmentFromFile(file, translate);
         setDraftAttachments((prev) => [...prev, attachment]);
+        onAttachmentAdded?.(attachment);
         if (attachment.extractWarning) {
           message.warning(translateAttachmentMessage(
             'ai_chat.input.attachment.message.warning',
@@ -53,7 +57,7 @@ export const useAIChatDraftAttachments = ({
         ));
       }
     }
-  }, [setDraftAttachments, translate, translateAttachmentMessage]);
+  }, [setDraftAttachments, translate, translateAttachmentMessage, onAttachmentAdded]);
 
   const handleAttachmentUpload = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);

@@ -62,6 +62,9 @@ func buildSessionActionStatement(
 	case "iotdb":
 		return buildIoTDBSessionAction(request)
 	default:
+		if registry, ok := DataSourceSpec(spec.engine); ok && registry.DDLDialect == "trino" {
+			return buildTrinoSessionAction(request)
+		}
 		return sessionActionStatement{}, errSessionActionUnsupported
 	}
 }

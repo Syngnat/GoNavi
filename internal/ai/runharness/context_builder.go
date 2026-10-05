@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrContextLimit means the required workspace context or newest durable
@@ -35,6 +36,12 @@ type ContextBuildRequest struct {
 	// reservation is removed before projecting prompt context.
 	ContextWindowTokens  int
 	ReservedOutputTokens int
+	// OmitImages is set when the provider cannot take images: images attached to a
+	// message are then not sent, and the model is told they exist (see
+	// projectAttachments).
+	OmitImages bool
+	// Instructions are the turn's standing instructions (see context_instructions.go).
+	Instructions string
 }
 
 // ContextBuildResult contains both the full immutable transcript and the
@@ -60,12 +67,17 @@ type ContextCompressionMetadata struct {
 	// ProviderBytes and ProviderTokens include the synthetic workspace system
 	// message when one is present. TranscriptBytes/Tokens describe only durable
 	// ledger messages.
-	ProviderBytes     int                         `json:"providerBytes"`
-	ProviderTokens    int                         `json:"providerTokens"`
-	TranscriptBytes   int                         `json:"transcriptBytes"`
-	TranscriptTokens  int                         `json:"transcriptTokens"`
-	WorkspaceIncluded bool                        `json:"workspaceIncluded"`
-	Workspace         *WorkspaceSnapshotReference `json:"workspace,omitempty"`
+	ProviderBytes     int  `json:"providerBytes"`
+	ProviderTokens    int  `json:"providerTokens"`
+	TranscriptBytes   int  `json:"transcriptBytes"`
+	TranscriptTokens  int  `json:"transcriptTokens"`
+	WorkspaceIncluded bool `json:"workspaceIncluded"`
+	// InstructionsIncluded is set when the projection starts with the standing instructions.
+	InstructionsIncluded bool `json:"instructionsIncluded,omitempty"`
+	// WorkspaceTrimmed names how far the workspace was cut to fit the provider
+	// window (see the WorkspaceTrim* levels); empty when it was sent whole.
+	WorkspaceTrimmed string                      `json:"workspaceTrimmed,omitempty"`
+	Workspace        *WorkspaceSnapshotReference `json:"workspace,omitempty"`
 
 	// Omitted bounds describe durable transcript entries that were omitted from
 	// the provider request. Retained bounds cover the durable part of the
@@ -139,6 +151,9 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 	}
 
 	transcript := cloneContextMessages(input.Messages)
+	// What the person attached reaches the provider as part of its message; the
+	// transcript itself stays as stored.
+	providerTranscript := projectAttachments(transcript, maxTokens, input.OmitImages)
 	tools := cloneContextTools(input.Tools)
 	workspaceReference := cloneWorkspaceSnapshotReference(input.WorkspaceReference)
 	if input.WorkspaceSnapshot != nil {
@@ -150,30 +165,47 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 		}
 	}
 
-	projection := make([]Message, 0, len(transcript)+1)
-	workspaceMessage, hasWorkspace, err := workspaceContextMessage(input.WorkspaceSnapshot, workspaceReference)
-	if err != nil {
-		return ContextBuildResult{}, err
-	}
-	if hasWorkspace {
-		projection = append(projection, workspaceMessage)
-	}
-
+	projection := make([]Message, 0, len(transcript)+2)
 	estimate := b.EstimateTokens
 	if estimate == nil {
 		estimate = defaultContextTokenEstimate
 	}
+	var newestMessage *Message
+	if len(providerTranscript) > 0 {
+		newestMessage = &providerTranscript[len(providerTranscript)-1]
+	}
+	// The standing instructions come first and are never dropped: what they take is not
+	// available to the conversation, and the workspace has to fit beside them.
+	instructions, hasInstructions := instructionsMessage(input.Instructions)
+	var instructionsSize contextMessageSizeResult
+	if hasInstructions {
+		instructionsSize = measureContextMessage(instructions, estimate)
+		if contextLimitExceeded(instructionsSize.bytes, instructionsSize.tokens, b.MaxBytes, maxTokens) {
+			return ContextBuildResult{}, fmt.Errorf("%w: instructions", ErrContextLimit)
+		}
+		projection = append(projection, instructions)
+	}
+	// What the person bound when sending travels with the message; merge it back in.
+	workspace, err := b.fitWorkspace(withMessageContext(input.WorkspaceSnapshot, transcript), workspaceReference, newestMessage, instructionsSize, maxTokens, estimate)
+	if err != nil {
+		return ContextBuildResult{}, err
+	}
+	workspaceMessage, hasWorkspace := workspace.message, workspace.included
+	if hasWorkspace {
+		projection = append(projection, workspaceMessage)
+	}
 	transcriptSizes := make([]contextMessageSizeResult, len(transcript))
 	transcriptBytes, transcriptTokens := 0, 0
-	for index, message := range transcript {
+	for index, message := range providerTranscript {
 		transcriptSizes[index] = measureContextMessage(message, estimate)
 		transcriptBytes += transcriptSizes[index].bytes
 		transcriptTokens += transcriptSizes[index].tokens
 	}
-	baseBytes, baseTokens := 0, 0
+	baseBytes, baseTokens := instructionsSize.bytes, instructionsSize.tokens
 	if hasWorkspace {
 		workspaceSize := measureContextMessage(workspaceMessage, estimate)
-		baseBytes, baseTokens = workspaceSize.bytes, workspaceSize.tokens
+		baseBytes += workspaceSize.bytes
+		baseTokens += workspaceSize.tokens
 	}
 	if contextLimitExceeded(baseBytes, baseTokens, b.MaxBytes, maxTokens) {
 		return ContextBuildResult{}, fmt.Errorf("%w: workspace context", ErrContextLimit)
@@ -196,18 +228,20 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 	if len(transcript) > 0 && selectedStart == len(transcript) {
 		return ContextBuildResult{}, fmt.Errorf("%w: newest durable message", ErrContextLimit)
 	}
-	projection = append(projection, cloneContextMessages(transcript[selectedStart:])...)
+	projection = append(projection, cloneContextMessages(providerTranscript[selectedStart:])...)
 
 	metadata := ContextCompressionMetadata{
-		Applied:           selectedStart > 0,
-		MaxBytes:          b.MaxBytes,
-		MaxTokens:         maxTokens,
-		ProviderBytes:     projectedBytes,
-		ProviderTokens:    projectedTokens,
-		TranscriptBytes:   transcriptBytes,
-		TranscriptTokens:  transcriptTokens,
-		WorkspaceIncluded: hasWorkspace,
-		Workspace:         cloneWorkspaceSnapshotReference(workspaceReference),
+		Applied:              selectedStart > 0,
+		MaxBytes:             b.MaxBytes,
+		MaxTokens:            maxTokens,
+		ProviderBytes:        projectedBytes,
+		ProviderTokens:       projectedTokens,
+		TranscriptBytes:      transcriptBytes,
+		TranscriptTokens:     transcriptTokens,
+		WorkspaceIncluded:    hasWorkspace,
+		InstructionsIncluded: hasInstructions,
+		WorkspaceTrimmed:     workspace.trimmed,
+		Workspace:            cloneWorkspaceSnapshotReference(workspaceReference),
 	}
 	populateContextCursor(&metadata, transcript, selectedStart)
 
@@ -253,6 +287,17 @@ type contextMessageSizeResult struct {
 }
 
 func measureContextMessage(message Message, estimate TokenEstimator) contextMessageSizeResult {
+	// Attachments are stored with the message (the chat shows them) but never sent
+	// to the provider, so they take no room in its window. Counting them would let a
+	// large pasted selection's label make the newest message "too big to send".
+	message.Attachments = nil
+	if len(message.Images) > 0 {
+		// An image counts for what a provider charges for one, not for its base64 size.
+		message.Images = make([]string, len(message.Images))
+		for i := range message.Images {
+			message.Images[i] = strings.Repeat("i", imageCostBytes)
+		}
+	}
 	encoded, err := json.Marshal(message)
 	if err != nil {
 		// Message contains only JSON-serializable fields today. Keep the
@@ -279,7 +324,7 @@ func contextMessageSize(message Message, estimate TokenEstimator) (int, int) {
 	return size.bytes, size.tokens
 }
 
-func workspaceContextMessage(snapshot *WorkspaceSnapshot, reference *WorkspaceSnapshotReference) (Message, bool, error) {
+func workspaceContextMessage(snapshot *WorkspaceSnapshot, reference *WorkspaceSnapshotReference, trimmed string) (Message, bool, error) {
 	if snapshot == nil {
 		return Message{}, false, nil
 	}
@@ -289,9 +334,10 @@ func workspaceContextMessage(snapshot *WorkspaceSnapshot, reference *WorkspaceSn
 	content, err := json.Marshal(struct {
 		Kind      string                      `json:"kind"`
 		Snapshot  *WorkspaceSnapshot          `json:"snapshot"`
+		Trimmed   string                      `json:"trimmed,omitempty"`
 		Reference *WorkspaceSnapshotReference `json:"reference,omitempty"`
 	}{
-		Kind: "workspace_snapshot", Snapshot: snapshot,
+		Kind: "workspace_snapshot", Snapshot: snapshot, Trimmed: trimmed,
 		Reference: cloneWorkspaceSnapshotReference(reference),
 	})
 	if err != nil {

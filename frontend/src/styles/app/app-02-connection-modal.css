@@ -1,0 +1,408 @@
+/* 连接配置的表单分组改用「小标题 + 细分割线」代替卡片（见 ConnectionModal.tsx 的
+   configSectionCardStyle）。每组靠一条上分割线与前一组划界，因此首组不需要这条线。 */
+[data-connection-config-section]:first-child {
+    padding-top: 0 !important;
+    border-top: none !important;
+}
+
+.gn-connection-type-row {
+    background: transparent;
+}
+
+.gn-connection-type-row:hover {
+    background: rgba(16, 24, 40, 0.05);
+}
+
+.gn-connection-type-row:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gn-connection-type-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.gn-connection-type-group:hover:not([aria-pressed='true']) {
+    background: rgba(16, 24, 40, 0.035) !important;
+}
+
+.gn-connection-type-group:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true']) {
+    background: rgba(255, 255, 255, 0.045) !important;
+}
+
+/* ── Connection modal · Studio type picker (Demo A) ── */
+.gn-conn-picker {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.gn-conn-picker-body {
+    display: grid;
+    grid-template-columns: minmax(200px, 24%) minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--gn-bg-panel, transparent);
+}
+
+.gn-conn-picker-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 14px;
+    border-right: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    background: var(--gn-bg-chrome, rgba(16, 24, 40, 0.02));
+    min-width: 0;
+    overflow: auto;
+}
+
+.gn-conn-picker-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--gn-bg-input, var(--gn-bg-panel-2, rgba(16, 24, 40, 0.04)));
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 10px;
+    padding: 7px 8px 7px 10px;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.gn-conn-picker-search-ico {
+    flex-shrink: 0;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.35));
+    font-size: 13px;
+}
+
+.gn-conn-picker-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 0;
+    padding: 0 !important;
+}
+
+.gn-conn-picker-search-input.ant-input-affix-wrapper,
+.gn-conn-picker-search-input.ant-input {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.gn-conn-picker-search-shortcut {
+    flex-shrink: 0;
+    padding: 2px 5px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 4px;
+    background: var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03));
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.gn-conn-picker-sec-label {
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin: 0 0 6px 4px;
+    font-weight: 700;
+}
+
+.gn-conn-picker-block-grow {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.gn-conn-picker-recent {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.gn-conn-picker-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--gn-fg-2, inherit);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.gn-conn-picker-chip:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.05));
+}
+
+.gn-conn-picker-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.gn-conn-picker-chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-picker-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: auto;
+    min-height: 0;
+}
+
+.gn-conn-picker-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--gn-fg-2, inherit);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.gn-conn-picker-nav-item:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.05));
+}
+
+.gn-conn-picker-nav-item[aria-pressed='true'] {
+    background: var(--gn-bg-selected, color-mix(in srgb, var(--gn-accent, #1677ff) 14%, transparent));
+    color: var(--gn-accent, #1677ff);
+    font-weight: 650;
+}
+
+.gn-conn-picker-nav-label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-picker-nav-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    background: var(--gn-bg-panel, rgba(16, 24, 40, 0.04));
+    padding: 1px 6px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.gn-conn-picker-nav-item[aria-pressed='true'] .gn-conn-picker-nav-count {
+    color: var(--gn-accent, #1677ff);
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 12%, transparent);
+}
+
+.gn-conn-picker-main {
+    padding: 14px 16px 18px;
+    overflow: auto;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.gn-conn-picker-main-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+    gap: 12px;
+}
+
+.gn-conn-picker-main-h h3 {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-picker-main-h span {
+    font-size: 12px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    flex-shrink: 0;
+}
+
+.gn-conn-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+}
+
+.gn-conn-type-card {
+    position: relative;
+    color: inherit;
+    background: var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03));
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: var(--radius, 8px);
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.gn-conn-type-card:hover {
+    border-color: var(--gn-accent, #1677ff);
+    background: var(--gn-bg-selected, color-mix(in srgb, var(--gn-accent, #1677ff) 10%, transparent));
+    transform: translateY(-1px);
+}
+
+.gn-conn-type-card[data-connection-type-pinned='true'] {
+    border-color: color-mix(in srgb, var(--gn-accent, #1677ff) 54%, var(--gn-br-2, transparent));
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 7%, var(--gn-bg-panel-2, transparent));
+}
+
+.gn-conn-type-card-select {
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-height: 100%;
+    padding: 12px 42px 12px 12px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.gn-conn-type-card-select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: -3px;
+}
+
+.gn-conn-type-card-pin {
+    appearance: none;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.gn-conn-type-card-pin .anticon {
+    transition: transform 0.15s;
+}
+
+.gn-conn-type-card-pin:hover {
+    color: var(--gn-accent, #1677ff);
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 12%, transparent);
+}
+
+.gn-conn-type-card-pin:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: 1px;
+}
+
+.gn-conn-type-card-pin[aria-pressed='true'] {
+    color: var(--gn-accent, #1677ff);
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 14%, transparent);
+}
+
+.gn-conn-type-card-pin[aria-pressed='true'] .anticon {
+    transform: rotate(-18deg);
+}
+
+.gn-conn-type-card-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.gn-conn-type-card-logo {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.gn-conn-type-card-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.gn-conn-type-card-name {
+    font-size: 13.5px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+}
+
+.gn-conn-type-card-hint {
+    font-size: 11.5px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+}
+
+.gn-conn-type-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+.gn-conn-type-card-tag {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--gn-bg-chrome, rgba(16, 24, 40, 0.03));
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-size: 10.5px;
+    font-weight: 400;
+    line-height: 1.2;
+}
+
+.gn-conn-picker-empty {
+    padding: 18px 10px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-size: 13px;
+}
+

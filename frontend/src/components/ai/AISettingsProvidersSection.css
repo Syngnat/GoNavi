@@ -854,3 +854,21 @@ body[data-ui-version] .gonavi-ai-provider-form-popup .ant-select-item-option-sel
   font-size: var(--gn-font-size-xs, 11px);
   line-height: 1.5;
 }
+
+.gonavi-ai-provider-builtin-card {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 16px;
+  padding: 14px;
+  border: 1px solid var(--gn-br-2, var(--provider-line, #dce8df));
+  border-radius: 10px;
+  color: var(--gn-fg-1, var(--provider-text, #17232d));
+  background: var(--gn-bg-panel-1, var(--provider-control-bg, #fff));
+  box-shadow: inset 3px 0 0 var(--gn-primary, var(--provider-active, #00984a));
+}
+.gonavi-ai-provider-builtin-card > span,
+.gonavi-ai-provider-builtin-card > small { color: var(--gn-fg-4, var(--provider-muted, #6b7280)); }
+.gonavi-ai-provider-builtin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* The device code is what the person compares with the browser page: keep it legible. */
+.gonavi-ai-provider-builtin-pending { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.gonavi-ai-provider-builtin-pending .ant-btn-link { height: auto; padding: 0; }

@@ -1,0 +1,557 @@
+/*
+ * AI 聊天面板的尺寸单位：1 个单位在默认设置（字号 14、缩放 1）下恰好是 1px，
+ * 字号设置与界面缩放变化时按比例放大缩小。面板内的字号、图标、控件高度与间距
+ * 都写成 calc(N * var(--gn-ai-unit))，这样 AI 面板与其余界面同步跟随主题设置。
+ */
+:root {
+    --gn-ai-unit: calc(var(--gn-font-size, 14px) * var(--gn-ui-scale, 1) / 14);
+}
+
+.ai-chat-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    border-left: 1px solid rgba(128, 128, 128, 0.12);
+    position: relative;
+    font-family: var(--gn-font-sans, "Inter", "PingFang SC", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif);
+}
+
+/* Resize Handle */
+.ai-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: calc(4 * var(--gn-ai-unit, 1px));
+    cursor: col-resize;
+    z-index: 10;
+    transition: background 0.15s ease;
+}
+
+.ai-resize-handle:hover,
+.ai-resize-handle.active {
+    background: rgba(22, 119, 255, 0.5);
+}
+
+/* Header */
+.ai-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px));
+    border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+    flex-shrink: 0;
+}
+
+.ai-chat-header-left {
+    display: flex;
+    align-items: center;
+    gap: calc(10 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-header-left .ai-title {
+    font-size: calc(14 * var(--gn-ai-unit, 1px));
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.ai-chat-header-right {
+    display: flex;
+    align-items: center;
+    gap: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+/* Messages Area */
+.ai-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: calc(16 * var(--gn-ai-unit, 1px));
+    display: flex;
+    flex-direction: column;
+    gap: calc(16 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-messages::-webkit-scrollbar {
+    width: calc(5 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ai-chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.3);
+    border-radius: 3px;
+}
+
+/* Durable run controls stay above the composer while the Go harness waits for
+   a human decision. The card is intentionally compact so a long tool payload
+   cannot consume the whole chat panel. */
+.ai-run-controls {
+    display: flex;
+    flex-direction: column;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    flex: 0 0 auto;
+    max-height: min(34vh, 360px);
+    overflow-y: auto;
+    padding: 0 calc(16 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+}
+
+.ai-run-control-card {
+    border-radius: 7px;
+    padding: calc(10 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.ai-run-control-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    margin-bottom: calc(7 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+}
+
+.ai-run-control-title {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 650;
+}
+
+.ai-run-control-state {
+    flex: 0 0 auto;
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+}
+
+.ai-run-control-detail {
+    margin-top: calc(7 * var(--gn-ai-unit, 1px));
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.ai-run-control-arguments {
+    margin-top: calc(7 * var(--gn-ai-unit, 1px));
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+}
+
+.ai-run-control-arguments summary {
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.82;
+}
+
+.ai-run-control-arguments pre {
+    max-height: 150px;
+    overflow: auto;
+    margin: calc(6 * var(--gn-ai-unit, 1px)) 0 0;
+    padding: calc(7 * var(--gn-ai-unit, 1px)) calc(8 * var(--gn-ai-unit, 1px));
+    border-radius: 4px;
+    background: rgba(128, 128, 128, 0.08);
+    font: 11px/1.45 var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.ai-run-control-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    margin-top: calc(9 * var(--gn-ai-unit, 1px));
+}
+
+.ai-run-control-actions .ant-btn {
+    min-height: calc(26 * var(--gn-ai-unit, 1px));
+}
+
+/* Welcome */
+.ai-chat-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: calc(16 * var(--gn-ai-unit, 1px));
+    padding: calc(40 * var(--gn-ai-unit, 1px)) calc(20 * var(--gn-ai-unit, 1px));
+    text-align: center;
+    flex: 1;
+}
+
+.ai-chat-welcome .welcome-icon {
+    width: calc(56 * var(--gn-ai-unit, 1px));
+    height: calc(56 * var(--gn-ai-unit, 1px));
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    font-size: calc(28 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-welcome .welcome-title {
+    font-size: calc(18 * var(--gn-ai-unit, 1px));
+    font-weight: 700;
+    margin-bottom: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-welcome .quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    justify-content: center;
+    margin-top: calc(8 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-welcome .quick-action-btn {
+    padding: calc(6 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
+    border-radius: 20px;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid;
+}
+
+.ai-chat-welcome .quick-action-btn:hover {
+    background: rgba(99, 102, 241, 0.12) !important;
+    border-color: rgba(99, 102, 241, 0.3) !important;
+    color: #818cf8 !important;
+}
+
+/* IDE Style Messages */
+.ai-ide-message {
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px));
+    animation: ai-msg-in 0.2s ease-out;
+}
+
+@keyframes ai-msg-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ai-ide-message-header {
+    display: flex;
+    align-items: center;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 650;
+    margin-bottom: calc(8 * var(--gn-ai-unit, 1px));
+    letter-spacing: 0.01em;
+}
+
+/* 消息卡片：用户消息是品牌色淡底的气泡，助手消息不套卡片，让内容成为视觉主体 */
+.ai-ide-message-card {
+    border-radius: calc(14 * var(--gn-ai-unit, 1px));
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
+}
+
+.ai-ide-message-card.is-user {
+    background: color-mix(in srgb, var(--gn-accent, #6366f1) 8%, var(--gn-bg-panel, transparent));
+    border: 0.5px solid color-mix(in srgb, var(--gn-accent, #6366f1) 20%, transparent);
+}
+
+.ai-ide-message-card.is-assistant {
+    padding-left: calc(2 * var(--gn-ai-unit, 1px));
+    padding-right: calc(2 * var(--gn-ai-unit, 1px));
+}
+
+.ai-ide-message-content {
+    font-size: calc(13 * var(--gn-ai-unit, 1px));
+    line-height: 1.6;
+    word-break: break-word;
+    /* Remove pre-wrap here, as it conflicts with ReactMarkdown's block rendering */
+}
+
+/* Markdown Styles Override */
+.ai-markdown-content {
+    white-space: normal;
+}
+.ai-markdown-content p {
+    margin: 0 0 calc(10 * var(--gn-ai-unit, 1px));
+}
+.ai-markdown-content p:last-child {
+    margin-bottom: 0;
+}
+.ai-markdown-content h1,
+.ai-markdown-content h2,
+.ai-markdown-content h3,
+.ai-markdown-content h4,
+.ai-markdown-content h5,
+.ai-markdown-content h6 {
+    margin: calc(16 * var(--gn-ai-unit, 1px)) 0 calc(8 * var(--gn-ai-unit, 1px));
+    line-height: 1.4;
+    font-weight: 600;
+}
+.ai-markdown-content h1:first-child,
+.ai-markdown-content h2:first-child,
+.ai-markdown-content h3:first-child,
+.ai-markdown-content h4:first-child,
+.ai-markdown-content h5:first-child,
+.ai-markdown-content h6:first-child {
+    margin-top: 0;
+}
+.ai-markdown-content pre {
+    margin: calc(10 * var(--gn-ai-unit, 1px)) 0;
+    border-radius: calc(10 * var(--gn-ai-unit, 1px));
+    padding: calc(10 * var(--gn-ai-unit, 1px));
+    font-family: var(--gn-font-mono, "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow-x: auto;
+    border: 1px solid rgba(128, 128, 128, 0.15);
+    background: rgba(0, 0, 0, 0.2);
+}
+.ai-markdown-content code {
+    font-family: var(--gn-font-mono, "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    background: rgba(128, 128, 128, 0.15);
+    padding: calc(2 * var(--gn-ai-unit, 1px)) calc(5 * var(--gn-ai-unit, 1px));
+    border-radius: calc(5 * var(--gn-ai-unit, 1px));
+    font-size: 0.95em;
+}
+.ai-markdown-content ul, .ai-markdown-content ol {
+    margin: 0 0 calc(10 * var(--gn-ai-unit, 1px));
+    padding-left: calc(20 * var(--gn-ai-unit, 1px));
+}
+.ai-markdown-content li {
+    margin-bottom: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+/* Advanced Typing/Blinker indicator */
+.ai-blinking-cursor {
+    display: inline-block;
+    width: calc(6 * var(--gn-ai-unit, 1px));
+    height: calc(14 * var(--gn-ai-unit, 1px));
+    background-color: currentColor;
+    border-radius: 1px;
+    vertical-align: middle;
+    margin-left: calc(4 * var(--gn-ai-unit, 1px));
+    animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+@keyframes ai-dot-bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* History Drawer Styles */
+.ai-history-list::-webkit-scrollbar {
+    width: calc(4 * var(--gn-ai-unit, 1px));
+}
+.ai-history-list::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.2);
+    border-radius: 4px;
+}
+.ai-history-list:hover::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.4);
+}
+
+.ai-history-item:hover {
+    background: rgba(128, 128, 128, 0.08) !important;
+}
+
+.ai-history-item .ai-history-delete-btn {
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.ai-history-item:hover .ai-history-delete-btn,
+.ai-history-item.active .ai-history-delete-btn {
+    opacity: 1;
+}
+
+/* Input Area */
+.ai-chat-input-area {
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px)) calc(16 * var(--gn-ai-unit, 1px));
+    border-top: 1px solid rgba(128, 128, 128, 0.1);
+    flex-shrink: 0;
+}
+
+/* Textarea scrollbar */
+.ai-chat-input-wrapper textarea {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
+}
+
+.ai-chat-input-wrapper textarea::-webkit-scrollbar {
+    width: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+.ai-chat-input-wrapper textarea::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ai-chat-input-wrapper textarea::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.3);
+    border-radius: 2px;
+}
+
+.ai-chat-input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    border-radius: 6px;
+    border: 1px solid transparent;
+    border-color: rgba(128, 128, 128, 0.22) !important;
+    padding: calc(6 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    transition: all 0.2s ease;
+    background: rgba(128, 128, 128, 0.03) !important;
+    box-shadow: none !important;
+}
+
+.ai-chat-input-wrapper:focus-within {
+    border-color: rgba(128, 128, 128, 0.28) !important;
+    background: rgba(128, 128, 128, 0.035) !important;
+    box-shadow: none !important;
+}
+
+.ai-chat-input-wrapper textarea {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    resize: none;
+    font-size: calc(13 * var(--gn-ai-unit, 1px));
+    line-height: 1.5;
+    min-height: calc(28 * var(--gn-ai-unit, 1px));
+    max-height: 200px;
+    padding: 0;
+    font-family: inherit;
+    overflow-y: auto;
+}
+
+.ai-chat-input-wrapper textarea::placeholder {
+    opacity: 0.4;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel .ai-chat-input-wrapper,
+body[data-ui-version="v2"] .gn-v2-ai-panel .ai-chat-input-wrapper:focus-within {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-surface,
+body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-surface:focus-within {
+    border: 0.5px solid var(--gn-br-2) !important;
+    border-radius: 10px !important;
+    background: var(--gn-bg-input) !important;
+    box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea,
+body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-input:focus,
+body[data-ui-version="v2"] .gn-v2-ai-panel .gn-v2-ai-input-box textarea.ant-input:focus-visible {
+    border: 0 !important;
+    border-radius: 0 !important;
+    outline: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+.ai-chat-send-btn {
+    width: calc(26 * var(--gn-ai-unit, 1px));
+    height: calc(26 * var(--gn-ai-unit, 1px));
+    border-radius: 4px;
+    display: grid;
+    place-items: center;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.ai-chat-send-btn:hover {
+    transform: scale(1.06);
+}
+
+.ai-chat-send-btn:active {
+    transform: scale(0.96);
+}
+
+.ai-chat-send-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.ai-ide-message:hover .ai-message-actions {
+    opacity: 1 !important;
+}
+
+/* Markdown 额外样式增强: Table & Blockquote */
+.ai-markdown-content table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  margin: calc(12 * var(--gn-ai-unit, 1px)) 0;
+  font-size: calc(13 * var(--gn-ai-unit, 1px));
+}
+
+/* 让消息内容区域成为表格的滚动约束容器 */
+.ai-ide-message-content {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* 表格滚动容器 - 不限定直接子元素 */
+.ai-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.ai-markdown-content table::-webkit-scrollbar {
+  height: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+.ai-markdown-content table::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 2px;
+}
+
+.ai-markdown-content th,
+.ai-markdown-content td {
+  border: 1px solid rgba(125, 125, 125, 0.2);
+  padding: calc(6 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px));
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ai-markdown-content th {
+  background: rgba(125, 125, 125, 0.1);
+  font-weight: 600;
+}
+
+.ai-markdown-content blockquote {
+  margin: calc(12 * var(--gn-ai-unit, 1px)) 0;
+  padding: calc(8 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
+  border-left: 4px solid rgba(125, 125, 125, 0.4);
+  background: rgba(125, 125, 125, 0.05);
+  color: inherit;
+  opacity: 0.85;
+  border-radius: 0 6px 6px 0;
+  font-style: italic;
+}
+
+/* 覆盖 code 块容器样式避免和 syntax highlighter 冲突 */
+.ai-markdown-content > pre {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+

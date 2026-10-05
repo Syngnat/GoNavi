@@ -9,7 +9,7 @@ func TestDataSourceCapabilityUserManagementIsOptIn(t *testing.T) {
 		"mysql": true, "goldendb": true, "mariadb": true, "oceanbase": true,
 		"postgres": true, "kingbase": true, "highgo": true, "vastbase": true, "opengauss": true, "gaussdb": true,
 		"sqlserver": true, "oracle": true, "dameng": true, "clickhouse": true, "tdengine": true,
-		"mongodb": true, "redis": true,
+		"mongodb": true, "redis": true, "tidb": true, "timescaledb": true, "gbase8c": true,
 	}
 	for driver := range sharedDataSourceCapabilityRegistry.Drivers {
 		got := ResolveDataSourceCapability(driver).UI.UserManagement

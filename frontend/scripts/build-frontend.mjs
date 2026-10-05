@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Entry point of `npm run build`: tsc type check -> vite build -> dist.zip.
+// Entry point of `npm run build`: tsc type check -> vite build -> dist.tar.br.
 // tsc and vite run with an explicit V8 heap limit; see frontend-build-heap.mjs.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -63,4 +63,4 @@ if (memoryMB < LOW_MEMORY_WARNING_MB) {
 
 run('tsc', [...heapArgs, resolvePackageBin('typescript', 'tsc')]);
 run('vite build', [...heapArgs, resolvePackageBin('vite', 'vite'), 'build']);
-run('zip-dist', [path.join(frontendDir, 'scripts', 'zip-dist.mjs')]);
+run('pack-dist', [path.join(frontendDir, 'scripts', 'pack-dist.mjs')]);

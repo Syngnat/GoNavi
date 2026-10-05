@@ -188,19 +188,22 @@ describe('main browser mock', () => {
     expect(new Set(sources).size).toBe(6);
     expect(sources[0]).toBe('/brand-fallback.svg');
     expect(sources.slice(1).every((source) => source.startsWith('https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1/'))).toBe(true);
-    const bundledSources = await Promise.all(['07', '08', '09', '10', '11', '12', '13', '14', '15', '16'].map((id) => app!.GetBrandIconDataURL(id)));
-    expect(bundledSources).toEqual([
-      '/brand-icons/07-database-hug.webp',
-      '/brand-icons/08-database-search.webp',
-      '/brand-icons/09-bandana-badge.webp',
-      '/brand-icons/10-magnifier-wink.webp',
-      '/brand-icons/11-window-peek.webp',
-      '/brand-icons/12-hex-collar.webp',
-      '/brand-icons/13-graph-sit.webp',
-      '/brand-icons/14-cloud-banner.webp',
-      '/brand-icons/15-terminal-sit.webp',
-      '/brand-icons/16-compass-bandana.webp',
+    // 0.9.7 吉祥物不再内嵌，浏览器测试环境同样指向远端的不可变资源。
+    const mascotBase = 'https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1';
+    const mascotSources = await Promise.all(['07', '08', '09', '10', '11', '12', '13', '14', '15', '16'].map((id) => app!.GetBrandIconDataURL(id)));
+    expect(mascotSources).toEqual([
+      `${mascotBase}/07-database-hug.webp`,
+      `${mascotBase}/08-database-search.webp`,
+      `${mascotBase}/09-bandana-badge.webp`,
+      `${mascotBase}/10-magnifier-wink.webp`,
+      `${mascotBase}/11-window-peek.webp`,
+      `${mascotBase}/12-hex-collar.webp`,
+      `${mascotBase}/13-graph-sit.webp`,
+      `${mascotBase}/14-cloud-banner.webp`,
+      `${mascotBase}/15-terminal-sit.webp`,
+      `${mascotBase}/16-compass-bandana.webp`,
     ]);
+    await expect(app!.GetBrandIconDataURL('08-about')).resolves.toBe(`${mascotBase}/08-database-search-about-v2.png`);
     await expect(app!.GetBrandIconDataURL('unknown')).resolves.toBe('');
     await expect((globalThis as any).window.runtime.Environment()).resolves.toMatchObject({
       platform: 'browser',

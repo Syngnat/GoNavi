@@ -117,8 +117,9 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		// 文件型/自定义 DSN 类型不走标准 host:port，不在此层改写。
 		return config, nil
 	}
-	if normalizedType == "mongodb" {
-		// MongoDB 统一由驱动侧 Dialer 处理代理，保留原始目标地址，避免将连接目标改写为本地转发地址。
+	if normalizedType == "mongodb" || registryUsesDriverProxy(normalizedType) {
+		// MongoDB 与描述表声明 proxyMode=driver 的类型由驱动侧处理代理，保留原始目标地址：
+		// HTTPS 云服务需要原始主机名做 SNI/证书校验，集群发现型驱动不能只转发一个地址。
 		return config, nil
 	}
 
@@ -315,6 +316,7 @@ func defaultPortByType(driverType string) int {
 	case "nacos":
 		return 8848
 	default:
-		return 0
+		port, _ := registryDefaultPort(driverType)
+		return port
 	}
 }

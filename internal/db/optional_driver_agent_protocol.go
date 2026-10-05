@@ -24,6 +24,8 @@ type optionalAgentConnectionInfo struct {
 	ElasticsearchServerMajor int    `json:"elasticsearchServerMajor,omitempty"`
 	ProtocolSchema           string `json:"protocolSchema,omitempty"`
 	InFlightCancel           bool   `json:"inFlightCancel,omitempty"`
+	DriverVariant            string `json:"driverVariant,omitempty"`
+	ServerVersion            string `json:"serverVersion,omitempty"`
 }
 
 // OptionalDriverAgentProtocolSchemaV2 是携带参数绑定通道（Args）的协议版本。

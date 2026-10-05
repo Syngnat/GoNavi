@@ -1,0 +1,49 @@
+/* The usage rules shown before the first sign-in to the built-in AI. */
+
+.gn-ai-terms-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-ai-terms-title .anticon {
+  color: var(--gn-accent, #4c8dff);
+  font-size: 18px;
+}
+
+/* Long text in five languages: the body scrolls, the buttons stay in view. */
+.gn-ai-terms-body {
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  padding-right: 6px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.gn-ai-terms-intro {
+  margin: 0 0 12px;
+}
+
+.gn-ai-terms-section {
+  margin: 0 0 14px;
+}
+
+.gn-ai-terms-section h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gn-ai-terms-section[data-section="forbidden"] h4 {
+  color: var(--gn-danger, #e75d66);
+}
+
+.gn-ai-terms-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.gn-ai-terms-section li {
+  margin: 0 0 3px;
+  overflow-wrap: anywhere;
+}

@@ -3,6 +3,8 @@ import { convertMongoShellToJsonCommand } from "./mongodb";
 import { resolveSqlDialect } from "./sqlDialect";
 import { hasEmbeddedWriteStatement } from "./sqlEmbeddedWrite";
 import { findSqlStatementRanges } from "./sqlStatementSelection";
+import { listDataSourceSpecs } from "./dataSourceRegistry";
+import { resolveRegistryReadOnlyClassifier } from "./dataSourceRegistry/commandReadOnly";
 
 export type ConnectionProtectionKey =
   | "restrictDataEdit"
@@ -67,6 +69,10 @@ const CONNECTION_READ_ONLY_TYPES = new Set([
   "trino",
   "mongodb",
   "elasticsearch",
+  // 描述表里声明 protection 的数据源：借用方言的按借用方言，其余按自身方言（如 QuestDB、Weaviate）。
+  ...listDataSourceSpecs()
+    .filter((spec) => spec.protection)
+    .map((spec) => spec.ddlDialect || spec.dialect),
 ]);
 
 const CONNECTION_PROTECTION_TYPES = new Set([
@@ -362,6 +368,10 @@ const isConnectionReadOnlyStatement = (
   const dialect = resolveConnectionReadOnlyType(config);
   if (dialect === "mongodb") {
     return isReadOnlyMongoStatement(statement);
+  }
+  const registryVerdict = resolveRegistryReadOnlyClassifier(dialect)?.(statement);
+  if (registryVerdict !== undefined) {
+    return registryVerdict;
   }
   return isReadOnlySqlStatement(statement, dialect);
 };

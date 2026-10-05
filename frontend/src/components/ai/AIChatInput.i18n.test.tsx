@@ -162,22 +162,20 @@ describe('AIChatInput i18n source guards', () => {
     expect(markup).toContain('orders-db / analytics');
   });
 
-  it('renders localized memory usage tooltips in en-US while preserving the raw limit label', () => {
-    const markup = renderAIChatInput('en-US', {
-      contextUsageChars: 12800,
-      maxContextChars: 32000,
-    });
-
-    expect(markup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
-    expect(markup).toContain('12.8k/32k');
+  it('renders the context ring with a localized label for how full the context is', () => {
+    const history = { user: 4000, assistant: 6000, toolResults: 0, messageCount: 4 };
+    expect(renderAIChatInput('en-US', { contextHistory: history, contextWindow: 64000 })).toContain('aria-label="Context usage 31%"');
+    expect(renderAIChatInput('zh-CN', { contextHistory: history, contextWindow: 64000 })).toContain('aria-label="上下文已使用 31%"');
+    // Until the panel knows the window there is nothing to draw.
+    expect(renderAIChatInput('en-US', {})).not.toContain('Context usage');
   });
 
   it('falls back to English placeholders and tooltips without an i18n provider while preserving raw connection context', () => {
     expect(() => renderAIChatInputWithoutProvider({
       activeConnName: 'orders-db',
       activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
-      contextUsageChars: 12800,
-      maxContextChars: 32000,
+      contextHistory: { user: 4000, assistant: 6000, toolResults: 0, messageCount: 4 },
+      contextWindow: 64000,
       sendShortcutBinding: { combo: 'Meta+Enter', enabled: true },
       shortcutPlatform: 'mac',
     })).not.toThrow();
@@ -185,15 +183,15 @@ describe('AIChatInput i18n source guards', () => {
     const markup = renderAIChatInputWithoutProvider({
       activeConnName: 'orders-db',
       activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
-      contextUsageChars: 12800,
-      maxContextChars: 32000,
+      contextHistory: { user: 4000, assistant: 6000, toolResults: 0, messageCount: 4 },
+      contextWindow: 64000,
       sendShortcutBinding: { combo: 'Meta+Enter', enabled: true },
       shortcutPlatform: 'mac',
     });
 
     expect(markup).toContain('placeholder="Type a message... ⌘↵ to send · / commands"');
     expect(markup).toContain('data-tooltip-title="Current data query context"');
-    expect(markup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
+    expect(markup).toContain('aria-label="Context usage 31%"');
     expect(markup).toContain('orders-db / analytics');
     expect(markup).not.toContain('ai_chat.input.context.connection_tooltip');
   });

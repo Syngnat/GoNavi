@@ -1,0 +1,76 @@
+{
+  "type": "gbase8a",
+  "aliases": [
+    "gbase-8a",
+    "gbase"
+  ],
+  "displayName": "GBase 8a",
+  "group": "domestic",
+  "order": 30,
+  "defaultPort": 5258,
+  "wire": "mysql",
+  "dialect": "gbase8a",
+  "ddlDialect": "mysql",
+  "family": "mysql",
+  "objectKind": "table",
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "driverTransactions": true,
+  "versionQuery": "SELECT VERSION() AS version",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational",
+    "singleKindBatches": true,
+    "hashIndexesOnly": true
+  },
+  "agent": {
+    "buildTag": "gonavi_gbase8a_driver",
+    "goModule": "github.com/go-sql-driver/mysql",
+    "version": "1.9.3",
+    "sourcePrefixes": [
+      "gbase8a",
+      "mysql"
+    ]
+  },
+  "variants": {
+    "default": "v8",
+    "items": [
+      {
+        "id": "v8",
+        "label": "GBase 8a 8.6 / 9.5",
+        "descriptionKey": "datasource.variant.gbase8a.v8"
+      }
+    ]
+  },
+  "ui": {
+    "defaultUser": "root",
+    "uriSchemes": [
+      "gbase8a",
+      "gbase",
+      "mysql"
+    ],
+    "hiddenObjectGroups": [
+      "events"
+    ],
+    "indexDesign": {
+      "kinds": [
+        "NORMAL"
+      ],
+      "methods": [
+        "HASH"
+      ]
+    },
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "hint": "MPP analytics / MySQL wire",
+    "icon": {
+      "color": "#E60012",
+      "text": "8a",
+      "scale": 0.9
+    }
+  }
+}

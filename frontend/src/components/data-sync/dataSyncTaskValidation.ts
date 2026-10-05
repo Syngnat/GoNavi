@@ -5,6 +5,7 @@
  * entries for existing importers.
  */
 import { inspectDataSyncCronExpression } from './dataSyncCronExpression';
+import { getDataSourceSpec } from '../../utils/dataSourceRegistry';
 import type {
   DataSyncTaskDefinition,
   DataSyncTaskStage,
@@ -27,6 +28,9 @@ const normalizeAtomicTargetType = (value: string): string => {
   if (['dm', 'dm8'].includes(normalized)) return 'dameng';
   if (normalized === 'sqlite3') return 'sqlite';
   if (['goldendb', 'greatdb', 'gdb'].includes(normalized)) return 'mysql';
+  // 描述表类型与后端同步内核一致：声明了 sync 且借用方言的按被借用方言判断（TiDB → mysql、CockroachDB → postgres）。
+  const registry = getDataSourceSpec(normalized);
+  if (registry?.sync && registry.ddlDialect) return registry.ddlDialect;
   return normalized;
 };
 

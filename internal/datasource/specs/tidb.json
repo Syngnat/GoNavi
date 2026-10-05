@@ -1,0 +1,79 @@
+{
+  "type": "tidb",
+  "aliases": [
+    "pingcap-tidb",
+    "tidb-server"
+  ],
+  "displayName": "TiDB",
+  "group": "relational",
+  "defaultPort": 4000,
+  "wire": "mysql",
+  "dialect": "tidb",
+  "ddlDialect": "mysql",
+  "family": "mysql",
+  "objectKind": "table",
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT VERSION() AS version",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_tidb_driver",
+    "goModule": "github.com/go-sql-driver/mysql",
+    "version": "1.9.3",
+    "sourcePrefixes": [
+      "tidb",
+      "mysql"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v5",
+        "label": "TiDB 4.x – 5.x",
+        "descriptionKey": "datasource.variant.tidb.v5",
+        "maxServer": "6.0"
+      },
+      {
+        "id": "v6",
+        "label": "TiDB 6.x – 7.x",
+        "descriptionKey": "datasource.variant.tidb.v6",
+        "minServer": "6.0",
+        "maxServer": "8.0"
+      },
+      {
+        "id": "v8",
+        "label": "TiDB 8.x +",
+        "descriptionKey": "datasource.variant.tidb.v8",
+        "minServer": "8.0"
+      }
+    ]
+  },
+  "ui": {
+    "uriSchemes": [
+      "tidb",
+      "mysql"
+    ],
+    "hiddenObjectGroups": [
+      "routines",
+      "triggers",
+      "events"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "hint": "MySQL compatible / distributed HTAP",
+    "icon": {
+      "color": "#E30C34",
+      "text": "Ti"
+    }
+  },
+  "order": 10
+}

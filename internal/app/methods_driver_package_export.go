@@ -3,9 +3,9 @@ package app
 // 驱动包（ZIP）导出。
 //
 // 把本机已安装的可选驱动打包成一个 zip，条目布局与发布总包
-// GoNavi-DriverAgents.zip 保持一致（{Platform}/{type}-driver-agent-{goos}-{goarch}[.exe]），
+// GoNavi-DriverAgents.7z（v1.0.2 前为 .zip）保持一致（{Platform}/{type}-driver-agent-{goos}-{goarch}[.exe]），
 // 因此导出的包既能被 methods_driver_package.go 的解析回放，也能被既有单驱动导入路径
-// installOptionalDriverAgentFromLocalZip 直接安装。
+// installOptionalDriverAgentFromLocalArchive 直接安装。
 //
 // 进度上报见 methods_driver_package_progress.go（独立事件，不复用下载进度）。
 
@@ -214,7 +214,7 @@ func collectDriverPackageCandidates(resolvedDir string) ([]driverPackageExportCa
 
 // collectDriverPackageSupportFiles 收集需要与 agent 一同打包的运行时依赖
 // （目前只有 DuckDB Windows 的 duckdb.dll）。条目与 agent 同目录，才能命中
-// findOptionalDriverSupportFileInZip 的一级匹配。
+// findOptionalDriverSupportFileInArchive 的一级匹配。
 func collectDriverPackageSupportFiles(driverType string, binaryDir string) []driverPackageSupportFile {
 	names := optionalDriverSupportFileNames(driverType)
 	if len(names) == 0 {

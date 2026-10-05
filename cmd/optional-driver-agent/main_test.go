@@ -1117,3 +1117,39 @@ func TestMaybeReleaseAgentMemory_TriggersTrimForLargeJobs(t *testing.T) {
 		t.Fatalf("大查询完成后应触发一次内存回收，got=%d", triggered)
 	}
 }
+
+type fakeAgentPartialTableListDB struct {
+	fakeAgentTimeoutDB
+	tables []string
+	err    error
+}
+
+func (f *fakeAgentPartialTableListDB) GetTables(string) ([]string, error) {
+	return append([]string(nil), f.tables...), f.err
+}
+
+func TestHandleRequestGetTablesKeepsPartialResultWithError(t *testing.T) {
+	fake := &fakeAgentPartialTableListDB{
+		tables: []string{"persistent://public/default/orders"},
+		err:    errors.New("admin topic listing denied"),
+	}
+	runtimeState := &agentRuntime{inst: fake, sessions: make(map[string]db.StatementExecer)}
+
+	response := handleRequest(runtimeState, agentRequest{ID: 31, Method: agentMethodGetTables, DBName: "topics"})
+	if response.Success || response.Error != "admin topic listing denied" {
+		t.Fatalf("partial getTables must still fail with the driver error: %#v", response)
+	}
+	if !response.PartialData {
+		t.Fatal("partial getTables must flag PartialData")
+	}
+	tables, ok := response.Data.([]string)
+	if !ok || len(tables) != 1 || tables[0] != fake.tables[0] {
+		t.Fatalf("partial getTables lost the known topics: %#v", response.Data)
+	}
+
+	fake.tables = nil
+	response = handleRequest(runtimeState, agentRequest{ID: 32, Method: agentMethodGetTables, DBName: "topics"})
+	if response.Success || response.PartialData || response.Data != nil {
+		t.Fatalf("an error without data must not claim a partial result: %#v", response)
+	}
+}

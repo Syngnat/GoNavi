@@ -1,0 +1,86 @@
+{
+  "type": "presto",
+  "aliases": [
+    "prestodb",
+    "prestosql",
+    "presto-db"
+  ],
+  "displayName": "Presto",
+  "group": "bigdata",
+  "order": 20,
+  "defaultPort": 8080,
+  "wire": "http",
+  "dialect": "presto",
+  "ddlDialect": "trino",
+  "objectKind": "table",
+  "protection": true,
+  "versionQuery": "SELECT node_version AS version FROM system.runtime.nodes WHERE coordinator = true",
+  "sync": {
+    "source": true,
+    "target": false,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_presto_driver",
+    "version": "1.0.0",
+    "sourcePrefixes": [
+      "presto",
+      "registry"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "legacy",
+        "label": "PrestoDB ≤ 0.256",
+        "descriptionKey": "datasource.variant.presto.legacy",
+        "maxServer": "0.257"
+      },
+      {
+        "id": "prestodb",
+        "label": "PrestoDB 0.257 +",
+        "descriptionKey": "datasource.variant.presto.prestodb",
+        "minServer": "0.257",
+        "maxServer": "300"
+      },
+      {
+        "id": "prestosql",
+        "label": "PrestoSQL 300 – 350",
+        "descriptionKey": "datasource.variant.presto.prestosql",
+        "minServer": "300"
+      }
+    ]
+  },
+  "ui": {
+    "layout": "trino",
+    "defaultUser": "presto",
+    "uriSchemes": [
+      "presto",
+      "http",
+      "https"
+    ],
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "pagination": "offset-limit",
+    "quoting": "double",
+    "hint": "Distributed SQL / catalog.schema",
+    "icon": {
+      "color": "#5B87DA",
+      "text": "P",
+      "scale": 0.72
+    }
+  }
+}

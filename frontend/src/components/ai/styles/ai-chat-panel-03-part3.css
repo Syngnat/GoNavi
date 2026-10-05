@@ -1,0 +1,203 @@
+/* 数据探针块：整体一个扁平卡片，每个探针一行；详情（参数 / 结果）点开再看。
+   颜色变量由 AIToolCallingBlock 按明暗主题注入。 */
+.ai-probe {
+    margin-top: calc(10 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-probe-border);
+    border-radius: calc(8 * var(--gn-ai-unit, 1px));
+    background: var(--ai-probe-surface);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow: hidden;
+}
+
+.ai-probe-header,
+.ai-probe-row {
+    display: grid;
+    align-items: center;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ai-probe-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-probe-header {
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+}
+
+.ai-probe-header-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-probe-title);
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-probe-body {
+    border-top: 1px solid var(--ai-probe-border);
+}
+
+.ai-probe-step + .ai-probe-step {
+    border-top: 1px solid var(--ai-probe-divider);
+}
+
+.ai-probe-row {
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) auto calc(12 * var(--gn-ai-unit, 1px));
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    transition: background 0.15s ease;
+}
+
+.ai-probe-row:not(:disabled):hover,
+.ai-probe-header:hover {
+    background: var(--ai-probe-hover);
+}
+
+.ai-probe-row:disabled {
+    cursor: default;
+}
+
+.ai-probe-row:focus-visible,
+.ai-probe-header:focus-visible {
+    outline: 2px solid var(--ai-probe-accent);
+    outline-offset: -2px;
+}
+
+.ai-probe-label {
+    display: flex;
+    align-items: baseline;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+}
+
+.ai-probe-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-probe-title);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-probe-tool {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-probe-muted);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    opacity: 0.75;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-probe-size {
+    color: var(--ai-probe-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ai-probe-caret {
+    justify-self: center;
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    color: var(--ai-probe-muted);
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-probe-spinner {
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    justify-self: center;
+    border-width: 1.5px;
+}
+
+.ai-probe-detail {
+    display: flex;
+    flex-direction: column;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px)) calc(34 * var(--gn-ai-unit, 1px));
+}
+
+.ai-probe-detail-title,
+.ai-probe-meta {
+    color: var(--ai-probe-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+}
+
+.ai-probe-meta {
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    overflow-wrap: anywhere;
+}
+
+.ai-probe-code {
+    margin: 0;
+    max-height: calc(240 * var(--gn-ai-unit, 1px));
+    padding: calc(8 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    overflow: auto;
+    border-radius: calc(6 * var(--gn-ai-unit, 1px));
+    background: var(--ai-probe-code);
+    color: var(--ai-probe-muted);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(11.5 * var(--gn-ai-unit, 1px));
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* 3. Agent风格旋转Loading环 */
+.ai-spinning-ring {
+    width: calc(14 * var(--gn-ai-unit, 1px));
+    height: calc(14 * var(--gn-ai-unit, 1px));
+    border: 2px solid rgba(22, 119, 255, 0.2);
+    border-top-color: #1677ff;
+    border-radius: 50%;
+    animation: ai-spin-anim 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes ai-spin-anim {
+    to { transform: rotate(360deg); }
+}
+
+/* 面板/弹窗内部 toast 定位覆盖：从 fixed（视口顶部）改为 absolute（容器内部顶部） */
+.ai-chat-panel .ant-message,
+.ai-settings-body .ant-message {
+    position: absolute !important;
+    top: 16px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    right: auto !important;
+    z-index: 100;
+}
+
+.ai-chat-panel .ant-message {
+    width: min(100%, calc(720 * var(--gn-ai-unit, 1px)));
+    max-width: calc(100% - 32px);
+}
+
+.ai-settings-body .ant-message {
+    width: fit-content;
+    max-width: min(520px, calc(100% - 32px));
+}
+
+.ai-settings-body .ant-message .ant-message-notice {
+    width: auto;
+}
+
+.ai-settings-body .ant-message .ant-message-notice-content {
+    width: fit-content;
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    text-align: left;
+}

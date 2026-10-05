@@ -214,7 +214,9 @@ type HarnessConfig struct {
 	// passes the builder's projection to a provider.
 	ContextBuilder ContextBuilder
 	Tools          ToolCatalog
-	Approvals      ApprovalHandler
+	// Instructions supplies each turn's standing instructions (see context_instructions.go).
+	Instructions InstructionsResolver
+	Approvals    ApprovalHandler
 	// AutoApproval, when set, approves side-effecting tool calls the host has
 	// chosen to always allow instead of waiting for a person.
 	AutoApproval  AutoApprovalPolicy

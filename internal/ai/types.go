@@ -144,6 +144,9 @@ type ProviderConfig struct {
 	Headers        map[string]string `json:"headers,omitempty"`
 	MaxTokens      int               `json:"maxTokens,omitempty"`
 	ContextWindow  int               `json:"contextWindow,omitempty"`
+	// SupportsImages 为 false 表示这个供应商的模型只读文字：智能体不会向它发送图片，
+	// 改由桌面端先把图片里的文字识别出来（内置托管模型即是如此）。nil 视为支持。
+	SupportsImages *bool             `json:"supportsImages,omitempty"`
 	CLIPath        string            `json:"cliPath,omitempty"`
 	CLIEnv         map[string]string `json:"cliEnv,omitempty"`
 	Temperature    float64           `json:"temperature"`

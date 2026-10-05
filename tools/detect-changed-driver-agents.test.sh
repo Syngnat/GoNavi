@@ -10,6 +10,27 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# 描述表工具与 JSON 是检测脚本的运行依赖，每个夹具仓库都要带上。
+# 描述表驱动追加在历史驱动之后，期望值随描述表自动扩展。
+registry_driver_csv_suffix() {
+  local python_bin
+  for python_bin in python3 python; do
+    if command -v "$python_bin" >/dev/null 2>&1 &&
+      "$python_bin" -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' >/dev/null 2>&1; then
+      "$python_bin" "$SCRIPT_DIR/tools/datasource-registry.py" drivers | sed 's/^/,/' | tr -d '\r\n'
+      return 0
+    fi
+  done
+}
+
+copy_registry_tooling() {
+  local target="$1"
+  mkdir -p "$target/tools" "$target/internal/datasource"
+  cp tools/datasource-registry.sh tools/datasource-registry.py "$target/tools/"
+  mkdir -p "$target/internal/datasource/specs"
+  cp internal/datasource/specs/*.json "$target/internal/datasource/specs/"
+}
+
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-driver-revisions.XXXXXX")"
 tmpdir_connection=""
 tmpdir_script=""
@@ -31,6 +52,7 @@ trap cleanup EXIT
 git init -q "$tmpdir"
 mkdir -p "$tmpdir/tools"
 cp tools/detect-changed-driver-agents.sh "$tmpdir/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir"
 mkdir -p "$tmpdir/internal/db"
 cat >"$tmpdir/internal/db/driver_agent_revisions_gen.go" <<'GOEOF'
 package db
@@ -62,6 +84,7 @@ tmpdir_shared_source="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-shared-source.X
 git init -q "$tmpdir_shared_source"
 mkdir -p "$tmpdir_shared_source/tools" "$tmpdir_shared_source/internal/db"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_shared_source/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_shared_source"
 cat >"$tmpdir_shared_source/internal/db/database.go" <<'GOEOF'
 package db
 
@@ -81,7 +104,7 @@ GOEOF
   git -c user.name=GoNavi -c user.email=gonavi@example.test commit -q -m 'update shared database logic'
 
   actual="$(bash ./tools/detect-changed-driver-agents.sh --base "$base" --head HEAD)"
-  expected="mariadb,oceanbase,doris,starrocks,sphinx,sqlserver,sqlite,duckdb,dameng,kingbase,highgo,vastbase,opengauss,gaussdb,iris,cache,mongodb,tdengine,iotdb,clickhouse,elasticsearch,trino"
+  expected="mariadb,oceanbase,doris,starrocks,sphinx,sqlserver,sqlite,duckdb,dameng,kingbase,highgo,vastbase,opengauss,gaussdb,iris,cache,mongodb,tdengine,iotdb,clickhouse,elasticsearch,trino,kafka,rocketmq,pulsar$(registry_driver_csv_suffix)"
   if [[ "$actual" != "$expected" ]]; then
     echo "expected shared internal/db source change to trigger all driver builds, got: ${actual:-<empty>}" >&2
     exit 1
@@ -92,6 +115,7 @@ tmpdir_connection="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-connection-change.
 git init -q "$tmpdir_connection"
 mkdir -p "$tmpdir_connection/tools" "$tmpdir_connection/internal/connection"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_connection/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_connection"
 cat >"$tmpdir_connection/internal/connection/types.go" <<'GOEOF'
 package connection
 
@@ -119,6 +143,7 @@ tmpdir_script="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-script-change.XXXXXX")
 git init -q "$tmpdir_script"
 mkdir -p "$tmpdir_script/tools"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_script/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_script"
 (
   cd "$tmpdir_script"
   git add .
@@ -138,6 +163,7 @@ tmpdir_compensation="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-compensation.XXX
 git init -q "$tmpdir_compensation"
 mkdir -p "$tmpdir_compensation/tools" "$tmpdir_compensation/internal/db" "$tmpdir_compensation/.github/workflows"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_compensation/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_compensation"
 cat >"$tmpdir_compensation/internal/db/driver_agent_revisions_gen.go" <<'GOEOF'
 package db
 
@@ -183,6 +209,7 @@ tmpdir_workflow="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-workflow-change.XXXX
 git init -q "$tmpdir_workflow"
 mkdir -p "$tmpdir_workflow/tools" "$tmpdir_workflow/.github/workflows"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_workflow/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_workflow"
 cat >"$tmpdir_workflow/.github/workflows/dev-build.yml" <<'YAMLEOF'
 name: Dev Build
 YAMLEOF
@@ -208,6 +235,7 @@ tmpdir_packaging="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-packaging-change.XX
 git init -q "$tmpdir_packaging"
 mkdir -p "$tmpdir_packaging/tools"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_packaging/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_packaging"
 cat >"$tmpdir_packaging/tools/package-driver-release-assets.py" <<'PYEOF'
 print("package")
 PYEOF
@@ -234,6 +262,7 @@ tmpdir_release_validation="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-detect-release-va
 git init -q "$tmpdir_release_validation"
 mkdir -p "$tmpdir_release_validation/tools"
 cp tools/detect-changed-driver-agents.sh "$tmpdir_release_validation/tools/detect-changed-driver-agents.sh"
+copy_registry_tooling "$tmpdir_release_validation"
 cat >"$tmpdir_release_validation/tools/validate-driver-release-assets.py" <<'PYEOF'
 print("validate")
 PYEOF

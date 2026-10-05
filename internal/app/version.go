@@ -93,3 +93,7 @@ func readJSONVersionFromPaths(paths []string) (string, error) {
 
 	return "", os.ErrNotExist
 }
+
+// CurrentVersion is the running build's version, for components outside this
+// package that identify themselves to a remote service.
+func CurrentVersion() string { return getCurrentVersion() }

@@ -1,0 +1,64 @@
+/* Control-only stacked row: no duplicate label column */
+body .gonavi-theme-settings .gonavi-settings-row.is-control-only {
+  grid-template-columns: 1fr;
+  padding-top: 2px;
+}
+
+body .gonavi-theme-settings .gonavi-settings-row.is-control-only .gonavi-settings-label {
+  display: none;
+}
+
+
+/* Settings center: same 8px thin bar as the connection-tree overlay. */
+.gonavi-settings-center-workbench-host,
+.gonavi-settings-center-modal {
+  scrollbar-width: thin;
+}
+.gonavi-settings-center-workbench-host .gonavi-settings-center-pane-scroll,
+.gonavi-settings-center-modal .gonavi-settings-center-pane-scroll,
+.gonavi-settings-center-workbench-host .gonavi-settings-center-layout,
+.gonavi-settings-center-modal .gonavi-settings-center-layout {
+  scrollbar-gutter: auto;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar,
+.gonavi-settings-center-modal ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-track,
+.gonavi-settings-center-modal ::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb,
+.gonavi-settings-center-modal ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--gn-fg-4, #6b7280) 42%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  min-height: 40px;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:hover,
+.gonavi-settings-center-modal ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--gn-accent, #16a34a) 55%, var(--gn-fg-4, #6b7280));
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-corner,
+.gonavi-settings-center-modal ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Compact IDEA-like settings chrome: no banner title, keep close only */
+.gonavi-settings-center-modal .ant-modal-header {
+  margin: 0 !important;
+  padding: 4px 12px 0 !important;
+  min-height: 0 !important;
+  border-bottom: none !important;
+}
+.gonavi-settings-center-modal .ant-modal-title {
+  display: none !important;
+}
+.gonavi-settings-center-modal .ant-modal-body {
+  padding-top: 0 !important;
+}

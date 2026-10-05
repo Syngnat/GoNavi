@@ -40,12 +40,22 @@ func normalizeExportFileOptions(format string, options ExportFileOptions) Export
 		TotalRowsKnown:                 options.TotalRowsKnown,
 		IncludeDropIfExists:            options.IncludeDropIfExists,
 		IncludeDatabaseContext:         options.IncludeDatabaseContext,
-		InsertSQLDialect:               strings.ToLower(strings.TrimSpace(options.InsertSQLDialect)),
+		InsertSQLDialect:               normalizeInsertSQLDialect(options.InsertSQLDialect),
 		InsertSQLTargetTable:           strings.TrimSpace(options.InsertSQLTargetTable),
 		InsertSQLColumnTypes:           options.InsertSQLColumnTypes,
 		InsertSQLTargetColumns:         options.InsertSQLTargetColumns,
 		InsertSQLAllowEmptyTargetTable: options.InsertSQLAllowEmptyTargetTable,
 	}
+}
+
+// normalizeInsertSQLDialect 把前端传来的连接类型归一为写 INSERT 用的方言：借用方言的描述表类型（TiDB、
+// CockroachDB 等）按被借用方言转义字符串、布尔值与标识符。
+func normalizeInsertSQLDialect(dialect string) string {
+	dialect = strings.ToLower(strings.TrimSpace(dialect))
+	if borrowed, ok := registryDDLDialect(dialect); ok {
+		return borrowed
+	}
+	return dialect
 }
 
 func normalizeExportColumns(columns []string) []string {

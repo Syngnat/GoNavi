@@ -36,6 +36,10 @@ const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps
   }
 
   const control = resolveProviderThinkingIntensityControl(activeProvider, cliCapability, cliCatalog);
+  // A model with no thinking levels has nothing to choose.
+  if (control.options.length === 0) {
+    return null;
+  }
   const options = control.options.map((item) => ({
     value: item.value,
     label: t(item.labelKey),

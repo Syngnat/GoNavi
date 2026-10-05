@@ -67,6 +67,10 @@ func sessionSpecFor(config connection.ConnectionConfig) sessionSpec {
 	case "mongodb", "elasticsearch", "iris", "sphinx":
 		return unsupportedSessionSpec(engine, sessionReasonUnsupported)
 	default:
+		// 借用 Trino 方言的描述表类型（Presto）：system.runtime.queries 与 kill_query 两者一致，引擎名保留原类型。
+		if registry, ok := DataSourceSpec(engine); ok && registry.DDLDialect == "trino" {
+			return prestoSessionSpec(engine)
+		}
 		return unsupportedSessionSpec(engine, sessionReasonNotApplicable)
 	}
 }
@@ -244,6 +248,20 @@ WHERE "end" IS NULL
 ORDER BY created DESC`,
 		durationUnit: sessionDurationMilliseconds,
 	}
+}
+
+// prestoSessionSpec 与 Trino 相同，但按状态筛选未结束的查询：PrestoDB 0.29x 把运行中查询的 end
+// 记为 1970-01-01 而不是 NULL，"end" IS NULL 会把它们全部排除。
+func prestoSessionSpec(engine string) sessionSpec {
+	spec := trinoSessionSpec()
+	spec.engine = engine
+	spec.listQuery = `SELECT query_id, '' AS database_or_tenant, user AS user_name,
+state, CAST(date_diff('millisecond', created, current_timestamp) AS bigint) AS duration_ms,
+query AS statement
+FROM system.runtime.queries
+WHERE state NOT IN ('FINISHED', 'FAILED')
+ORDER BY created DESC`
+	return spec
 }
 
 func tdengineSessionSpec() sessionSpec {

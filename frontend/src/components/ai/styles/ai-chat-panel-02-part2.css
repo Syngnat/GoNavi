@@ -1,0 +1,577 @@
+/* ===== 新版 AI 状态流转动画 ===== */
+
+/* 1. 连接脉冲动画 (connecting) */
+.ai-wave-pulse {
+    display: flex;
+    align-items: center;
+    gap: calc(4 * var(--gn-ai-unit, 1px));
+}
+.ai-wave-pulse span {
+    width: calc(6 * var(--gn-ai-unit, 1px));
+    height: calc(6 * var(--gn-ai-unit, 1px));
+    border-radius: 50%;
+    background-color: currentColor;
+    animation: wave-pulse-anim 1.2s ease-in-out infinite;
+}
+.ai-wave-pulse span:nth-child(1) { animation-delay: 0s; }
+.ai-wave-pulse span:nth-child(2) { animation-delay: 0.15s; }
+.ai-wave-pulse span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes wave-pulse-anim {
+    0%, 100% { transform: translateY(0) scale(0.8); opacity: 0.4; }
+    50% { transform: translateY(-4px) scale(1.1); opacity: 1; }
+}
+
+/* 2. 平滑高度与透明度过渡 (针对 ThinkingBlock 和 面板折叠) */
+.ai-expand-transition {
+    display: grid;
+    transition: grid-template-rows 0.3s ease-out, opacity 0.3s ease-out;
+}
+.ai-expand-transition.expanded {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+.ai-expand-transition.collapsed {
+    grid-template-rows: 0fr;
+    opacity: 0;
+}
+.ai-expand-transition > div {
+    overflow: hidden;
+}
+
+/* 快捷命令菜单：紧凑的单行列表（图标 · 命令 · 名称 · 说明），按分类分组；
+   支持键盘上下选择、回车插入、Esc 关闭。颜色变量由 AISlashCommandMenu 注入。 */
+.ai-slash-menu {
+    display: flex;
+    flex-direction: column;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: calc(4 * var(--gn-ai-unit, 1px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.ai-slash-group + .ai-slash-group {
+    margin-top: calc(4 * var(--gn-ai-unit, 1px));
+    padding-top: calc(4 * var(--gn-ai-unit, 1px));
+    border-top: 1px solid var(--ai-slash-border);
+}
+
+.ai-slash-group-title {
+    padding: calc(4 * var(--gn-ai-unit, 1px)) calc(8 * var(--gn-ai-unit, 1px)) calc(2 * var(--gn-ai-unit, 1px));
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.ai-slash-item {
+    display: grid;
+    grid-template-columns: calc(20 * var(--gn-ai-unit, 1px)) calc(78 * var(--gn-ai-unit, 1px)) auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    margin: 0;
+    padding: 0 calc(8 * var(--gn-ai-unit, 1px));
+    border: 0;
+    border-radius: calc(6 * var(--gn-ai-unit, 1px));
+    background: transparent;
+    color: var(--ai-slash-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-slash-item[data-active='true'] {
+    background: var(--ai-slash-active);
+}
+
+.ai-slash-icon {
+    text-align: center;
+    font-size: calc(13 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-cmd {
+    overflow: hidden;
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-slash-label {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ai-slash-desc {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-slash-footer {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(14 * var(--gn-ai-unit, 1px));
+    padding: calc(6 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px));
+    border-top: 1px solid var(--ai-slash-border);
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-footer span {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(4 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-footer kbd {
+    min-width: calc(18 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(4 * var(--gn-ai-unit, 1px));
+    border-radius: calc(4 * var(--gn-ai-unit, 1px));
+    background: var(--ai-slash-key);
+    color: var(--ai-slash-text);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(10.5 * var(--gn-ai-unit, 1px));
+    line-height: calc(16 * var(--gn-ai-unit, 1px));
+    text-align: center;
+}
+
+.ai-slash-empty {
+    display: flex;
+    flex-direction: column;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    padding: calc(12 * var(--gn-ai-unit, 1px)) calc(14 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-empty-title {
+    color: var(--ai-slash-text);
+    font-weight: 600;
+}
+
+.ai-slash-empty-text {
+    color: var(--ai-slash-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    line-height: 1.5;
+}
+
+.ai-slash-empty-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(6 * var(--gn-ai-unit, 1px));
+}
+
+.ai-slash-chip {
+    padding: calc(2 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-slash-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ai-slash-text);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    cursor: pointer;
+}
+
+.ai-slash-chip:hover {
+    background: var(--ai-slash-active);
+}
+
+/* 运行过程：一个扁平卡片，每步一行（状态图标 · 名称 · 耗时/状态），步骤之间用竖线相连。
+   颜色变量由 AIActivityTimeline 按明暗主题注入。 */
+.ai-run {
+    margin-top: calc(10 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-run-border);
+    border-radius: calc(8 * var(--gn-ai-unit, 1px));
+    background: var(--ai-run-surface);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow: hidden;
+}
+
+.ai-run-header {
+    display: grid;
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    margin: 0;
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    border: 0;
+    background: transparent;
+    color: var(--ai-run-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.ai-run-header:hover {
+    background: var(--ai-run-hover);
+}
+
+.ai-run-header:focus-visible {
+    outline: 2px solid #1677ff;
+    outline-offset: -2px;
+}
+
+.ai-run-header-text {
+    display: flex;
+    align-items: baseline;
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-width: 0;
+}
+
+.ai-run-header-title {
+    color: var(--ai-run-title);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ai-run-header-summary {
+    min-width: 0;
+    overflow: hidden;
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-run-caret {
+    justify-self: center;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-run-icon {
+    display: grid;
+    place-items: center;
+    width: calc(16 * var(--gn-ai-unit, 1px));
+    height: calc(16 * var(--gn-ai-unit, 1px));
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+}
+
+.ai-run-spinner {
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    border-width: 1.5px;
+}
+
+.ai-run-steps {
+    margin: 0;
+    padding: calc(4 * var(--gn-ai-unit, 1px)) 0;
+    list-style: none;
+    border-top: 1px solid var(--ai-run-border);
+}
+
+.ai-run-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    min-height: calc(26 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    color: var(--ai-run-muted);
+}
+
+/* 相邻步骤图标之间的竖线 */
+.ai-run-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    top: calc(21 * var(--gn-ai-unit, 1px));
+    bottom: calc(-5 * var(--gn-ai-unit, 1px));
+    left: calc(17.5 * var(--gn-ai-unit, 1px));
+    width: 1px;
+    background: var(--ai-run-rail);
+}
+
+.ai-run-step[data-activity-status='active'] {
+    color: var(--ai-run-title);
+}
+
+.ai-run-step-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-run-step-trailing {
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* 思考过程块：把模型的推理摘要（`**标题**` + 正文）拆成带标题的步骤，
+   不再原样显示 Markdown 标记。颜色变量由 AIThinkingBlock 按明暗主题注入。 */
+.ai-think {
+    margin-bottom: calc(8 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-think-border);
+    border-radius: calc(8 * var(--gn-ai-unit, 1px));
+    background: var(--ai-think-surface);
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    overflow: hidden;
+}
+
+.ai-think-header {
+    display: grid;
+    grid-template-columns: calc(16 * var(--gn-ai-unit, 1px)) auto minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    min-height: calc(30 * var(--gn-ai-unit, 1px));
+    margin: 0;
+    padding: 0 calc(10 * var(--gn-ai-unit, 1px));
+    border: 0;
+    background: transparent;
+    color: var(--ai-think-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.ai-think-header:hover {
+    background: var(--ai-think-hover);
+}
+
+.ai-think-header:focus-visible {
+    outline: 2px solid var(--ai-think-accent);
+    outline-offset: -2px;
+}
+
+.ai-think-header-title {
+    color: var(--ai-think-title);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ai-think-meta {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ai-think-muted);
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-think-caret {
+    justify-self: center;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-think-spinner {
+    width: calc(12 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    justify-self: center;
+    border-width: 1.5px;
+    border-color: rgba(139, 92, 246, 0.2);
+    border-top-color: var(--ai-think-accent);
+}
+
+.ai-think-scroll {
+    max-height: calc(320 * var(--gn-ai-unit, 1px));
+    padding: calc(2 * var(--gn-ai-unit, 1px)) calc(12 * var(--gn-ai-unit, 1px)) calc(10 * var(--gn-ai-unit, 1px));
+    overflow-y: auto;
+    border-top: 1px solid var(--ai-think-border);
+}
+
+.ai-think-steps {
+    margin: 0;
+    padding: calc(8 * var(--gn-ai-unit, 1px)) 0 0;
+    list-style: none;
+}
+
+.ai-think-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: calc(10 * var(--gn-ai-unit, 1px)) minmax(0, 1fr);
+    column-gap: calc(10 * var(--gn-ai-unit, 1px));
+    padding-bottom: calc(8 * var(--gn-ai-unit, 1px));
+}
+
+/* 步骤之间的竖线，最后一步不画 */
+.ai-think-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    top: calc(14 * var(--gn-ai-unit, 1px));
+    bottom: calc(-2 * var(--gn-ai-unit, 1px));
+    left: calc(4.5 * var(--gn-ai-unit, 1px));
+    width: 1px;
+    background: var(--ai-think-border);
+}
+
+.ai-think-dot {
+    width: calc(7 * var(--gn-ai-unit, 1px));
+    height: calc(7 * var(--gn-ai-unit, 1px));
+    margin: calc(6 * var(--gn-ai-unit, 1px)) calc(1.5 * var(--gn-ai-unit, 1px)) 0;
+    border-radius: 50%;
+    background: var(--ai-think-accent);
+    opacity: 0.55;
+}
+
+.ai-think-dot-header {
+    margin: 0;
+    justify-self: center;
+}
+
+.ai-think-step[data-active='true'] .ai-think-dot {
+    opacity: 1;
+    animation: ai-think-pulse 1.5s ease-in-out infinite;
+}
+
+.ai-think-text {
+    min-width: 0;
+    color: var(--ai-think-muted);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+.ai-think-title {
+    color: var(--ai-think-title);
+    font-weight: 500;
+}
+
+.ai-think-node {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) calc(12 * var(--gn-ai-unit, 1px));
+    align-items: center;
+    column-gap: calc(8 * var(--gn-ai-unit, 1px));
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-think-node:hover .ai-think-title {
+    color: var(--ai-think-accent);
+}
+
+.ai-think-node:focus-visible {
+    outline: 2px solid var(--ai-think-accent);
+    outline-offset: 2px;
+}
+
+.ai-think-node-caret {
+    justify-self: center;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+    transition: transform 0.15s ease;
+}
+
+.ai-think-body {
+    margin: calc(2 * var(--gn-ai-unit, 1px)) 0 0;
+    white-space: pre-wrap;
+}
+
+.ai-think-text strong {
+    color: var(--ai-think-title);
+    font-weight: 600;
+}
+
+.ai-think-text code {
+    padding: 0 calc(4 * var(--gn-ai-unit, 1px));
+    border-radius: calc(4 * var(--gn-ai-unit, 1px));
+    background: var(--ai-think-code);
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: 0.95em;
+}
+
+.ai-think-cursor {
+    display: inline-block;
+    width: calc(6 * var(--gn-ai-unit, 1px));
+    height: calc(12 * var(--gn-ai-unit, 1px));
+    margin-left: calc(4 * var(--gn-ai-unit, 1px));
+    vertical-align: middle;
+    background: var(--ai-think-accent);
+    opacity: 0.8;
+    animation: ai-think-pulse 1s ease-in-out infinite;
+}
+
+@keyframes ai-think-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+/* 审批卡片：琥珀色提示底 + 细边框；“拒绝”是中性描边按钮，“批准”是实心主按钮，
+   右侧下拉在同一个圆角容器里用细分隔线相连。颜色变量由 AIChatRunControls 注入。 */
+.ai-run-approval-card {
+    border: 1px solid var(--ai-approve-border);
+    background: var(--ai-approve-surface);
+}
+
+.ai-approve-icon {
+    color: #d97706;
+}
+
+.ai-run-effect {
+    padding: 0 calc(6 * var(--gn-ai-unit, 1px));
+    border: 1px solid var(--ai-approve-border);
+    border-radius: calc(4 * var(--gn-ai-unit, 1px));
+    background: var(--ai-approve-surface);
+    color: #b45309;
+    font-size: calc(11 * var(--gn-ai-unit, 1px));
+    line-height: calc(18 * var(--gn-ai-unit, 1px));
+    white-space: nowrap;
+}
+
+.ai-run-approval-card .ai-run-control-actions {
+    gap: calc(8 * var(--gn-ai-unit, 1px));
+    margin-top: calc(10 * var(--gn-ai-unit, 1px));
+}
+
+.ai-approve-split {
+    display: inline-flex;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-btn {
+    height: calc(28 * var(--gn-ai-unit, 1px));
+    padding: 0 calc(12 * var(--gn-ai-unit, 1px));
+    border-radius: calc(6 * var(--gn-ai-unit, 1px));
+    box-shadow: none;
+    font-size: calc(12 * var(--gn-ai-unit, 1px));
+    font-weight: 500;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-deny {
+    border-color: var(--ai-approve-neutral);
+    background: transparent;
+    color: var(--ai-approve-muted);
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-deny:not(:disabled):hover {
+    border-color: #dc2626;
+    background: rgba(220, 38, 38, 0.06);
+    color: #dc2626;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-main {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.ai-run-approval-card .ant-btn.ai-approve-more {
+    width: calc(26 * var(--gn-ai-unit, 1px));
+    margin-left: 1px;
+    padding: 0;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    font-size: calc(10 * var(--gn-ai-unit, 1px));
+}
+

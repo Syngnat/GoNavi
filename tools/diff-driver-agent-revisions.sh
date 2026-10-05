@@ -5,7 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
-DEFAULT_DRIVERS=(mariadb oceanbase diros starrocks sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase opengauss gaussdb iris cache mongodb tdengine iotdb clickhouse elasticsearch trino)
+DEFAULT_DRIVERS=(mariadb oceanbase diros starrocks sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase opengauss gaussdb iris cache mongodb tdengine iotdb clickhouse elasticsearch trino kafka rocketmq pulsar)
+# shellcheck source=tools/datasource-registry.sh
+source "$SCRIPT_DIR/tools/datasource-registry.sh"
+load_datasource_registry "$SCRIPT_DIR"
+DEFAULT_DRIVERS+=("${REGISTRY_DRIVERS[@]}")
 
 usage() {
   cat <<'EOF'
@@ -38,11 +42,11 @@ normalize_driver_name() {
   value="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   case "$value" in
     doris|diros) echo "diros" ;;
-    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|elasticsearch|trino)
+    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|elasticsearch|trino|kafka|rocketmq|pulsar)
       echo "$value"
       ;;
     *)
-      return 1
+      registry_normalize_driver "$value"
       ;;
   esac
 }
@@ -180,6 +184,10 @@ head_file="$head_worktree/internal/db/driver_agent_revisions_gen.go"
 
 declare -a changed_drivers=()
 for driver in "${drivers_to_compare[@]}"; do
+  # 描述表只声明了部分平台的驱动（如崖山、GBase 8s），其余平台不发布，也就无需重建。
+  if ! registry_driver_platform_supported "$driver" "$target_platform"; then
+    continue
+  fi
   base_revision="$(extract_revision "$base_file" "$driver")"
   head_revision="$(extract_revision "$head_file" "$driver")"
   if [[ "$base_revision" != "$head_revision" ]]; then

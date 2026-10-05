@@ -3,6 +3,7 @@ import type {
   DataSyncCompareResult,
   DataSyncTableDiffSummary,
 } from './model';
+import { getDataSourceSpec } from '../../utils/dataSourceRegistry';
 
 const PG_LIKE = new Set([
   'postgres',
@@ -18,7 +19,8 @@ const normalizeDialect = (value: string): string => {
   const dialect = String(value || '').trim().toLowerCase();
   if (dialect === 'postgresql') return 'postgres';
   if (['mssql', 'sql_server', 'sql-server'].includes(dialect)) return 'sqlserver';
-  return dialect;
+  // 描述表类型按借用方言生成修复 SQL（CockroachDB → postgres 用双引号，TiDB → mysql 用反引号）。
+  return getDataSourceSpec(dialect)?.ddlDialect || dialect;
 };
 
 export const quoteCompareIdent = (name: string, dialect: string): string => {

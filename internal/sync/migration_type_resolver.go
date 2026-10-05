@@ -31,7 +31,7 @@ func normalizeMigrationDBType(dbType string) string {
 	case "sqlite3":
 		return "sqlite"
 	default:
-		return normalized
+		return registryMigrationDBType(normalized)
 	}
 }
 

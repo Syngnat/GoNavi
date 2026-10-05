@@ -4,7 +4,8 @@ import { Button, Spin, Alert } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 import { TabData } from '../types';
 import { useStore } from '../store';
-import { DBGetTriggers, DBQuery } from '../../wailsjs/go/app/App';
+import { DBGetTriggers, DBQuery, DBShowCreateTable } from '../../wailsjs/go/app/App';
+import { usesDriverObjectDefinition } from './definitionViewerDialect';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { resolveSqlDialect } from '../utils/sqlDialect';
 import {
@@ -462,7 +463,8 @@ ${safeSchemaName ? `  AND n.nspname = '${safeSchemaName}'\n` : ''}${safeTableNam
         );
         const sphinxLike = isSphinxConnection(conn) && dialect === 'mysql';
 
-        if (dialect !== 'oracle' && (!queries.length || String(queries[0] || '').startsWith('--'))) {
+        const driverDefinition = usesDriverObjectDefinition(conn);
+        if (dialect !== 'oracle' && !driverDefinition && (!queries.length || String(queries[0] || '').startsWith('--'))) {
             return { success: true, definition: String(queries[0] || commentLine('trigger_viewer.editor.unsupported.generic')) };
         }
 
@@ -475,6 +477,13 @@ ${safeSchemaName ? `  AND n.nspname = '${safeSchemaName}'\n` : ''}${safeTableNam
                 useSSH: conn.config.useSSH || false,
                 ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' }
             };
+
+            if (driverDefinition) {
+                const result = await DBShowCreateTable(buildRpcConnectionConfig(config) as any, dbName, triggerName);
+                return result.success && String(result.data || '').trim()
+                    ? { success: true, definition: String(result.data) }
+                    : { success: false, error: result.message || t('trigger_viewer.error.query_failed') };
+            }
 
             let triggerTableName = String(tab.triggerTableName || '').trim();
             if (dialect === 'oracle') {

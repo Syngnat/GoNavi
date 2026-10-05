@@ -4,6 +4,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
+# shellcheck source=tools/datasource-registry.sh
+source "$SCRIPT_DIR/tools/datasource-registry.sh"
+load_datasource_registry "$SCRIPT_DIR"
 
 usage() {
   cat <<'EOF'
@@ -71,11 +74,11 @@ normalize_driver() {
     opengauss|open_gauss|open-gauss) echo "opengauss" ;;
     gaussdb|gauss_db|gauss-db) echo "gaussdb" ;;
     elasticsearch|elastic) echo "elasticsearch" ;;
-    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino)
+    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino|kafka|rocketmq|pulsar)
       echo "$value"
       ;;
     *)
-      return 1
+      registry_normalize_driver "$value"
       ;;
   esac
 }
@@ -104,6 +107,10 @@ build_tags_for_driver() {
   local driver="$1"
   local variant="${2:-}"
   local tags="gonavi_${driver}_driver"
+  local registry_tag
+  if registry_tag="$(registry_driver_build_tag "$driver")"; then
+    tags="$registry_tag"
+  fi
   if [[ "$driver" == "mongodb" && "$variant" == "v1" ]]; then
     tags="gonavi_mongodb_driver_v1"
   fi
@@ -327,9 +334,17 @@ host_platform="${host_goos}/${host_goarch}"
 failed=0
 for raw_driver in "${raw_drivers[@]}"; do
   [[ -n "$raw_driver" ]] || continue
-  driver="$(normalize_driver "$raw_driver")"
+  if ! driver="$(normalize_driver "$raw_driver")"; then
+    echo "❌ 无法识别的 driver-agent：$raw_driver"
+    failed=1
+    continue
+  fi
   if [[ "$driver" == "duckdb" && "$goos" == "windows" && "$goarch" != "amd64" ]]; then
     echo "⚠️  跳过 duckdb revision 校验（$target_platform 不构建 agent）"
+    continue
+  fi
+  if ! registry_driver_platform_supported "$driver" "$target_platform"; then
+    echo "⚠️  跳过 $driver revision 校验（描述表未声明 $target_platform 平台）"
     continue
   fi
 

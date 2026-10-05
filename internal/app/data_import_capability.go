@@ -110,14 +110,17 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 		return capability
 	}
 
-	if !isDataImportSQLDialect(dbType) {
+	registryTable, registrySQLFile, isRegistry := registryDataImportModes(config)
+	if !isRegistry && !isDataImportSQLDialect(dbType) {
 		return capability
 	}
-	capability.TableImport.Reason = DataImportReasonTableRuntimeUnavailable
-	if _, ok := runtime.(db.BatchApplierContext); ok {
+	if !isRegistry || registryTable {
+		capability.TableImport.Reason = DataImportReasonTableRuntimeUnavailable
+	}
+	if _, ok := runtime.(db.BatchApplierContext); ok && (!isRegistry || registryTable) {
 		capability.TableImport = DataImportModeCapability{
 			Supported:                  true,
-			SupportsTransactionalBatch: dataImportTableSupportsTransactionalBatch(dbType) && runtimeSupportsBatchApply(runtime),
+			SupportsTransactionalBatch: dataImportTableSupportsTransactionalBatch(dbType) && runtimeSupportsBatchApply(runtime) && (!isRegistry || registryImportSupportsTransactionalBatch(config)),
 			SupportsContinue:           true,
 			SupportedFormats:           []string{"csv", "json", "xlsx"},
 			SupportedEncodings:         []string{"auto", "utf-8", "utf-16le", "utf-16be", "gb18030"},
@@ -125,6 +128,9 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 			SupportedClientDirectives:  []string{},
 			SupportedConflictPolicies:  dataImportTableConflictPolicies(dbType),
 		}
+	}
+	if isRegistry && !registrySQLFile {
+		return capability
 	}
 	if sqlFileImportCapabilityRestricted(config) {
 		capability.SQLFileImport.Reason = DataImportReasonSQLFileRestricted
@@ -217,7 +223,12 @@ func isDataImportSQLDialect(dbType string) bool {
 	}
 }
 
+// isDataImportSQLDialectSupported 判断 SQL 文件导入（运行 SQL 文件、从备份恢复）是否可用：
+// 描述表类型以 sqlFileImport 声明为准，历史类型按方言判断。
 func isDataImportSQLDialectSupported(config connection.ConnectionConfig) bool {
+	if _, sqlFile, ok := registryDataImportModes(config); ok {
+		return sqlFile
+	}
 	return isDataImportSQLDialect(normalizeDataImportDatabaseType(config))
 }
 

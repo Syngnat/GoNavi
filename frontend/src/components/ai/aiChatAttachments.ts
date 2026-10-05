@@ -359,11 +359,12 @@ export const createAIChatAttachmentFromFile = async (
   }
 };
 
+// (context chips are display-only: their content reaches the model through the workspace context)
 export const buildAIChatAttachmentPromptText = (
   attachments: AIChatAttachment[] = [],
   translate?: AIChatAttachmentTranslator,
 ): string => {
-  const documentAttachments = attachments.filter((attachment) => attachment.kind !== 'image');
+  const documentAttachments = attachments.filter((attachment) => attachment.kind !== 'image' && attachment.kind !== 'context');
   if (documentAttachments.length === 0) return '';
   return documentAttachments.map((attachment, index) => {
     const content = String(attachment.text || '').trim();

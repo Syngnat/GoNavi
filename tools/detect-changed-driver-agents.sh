@@ -7,7 +7,11 @@ cd "$SCRIPT_DIR"
 SCRIPT_DIR_WINDOWS="$(pwd -W 2>/dev/null || true)"
 SCRIPT_DIR_WINDOWS="${SCRIPT_DIR_WINDOWS//\\//}"
 
-DEFAULT_DRIVERS=(mariadb oceanbase doris starrocks sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase opengauss gaussdb iris cache mongodb tdengine iotdb clickhouse elasticsearch trino)
+DEFAULT_DRIVERS=(mariadb oceanbase doris starrocks sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase opengauss gaussdb iris cache mongodb tdengine iotdb clickhouse elasticsearch trino kafka rocketmq pulsar)
+# shellcheck source=tools/datasource-registry.sh
+source "$SCRIPT_DIR/tools/datasource-registry.sh"
+load_datasource_registry "$SCRIPT_DIR"
+DEFAULT_DRIVERS+=("${REGISTRY_DRIVERS[@]}")
 TARGET_PLATFORMS=(darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 linux/amd64 linux/arm64)
 
 usage() {
@@ -29,6 +33,16 @@ EOF
 join_drivers() {
   local IFS=,
   echo "$*"
+}
+
+# registry_changed_drivers 对比基准与目标提交里的描述表，只输出描述发生变化的代理键。
+registry_changed_drivers() {
+  local python_bin
+  python_bin="$(resolve_datasource_registry_python)" || {
+    printf "%s\n" "${REGISTRY_DRIVERS[@]}"
+    return 0
+  }
+  "$python_bin" "$SCRIPT_DIR/tools/datasource-registry.py" changed-units "$base_commit" "$head_commit"
 }
 
 all_drivers_csv() {
@@ -54,11 +68,11 @@ normalize_driver() {
     open_gauss|open-gauss) echo "opengauss" ;;
     gaussdb|gauss_db|gauss-db) echo "gaussdb" ;;
     elastic|elasticsearch) echo "elasticsearch" ;;
-    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino)
+    mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino|kafka|rocketmq|pulsar)
       echo "$value"
       ;;
     *)
-      return 1
+      registry_normalize_driver "$value"
       ;;
   esac
 }
@@ -75,9 +89,12 @@ driver_build_tags() {
   local platform="$2"
   local goos="${platform%%/*}"
   local goarch="${platform##*/}"
-  local build_driver tag
+  local build_driver tag registry_tag
   build_driver="$(build_driver_name "$driver")"
   tag="gonavi_${build_driver}_driver"
+  if registry_tag="$(registry_driver_build_tag "$driver")"; then
+    tag="$registry_tag"
+  fi
   if [[ "$driver" == "duckdb" && "$goos" == "windows" && "$goarch" == "amd64" ]]; then
     tag="$tag duckdb_use_lib"
   fi
@@ -167,6 +184,15 @@ driver_tokens_from_text() {
   case "$text" in *clickhouse*) emit_driver_token clickhouse ;; esac
   case "$text" in *elasticsearch*) emit_driver_token elasticsearch ;; esac
   case "$text" in *trino*) emit_driver_token trino ;; esac
+  case "$text" in *kafka*) emit_driver_token kafka ;; esac
+  case "$text" in *rocketmq*) emit_driver_token rocketmq ;; esac
+  case "$text" in *pulsar*) emit_driver_token pulsar ;; esac
+  case "$text" in
+    *message_queue_helpers*)
+      emit_driver_token kafka
+      emit_driver_token rocketmq
+      ;;
+  esac
 
   case "$text" in
     *github.com/go-sql-driver/mysql*)
@@ -202,6 +228,10 @@ driver_tokens_from_text() {
   case "$text" in *github.com/clickhouse/clickhouse-go/v2*|*github.com/clickhouse/ch-go*) emit_driver_token clickhouse ;; esac
   case "$text" in *github.com/elastic/go-elasticsearch/v8*) emit_driver_token elasticsearch ;; esac
   case "$text" in *github.com/trinodb/trino-go-client*) emit_driver_token trino ;; esac
+  case "$text" in *github.com/segmentio/kafka-go*) emit_driver_token kafka ;; esac
+  case "$text" in *github.com/apache/rocketmq-client-go*) emit_driver_token rocketmq ;; esac
+  case "$text" in *github.com/apache/pulsar-client-go*) emit_driver_token pulsar ;; esac
+  registry_emit_driver_tokens "$text"
 }
 
 emit_driver_token() {
@@ -559,10 +589,18 @@ for file in "${!changed_file_set[@]}"; do
       all_drivers_csv
       exit 0
       ;;
-    tools/detect-changed-driver-agents.sh)
+    tools/detect-changed-driver-agents.sh|tools/datasource-registry.py|tools/datasource-registry.sh)
       echo "检测到 driver-agent 变更检测脚本更新；保守构建全部 driver-agent：$file" >&2
       all_drivers_csv
       exit 0
+      ;;
+    internal/datasource/specs/*.json)
+      add_forced_drivers_from_tokens "$(registry_changed_drivers)"
+      ;;
+    internal/datasource/*.go)
+      for registry_driver in "${REGISTRY_DRIVERS[@]}"; do
+        add_forced_driver "$registry_driver"
+      done
       ;;
   esac
 done

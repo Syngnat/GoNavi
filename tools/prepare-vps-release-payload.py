@@ -17,7 +17,8 @@ from typing import Any
 TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:/")
-DRIVER_CI_BUNDLE_NAME = "GoNavi-DriverAgents.zip"
+# v1.0.2 起 CI 总包为 7z，旧发布为 ZIP；两者都不得进入镜像。
+DRIVER_CI_BUNDLE_NAMES = frozenset(("GoNavi-DriverAgents.7z", "GoNavi-DriverAgents.zip"))
 DRIVER_MUTABLE_INDEX_FIELDS = frozenset(("tagName", "mirrorTagName"))
 
 
@@ -107,7 +108,7 @@ def validate_driver_index(index: dict[str, Any], label: str) -> None:
     archive_names: set[str] = set()
     for raw_name, expected_size in sorted(assets.items()):
         name = validate_asset_name(raw_name, f"{label} driver")
-        if name == DRIVER_CI_BUNDLE_NAME:
+        if name in DRIVER_CI_BUNDLE_NAMES:
             fail(f"driver CI bundle must not be mirrored: {name}")
         if Path(name).suffix.lower() != ".zip":
             fail(f"driver mirror asset must be a zip archive: {name}")

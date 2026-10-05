@@ -21,11 +21,8 @@ var coreBuiltinDrivers = map[string]struct{}{
 	"chroma":   {},
 	"qdrant":   {},
 	"milvus":   {},
-	"rocketmq": {},
 	"mqtt":     {},
-	"kafka":    {},
 	"rabbitmq": {},
-	"pulsar":   {},
 }
 
 // optionalGoDrivers 表示需要用户“安装启用”后才能使用的纯 Go 驱动。
@@ -53,6 +50,9 @@ var optionalGoDrivers = map[string]struct{}{
 	"clickhouse":    {},
 	"elasticsearch": {},
 	"trino":         {},
+	"kafka":         {},
+	"rocketmq":      {},
+	"pulsar":        {},
 }
 
 // optionalDriverAgentRevisions 记录 GoNavi 对各可选 driver-agent 包装逻辑的兼容版本。
@@ -113,7 +113,7 @@ func normalizeRuntimeDriverType(driverType string) string {
 	case "pulsar", "apache-pulsar", "apache_pulsar":
 		return "pulsar"
 	default:
-		return normalized
+		return registryRuntimeDriverType(normalized)
 	}
 }
 
@@ -190,6 +190,9 @@ func driverDisplayName(driverType string) string {
 	case "pulsar":
 		return "Pulsar"
 	default:
+		if name, ok := registryDriverDisplayName(driverType); ok {
+			return name
+		}
 		return strings.ToUpper(strings.TrimSpace(driverType))
 	}
 }

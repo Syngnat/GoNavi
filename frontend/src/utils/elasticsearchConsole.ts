@@ -1,4 +1,5 @@
 import { resolveConnectionDriverType } from './connectionDriverType';
+import { isElasticsearchFamilyType } from './elasticsearchFamily';
 
 export type ElasticsearchConnectionLike = {
   type?: unknown;
@@ -461,12 +462,12 @@ export const isElasticsearchConnection = (
   connection: ElasticsearchConnectionLike | string | null | undefined,
 ): boolean => {
   if (typeof connection === 'string') {
-    return resolveConnectionDriverType(connection) === 'elasticsearch';
+    return isElasticsearchFamilyType(resolveConnectionDriverType(connection));
   }
-  return resolveConnectionDriverType(
+  return isElasticsearchFamilyType(resolveConnectionDriverType(
     String(connection?.type || ''),
     String(connection?.driver || ''),
-  ) === 'elasticsearch';
+  ));
 };
 
 export const splitElasticsearchConsoleRequests = (

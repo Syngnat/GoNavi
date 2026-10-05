@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +7,7 @@ import {
   createSidebarTreePanelFreeze,
 } from './sidebarTreePanelFreeze';
 import { readV2ThemeCss } from '../test/readV2ThemeCss';
+import { readCssWithImports } from '../test/readCssWithImports';
 
 type ResizeCallback = (entries: Array<{ contentRect: { width: number; height: number } }>) => void;
 
@@ -120,7 +120,7 @@ describe('sidebar tree panel freeze', () => {
   });
 
   it('lets the frozen size override the explorer inline flex size with non-inherited variables', () => {
-    const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
+    const appCss = readCssWithImports(new URL('../App.css', import.meta.url));
     const frozenRule = appCss.match(/\[data-sidebar-tree-panel-frozen='true'\]\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(frozenRule).toContain('flex: 0 0 var(--gonavi-sidebar-tree-panel-frozen-width) !important;');
@@ -131,7 +131,7 @@ describe('sidebar tree panel freeze', () => {
   });
 
   it('hides the collapsed explorer through visibility only for the fixed rail', () => {
-    const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
+    const appCss = readCssWithImports(new URL('../App.css', import.meta.url));
     const hiddenRule = appCss.match(
       /\.ant-layout-sider\[data-sidebar-collapsed='true'\]([^{\s]*) \[data-sidebar-tree-panel='true'\]\s*\{([^}]*)\}/,
     );

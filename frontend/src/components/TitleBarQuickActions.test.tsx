@@ -1,11 +1,11 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { create, type ReactTestInstance } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 import TitleBarQuickActions from './TitleBarQuickActions';
+import { readCssWithImports } from '../test/readCssWithImports';
 
-const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
+const appCss = readCssWithImports(new URL('../App.css', import.meta.url));
 const getCssRuleBody = (selector: string) => {
   const match = appCss.match(new RegExp(`${selector}\\s*\\{(?<body>[^}]*)\\}`, 's'));
   expect(match, `Missing CSS rule for ${selector}`).not.toBeNull();

@@ -1,15 +1,9 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { readCssWithImports } from '../test/readCssWithImports';
 
-const readWorkbenchCss = (): string => readFileSync(
-  new URL('../styles/v2-theme-workbench.css', import.meta.url),
-  'utf8',
-);
+const readWorkbenchCss = (): string => readCssWithImports(new URL('../styles/v2-theme-workbench.css', import.meta.url));
 
-const readV2ThemeCss = (): string => readFileSync(
-  new URL('../v2-theme.css', import.meta.url),
-  'utf8',
-);
+const readV2ThemeCss = (): string => readCssWithImports(new URL('../v2-theme.css', import.meta.url));
 
 const readSection = (css: string, startMarker: string, endMarker: string): string => {
   const start = css.indexOf(startMarker);

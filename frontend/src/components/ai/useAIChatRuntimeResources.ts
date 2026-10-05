@@ -6,14 +6,21 @@ import type {
   AISkillConfig,
   AIUserPromptSettings,
 } from '../../types';
-import type { AIComposerNotice, AIComposerNoticeAction } from '../../utils/aiComposerNotice';
-import { buildModelFetchFailedNotice } from '../../utils/aiComposerNotice';
+import type { AIComposerNotice, AIComposerNoticeAction, AIComposerNoticeTranslator } from '../../utils/aiComposerNotice';
+import { buildBuiltinLoginFailedNotice, buildBuiltinLoginPendingNotice, buildModelFetchFailedNotice } from '../../utils/aiComposerNotice';
 import { parseModelContextProfile, type AIModelContextProfile } from '../../utils/aiChatRuntime';
 import { parseCLIModelCatalog, type CLIModelCatalog } from '../../utils/aiProviderManagement';
 import { isLocalCLISubscriptionProvider } from '../../utils/aiProviderPresets';
 import { readCachedCLIModelCatalog, writeCachedCLIModelCatalog } from './cliModelCatalogCache';
+import {
+  notifyAIProviderChanged,
+  openBuiltinAIVerificationURL,
+  runBuiltinAILogin,
+  type BuiltinAILoginService,
+} from './builtinAILogin';
+import { requestBuiltinAITerms } from './builtinTerms/builtinAITermsStore';
 
-interface AIChatRuntimeService {
+interface AIChatRuntimeService extends BuiltinAILoginService {
   AIGetProviders?: () => Promise<AIProviderConfig[]>;
   AIGetActiveProvider?: () => Promise<string>;
   AIGetUserPromptSettings?: () => Promise<Partial<AIUserPromptSettings>>;
@@ -37,6 +44,7 @@ export interface CLIThinkingCapability {
 
 interface UseAIChatRuntimeResourcesOptions {
   onOpenSettings?: (providerId?: string) => void;
+  translate?: AIComposerNoticeTranslator;
 }
 
 export const EMPTY_AI_USER_PROMPT_SETTINGS: AIUserPromptSettings = {
@@ -48,6 +56,7 @@ export const EMPTY_AI_USER_PROMPT_SETTINGS: AIUserPromptSettings = {
 
 export const useAIChatRuntimeResources = ({
   onOpenSettings,
+  translate,
 }: UseAIChatRuntimeResourcesOptions) => {
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
   const [activeProvider, setActiveProvider] = useState<AIProviderConfig | null>(null);
@@ -83,6 +92,8 @@ export const useAIChatRuntimeResources = ({
         setActiveProvider(null);
         return;
       }
+      // The backend returns the built-in provider already complete (address,
+      // model) with hasSecret reflecting this device's login: no patching here.
       const [providers, activeProviderId] = await Promise.all([
         service.AIGetProviders?.(),
         service.AIGetActiveProvider?.(),
@@ -372,15 +383,54 @@ export const useAIChatRuntimeResources = ({
     }, 500);
   }, [loadActiveProvider, onOpenSettings]);
 
+  const handleBuiltinLogin = useCallback(async () => {
+    const service = getAIService();
+    if (!service) return;
+    setComposerNotice(null);
+    const outcome = await runBuiltinAILogin(service, {
+      openURL: openBuiltinAIVerificationURL,
+      requireTerms: () => requestBuiltinAITerms(),
+      // While the browser is open, show the code to compare with the page.
+      onPending: ({ userCode }) => setComposerNotice(buildBuiltinLoginPendingNotice(translate, userCode)),
+    });
+    switch (outcome.kind) {
+      case 'ready':
+      case 'authorized':
+        setComposerNotice(null);
+        // The provider-changed listener re-reads the provider list.
+        notifyAIProviderChanged();
+        break;
+      case 'cancelled':
+        setComposerNotice(null);
+        break;
+      case 'retry':
+        setComposerNotice(buildBuiltinLoginFailedNotice(translate, outcome.status.message));
+        break;
+      case 'failed':
+        setComposerNotice(buildBuiltinLoginFailedNotice(translate, outcome.message));
+        break;
+      case 'timeout':
+      case 'unavailable':
+        setComposerNotice(buildBuiltinLoginFailedNotice(translate));
+        break;
+      default:
+        break;
+    }
+  }, [getAIService, translate]);
+
   const handleComposerAction = useCallback((actionKey: AIComposerNoticeAction) => {
     if (actionKey === 'open-settings') {
       handleOpenSettingsFromPanel();
       return;
     }
+    if (actionKey === 'builtin-login') {
+      void handleBuiltinLogin();
+      return;
+    }
     if (actionKey === 'reload-models') {
       void fetchDynamicModels();
     }
-  }, [fetchDynamicModels, handleOpenSettingsFromPanel]);
+  }, [fetchDynamicModels, handleBuiltinLogin, handleOpenSettingsFromPanel]);
 
   return {
     activeProvider,

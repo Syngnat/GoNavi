@@ -648,6 +648,8 @@ func classifyRootEndpoint(req *Request, segments []string) bool {
 			allowRequest(req, RiskDangerous, "/_aliases", "")
 			return true
 		}
+	case "_plugins":
+		return classifyOpenSearchPluginEndpoint(req, segments)
 	}
 	return strings.HasPrefix(first, "_")
 }

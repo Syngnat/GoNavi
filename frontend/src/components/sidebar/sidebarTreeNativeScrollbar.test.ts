@@ -1,14 +1,14 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { readV2ThemeCss } from '../../test/readV2ThemeCss';
+import { readCssWithImports } from '../../test/readCssWithImports';
 
 const SHARED_SCROLLBAR_SELECTOR = 'body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar,\nbody[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar,\nbody[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar,\nbody[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar';
 const SHARED_TRACK_SELECTOR = 'body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-track,\nbody[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-track,\nbody[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-track,\nbody[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-track';
 const SHARED_HORIZONTAL_TRACK_SELECTOR = 'body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-track:horizontal,\nbody[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-track:horizontal,\nbody[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-track:horizontal,\nbody[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder::-webkit-scrollbar-track:horizontal';
 
 const readAppCss = (): string => (
-  readFileSync(new URL('../../App.css', import.meta.url), 'utf8')
+  readCssWithImports(new URL('../../App.css', import.meta.url))
 );
 
 const readCssRuleBlock = (css: string, selector: string): string => {

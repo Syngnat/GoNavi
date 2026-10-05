@@ -1,0 +1,461 @@
+/* ─── V2 DataGrid: toolbar, smart filters, table, statusbar ─ */
+body[data-ui-version="v2"] .gn-v2-data-viewer {
+  background: var(--gn-bg-panel);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid {
+  padding: 0 !important;
+  background: var(--gn-bg-panel) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-frame {
+  margin: 0 !important;
+  border-width: 0 0 0.5px !important;
+  border-color: var(--gn-br-1) !important;
+  border-radius: 0 !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll {
+  --gn-toolbar-action-fg: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-toolbar-button-fg)));
+  --gn-toolbar-action-bg: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-toolbar-button-bg)));
+  --gn-toolbar-action-border: var(--gn-client-result-toolbar-button-border, var(--gn-result-toolbar-button-border, var(--gn-toolbar-button-border)));
+  --gn-toolbar-action-hover-fg: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-toolbar-button-hover-fg)));
+  --gn-toolbar-action-hover-bg: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, var(--gn-toolbar-button-hover-bg)));
+  --gn-toolbar-action-hover-border: var(--gn-client-result-toolbar-button-hover-border, var(--gn-result-toolbar-button-hover-border, var(--gn-toolbar-button-hover-border)));
+  --gn-toolbar-action-active-fg: var(--gn-client-result-toolbar-button-active-fg, var(--gn-result-toolbar-button-active-fg, var(--gn-toolbar-button-active-fg)));
+  --gn-toolbar-action-active-bg: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, var(--gn-toolbar-button-active-bg)));
+  --gn-toolbar-action-active-border: var(--gn-client-result-toolbar-button-active-border, var(--gn-result-toolbar-button-active-border, var(--gn-toolbar-button-active-border)));
+  --gn-toolbar-action-disabled-fg: var(--gn-client-result-toolbar-button-disabled-fg, var(--gn-result-toolbar-button-disabled-fg, var(--gn-toolbar-button-disabled-fg)));
+  --gn-toolbar-action-disabled-bg: var(--gn-client-result-toolbar-button-disabled-bg, var(--gn-result-toolbar-button-disabled-bg, var(--gn-toolbar-button-disabled-bg)));
+  --gn-toolbar-action-disabled-border: var(--gn-client-result-toolbar-button-disabled-border, var(--gn-result-toolbar-button-disabled-border, var(--gn-toolbar-button-disabled-border)));
+  --gn-toolbar-action-primary-fg: var(--gn-client-result-toolbar-primary-fg, var(--gn-result-toolbar-primary-fg, var(--gn-toolbar-primary-fg)));
+  --gn-toolbar-action-primary-bg: var(--gn-client-result-toolbar-primary-bg, var(--gn-result-toolbar-primary-bg, var(--gn-toolbar-primary-bg)));
+  --gn-toolbar-action-primary-border: var(--gn-client-result-toolbar-primary-border, var(--gn-result-toolbar-primary-border, var(--gn-toolbar-primary-border)));
+  --gn-toolbar-action-primary-hover-fg: var(--gn-client-result-toolbar-primary-hover-fg, var(--gn-result-toolbar-primary-hover-fg, var(--gn-toolbar-primary-hover-fg)));
+  --gn-toolbar-action-primary-hover-bg: var(--gn-client-result-toolbar-primary-hover-bg, var(--gn-result-toolbar-primary-hover-bg, var(--gn-toolbar-primary-hover-bg)));
+  --gn-toolbar-action-primary-hover-border: var(--gn-client-result-toolbar-primary-hover-border, var(--gn-result-toolbar-primary-hover-border, var(--gn-toolbar-primary-hover-border)));
+  --gn-toolbar-action-primary-active-fg: var(--gn-client-result-toolbar-primary-active-fg, var(--gn-result-toolbar-primary-active-fg, var(--gn-toolbar-primary-active-fg)));
+  --gn-toolbar-action-primary-active-bg: var(--gn-client-result-toolbar-primary-active-bg, var(--gn-result-toolbar-primary-active-bg, var(--gn-toolbar-primary-active-bg)));
+  --gn-toolbar-action-primary-active-border: var(--gn-client-result-toolbar-primary-active-border, var(--gn-result-toolbar-primary-active-border, var(--gn-toolbar-primary-active-border)));
+  --gn-toolbar-action-primary-disabled-fg: var(--gn-client-result-toolbar-primary-disabled-fg, var(--gn-result-toolbar-primary-disabled-fg, var(--gn-toolbar-primary-disabled-fg)));
+  --gn-toolbar-action-primary-disabled-bg: var(--gn-client-result-toolbar-primary-disabled-bg, var(--gn-result-toolbar-primary-disabled-bg, var(--gn-toolbar-primary-disabled-bg)));
+  --gn-toolbar-action-primary-disabled-border: var(--gn-client-result-toolbar-primary-disabled-border, var(--gn-result-toolbar-primary-disabled-border, var(--gn-toolbar-primary-disabled-border)));
+  min-height: 44px;
+  padding: 7px 12px !important;
+  gap: 4px !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn {
+  height: 28px !important;
+  border-radius: 7px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-toolbar-action-fg) !important;
+  background: var(--gn-toolbar-action-bg) !important;
+  border-color: var(--gn-toolbar-action-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled):hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-toolbar-action-hover-fg) !important;
+  background: var(--gn-toolbar-action-hover-bg) !important;
+  border-color: var(--gn-toolbar-action-hover-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled):active,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled)[aria-expanded="true"] {
+  color: var(--gn-toolbar-action-active-fg) !important;
+  background: var(--gn-toolbar-action-active-bg) !important;
+  border-color: var(--gn-toolbar-action-active-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:disabled,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-disabled {
+  color: var(--gn-toolbar-action-disabled-fg) !important;
+  background: var(--gn-toolbar-action-disabled-bg) !important;
+  border-color: var(--gn-toolbar-action-disabled-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-danger))) !important;
+  background: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-toolbar-action-bg))) !important;
+  border-color: var(--gn-client-result-toolbar-button-border, var(--gn-result-toolbar-button-border, var(--gn-toolbar-action-border))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-danger))) !important;
+  background: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, var(--gn-toolbar-action-hover-bg))) !important;
+  border-color: var(--gn-client-result-toolbar-button-hover-border, var(--gn-result-toolbar-button-hover-border, var(--gn-toolbar-action-hover-border))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):active {
+  color: var(--gn-client-result-toolbar-button-active-fg, var(--gn-result-toolbar-button-active-fg, var(--gn-danger))) !important;
+  background: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, var(--gn-toolbar-action-active-bg))) !important;
+  border-color: var(--gn-client-result-toolbar-button-active-border, var(--gn-result-toolbar-button-active-border, var(--gn-toolbar-action-active-border))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-toolbar-action-primary-fg) !important;
+  background: var(--gn-toolbar-action-primary-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled):hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-toolbar-action-primary-hover-fg) !important;
+  background: var(--gn-toolbar-action-primary-hover-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-hover-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled):active {
+  color: var(--gn-toolbar-action-primary-active-fg) !important;
+  background: var(--gn-toolbar-action-primary-active-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-active-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.gn-v2-commit-button):disabled,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.gn-v2-commit-button).ant-btn-disabled {
+  color: var(--gn-toolbar-action-primary-disabled-fg) !important;
+  background: var(--gn-toolbar-action-primary-disabled-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-disabled-border) !important;
+}
+
+/* 工具栏图标统一大小：随主题字号缩放（默认 14px 字号下为 17px），
+   SQL 编辑器、数据预览上下工具栏共用，不再各自写死。 */
+body[data-ui-version="v2"] {
+  --gn-toolbar-icon-size: calc(var(--gn-font-size, 14px) * 17 / 14);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn .anticon,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn .anticon svg {
+  font-size: var(--gn-toolbar-icon-size);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn .ant-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-data-grid-toolbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  min-width: 28px !important;
+  padding-inline: 0 !important;
+  flex: 0 0 28px;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-data-grid-toolbar-menu-trigger {
+  display: inline-flex;
+  width: 28px;
+  min-width: 28px;
+  flex: 0 0 28px;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  max-width: 460px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-title .gn-v2-data-grid-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono);
+  font-size: 13.5px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-title small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version="v2"] .gn-v2-toolbar-divider {
+  flex: 0 0 1px;
+  height: 20px !important;
+  margin: 0 8px !important;
+  background: var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-toolbar-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: 4px;
+  background: var(--gn-bg-input);
+  color: inherit;
+  font-family: var(--gn-font-mono);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 18px;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button {
+  border-color: var(--gn-client-result-toolbar-primary-border, var(--gn-result-toolbar-primary-border, var(--gn-accent-2))) !important;
+  background: var(--gn-client-result-toolbar-primary-bg, var(--gn-result-toolbar-primary-bg, var(--gn-accent))) !important;
+  color: var(--gn-client-result-toolbar-primary-fg, var(--gn-result-toolbar-primary-fg, var(--gn-on-accent, #fff))) !important;
+  font-weight: 750 !important;
+}
+
+/* hover/focus 与 active 必须用不同的派生色：原先两者都取 --gn-accent-2，
+   而 accent-2 是 accent 的近邻色（内置主题强调色刻意低饱和），
+   实测 base→hover 对比度仅 1.05–1.29，Deep Ocean 的 accent-2 甚至比 accent 更亮，
+   导致"有待提交变更"这一关键状态的交互反馈几乎不可见。
+   --gn-accent-hover / --gn-accent-active 由 customThemePresets 按固定比例向面板底色派生，
+   回退值保留 accent-2 以兼容未提供这两个 token 的旧自定义主题。 */
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:focus,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:focus-visible {
+  border-color: var(--gn-client-result-toolbar-primary-hover-border, var(--gn-result-toolbar-primary-hover-border, var(--gn-accent-hover, var(--gn-accent-2)))) !important;
+  background: var(--gn-client-result-toolbar-primary-hover-bg, var(--gn-result-toolbar-primary-hover-bg, var(--gn-accent-hover, var(--gn-accent-2)))) !important;
+  color: var(--gn-client-result-toolbar-primary-hover-fg, var(--gn-result-toolbar-primary-hover-fg, var(--gn-on-accent, #fff))) !important;
+  box-shadow: var(--gn-shadow-sm), inset 0 0.5px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:active {
+  border-color: var(--gn-client-result-toolbar-primary-active-border, var(--gn-result-toolbar-primary-active-border, var(--gn-accent-active, var(--gn-accent-2)))) !important;
+  background: var(--gn-client-result-toolbar-primary-active-bg, var(--gn-result-toolbar-primary-active-bg, var(--gn-accent-active, var(--gn-accent-2)))) !important;
+  color: var(--gn-client-result-toolbar-primary-active-fg, var(--gn-result-toolbar-primary-active-fg, var(--gn-on-accent, #fff))) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button.ant-btn-disabled {
+  opacity: 1;
+  border-color: var(--gn-client-result-toolbar-primary-disabled-border, var(--gn-result-toolbar-primary-disabled-border, var(--gn-br-2))) !important;
+  background: var(--gn-client-result-toolbar-primary-disabled-bg, var(--gn-result-toolbar-primary-disabled-bg, var(--gn-bg-active))) !important;
+  color: var(--gn-client-result-toolbar-primary-disabled-fg, var(--gn-result-toolbar-primary-disabled-fg, var(--gn-fg-5))) !important;
+  box-shadow: none !important;
+}
+
+/* 待提交条数徽标：底色改用白色半透明叠加、文字改用 on-accent。
+   原先底是硬编码的 rgba(22,163,74,.18)、文字是 --gn-accent-2，
+   而按钮底色是 --gn-accent —— 三者几乎同色（实测对比度仅 1.10–1.17），
+   静止状态下数字完全看不见，只有 hover 把按钮压暗后才显现。 */
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button .gn-v2-toolbar-kbd {
+  border: none;
+  background: var(--gn-accent-badge-bg, rgba(255, 255, 255, 0.35));
+  color: var(--gn-on-accent, #17130a);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:hover .gn-v2-toolbar-kbd,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:focus-visible .gn-v2-toolbar-kbd,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:active .gn-v2-toolbar-kbd {
+  background: var(--gn-accent-badge-bg, rgba(255, 255, 255, 0.42));
+  color: var(--gn-on-accent, #17130a);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button {
+  border-color: var(--gn-client-result-toolbar-button-border, var(--gn-result-toolbar-button-border, transparent)) !important;
+  background: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-info-soft))) !important;
+  color: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-info))) !important;
+  font-weight: 750 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:focus-visible {
+  border-color: var(--gn-client-result-toolbar-button-hover-border, var(--gn-result-toolbar-button-hover-border, transparent)) !important;
+  background: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, color-mix(in srgb, var(--gn-info-soft) 96%, var(--gn-info) 4%))) !important;
+  color: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-info))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:active {
+  border-color: var(--gn-client-result-toolbar-button-active-border, var(--gn-result-toolbar-button-active-border, transparent)) !important;
+  background: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, color-mix(in srgb, var(--gn-info-soft) 90%, var(--gn-info) 10%))) !important;
+  color: var(--gn-client-result-toolbar-button-active-fg, var(--gn-result-toolbar-button-active-fg, var(--gn-info))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button .gn-v2-toolbar-kbd {
+  border: none;
+  background: var(--gn-bg-input);
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide {
+  border-color: var(--gn-toolbar-action-border) !important;
+  background: var(--gn-toolbar-action-bg) !important;
+  color: var(--gn-toolbar-action-fg) !important;
+  font-weight: 650 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:focus-visible {
+  border-color: var(--gn-toolbar-action-hover-border) !important;
+  background: var(--gn-toolbar-action-hover-bg) !important;
+  color: var(--gn-toolbar-action-hover-fg) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:active {
+  border-color: var(--gn-toolbar-action-active-border) !important;
+  background: var(--gn-toolbar-action-active-bg) !important;
+  color: var(--gn-toolbar-action-active-fg) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel {
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+  border-top: 0.5px solid var(--gn-br-1);
+  font-size: var(--gn-font-size, 14px);
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"] {
+  min-height: 38px;
+  padding-inline: 0 !important;
+  margin-bottom: 8px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+/* Keep manual query entry aligned with the condition checkbox and compact on wide screens. */
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .gn-v2-smart-filter-manual-input {
+  flex: 1 1 360px !important;
+  max-width: 680px !important;
+}
+
+/* Filter controls stay on the result workbench surface instead of the global input well. */
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-textarea,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-select-selector {
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper > input.ant-input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"],
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where-input="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-btn,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-textarea,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-textarea textarea,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-select,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-select-selector,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-select-selection-item,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-select-selection-placeholder,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-checkbox-wrapper {
+  font-size: var(--gn-font-size-sm, 12px) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"] .ant-input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"] .ant-input-affix-wrapper,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"] .ant-input-affix-wrapper input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where-input="true"] {
+  font-size: var(--gn-font-size, 14px) !important;
+  line-height: 1.35 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-table-shell {
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-table-wrap {
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2));
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-container,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-content,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-tbody-virtual-holder,
+body[data-ui-version="v2"] .gn-v2-data-grid .rc-virtual-list-holder {
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead > tr > th {
+  height: 48px !important;
+  padding: 3px 8px 3px 2px !important;
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-2) !important;
+  font-family: var(--gn-font-mono) !important;
+  font-weight: 400 !important;
+  vertical-align: top !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-table-designer.is-embedded .ant-table-thead > tr > th {
+  height: var(--gn-v2-designer-header-height, 40px) !important;
+  min-height: var(--gn-v2-designer-header-height, 40px) !important;
+  padding: var(--gn-v2-designer-header-padding, 0 8px 0 2px) !important;
+  color: var(--gn-fg-3) !important;
+  font-family: inherit !important;
+  font-size: var(--gn-v2-designer-content-font-size, 12px) !important;
+  font-weight: 600 !important;
+  vertical-align: middle !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-table-designer.is-embedded .ant-table-thead .ant-table-column-title {
+  min-height: var(--gn-v2-designer-header-height, 40px) !important;
+  color: inherit !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: 600 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-table-designer.is-embedded .ant-table-thead .ant-table-column-sorters {
+  min-height: var(--gn-v2-designer-header-height, 40px) !important;
+  align-items: center !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead .ant-table-column-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--gn-data-table-font-size, var(--gn-font-size-mono, 12px));
+  font-weight: 400 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead .ant-table-column-sorters {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  min-height: 0 !important;
+  align-items: flex-start !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead .ant-table-column-sorter {
+  flex: 0 0 auto;
+}
+

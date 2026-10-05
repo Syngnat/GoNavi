@@ -1,6 +1,16 @@
+import {
+  canonicalizeDataSourceType,
+  getDataSourceSpec,
+  isDataSourceFamily,
+  isRegistryDataSource,
+  listDataSourceSpecs,
+  listDataSourceTypesWhere,
+} from "./dataSourceRegistry";
+
 export const PRIMARY_USERNAME_OPTIONAL_TYPES = new Set([
   "redis", "mongodb", "elasticsearch", "chroma", "qdrant", "milvus", "nacos",
   "rocketmq", "mqtt", "kafka", "rabbitmq", "pulsar",
+  ...listDataSourceTypesWhere((spec) => Boolean(spec.ui?.usernameOptional)),
 ]);
 
 export const singleHostUriSchemesByType: Record<string, string[]> = {
@@ -29,6 +39,11 @@ export const singleHostUriSchemesByType: Record<string, string[]> = {
   rabbitmq: ["rabbitmq", "http", "https"],
   pulsar: ["pulsar", "pulsar+ssl"],
   nacos: ["http", "https", "nacos"],
+  ...Object.fromEntries(
+    listDataSourceSpecs()
+      .filter((spec) => (spec.ui?.uriSchemes?.length ?? 0) > 0)
+      .map((spec) => [spec.type, spec.ui?.uriSchemes ?? []]),
+  ),
 };
 
 const normalizeConnectionType = (type: string) =>
@@ -53,7 +68,7 @@ const normalizeConnectionType = (type: string) =>
       case "apache_pulsar":
         return "pulsar";
       default:
-        return normalized;
+        return canonicalizeDataSourceType(normalized);
     }
   };
 
@@ -89,6 +104,7 @@ const sslSupportedTypes = new Set([
   "rabbitmq",
   "pulsar",
   "nacos",
+  ...listDataSourceTypesWhere((spec) => Boolean(spec.ui?.ssl)),
 ]);
 
 export const supportsSSLForType = (type: string) =>
@@ -121,6 +137,7 @@ const sslCAPathSupportedTypes = new Set([
   "kafka",
   "rabbitmq",
   "pulsar",
+  ...listDataSourceTypesWhere((spec) => Boolean(spec.ui?.sslCAPath)),
 ]);
 
 const sslClientCertificateSupportedTypes = new Set([
@@ -146,6 +163,7 @@ const sslClientCertificateSupportedTypes = new Set([
   "kafka",
   "rabbitmq",
   "pulsar",
+  ...listDataSourceTypesWhere((spec) => Boolean(spec.ui?.sslClientCert)),
 ]);
 
 export const supportsSSLCAPathForType = (type: string) =>
@@ -162,7 +180,7 @@ export const isPostgresCompatibleSSLType = (type: string) =>
     "vastbase",
     "opengauss",
     "gaussdb",
-  ].includes(normalizeConnectionType(type));
+  ].includes(normalizeConnectionType(type)) || isDataSourceFamily(type, "postgres");
 
 export const isFileDatabaseType = (type: string) =>
   type === "sqlite" || type === "duckdb";
@@ -175,7 +193,8 @@ export const isMySQLCompatibleType = (type: string) =>
   normalizeConnectionType(type) === "doris" ||
   normalizeConnectionType(type) === "diros" ||
   normalizeConnectionType(type) === "starrocks" ||
-  normalizeConnectionType(type) === "sphinx";
+  normalizeConnectionType(type) === "sphinx" ||
+  isDataSourceFamily(type, "mysql");
 
 export const supportsConnectionParamsForType = (type: string) =>
   isMySQLCompatibleType(type) ||
@@ -204,4 +223,5 @@ export const supportsConnectionParamsForType = (type: string) =>
   type === "kafka" ||
   type === "rabbitmq" ||
   type === "pulsar" ||
-  type === "nacos";
+  type === "nacos" ||
+  (isRegistryDataSource(type) && getDataSourceSpec(type)?.ui?.connectionParams !== false);

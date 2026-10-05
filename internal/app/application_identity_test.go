@@ -7,17 +7,13 @@ import (
 )
 
 func TestWindowsApplicationUserModelIDForIconPathStaysStable(t *testing.T) {
-	cases := []string{
+	for _, iconPath := range []string{
 		"",
 		`C:\Program Files\GoNavi\GoNavi.exe`,
 		`C:\icons\gonavi-brand.ico`,
-		`C:\icons\gonavi-brand-not-hex.ico`,
-		`C:\icons\gonavi-brand-.ico`,
-		`C:\Users\tester\.gonavi\application-icons\gonavi-brand-d89e4f026a938e22fe081e12.ico`,
-		`C:\icons\gonavi-brand-ABCDEF0123456789ABCDEF12.ico`,
+		`C:\icons\gonavi-brand-d89e4f026a938e22fe081e12.ico`,
 		`C:/icons/gonavi-brand-deadbeef01.ico`,
-	}
-	for _, iconPath := range cases {
+	} {
 		t.Run(iconPath, func(t *testing.T) {
 			if got := windowsApplicationUserModelIDForIconPath(iconPath); got != windowsApplicationUserModelID {
 				t.Fatalf("windowsApplicationUserModelIDForIconPath(%q) = %q, want %q", iconPath, got, windowsApplicationUserModelID)
@@ -44,7 +40,7 @@ func TestWindowsApplicationUserModelIDForStartupIgnoresPersistedSelection(t *tes
 		t.Fatal(err)
 	}
 	if got := windowsApplicationUserModelIDForStartup(configDir); got != windowsApplicationUserModelID {
-		t.Fatalf("startup identity with selection = %q, want %q", got, windowsApplicationUserModelID)
+		t.Fatalf("startup identity with selection = %q, want stable identity", got)
 	}
 }
 

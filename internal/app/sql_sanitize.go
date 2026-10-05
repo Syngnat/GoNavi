@@ -1,6 +1,7 @@
 package app
 
 import (
+	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/esconsole"
 	"strings"
 	"unicode"
@@ -365,6 +366,10 @@ func normalizeSQLClassifierDBType(dbType string) string {
 	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
 		return "iris"
 	default:
+		// 描述表类型按借用方言分类（TiDB → mysql、OpenSearch → elasticsearch），与 resolveDDLDBType 一致。
+		if dialect, ok := registryDDLDialect(normalized); ok {
+			return dialect
+		}
 		return normalized
 	}
 }
@@ -461,6 +466,21 @@ func isReadOnlySQLQuery(dbType string, query string) bool {
 	case "elasticsearch":
 		batch, err := esconsole.ParseSource(query, "gonavi-default-index")
 		return err == nil && !batch.Blocked && !batch.ContainsWrite && !batch.ContainsScript
+	case "weaviate":
+		return db.IsWeaviateReadCommand(query)
+	case "meilisearch":
+		return db.IsMeilisearchReadCommand(query)
+	case "typesense":
+		return db.IsTypesenseReadCommand(query)
+	case "etcd":
+		return db.IsEtcdReadCommand(query)
+	case "zookeeper":
+		return db.IsZooKeeperReadCommand(query)
+	case "influxdb":
+		// Flux 按 to() 判写；InfluxQL 与 3.x 的 SQL 继续走下面的通用规则（SELECT ... INTO 视为写）。
+		if db.IsInfluxFluxQuery(query) {
+			return !db.InfluxFluxQueryWrites(query)
+		}
 	}
 	if hasExecutableSQLComment(dbType, query) {
 		return false

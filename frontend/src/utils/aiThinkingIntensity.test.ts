@@ -83,6 +83,23 @@ describe('aiThinkingIntensity', () => {
     expect(control.defaultValue).toBe('high');
   });
 
+  it('offers no thinking levels for the hosted SQL model, which has no reasoning mode', () => {
+    const byId = resolveProviderThinkingIntensityControl({
+      id: 'gonavi-ai', type: 'custom', authMode: 'bearer', apiFormat: 'openai', model: 'gonavi-sql',
+    });
+    expect(byId.options).toEqual([]);
+    expect(byId.defaultValue).toBe('');
+    // A legacy record under a random id is still recognized by its model.
+    const byModel = resolveProviderThinkingIntensityControl({
+      type: 'custom', authMode: 'bearer', apiFormat: 'openai', model: 'gonavi-sql',
+    });
+    expect(byModel.options).toEqual([]);
+    // Other OpenAI-compatible providers keep their levels.
+    expect(resolveProviderThinkingIntensityControl({
+      type: 'custom', authMode: 'bearer', apiFormat: 'openai', model: 'gpt-5',
+    }).options.length).toBeGreaterThan(1);
+  });
+
   it('uses Cursor catalog suffixes as the effort selector', () => {
     const control = resolveProviderThinkingIntensityControl({
       type: 'custom', authMode: 'local-cli', apiFormat: 'cursor-cli', model: 'cursor-grok-4.6-xhigh',

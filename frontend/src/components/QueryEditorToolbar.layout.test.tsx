@@ -336,7 +336,10 @@ describe('QueryEditorToolbar layout', () => {
   it('keeps live and completed execution time at the editor bottom-left', () => {
     const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
     const timerSource = readFileSync(new URL('./queryEditor/queryEditorExecutionTimer.ts', import.meta.url), 'utf8');
-    const editorSource = readFileSync(new URL('./QueryEditor.tsx', import.meta.url), 'utf8');
+    // 计时状态在 useQueryEditorCoreState，状态栏在 QueryEditorEditorPane，结果区在 QueryEditorResultsArea
+    const editorSource = ['QueryEditor.tsx', 'queryEditor/hooks/useQueryEditorCoreState.ts', 'queryEditor/QueryEditorEditorPane.tsx', 'queryEditor/QueryEditorResultsArea.tsx']
+      .map((file) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8'))
+      .join('\n');
     const css = readV2ThemeCss();
     const statusbarCss = css.slice(
       css.indexOf('.gn-query-execution-statusbar {'),
@@ -473,7 +476,8 @@ describe('QueryEditorToolbar layout', () => {
 
   it('uses the table context-menu visual grammar for every v2 action popup', () => {
     const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
-    const queryEditorSource = readFileSync(new URL('./QueryEditor.tsx', import.meta.url), 'utf8');
+    // Monaco 右键菜单装饰在挂载 hook 中注册
+    const queryEditorSource = readFileSync(new URL('./queryEditor/hooks/useQueryEditorMonacoMount.ts', import.meta.url), 'utf8');
     const sharedPopupSource = readFileSync(new URL('./common/V2ActionMenuPopup.tsx', import.meta.url), 'utf8');
     const css = readV2ThemeCss();
 
@@ -508,7 +512,8 @@ describe('QueryEditorToolbar layout', () => {
   });
 
   it('uses distinct case icons for keyword case actions', () => {
-    const queryEditorSource = readFileSync(new URL('./QueryEditor.tsx', import.meta.url), 'utf8');
+    // 格式化菜单在 useQueryEditorFormatting 中构建
+    const queryEditorSource = readFileSync(new URL('./queryEditor/hooks/useQueryEditorFormatting.tsx', import.meta.url), 'utf8');
     const css = readV2ThemeCss();
     const caseIconCss = css.match(/\.gn-query-format-case-icon \{[\s\S]*?\}/)?.[0] || '';
     expect(queryEditorSource).toContain('gn-query-format-case-icon-upper');

@@ -81,12 +81,12 @@ func TestLocalDriverImportErrorsUseI18nWrappers(t *testing.T) {
 		"(*App) InstallLocalDriverPackage",
 		"installOptionalDriverAgentFromLocalPath",
 		"resolveLocalDriverAgentFromLocalDirectory",
-		"installOptionalDriverAgentFromLocalZip",
+		"installOptionalDriverAgentFromLocalArchive",
 		"writeInstalledDriverPackage",
 		"hashFileSHA256",
 		"extractZipFileToPath",
 		"copyOptionalDriverSupportFilesFromDirectory",
-		"extractOptionalDriverSupportFilesFromZip",
+		"extractOptionalDriverSupportFilesFromArchive",
 	}
 	functionSource := ""
 	for _, name := range functionNames {

@@ -47,14 +47,26 @@ func TestBuiltinLikeDriversRemainAvailable(t *testing.T) {
 		t.Fatalf("redis 应始终可用，reason=%s", reason)
 	}
 
-	supported, reason = DriverRuntimeSupportStatus("kafka")
+	supported, reason = DriverRuntimeSupportStatus("mqtt")
 	if !supported {
-		t.Fatalf("kafka 应始终可用，reason=%s", reason)
+		t.Fatalf("mqtt 应始终可用，reason=%s", reason)
 	}
 
 	supported, reason = DriverRuntimeSupportStatus("goldendb")
 	if !supported {
 		t.Fatalf("goldendb 应始终可用，reason=%s", reason)
+	}
+}
+
+func TestMessageQueueDriversRequireInstalledAgent(t *testing.T) {
+	SetExternalDriverDownloadDirectory(t.TempDir())
+	for _, driver := range []string{"kafka", "rocketmq", "pulsar"} {
+		if !IsOptionalGoDriver(driver) || IsBuiltinDriver(driver) {
+			t.Fatalf("%s 应为按需下载的驱动代理", driver)
+		}
+		if supported, _ := DriverRuntimeSupportStatus(driver); supported {
+			t.Fatalf("%s 未安装驱动代理时不应可用", driver)
+		}
 	}
 }
 

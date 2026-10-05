@@ -422,6 +422,12 @@ func (a *App) executeElasticsearchConsoleRequest(ctx context.Context, database d
 	}
 	var incomplete bool
 	result.Rows, result.Columns, result.AffectedRows, result.PartialFailure, incomplete = projectElasticsearchConsoleResponse(response.RawBody)
+	if esconsole.IsQueryPluginRoute(request.Route) {
+		// OpenSearch SQL / PPL 的 jdbc 响应按查询结果表格展示，原始响应仍保留在 RawResponse。
+		if rows, columns, ok := esconsole.ParseJDBCResponse([]byte(response.RawBody)); ok {
+			result.Rows, result.Columns = rows, columns
+		}
+	}
 	result.OutcomeUnknown = request.IsWrite && incomplete
 	if result.PartialFailure {
 		result.Outcome = "partial"

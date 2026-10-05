@@ -21,11 +21,14 @@ import { t } from '../../i18n';
 import { DBQuery } from '../../../wailsjs/go/app/App';
 import { getCaseInsensitiveRawValue, getCaseInsensitiveValue, getMetadataDialect, splitQualifiedName, escapeSQLLiteral, parseSidebarTableRowCount } from './sidebarMetadataLoaders';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { registryAllowsImport } from '../../utils/dataSourceRegistry';
 import { isConnectionDataEditRestricted } from '../../utils/connectionReadOnly';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { resolveConnectionIconType } from '../../utils/connectionVisual';
 import { resolveSidebarTreeMetaText } from './sidebarTreeMetaText';
 import { formatSidebarRowCount } from './sidebarHelpers';
+import { resolvePgTableStatsSql } from '../../utils/dataSourceRegistry/tableStats';
+import { peekTableStatsServerVersion } from './sidebarTableStatsVersion';
 import {
   isSidebarDatabasePinned,
   isSidebarTablePinned,
@@ -191,8 +194,9 @@ export const buildV2TableStatusSQL = ({
       case 'opengauss':
       case 'gaussdb': {
           const schema = schemaName || 'public';
+          const stats = resolvePgTableStatsSql(conn?.config?.type, peekTableStatsServerVersion(conn));
           return [
-              "SELECT c.reltuples::bigint AS table_rows, pg_total_relation_size(c.oid) AS data_length, pg_indexes_size(c.oid) AS index_length, 'heap' AS engine",
+              `SELECT ${stats.rows} AS table_rows, ${stats.size} AS data_length, ${stats.indexSize} AS index_length, 'heap' AS engine`,
               'FROM pg_class c',
               'JOIN pg_namespace n ON n.oid = c.relnamespace',
               "WHERE c.relkind = 'r'",
@@ -376,6 +380,7 @@ export const useSidebarV2ContextMenu = ({
               supportsStarRocksRollup={isStarRocks}
               supportsMessagePublish={supportsMessagePublish}
               supportsBatchTables={dataSourceCapabilities.supportsSqlQueryExport}
+              supportsSqlExport={dataSourceCapabilities.supportsSqlQueryExport}
               onAction={(action) => {
                   setContextMenu(null);
                   handleV2TableContextMenuAction(node, action);
@@ -422,6 +427,7 @@ export const useSidebarV2ContextMenu = ({
               supportsRenameDatabase={capabilities.supportsRenameDatabase}
               supportsDropDatabase={capabilities.supportsDropDatabase}
               supportsBatchWorkbench={capabilities.supportsSqlQueryExport}
+              supportsRunSqlFile={registryAllowsImport((node.dataRef as SavedConnection)?.config?.type, 'sqlFile')}
               isPinned={isPinned}
               onAction={(action) => {
                   setContextMenu(null);
@@ -494,6 +500,7 @@ export const useSidebarV2ContextMenu = ({
               supportsCreateDatabase={capabilities.supportsCreateDatabase}
               supportsVisibility={supportsConnectionVisibility(conn)}
               supportsQueryEditor={capabilities.supportsQueryEditor}
+              supportsRunSqlFile={registryAllowsImport(conn?.config?.type, 'sqlFile')}
               isMessageQueue={isMessageQueue}
               supportsMessagePublish={capabilities.supportsMessagePublish}
               supportsUserManagement={capabilities.supportsUserManagement}

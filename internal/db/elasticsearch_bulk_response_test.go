@@ -1,4 +1,4 @@
-//go:build gonavi_full_drivers || gonavi_elasticsearch_driver
+//go:build gonavi_full_drivers || gonavi_elasticsearch_driver || gonavi_opensearch_driver
 
 package db
 

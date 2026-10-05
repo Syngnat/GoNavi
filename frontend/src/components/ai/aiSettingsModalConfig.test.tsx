@@ -241,6 +241,12 @@ describe('aiSettingsModalConfig', () => {
   });
 
   it('keeps the provider preset list available for the settings modal', () => {
+    expect(PROVIDER_PRESETS.find((item) => item.key === 'gonavi-ai')).toMatchObject({
+      builtIn: true,
+      requiresLogin: true,
+      readOnly: true,
+      defaultModel: 'gonavi-sql',
+    });
     expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'xiaomi-mimo')).toBe(true);
@@ -288,6 +294,10 @@ describe('aiSettingsModalConfig', () => {
     expect(localized.find((item) => item.key === 'xiaomi-mimo')).toMatchObject({
       label: 'Xiaomi MiMo',
       desc: 'MiMo-V2.5 series / OpenAI and Anthropic compatible',
+    });
+    expect(localized.find((item) => item.key === 'gonavi-ai')).toMatchObject({
+      label: 'GoNavi AI',
+      desc: 'GoNavi hosted SQL AI / sign-in required',
     });
   });
 

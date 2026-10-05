@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// zip bomb 护栏：解析侧（InspectDriverPackage）与安装侧（installOptionalDriverAgentFromLocalZip、
+// zip bomb 护栏：解析侧（InspectDriverPackage）与安装侧（installOptionalDriverAgentFromLocalArchive、
 // extractZipFileToPath）必须用同一套限值，任一入口都不能成为绕过点。
 
 func buildZipEntryFile(t *testing.T, name string, payload []byte) *zip.File {
@@ -152,7 +152,7 @@ func TestInstallOptionalDriverAgentFromLocalZipRejectsBomb(t *testing.T) {
 
 	executablePath := filepath.Join(workDir, "duckdb-driver-agent")
 	definition := driverDefinition{Type: "duckdb", Name: "DuckDB"}
-	if _, err := installOptionalDriverAgentFromLocalZip(zipPath, definition, executablePath, ""); err == nil {
+	if _, err := installOptionalDriverAgentFromLocalArchive(zipPath, definition, executablePath, ""); err == nil {
 		t.Fatal("行内导入的炸弹包应被拒绝")
 	}
 	// 拦在写盘之前：不应留下任何二进制或临时文件。

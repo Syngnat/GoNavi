@@ -26,6 +26,11 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
 }));
 
 import { useStore } from '../../store';
+import {
+  clearAIEditorSelection,
+  publishAIEditorSelection,
+  registerAIEditorSelectionRefresher,
+} from './aiEditorSelectionContext';
 import { useAIChatContextBinding } from './useAIChatContextBinding';
 
 type HarnessProps = Parameters<typeof useAIChatContextBinding>[0];
@@ -229,5 +234,69 @@ describe('useAIChatContextBinding', () => {
     await act(async () => {
       renderer!.unmount();
     });
+  });
+
+  it('reads the live editor selection when the stored copy is stale (select-all, then click)', async () => {
+    publishAIEditorSelection({ tabId: 'tab-live', connectionId: 'conn-1', dbName: 'analytics', text: 'SELECT 1' });
+    useStore.setState({ activeTabId: 'tab-live' } as any);
+    // The editor now holds the whole document, but no event delivered it.
+    registerAIEditorSelectionRefresher('tab-live', () => publishAIEditorSelection({
+      tabId: 'tab-live', connectionId: 'conn-1', dbName: 'analytics', text: 'WITH rfm AS (SELECT 1) SELECT * FROM rfm',
+    }));
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<HookHarness activeEditorSelection={{ tabId: 'tab-live', text: 'SELECT 1' }} />);
+    });
+
+    await act(async () => {
+      latestHook!.handleBindEditorSelection();
+    });
+
+    expect(addAIContextMock).toHaveBeenCalledWith('conn-1::analytics', expect.objectContaining({
+      content: 'WITH rfm AS (SELECT 1) SELECT * FROM rfm',
+    }));
+    expect(messageApi.warning).not.toHaveBeenCalled();
+    await act(async () => { renderer!.unmount(); });
+    clearAIEditorSelection('tab-live');
+  });
+
+  it('binds under the selection own connection when the sidebar has no active context', async () => {
+    const setActiveContext = vi.fn();
+    useStore.setState({ activeTabId: 'tab-own', setActiveContext } as any);
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<HookHarness
+        activeContext={null}
+        connectionKey=""
+        activeEditorSelection={{ tabId: 'tab-own', connectionId: 'conn-1', dbName: 'dbms_job', text: 'SELECT 2' }}
+      />);
+    });
+
+    await act(async () => {
+      latestHook!.handleBindEditorSelection();
+    });
+
+    expect(setActiveContext).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'dbms_job' });
+    expect(addAIContextMock).toHaveBeenCalledWith('conn-1:dbms_job', expect.objectContaining({ content: 'SELECT 2' }));
+    expect(messageApi.warning).not.toHaveBeenCalled();
+    await act(async () => { renderer!.unmount(); });
+  });
+
+  it('tells apart "nothing selected" from "no database context"', async () => {
+    useStore.setState({ activeTabId: 'tab-none' } as any);
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<HookHarness activeEditorSelection={null} />);
+    });
+    await act(async () => { latestHook!.handleBindEditorSelection(); });
+    expect(messageApi.warning).toHaveBeenLastCalledWith('Select non-empty text in the editor before binding it to AI context');
+
+    await act(async () => {
+      renderer!.update(<HookHarness activeContext={null} activeEditorSelection={{ tabId: 'tab-none', text: 'SELECT 3' }} />);
+    });
+    await act(async () => { latestHook!.handleBindEditorSelection(); });
+    expect(messageApi.warning).toHaveBeenLastCalledWith('Select a database on the left before attaching chat context');
+    expect(addAIContextMock).not.toHaveBeenCalled();
+    await act(async () => { renderer!.unmount(); });
   });
 });

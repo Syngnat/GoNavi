@@ -19,6 +19,7 @@ import {
   DEFAULT_AI_RUN_RUNTIME_CONFIG,
   normalizeAIRunPolicySnapshot,
 } from './aiRunPolicy';
+import { recordPublishedWorkspaceSnapshot } from './aiWorkspaceSnapshotMeasure';
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const MAX_DRAFT_CHARS = 20_000;
@@ -248,6 +249,7 @@ export const useAIWorkspaceSnapshot = ({
         sourceIDRef.current,
         sourceInstanceID,
       );
+      recordPublishedWorkspaceSnapshot(latestSnapshotRef.current);
     }
     const snapshot = latestSnapshotRef.current;
     if (!snapshot) return;

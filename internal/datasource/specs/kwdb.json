@@ -1,0 +1,80 @@
+{
+  "type": "kwdb",
+  "aliases": [
+    "kaiwudb"
+  ],
+  "displayName": "KWDB",
+  "group": "domestic",
+  "order": 30,
+  "defaultPort": 26257,
+  "wire": "postgres",
+  "dialect": "kwdb",
+  "ddlDialect": "postgres",
+  "family": "postgres",
+  "objectKind": "table",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT version() AS version",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_kwdb_driver",
+    "goModule": "github.com/lib/pq",
+    "version": "1.11.1",
+    "sourcePrefixes": [
+      "kwdb",
+      "registry",
+      "cockroachdb",
+      "postgres",
+      "pg"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v2",
+        "label": "KWDB 2.x",
+        "descriptionKey": "datasource.variant.kwdb.v2",
+        "maxServer": "3.0"
+      },
+      {
+        "id": "v3",
+        "label": "KWDB 3.x +",
+        "descriptionKey": "datasource.variant.kwdb.v3",
+        "minServer": "3.0"
+      }
+    ]
+  },
+  "ui": {
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "uriSchemes": [
+      "kwdb",
+      "kaiwudb",
+      "postgresql",
+      "postgres"
+    ],
+    "hint": "Relational + time-series / PostgreSQL wire",
+    "icon": {
+      "color": "#1B5BD1",
+      "text": "KW",
+      "scale": 0.72
+    },
+    "tableStats": [
+      {
+        "rows": "(SELECT s.estimated_row_count FROM crdb_internal.table_row_statistics s WHERE s.table_id = {{oid}}::INT8)",
+        "size": "NULL::INT8",
+        "indexSize": "NULL::INT8"
+      }
+    ]
+  }
+}

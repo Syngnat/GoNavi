@@ -15,6 +15,11 @@ vi.mock('@ant-design/icons', async () => {
   return {
     FileTextOutlined: makeIcon('file-text'),
     WarningOutlined: makeIcon('warning'),
+    CheckCircleFilled: makeIcon('check'),
+    DownloadOutlined: makeIcon('download'),
+    LoadingOutlined: makeIcon('loading'),
+    MinusCircleOutlined: makeIcon('minus'),
+    ReloadOutlined: makeIcon('reload'),
   };
 });
 

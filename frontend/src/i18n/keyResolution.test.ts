@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DATA_SYNC_WORKBENCH_TEXT_KEYS } from '../components/data-sync/text';
+import { messages as legacyMessages } from '../../../shared/i18n/messages';
 
 /**
  * 全局不变式：源码中 t('字面量') 引用的每个 key，都必须能经所属翻译器得到译文。
@@ -81,10 +82,7 @@ describe('i18n key resolution', () => {
     const catalogKeys = new Set(Object.keys(
       JSON.parse(readFileSync(`${repoRoot}shared/i18n/zh-CN.json`, 'utf8')) as Record<string, string>,
     ));
-    const legacySource = readFileSync(`${repoRoot}shared/i18n/messages.ts`, 'utf8');
-    const legacyKeys = new Set(
-      Array.from(legacySource.matchAll(/^\s{4}["']([a-zA-Z0-9_.-]+)["']\s*:/gm), (match) => match[1]),
-    );
+    const legacyKeys = new Set(Object.values(legacyMessages).flatMap((catalog) => Object.keys(catalog)));
 
     const unresolved: string[] = [];
     let scanned = 0;

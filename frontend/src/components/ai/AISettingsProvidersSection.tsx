@@ -32,6 +32,7 @@ import { applyCursorCLIModelEffort, parseCursorCLIModelID } from '../../utils/cu
 import type { ai } from '../../../wailsjs/go/models';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import AIProviderLogo from './AIProviderLogo';
+import { BuiltinAICard } from './BuiltinAICard';
 import AIProviderPresetSelect from './AIProviderPresetSelect';
 import AIProviderKeyValueRows from './AIProviderKeyValueRows';
 import AISettingsProviderTestResult from './AISettingsProviderTestResult';
@@ -74,6 +75,7 @@ export interface AISettingsProviderPresetOption {
   endpoints?: ProviderPresetEndpoint[];
   defaultModel?: string;
   models?: string[];
+  builtIn?: boolean;
   authMode?: AIProviderConfig['authMode'];
   backendType?: AIProviderConfig['type'];
   fixedApiFormat?: string;
@@ -188,6 +190,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const copy = (key: string, params?: Record<string, string | number>) => i18n ? i18n.t(key, params) : catalogTranslate('en-US', key, params);
   const presetKeyFromForm = watchedPresetKey || (editingProvider as (AIProviderConfig & { presetKey?: string }) | null)?.presetKey || 'openai';
   const presetFromForm = providerPresets.find((preset) => preset.key === presetKeyFromForm);
+  const builtinAI = presetFromForm?.builtIn === true;
   const watchedConnectionMode = Form.useWatch('connectionMode', { form, preserve: true });
   const activePresetMode = presetFromForm?.modes?.find((mode) => mode.key === watchedConnectionMode)
     || presetFromForm?.modes?.find((mode) => mode.key === presetFromForm.defaultModeKey)
@@ -533,7 +536,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     presetKeyFromForm === 'anthropic'
     || selectedEndpointType === 'anthropic'
     || (presetKeyFromForm === 'custom' && String(watchedApiFormat || '').toLowerCase() === 'anthropic')
-  ));
+  )) && !builtinAI;
   const catalogSearching = Boolean(catalogSearch.trim());
   const chipModelLabel = (provider: AIProviderConfig) => provider.model || (isLocalCLISubscriptionProvider(provider) || provider.apiFormat === 'codebuddy-cli' || provider.apiFormat === 'cursor-agent'
     ? copy('ai_settings.provider.auto_model') : copy('ai_settings.provider.no_model'));
@@ -821,7 +824,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 ]}
                 onChange={onAuthModeChange} />
             </Form.Item>}
-            <div className="gonavi-ai-provider-field-grid gonavi-ai-provider-basic-fields">
+            {!builtinAI && <div className="gonavi-ai-provider-field-grid gonavi-ai-provider-basic-fields">
               <Form.Item label={fieldLabel('ai_settings.form.display_name')} name="name"><Input placeholder={copy('ai_settings.form.provider_name_placeholder')} size="middle" /></Form.Item>
               <div className="gonavi-ai-provider-model-field">
                 <div className="gonavi-ai-provider-model-label">
@@ -900,8 +903,8 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                   }} />
                   : <Input size="middle" disabled placeholder={copy(activeCLICapability?.supportsEffort === false || cursorCLIEffort ? 'ai_settings.form.effort_unsupported' : 'ai_settings.form.effort_placeholder_empty')} />}
               </Form.Item>}
-            </div>
-            {usesLocalCLI ? <>
+            </div>}
+            {builtinAI ? <BuiltinAICard copy={copy} onChanged={onReloadProviders} /> : usesLocalCLI ? <>
                 <div className="gonavi-ai-provider-field-grid gonavi-ai-provider-connection-fields">
                   <Form.Item className="gonavi-ai-provider-cli-path-field" name="cliPath"
                     label={<span className="gonavi-ai-provider-cli-path-label">

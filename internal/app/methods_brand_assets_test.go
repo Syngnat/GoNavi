@@ -80,3 +80,83 @@ func TestGetBrandIconDataURLRejectsUnknownAndTamperedCache(t *testing.T) {
 		t.Fatalf("tampered cache error = %v", err)
 	}
 }
+
+func TestGetBrandIconDataURLServesMascotAssetsWithImageMIME(t *testing.T) {
+	payloads := map[string][]byte{
+		"07":          []byte("RIFF-webp-07"),
+		"08-titlebar": []byte("png-08-titlebar"),
+	}
+	originals := map[string]brandAssetDefinition{}
+	for key, payload := range payloads {
+		definition := brandAssetDefinitions[key]
+		originals[key] = definition
+		digest := sha256.Sum256(payload)
+		definition.SHA256 = hex.EncodeToString(digest[:])
+		brandAssetDefinitions[key] = definition
+	}
+	t.Cleanup(func() {
+		for key, definition := range originals {
+			brandAssetDefinitions[key] = definition
+		}
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		for key, payload := range payloads {
+			if request.URL.Path == "/"+brandAssetDefinitions[key].FileName {
+				writer.Write(payload)
+				return
+			}
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	oldBaseURL := brandAssetRemoteBaseURLForTests
+	brandAssetRemoteBaseURLForTests = server.URL
+	t.Cleanup(func() { brandAssetRemoteBaseURLForTests = oldBaseURL })
+
+	app := &App{configDir: t.TempDir()}
+	for key, wantPrefix := range map[string]string{
+		"07":          "data:image/webp;base64,",
+		"08-titlebar": "data:image/png;base64,",
+	} {
+		dataURL, err := app.GetBrandIconDataURL(key)
+		if err != nil {
+			t.Fatalf("download %s: %v", key, err)
+		}
+		if !strings.HasPrefix(dataURL, wantPrefix) {
+			t.Fatalf("%s data URL = %.40s, want prefix %s", key, dataURL, wantPrefix)
+		}
+	}
+}
+
+func TestBrandAssetDefinitionsAreConsistent(t *testing.T) {
+	fileNames := map[string]string{}
+	for key, definition := range brandAssetDefinitions {
+		if definition.ID != key {
+			t.Fatalf("definition %s has ID %s", key, definition.ID)
+		}
+		if len(definition.SHA256) != 64 || strings.Trim(strings.ToLower(definition.SHA256), "0123456789abcdef") != "" {
+			t.Fatalf("definition %s has invalid sha256 %q", key, definition.SHA256)
+		}
+		switch strings.ToLower(filepath.Ext(definition.FileName)) {
+		case ".svg", ".webp", ".png":
+		default:
+			t.Fatalf("definition %s has unsupported file type %s", key, definition.FileName)
+		}
+		if !strings.HasPrefix(definition.FileName, key[:2]+"-") {
+			t.Fatalf("definition %s file %s does not belong to icon %s", key, definition.FileName, key[:2])
+		}
+		if previous, duplicated := fileNames[definition.FileName]; duplicated {
+			t.Fatalf("definitions %s and %s share file %s", previous, key, definition.FileName)
+		}
+		fileNames[definition.FileName] = key
+	}
+	for _, id := range []string{"07", "08", "09", "10", "11", "12", "13", "14", "15", "16"} {
+		if _, ok := brandAssetDefinitions[id]; !ok {
+			t.Fatalf("mascot %s preview asset is not registered", id)
+		}
+		if _, ok := brandAssetDefinitions[id+"-about"]; !ok {
+			t.Fatalf("mascot %s about asset is not registered", id)
+		}
+	}
+}

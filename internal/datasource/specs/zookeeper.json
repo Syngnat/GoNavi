@@ -1,0 +1,79 @@
+{
+  "type": "zookeeper",
+  "aliases": [
+    "zk",
+    "apache-zookeeper"
+  ],
+  "displayName": "ZooKeeper",
+  "group": "config_center",
+  "order": 20,
+  "defaultPort": 2181,
+  "wire": "native",
+  "dialect": "zookeeper",
+  "objectKind": "node",
+  "caseSensitiveIdentifiers": true,
+  "syntheticDatabase": true,
+  "proxyMode": "driver",
+  "protection": true,
+  "versionQuery": "version",
+  "excelImport": true,
+  "agent": {
+    "buildTag": "gonavi_zookeeper_driver",
+    "goModule": "github.com/go-zookeeper/zk",
+    "version": "1.0.4",
+    "sourcePrefixes": [
+      "zookeeper",
+      "kv",
+      "registry"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v34",
+        "label": "ZooKeeper 3.4",
+        "descriptionKey": "datasource.variant.zookeeper.v34",
+        "maxServer": "3.5"
+      },
+      {
+        "id": "v35",
+        "label": "ZooKeeper 3.5+",
+        "descriptionKey": "datasource.variant.zookeeper.v35",
+        "minServer": "3.5"
+      }
+    ]
+  },
+  "ui": {
+    "usernameOptional": true,
+    "uriSchemes": [
+      "zookeeper",
+      "zk"
+    ],
+    "extraHostsParam": "servers",
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "flatObjectNames": true,
+    "tableAlias": "none",
+    "formatDdl": false,
+    "quoting": "double",
+    "hint": "Coordination service / zkCli-style console",
+    "icon": {
+      "asset": "/db-icons/zookeeper.png",
+      "color": "#5B8C32",
+      "scale": 0.9
+    }
+  }
+}

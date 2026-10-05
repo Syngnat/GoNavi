@@ -6,6 +6,7 @@ import {
   isConnectionStructureEditRestricted,
 } from './connectionReadOnly';
 import { normalizeOceanBaseProtocol } from './oceanBaseProtocol';
+import { isElasticsearchFamilyType } from './elasticsearchFamily';
 
 type ConnectionLike = Pick<
   ConnectionConfig,
@@ -356,7 +357,7 @@ export const getDataSourceCapabilities = (config: ConnectionLike): DataSourceCap
       && !dataImportRestricted
       && !structureEditRestricted
       && ui.copyTable === true,
-    supportsCreateIndex: contract.type === 'elasticsearch' && !structureEditRestricted,
+    supportsCreateIndex: isElasticsearchFamilyType(contract.type) && !structureEditRestricted,
     supportsCreateDatabase: !structureEditRestricted && ui.createDatabase === true,
     supportsCreateDatabaseCharset:
       !structureEditRestricted && ui.createDatabaseCharset === true,

@@ -1,0 +1,493 @@
+/* ─── Code / SQL editor surfaces (unified via MonacoEditor .gn-monaco-surface) ─
+ * Consumers must not set per-page Monaco bg; only --gn-monaco-bg (defaults to panel).
+ * Covers SQL workbench, Redis field modals, Nacos, DataGrid cell/JSON editors, etc.
+ * --gn-monaco-bg is set on light/dark roots and injected into custom themes.
+ */
+body[data-ui-version="v2"] .gn-monaco-surface {
+  background: var(--gn-monaco-bg, var(--gn-bg-panel)) !important;
+  background-color: var(--gn-monaco-bg, var(--gn-bg-panel)) !important;
+}
+
+/* Center line numbers in the gutter so single digits don't look left/right skewed */
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .margin-view-overlays .line-numbers,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .line-numbers {
+  text-align: center !important;
+  /* Monaco defaults to right-align + padding-right; reset so digits sit in the middle */
+  padding-right: 0 !important;
+  box-sizing: border-box;
+}
+
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor-background,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .margin,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .overflow-guard,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .monaco-scrollable-element,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .lines-content,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .inputarea,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .view-overlays,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .margin-view-overlays,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .sticky-widget,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .sticky-widget .sticky-line-content,
+body[data-ui-version="v2"] .gn-monaco-surface .monaco-editor .sticky-widget .sticky-line-number {
+  background: var(--gn-monaco-bg, var(--gn-bg-panel)) !important;
+  background-color: var(--gn-monaco-bg, var(--gn-bg-panel)) !important;
+}
+
+/* Fallback when editor is not wrapped (legacy/direct monaco mounts). */
+body[data-ui-version="v2"] .monaco-editor,
+body[data-ui-version="v2"] .monaco-editor-background,
+body[data-ui-version="v2"] .monaco-editor .margin,
+body[data-ui-version="v2"] .monaco-editor .overflow-guard {
+  background: var(--gn-monaco-bg, var(--gn-bg-panel)) !important;
+  background-color: var(--gn-monaco-bg, var(--gn-bg-panel)) !important;
+}
+
+body[data-ui-version="v2"] .monaco-editor,
+body[data-ui-version="v2"] .monaco-editor .margin,
+body[data-ui-version="v2"] .monaco-editor .view-lines,
+body[data-ui-version="v2"] .monaco-editor .view-line,
+body[data-ui-version="v2"] .monaco-editor textarea,
+body[data-ui-version="v2"] .monaco-editor .inputarea {
+  font-family: var(--gn-font-mono) !important;
+}
+
+/* ─── Progress ────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-progress-bg {
+  background: var(--gn-accent) !important;
+}
+
+body[data-ui-version="v2"] .ant-progress-success-bg {
+  background: var(--gn-accent) !important;
+}
+
+/* ─── Divider ─────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-divider {
+  border-color: var(--gn-br-1) !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   Small additions — visual polish unique to v2
+   ────────────────────────────────────────────────────────── */
+
+body[data-ui-version="v2"] .ant-tree .ant-tree-node-content-wrapper {
+  position: relative;
+}
+
+/* Number-tabular for monospace stats / counts */
+body[data-ui-version="v2"] .ant-statistic-content,
+body[data-ui-version="v2"] [class*="data-count"],
+body[data-ui-version="v2"] [class*="row-count"] {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--gn-font-mono) !important;
+}
+
+/* Subtle inset highlight on the macOS-style traffic-light area + title */
+body[data-ui-version="v2"][data-theme="light"] .ant-layout-header {
+  box-shadow: inset 0 -0.5px 0 rgba(15, 23, 42, 0.05) !important;
+}
+body[data-ui-version="v2"][data-theme="dark"] .ant-layout-header {
+  box-shadow: inset 0 -0.5px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* ─── Version indicator for v2 (purely cosmetic, added in settings) ─ */
+body[data-ui-version="v2"] .gonavi-v2-version-ribbon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  padding: 1px 5px;
+  background: var(--gn-info-soft);
+  color: var(--gn-info);
+  border-radius: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════
+   EXTENDED COVERAGE — forms, deep modals, Redis viewer, etc.
+   ══════════════════════════════════════════════════════════ */
+
+/* ─── Form (新建连接、AI 设置 等) ──────────────────────── */
+body[data-ui-version="v2"] .ant-form-item-label > label {
+  color: var(--gn-fg-3) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  height: 26px !important;
+}
+body[data-ui-version="v2"] .ant-form-item-label > label.ant-form-item-required::before {
+  color: var(--gn-danger) !important;
+}
+body[data-ui-version="v2"] .ant-form-item {
+  margin-bottom: 14px !important;
+}
+body[data-ui-version="v2"] .ant-form-item-extra {
+  font-size: 11px !important;
+  color: var(--gn-fg-5) !important;
+  padding-top: 4px !important;
+}
+body[data-ui-version="v2"] .ant-form-item-explain-error {
+  font-size: 11.5px !important;
+  color: var(--gn-danger) !important;
+}
+
+/* ─── Radio ───────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-radio-wrapper {
+  color: var(--gn-fg-2) !important;
+  font-size: 12.5px !important;
+}
+body[data-ui-version="v2"] .ant-radio-inner {
+  border-color: var(--gn-br-3) !important;
+  background: var(--gn-bg-input) !important;
+}
+body[data-ui-version="v2"] .ant-radio-checked .ant-radio-inner {
+  border-color: var(--gn-accent) !important;
+  background: var(--gn-accent) !important;
+}
+body[data-ui-version="v2"] .ant-radio-checked .ant-radio-inner::after {
+  background: #fff !important;
+}
+body[data-ui-version="v2"] .ant-radio-button-wrapper {
+  background: var(--gn-bg-panel) !important;
+  border-color: var(--gn-br-2) !important;
+  color: var(--gn-fg-2) !important;
+  height: 28px !important;
+  line-height: 26px !important;
+  font-size: 12.5px !important;
+}
+body[data-ui-version="v2"] .ant-radio-button-wrapper:hover {
+  color: var(--gn-fg-1) !important;
+}
+body[data-ui-version="v2"] .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  background: var(--gn-accent-soft) !important;
+  border-color: var(--gn-accent) !important;
+  color: var(--gn-accent-2) !important;
+  font-weight: 600 !important;
+}
+
+/* ─── Checkbox ────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-checkbox-inner {
+  border-color: var(--gn-br-3) !important;
+  background: var(--gn-bg-input) !important;
+  border-radius: 4px !important;
+}
+body[data-ui-version="v2"] .ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--gn-accent) !important;
+  border-color: var(--gn-accent-2) !important;
+}
+
+body[data-ui-version="v2"] .ant-checkbox-wrapper {
+  color: var(--gn-fg-2) !important;
+  font-size: 12.5px !important;
+}
+body[data-ui-version="v2"] .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+  background-color: var(--gn-accent) !important;
+}
+
+/* ─── Slider ──────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-slider-rail {
+  background: var(--gn-bg-active) !important;
+}
+body[data-ui-version="v2"] .ant-slider-track {
+  background: var(--gn-accent) !important;
+}
+body[data-ui-version="v2"] .ant-slider-handle::after {
+  box-shadow: 0 0 0 2px var(--gn-accent) !important;
+}
+body[data-ui-version="v2"] .ant-slider:hover .ant-slider-track {
+  background: var(--gn-accent-2) !important;
+}
+
+/* ─── Steps (Modal multi-step flows) ──────────────────── */
+body[data-ui-version="v2"] .ant-steps-item-process .ant-steps-item-icon {
+  background: var(--gn-accent) !important;
+  border-color: var(--gn-accent-2) !important;
+}
+body[data-ui-version="v2"] .ant-steps-item-finish .ant-steps-item-icon {
+  background: var(--gn-accent-soft) !important;
+  border-color: var(--gn-accent) !important;
+}
+body[data-ui-version="v2"] .ant-steps-item-finish .ant-steps-item-icon > .ant-steps-icon {
+  color: var(--gn-accent-2) !important;
+}
+body[data-ui-version="v2"] .ant-steps-item-finish > .ant-steps-item-container > .ant-steps-item-tail::after {
+  background-color: var(--gn-accent) !important;
+}
+body[data-ui-version="v2"] .ant-steps-item-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gn-fg-1) !important;
+}
+
+/* ─── Drawer ──────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-drawer-content {
+  background: var(--gn-bg-panel) !important;
+}
+body[data-ui-version="v2"] .ant-drawer-header {
+  background: var(--gn-bg-panel-2) !important;
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+  padding: 12px 18px !important;
+}
+body[data-ui-version="v2"] .ant-drawer-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--gn-fg-1) !important;
+}
+body[data-ui-version="v2"] .ant-drawer-footer {
+  border-top: 0.5px solid var(--gn-br-1) !important;
+  background: var(--gn-bg-panel-2) !important;
+  padding: 10px 18px !important;
+}
+
+/* ─── Collapse ────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-collapse {
+  background: transparent !important;
+  border: 0.5px solid var(--gn-br-1) !important;
+  border-radius: 9px !important;
+  overflow: hidden;
+}
+body[data-ui-version="v2"] .ant-collapse-item {
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+}
+body[data-ui-version="v2"] .ant-collapse-item:last-child {
+  border-bottom: 0 !important;
+}
+body[data-ui-version="v2"] .ant-collapse-header {
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 600 !important;
+  padding: 10px 14px !important;
+}
+body[data-ui-version="v2"] .ant-collapse-content {
+  background: var(--gn-bg-panel) !important;
+  border-top: 0.5px solid var(--gn-br-1) !important;
+}
+body[data-ui-version="v2"] .ant-collapse-content-box {
+  padding: 12px 14px !important;
+}
+
+/* ─── Card ────────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-card {
+  background: var(--gn-bg-panel) !important;
+  border: 0.5px solid var(--gn-br-1) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--gn-shadow-card) !important;
+}
+body[data-ui-version="v2"] .ant-card-head {
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+  min-height: 38px !important;
+  padding: 0 14px !important;
+}
+body[data-ui-version="v2"] .ant-card-head-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gn-fg-1) !important;
+  padding: 10px 0 !important;
+}
+body[data-ui-version="v2"] .ant-card-body {
+  padding: 14px !important;
+}
+
+/* ─── Statistic / number readouts ─────────────────────── */
+body[data-ui-version="v2"] .ant-statistic-title {
+  font-size: 11px !important;
+  color: var(--gn-fg-4) !important;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  font-weight: 600 !important;
+}
+body[data-ui-version="v2"] .ant-statistic-content {
+  font-family: var(--gn-font-mono) !important;
+  font-variant-numeric: tabular-nums;
+  color: var(--gn-fg-1) !important;
+}
+
+/* ─── Empty ───────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-empty-description {
+  color: var(--gn-fg-4) !important;
+  font-size: 12.5px !important;
+}
+
+/* ─── Spin ────────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-spin-dot-item {
+  background: var(--gn-accent) !important;
+}
+
+/* ─── Notification / Message ──────────────────────────── */
+body[data-ui-version="v2"] .ant-message-notice-content,
+body[data-ui-version="v2"] .ant-notification-notice {
+  background: var(--gn-bg-panel) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+/* ─── Pagination ──────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-pagination-item {
+  border-radius: 5px !important;
+  border-color: var(--gn-br-2) !important;
+  background: var(--gn-bg-panel) !important;
+  font-family: var(--gn-font-mono) !important;
+}
+body[data-ui-version="v2"] .ant-pagination-item-active {
+  border-color: var(--gn-accent) !important;
+  background: var(--gn-accent-soft) !important;
+}
+body[data-ui-version="v2"] .ant-pagination-item-active a {
+  color: var(--gn-accent-2) !important;
+}
+body[data-ui-version="v2"] .ant-pagination-prev .ant-pagination-item-link,
+body[data-ui-version="v2"] .ant-pagination-next .ant-pagination-item-link {
+  border-radius: 5px !important;
+  border-color: var(--gn-br-2) !important;
+  background: var(--gn-bg-panel) !important;
+  color: var(--gn-fg-3) !important;
+}
+
+/* ─── Alert / banners (security update etc.) ──────────── */
+body[data-ui-version="v2"] .ant-alert {
+  border-radius: 9px !important;
+  border-width: 0.5px !important;
+  padding: 10px 12px !important;
+}
+body[data-ui-version="v2"] .ant-alert-info {
+  background: var(--gn-info-soft) !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+}
+body[data-ui-version="v2"] .ant-alert-success {
+  background: var(--gn-accent-soft) !important;
+  border-color: rgba(34, 197, 94, 0.3) !important;
+}
+body[data-ui-version="v2"] .ant-alert-warning {
+  background: var(--gn-warn-soft) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+/* ─── Tabs inside Modal/Drawer (smaller, no extra chrome) ─ */
+body[data-ui-version="v2"] .ant-modal .ant-tabs > .ant-tabs-nav,
+body[data-ui-version="v2"] .ant-drawer .ant-tabs > .ant-tabs-nav {
+  background: transparent !important;
+  margin-bottom: 12px !important;
+}
+body[data-ui-version="v2"] .ant-modal .ant-tabs-tab,
+body[data-ui-version="v2"] .ant-drawer .ant-tabs-tab {
+  background: transparent !important;
+  border: none !important;
+  padding: 6px 12px !important;
+}
+body[data-ui-version="v2"] .ant-modal .ant-tabs-tab-active::after,
+body[data-ui-version="v2"] .ant-drawer .ant-tabs-tab-active::after {
+  display: none !important;
+}
+body[data-ui-version="v2"] .ant-modal .ant-tabs-ink-bar,
+body[data-ui-version="v2"] .ant-drawer .ant-tabs-ink-bar {
+  display: block !important;
+  background: var(--gn-accent) !important;
+  height: 2px !important;
+}
+
+/* ─── Tree-select / Cascader ──────────────────────────── */
+body[data-ui-version="v2"] .ant-tree-select-dropdown,
+body[data-ui-version="v2"] .ant-cascader-dropdown {
+  background: var(--gn-bg-panel) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+}
+
+/* ─── Popover ─────────────────────────────────────────── */
+body[data-ui-version="v2"] .ant-popover-inner {
+  background: var(--gn-bg-panel) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+}
+body[data-ui-version="v2"] .ant-popover-title {
+  border-bottom: 0.5px solid var(--gn-br-1) !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+}
+
+/* ─── Connection modal special touches ────────────────── */
+/* The form preset cards usually use bordered divs, give them our card style */
+body[data-ui-version="v2"] [class*="preset-card"],
+body[data-ui-version="v2"] [class*="connection-preset"] {
+  background: var(--gn-bg-panel) !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--gn-shadow-card) !important;
+  transition: border-color 0.08s, box-shadow 0.08s !important;
+}
+body[data-ui-version="v2"] [class*="preset-card"]:hover {
+  border-color: var(--gn-accent) !important;
+  box-shadow: 0 0 0 1px var(--gn-accent), var(--gn-shadow-md) !important;
+}
+
+/* ─── Settings center utility panels ──────────────────── */
+/* The settings modal uses inline-styled panels — we can't override those,
+   but anything wrapped in `.ant-modal-body > div` benefits from these resets. */
+body[data-ui-version="v2"] .ant-modal-body input[type="text"],
+body[data-ui-version="v2"] .ant-modal-body input[type="number"] {
+  background: var(--gn-bg-input) !important;
+  border-color: var(--gn-br-2) !important;
+  border-radius: 7px !important;
+}
+
+/* ─── Redis viewer / Driver manager / overlay workbench ─── */
+/* These render their cards via inline styles read from workbenchTheme
+   objects (see overlayWorkbenchTheme.ts, redisViewerWorkbenchTheme.ts,
+   driverManagerWorkbenchTheme.ts). The hooks below tighten edges that
+   inline styles can't reach. */
+
+body[data-ui-version="v2"] .redis-viewer-workbench {
+  background: var(--gn-bg-panel-2) !important;
+  /* the inner cards still read the shared workbench theme palette */
+}
+
+body[data-ui-version="v2"] .redis-tree-expander-button:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+/* class-based selectors for Tree inside Redis viewer — tighten paddings */
+body[data-ui-version="v2"] .redis-viewer-workbench .ant-tree-node-content-wrapper {
+  padding: 2px 8px !important;
+}
+
+/* ─── Logo / brand chip (a generic helper for v2 places) ─ */
+body[data-ui-version="v2"] .gonavi-v2-brand-chip {
+  width: 24px; height: 24px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--gn-accent) 0%, var(--gn-accent-2) 100%);
+  color: var(--gn-on-accent, #fff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gn-font-mono);
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0;
+  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.3), 0 1px 2px rgba(15,23,42,0.18);
+}
+
+/* ─── Hide / soften legacy chrome that clashes with v2 ─── */
+/* Antd's default Tabs add-icon area can look heavy — soften it */
+body[data-ui-version="v2"] .ant-tabs-nav-add {
+  border-radius: 6px !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+/* ─── Final: minor pixel hygiene ──────────────────────── */
+body[data-ui-version="v2"] .ant-divider-horizontal {
+  margin: 12px 0 !important;
+}
+body[data-ui-version="v2"] .ant-typography {
+  color: var(--gn-fg-1);
+}
+body[data-ui-version="v2"] h1.ant-typography,
+body[data-ui-version="v2"] h2.ant-typography,
+body[data-ui-version="v2"] h3.ant-typography,
+body[data-ui-version="v2"] h4.ant-typography {
+  letter-spacing: 0;
+}
+

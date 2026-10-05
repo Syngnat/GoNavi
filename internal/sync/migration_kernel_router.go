@@ -73,10 +73,10 @@ func buildSchemaMigrationPlan(config SyncConfig, tableName string, sourceDB db.D
 	planner := resolveMigrationPlanner(ctx)
 	if planner == nil {
 		plan, sourceCols, targetCols, err := buildSchemaMigrationPlanLegacy(config, tableName, sourceDB, targetDB)
-		return withDistributionClauseTargetGuard(config, plan), sourceCols, targetCols, err
+		return withHashOnlyIndexTargetGuard(config, withDistributionClauseTargetGuard(config, plan)), sourceCols, targetCols, err
 	}
 	plan, sourceCols, targetCols, err := planner.BuildPlan(ctx)
-	return withDistributionClauseTargetGuard(config, plan), sourceCols, targetCols, err
+	return withHashOnlyIndexTargetGuard(config, withDistributionClauseTargetGuard(config, plan)), sourceCols, targetCols, err
 }
 
 // withDistributionClauseTargetGuard 收口 Doris/StarRocks 目标的自动建表。

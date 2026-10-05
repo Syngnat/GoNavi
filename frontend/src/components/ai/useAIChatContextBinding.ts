@@ -13,6 +13,7 @@ import {
   buildAIEditorSelectionContextItem,
   isAIEditorSelectionContext,
   isAITableSchemaContext,
+  refreshAIEditorSelection,
 } from './aiEditorSelectionContext';
 import { bindAIEditorSelectionContext } from './bindAIEditorSelectionContext';
 
@@ -313,17 +314,37 @@ export const useAIChatContextBinding = ({
   }, [connectionKey, removeAIContext]);
 
   const handleBindEditorSelection = React.useCallback(() => {
-    if (!activeContext?.connectionId || !activeEditorSelection?.text.trim()) {
+    // Read the editor now: the stored copy follows editor events and can be behind
+    // (select-all by keyboard, then a click that moves focus to this panel).
+    const selection = refreshAIEditorSelection(useStore.getState().activeTabId) ?? activeEditorSelection;
+    if (!selection?.text.trim()) {
       message.warning(translateMessage(
         'ai_chat.input.message.select_editor_text_first',
         'Select non-empty text in the editor before binding it to AI context',
       ));
       return;
     }
+    // The selection knows which connection and database it came from; use that when
+    // the sidebar has no active context, and make it the active one so the chat
+    // reads the same attachment key.
+    const connectionId = String(activeContext?.connectionId || selection.connectionId || '').trim();
+    if (!connectionId) {
+      message.warning(translateMessage(
+        'ai_chat.input.message.select_database_context_first',
+        'Select a database on the left before attaching chat context',
+      ));
+      return;
+    }
+    let bindKey = connectionKey;
+    if (!activeContext?.connectionId) {
+      const dbName = String(selection.dbName || '').trim();
+      useStore.getState().setActiveContext({ connectionId, dbName });
+      bindKey = `${connectionId}:${dbName}`;
+    }
 
     const result = bindAIEditorSelectionContext({
-      selection: activeEditorSelection,
-      connectionKey,
+      selection,
+      connectionKey: bindKey,
       contextItems: activeContextItems,
       addAIContext,
       removeAIContext,

@@ -110,7 +110,6 @@ vi.mock('../utils/appearance', async (importOriginal) => {
 vi.mock('./ai/aiChatPanelDerivedState', () => ({
   buildAIChatInsights: () => [],
   buildAIChatInlineHistorySessions: () => [],
-  calculateAIContextUsageChars: () => 0,
   collectAIChatContextTableNames: () => [],
   inferAIChatConnectionContext: () => ({}),
   resolveAIChatPanelMode: (mode: string) => mode,
@@ -373,6 +372,99 @@ describe('AIChatPanel agent run branch submission', () => {
       dispatchMode: 'steer',
     }), harnessMock.service);
 
+    await act(async () => renderer?.unmount());
+  });
+
+  it('sends a bound editor selection on its own, asking the default question about it', async () => {
+    useStore.setState({
+      aiContexts: {
+        default: [{
+          kind: 'editor_selection', dbName: '', tableName: '__gonavi_editor_selection__', ddl: '',
+          content: 'select * from orders', source: { tabId: 'tab-1' },
+        }],
+      },
+    } as any);
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      harnessMock.inputProps?.setInput('   ');
+    });
+    await act(async () => {
+      await harnessMock.inputProps?.onSend();
+    });
+
+    expect(harnessMock.submitAgentInput).toHaveBeenCalledTimes(1);
+    const sent = String(harnessMock.submitAgentInput.mock.calls[0][0].content);
+    // This harness's t() returns the key; the real text of the key in every language is
+    // checked in AIChatComposerActions.sendEnabled.test.tsx.
+    expect(sent).toBe('ai_chat.input.default_selection_prompt');
+    // What is bound travels with the message as a chip for the chat to show; it is stored
+    // as an attachment and read back, not sent to the model from here.
+    const attachments = harnessMock.submitAgentInput.mock.calls[0][0].attachments as Array<{ name: string; mediaType: string; data: string }>;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mediaType).toBe('application/vnd.gonavi.context+json');
+    expect(JSON.parse(attachments[0].data)).toEqual(expect.objectContaining({ kind: 'editor_selection', text: 'select * from orders' }));
+
+    await act(async () => renderer?.unmount());
+  });
+
+  it('clears what was bound for the message once it is sent, and keeps table schemas', async () => {
+    useStore.setState({
+      aiContexts: {
+        default: [
+          { kind: 'editor_selection', dbName: '', tableName: '__gonavi_editor_selection__', ddl: '', content: 'select 1', source: { tabId: 'tab-1' } },
+          { kind: 'chat_quote', dbName: '', tableName: '__gonavi_chat_quote__:abc', ddl: '', content: 'an earlier answer' },
+          { dbName: 'shop', tableName: 'orders', ddl: 'CREATE TABLE orders (id int)' },
+        ],
+      },
+    } as any);
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      harnessMock.inputProps?.setInput('look');
+    });
+    await act(async () => {
+      await harnessMock.inputProps?.onSend();
+    });
+    const attachments = harnessMock.submitAgentInput.mock.calls[0][0].attachments as Array<{ data: string }>;
+    expect(attachments.map((attachment) => JSON.parse(attachment.data).kind).sort()).toEqual(['chat_quote', 'editor_selection', 'table_schema']);
+    expect((useStore.getState().aiContexts.default || []).map((item) => item.tableName)).toEqual(['orders']);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('can send a quoted reply passage on its own, with a default follow-up question', async () => {
+    useStore.setState({
+      aiContexts: { default: [{ kind: 'chat_quote', dbName: '', tableName: '__gonavi_chat_quote__:abc', ddl: '', content: 'use an index' }] },
+    } as any);
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await harnessMock.inputProps?.onSend();
+    });
+    expect(harnessMock.submitAgentInput.mock.calls[0][0].content).toBe('ai_chat.input.default_quote_prompt');
+    await act(async () => renderer?.unmount());
+  });
+
+  it('still sends nothing when there is no text, no attachment and nothing bound', async () => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await harnessMock.inputProps?.onSend();
+    });
+    expect(harnessMock.submitAgentInput).not.toHaveBeenCalled();
     await act(async () => renderer?.unmount());
   });
 

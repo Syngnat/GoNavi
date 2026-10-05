@@ -1,657 +1,41 @@
 import Modal from './common/ResizableDraggableModal';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Collapse, Dropdown, Empty, Input, Progress, Select, Space, Tag, Tooltip, Typography, message } from 'antd';
-import { DeleteOutlined, DownOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FolderOpenOutlined, ImportOutlined, InfoCircleFilled, ReloadOutlined } from '@ant-design/icons';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { messages } from '../../../shared/i18n/messages';
-import { catalogs } from '../i18n/catalog';
-import { useStore } from '../store';
+import React from 'react';
+import { Alert, Button, Collapse, Space, Tooltip, message } from 'antd';
+import { DownloadOutlined, ImportOutlined, ReloadOutlined } from '@ant-design/icons';
 import { t } from '../i18n';
-import { isWebRuntime } from '../utils/browserFileTransfer';
-import {
-  isDriverProgressTerminalStatus,
-  normalizeDriverProgressUpdate,
-  resolveDriverProgressDisplay,
-  type DriverProgressState,
-  type DriverProgressStatus,
-} from '../utils/driverProgress';
-import { buildDriverManagerWorkbenchTheme } from '../utils/driverManagerWorkbenchTheme';
 import type { DownloadSourceId } from '../utils/driverManagerTab';
 import DownloadSourceSelect from './DownloadSourceSelect';
-import {
-  createDriverDownloadCancelIntents,
-  extractDriverDownloadTaskSnapshots,
-  isDriverDownloadActive,
-  isDriverDownloadTerminal,
-  normalizeDriverDownloadTaskSnapshot,
-  nextDriverActionStateAfterCancel,
-  shouldAbortDriverInstall,
-  shouldIgnoreDriverDownloadProgress,
-  waitForDriverDownloadTask,
-  type DriverDownloadTaskSnapshot,
-} from './driverManager/driverDownloadCancellation';
-import { useDriverDownloadCancellation } from './driverManager/useDriverDownloadCancellation';
-import { useDriverLocalInstall } from './driverManager/useDriverLocalInstall';
-import { useDriverPackageTransfer } from './driverManager/useDriverPackageTransfer';
 import DriverPackageExportPicker from './driverManager/DriverPackageExportPicker';
 import DriverPackageImportModal from './driverManager/DriverPackageImportModal';
 import { DriverBatchProgressBar } from './driverManager/DriverBatchProgressBar';
 import DriverPackageExportProgress from './driverManager/DriverPackageExportProgress';
+import { dismissDriverNetworkNotice } from './driverManager/driverNetworkNoticeState';
 import {
-  formatDriverBatchSkipSummary,
-  isSlimBuildInstallUnavailable,
-} from './driverManager/driverLocalInstallPolicy';
-import {
-  OPTIONAL_UPDATE_DISMISS_KEY,
-  isDriverReinstallTarget,
-  isOptionalUpdateVisible,
-  readOptionalUpdateDismissedRevisions,
-} from './driverManager/driverOptionalUpdate';
-import {
-  dismissDriverNetworkNotice,
-  readDismissedDriverNetworkNotices,
-  type DriverNetworkNoticeKind,
-} from './driverManager/driverNetworkNoticeState';
-import {
-  getDriverLocalImportButtonLabel,
   getDriverLocalImportDirectoryHelp,
   getDriverLocalImportSingleFileHelp,
 } from '../utils/driverImportGuidance';
 import {
-  createDriverStatusSnapshotRegistry,
-  normalizeDriverStatusRequestKey,
-  restoreDriverNetworkSnapshot,
-  restoreDriverStatusSnapshot,
-  settleLatestDriverRequest,
-  type DriverStatusSnapshot as DriverStatusSnapshotState,
-} from '../utils/driverManagerRequestState';
-import {
-  CheckDriverNetworkStatus,
-  GetDriverVersionList,
-  GetDriverVersionPackageSize,
-  GetDriverStatusList,
-  ListDriverDownloadTasks,
-  OpenDriverDownloadDirectory,
-  RemoveDriverPackage,
-  StartDriverPackageDownload,
-} from '../../wailsjs/go/app/App';
+  Text,
+  Paragraph,
+  sharedInfoAlertIcon,
+} from './driverManager/driverManagerModel';
+import { resolveDriverErrorMessageText } from './driverManager/driverManagerMessages';
+import { useDriverManagerState } from './driverManager/useDriverManagerState';
+import { useDriverManagerProgress } from './driverManager/useDriverManagerProgress';
+import { useDriverManagerStatusLoading } from './driverManager/useDriverManagerStatusLoading';
+import { useDriverManagerInstall } from './driverManager/useDriverManagerInstall';
+import { useDriverManagerRemoval } from './driverManager/useDriverManagerRemoval';
+import { useDriverManagerRowControls } from './driverManager/useDriverManagerRowControls';
+import { useDriverManagerRows } from './driverManager/useDriverManagerRows';
+import { useDriverManagerBatch } from './driverManager/useDriverManagerBatch';
+import { useDriverManagerDetailView } from './driverManager/useDriverManagerDetailView';
+import { buildDriverManagerNetworkSummary } from './driverManager/driverManagerNetworkSummary';
+import { DriverManagerNetworkNotice } from './driverManager/DriverManagerNetworkNotice';
+import { DriverManagerBulkBar } from './driverManager/DriverManagerBulkBar';
+import { DriverManagerColumns } from './driverManager/DriverManagerColumns';
+export { resolveDriverErrorMessageText } from './driverManager/driverManagerMessages';
 
-const { Paragraph, Text } = Typography;
-
-type DriverListSortKey = 'name' | 'status' | 'size' | 'version';
-
-const parseDriverPackageSizeBytes = (value?: string): number => {
-  const raw = String(value || '').trim();
-  if (!raw || raw === '-') return -1;
-  const matched = raw.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
-  if (!matched) return -1;
-  const amount = Number(matched[1]);
-  if (!Number.isFinite(amount)) return -1;
-  const unit = String(matched[2] || 'B').toUpperCase();
-  const factor = unit === 'KB' ? 1024
-    : unit === 'MB' ? 1024 ** 2
-      : unit === 'GB' ? 1024 ** 3
-        : unit === 'TB' ? 1024 ** 4
-          : 1;
-  return amount * factor;
-};
-
-const driverStatusSortRank = (row: DriverStatusRow): number => {
-  // 与列表圆点 / 详情 Tag 一致：需重装（含可选更新）优先于仍可连接，避免橙色混进绿色里
-  if (row.needsUpdate || row.optionalUpdate) return 0;
-  if (row.builtIn || row.connectable) return 1;
-  if (row.packageInstalled) return 2;
-  return 3;
-};
-
-const compareDriverRows = (left: DriverStatusRow, right: DriverStatusRow, sortKey: DriverListSortKey): number => {
-  if (sortKey === 'status') {
-    const byStatus = driverStatusSortRank(left) - driverStatusSortRank(right);
-    if (byStatus !== 0) return byStatus;
-  } else if (sortKey === 'size') {
-    const bySize = parseDriverPackageSizeBytes(right.packageSizeText) - parseDriverPackageSizeBytes(left.packageSizeText);
-    if (bySize !== 0) return bySize;
-  } else if (sortKey === 'version') {
-    const leftVersion = String(left.installedVersion || left.pinnedVersion || '');
-    const rightVersion = String(right.installedVersion || right.pinnedVersion || '');
-    const byVersion = leftVersion.localeCompare(rightVersion, undefined, { numeric: true, sensitivity: 'base' });
-    if (byVersion !== 0) return byVersion;
-  }
-  const byName = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
-  if (byName !== 0) return byName;
-  return left.type.localeCompare(right.type, undefined, { sensitivity: 'base' });
-};
-
-type DriverStatusRow = {
-  type: string;
-  name: string;
-  builtIn: boolean;
-  pinnedVersion?: string;
-  installedVersion?: string;
-  packageSizeText?: string;
-  runtimeAvailable: boolean;
-  packageInstalled: boolean;
-  connectable: boolean;
-  defaultDownloadUrl?: string;
-  installDir?: string;
-  packagePath?: string;
-  executablePath?: string;
-  downloadedAt?: string;
-  agentRevision?: string;
-  expectedRevision?: string;
-  needsUpdate?: boolean;
-  optionalUpdate?: boolean;
-  updateReason?: string;
-  affectedConnections?: number;
-  activeConnections?: number;
-  reasonCode?: string;
-  message?: string;
-};
-
-type DriverProgressEvent = {
-  taskId?: string;
-  driverType?: string;
-  status?: DriverProgressStatus;
-  message?: string;
-  percent?: number;
-};
-
-type DriverActionKind = '' | 'install' | 'remove' | 'local';
-type DriverBatchActionKind = '' | 'install-all' | 'reinstall-updates' | 'remove-all';
-
-type DriverBatchProgressState = {
-  total: number;
-  completed: number;
-  success: number;
-  failed: number;
-  skipped: number;
-  currentDriverType: string;
-  currentDriverName: string;
-  currentMessage: string;
-};
-
-type DriverLogEntry = {
-  time: string;
-  text: string;
-  signature: string;
-};
-
-type DriverNetworkProbe = {
-  probeCode?: string;
-  name: string;
-  url: string;
-  reachable: boolean;
-  httpStatus?: number;
-  latencyMs?: number;
-  tcpLatencyMs?: number;
-  httpLatencyMs?: number;
-  method?: string;
-  error?: string;
-};
-
-type DriverNetworkStatus = {
-  reachable: boolean;
-  summary: string;
-  recommendedProxy: boolean;
-  proxyConfigured: boolean;
-  mirrorReachable?: boolean;
-  fallbackChecked?: boolean;
-  fallbackReachable?: boolean;
-  usingFallback?: boolean;
-  downloadChainReachable?: boolean;
-  downloadRequiredHosts?: string[];
-  proxyEnv?: Record<string, string>;
-  checks: DriverNetworkProbe[];
-  checkedAt?: string;
-  logPath?: string;
-};
-
-const DRIVER_NETWORK_PROBE_LABEL_KEYS: Record<string, string> = {
-  download_mirror: 'driver_manager.backend.network.probe.download_mirror',
-  github_api: 'driver_manager.backend.network.probe.github_api',
-  github_release: 'driver_manager.backend.network.probe.github_driver_release',
-  github_release_asset: 'driver_manager.backend.network.probe.github_release_asset_domain',
-  go_module_proxy: 'driver_manager.backend.network.probe.go_module_proxy',
-};
-
-const resolveDriverNetworkProbeLabel = (probe: DriverNetworkProbe): string => {
-  const key = DRIVER_NETWORK_PROBE_LABEL_KEYS[String(probe.probeCode || '').trim()];
-  return key ? t(key) : String(probe.name || '').trim();
-};
-
-const parseOptionalLatency = (value: unknown): number | undefined => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
-  return parsed;
-};
-
-const sharedInfoAlertIcon = <InfoCircleFilled style={{ fontSize: 24 }} />;
-
-const DRIVER_DOWNLOAD_SOURCE_META: Record<string, { labelKey: string; darkDot: string; lightDot: string }> = {
-  cst: { labelKey: 'app.download_source.option.cst', darkDot: '#f59e0b', lightDot: '#d97706' },
-  bero: { labelKey: 'app.download_source.option.bero', darkDot: '#38bdf8', lightDot: '#0284c7' },
-  github: { labelKey: 'app.download_source.option.github', darkDot: '#cbd5e1', lightDot: '#475569' },
-};
-
-const resolveDriverDownloadSourceMeta = (value: unknown) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  return DRIVER_DOWNLOAD_SOURCE_META[normalized] || DRIVER_DOWNLOAD_SOURCE_META.cst;
-};
-
-type DriverVersionOption = {
-  version: string;
-  downloadUrl: string;
-  packageSizeText?: string;
-  recommended?: boolean;
-  source?: string;
-  year?: string;
-  displayLabel?: string;
-};
-
-const buildVersionOptionKey = (option: DriverVersionOption) => `${option.version}@@${option.downloadUrl}`;
-const buildVersionSizeLoadingKey = (driverType: string, optionKey: string) => `${driverType}@@${optionKey}`;
-const buildFallbackVersionOptions = (row: DriverStatusRow): DriverVersionOption[] => {
-  const pinnedVersion = String(row.pinnedVersion || '').trim();
-  const installedVersion = String(row.installedVersion || '').trim();
-  const version = row.needsUpdate
-    ? pinnedVersion || installedVersion
-    : installedVersion || pinnedVersion;
-  const downloadUrl = String(row.defaultDownloadUrl || '').trim();
-  if (!version && !downloadUrl) {
-    return [];
-  }
-  const recommended = !!version && version === pinnedVersion;
-  const baseLabel = version || t('driver.modal.version.default');
-  return [{
-    version,
-    downloadUrl,
-    recommended,
-    source: 'status-fallback',
-    displayLabel: recommended
-      ? `${baseLabel}${t('driver_manager.version.recommended_suffix')}`
-      : baseLabel,
-  }];
-};
-const mergeFallbackVersionOptions = (
-  row: DriverStatusRow,
-  options: DriverVersionOption[],
-): DriverVersionOption[] => {
-  const fallbackOption = buildFallbackVersionOptions(row)[0];
-  if (!fallbackOption) {
-    return options;
-  }
-  const fallbackVersion = String(fallbackOption.version || '').trim();
-  const fallbackExists = fallbackVersion
-    ? options.some((item) => String(item.version || '').trim() === fallbackVersion)
-    : options.some((item) => buildVersionOptionKey(item) === buildVersionOptionKey(fallbackOption));
-  return fallbackExists ? options : [...options, fallbackOption];
-};
-const resolvePreferredVersionOption = (
-  row: DriverStatusRow,
-  options: DriverVersionOption[],
-  selectedKey?: string,
-): DriverVersionOption | undefined => {
-  if (selectedKey) {
-    const exactMatch = options.find((item) => buildVersionOptionKey(item) === selectedKey);
-    if (exactMatch) {
-      return exactMatch;
-    }
-    const separatorIndex = selectedKey.indexOf('@@');
-    const selectedVersion = separatorIndex >= 0
-      ? selectedKey.slice(0, separatorIndex).trim()
-      : '';
-    if (selectedVersion) {
-      const versionMatch = options.find((item) => String(item.version || '').trim() === selectedVersion);
-      if (versionMatch) {
-        return versionMatch;
-      }
-    }
-  }
-  return (
-    (row.needsUpdate ? options.find((item) => item.version === row.pinnedVersion) : undefined) ||
-    (row.needsUpdate ? options.find((item) => item.recommended) : undefined) ||
-    options.find((item) => item.version === row.installedVersion) ||
-    options.find((item) => item.version === row.pinnedVersion) ||
-    options.find((item) => item.recommended) ||
-    options[0]
-  );
-};
-const DRIVER_STATUS_CACHE_TTL_MS = 60 * 1000;
-const DRIVER_NETWORK_CACHE_TTL_MS = 5 * 60 * 1000;
-const normalizeDriverSearchText = (value: string) => String(value || '').trim().toLowerCase();
-const DRIVER_ERROR_DETAIL_SENTINEL = '__GONAVI_DRIVER_ERROR_DETAIL__';
-const DRIVER_ERROR_DETAIL_SEPARATORS = [': ', '：', '： ', ':'];
-const interpolateDriverMessageTemplate = (
-  template: string,
-  params?: Record<string, unknown>,
-): string => template
-  .replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-    const value = params?.[key];
-    return value === undefined || value === null ? '' : String(value);
-  })
-  .replace(/\{(\w+)\}/g, (_match, key: string) => {
-    const value = params?.[key];
-    return value === undefined || value === null ? '' : String(value);
-  });
-const resolveDriverMessageKeysByValue = (
-  value: string,
-  params?: Record<string, unknown>,
-): string[] => {
-  const target = String(value || '').trim();
-  if (!target) {
-    return [];
-  }
-  const matchedKeys = new Set<string>();
-  Object.values(messages).forEach((catalog) => {
-    Object.entries(catalog).forEach(([key, messageText]) => {
-      if (interpolateDriverMessageTemplate(String(messageText || ''), params).trim() === target) {
-        matchedKeys.add(key);
-      }
-    });
-  });
-  return Array.from(matchedKeys);
-};
-const buildDriverErrorWrapperMatchers = (
-  fallbackMessage: string,
-  detailKey?: string,
-  detailParams?: Record<string, unknown>,
-  backendWrapperKeys?: string[],
-): { exactWrappers: string[]; detailPrefixes: string[] } => {
-  const exactWrappers = new Set<string>();
-  const detailPrefixes = new Set<string>();
-
-  resolveDriverMessageKeysByValue(fallbackMessage, detailParams).forEach((fallbackKey) => {
-    Object.values(messages).forEach((catalog) => {
-      const wrapper = interpolateDriverMessageTemplate(String(catalog[fallbackKey] || ''), detailParams).trim();
-      if (!wrapper) {
-        return;
-      }
-      exactWrappers.add(wrapper);
-      DRIVER_ERROR_DETAIL_SEPARATORS.forEach((separator) => {
-        detailPrefixes.add(`${wrapper}${separator}`);
-      });
-    });
-  });
-
-  if (detailKey) {
-    const templateParams = {
-      ...(detailParams || {}),
-      detail: DRIVER_ERROR_DETAIL_SENTINEL,
-    };
-    Object.values(messages).forEach((catalog) => {
-      const template = catalog[detailKey];
-      if (typeof template !== 'string' || !template.includes('{detail}')) {
-        return;
-      }
-      const renderedTemplate = interpolateDriverMessageTemplate(template, templateParams).trim();
-      const detailIndex = renderedTemplate.indexOf(DRIVER_ERROR_DETAIL_SENTINEL);
-      if (detailIndex < 0) {
-        return;
-      }
-      const prefix = renderedTemplate.slice(0, detailIndex);
-      if (!prefix.trim()) {
-        return;
-      }
-      detailPrefixes.add(prefix);
-      detailPrefixes.add(prefix.trimEnd());
-    });
-  }
-
-  if (backendWrapperKeys && backendWrapperKeys.length > 0) {
-    const templateParams = {
-      ...(detailParams || {}),
-      detail: DRIVER_ERROR_DETAIL_SENTINEL,
-    };
-    Object.values(catalogs).forEach((catalog) => {
-      backendWrapperKeys.forEach((backendWrapperKey) => {
-        const template = (catalog as Record<string, string>)[backendWrapperKey];
-        if (typeof template !== 'string' || !template.includes('detail')) {
-          return;
-        }
-        const renderedTemplate = interpolateDriverMessageTemplate(template, templateParams).trim();
-        const detailIndex = renderedTemplate.indexOf(DRIVER_ERROR_DETAIL_SENTINEL);
-        if (detailIndex < 0) {
-          return;
-        }
-        const prefix = renderedTemplate.slice(0, detailIndex);
-        if (!prefix.trim()) {
-          return;
-        }
-        detailPrefixes.add(prefix);
-        detailPrefixes.add(prefix.trimEnd());
-      });
-    });
-  }
-
-  return {
-    exactWrappers: Array.from(exactWrappers).sort((left, right) => right.length - left.length),
-    detailPrefixes: Array.from(detailPrefixes).sort((left, right) => right.length - left.length),
-  };
-};
-const stripWrappedDriverErrorDetail = (
-  rawMessage: unknown,
-  fallbackMessage: string,
-  detailKey?: string,
-  detailParams?: Record<string, unknown>,
-  backendWrapperKeys?: string[],
-): { detail: string; stripped: boolean } => {
-  const messageText = String(rawMessage || '').trim();
-  if (!messageText) {
-    return { detail: '', stripped: false };
-  }
-
-  const { exactWrappers, detailPrefixes } = buildDriverErrorWrapperMatchers(
-    fallbackMessage,
-    detailKey,
-    detailParams,
-    backendWrapperKeys,
-  );
-  if (exactWrappers.includes(messageText)) {
-    return { detail: '', stripped: true };
-  }
-  for (const prefix of detailPrefixes) {
-    if (!prefix || !messageText.startsWith(prefix)) {
-      continue;
-    }
-    return {
-      detail: messageText.slice(prefix.length).trim(),
-      stripped: true,
-    };
-  }
-  return { detail: messageText, stripped: false };
-};
-const formatDriverErrorMessageWithDetail = (
-  fallbackMessage: string,
-  detail: string,
-): string => `${fallbackMessage}${/[\u3400-\u9fff]/.test(fallbackMessage) ? '：' : ': '}${detail}`;
-export const resolveDriverErrorMessageText = (
-  rawMessage: unknown,
-  fallbackMessage: string,
-  detailKey?: string,
-  detailParams?: Record<string, unknown>,
-  backendWrapperKeys?: string[],
-): string => {
-  const { detail, stripped } = stripWrappedDriverErrorDetail(
-    rawMessage,
-    fallbackMessage,
-    detailKey,
-    detailParams,
-    backendWrapperKeys,
-  );
-  if (!detail) {
-    return fallbackMessage;
-  }
-  if (!detailKey) {
-    return stripped ? formatDriverErrorMessageWithDetail(fallbackMessage, detail) : detail;
-  }
-  return t(detailKey, {
-    ...(detailParams || {}),
-    detail,
-  });
-};
-const containsCjkText = (value: string) => /[\u3400-\u9fff]/.test(value);
-const appendRawNonChineseDetail = (parts: string[], value: unknown) => {
-  const text = String(value || '').trim();
-  if (!text || containsCjkText(text) || parts.includes(text)) {
-    return;
-  }
-  parts.push(text);
-};
-const formatDriverCardStatusMessage = (row: DriverStatusRow, dismissedRevisions: string[]): string => {
-  const parts: string[] = [];
-  if (row.builtIn) {
-    parts.push(t('driver.modal.card.status.builtIn'));
-  } else if (row.needsUpdate) {
-    parts.push(t('driver.modal.card.status.needsUpdate'));
-    appendRawNonChineseDetail(parts, row.updateReason);
-    appendRawNonChineseDetail(parts, row.message);
-  } else if (isOptionalUpdateVisible(row, dismissedRevisions)) {
-    parts.push(t('driver.modal.card.status.optionalUpdate'));
-    appendRawNonChineseDetail(parts, row.message);
-  } else if (row.connectable || row.runtimeAvailable) {
-    parts.push(t('driver.modal.card.status.runtimeAvailable'));
-    appendRawNonChineseDetail(parts, row.message);
-  } else if (row.packageInstalled) {
-    parts.push(t('driver.modal.card.status.installedPending'));
-    appendRawNonChineseDetail(parts, row.message);
-  } else if (row.pinnedVersion) {
-    parts.push(t('driver.modal.card.status.notEnabled'));
-    appendRawNonChineseDetail(parts, row.message);
-  } else {
-    parts.push(t('driver.modal.card.status.notEnabled'));
-    appendRawNonChineseDetail(parts, row.message);
-  }
-  return parts.join(' ');
-};
-const formatDriverNetworkSummary = (status: DriverNetworkStatus): string => {
-  if (status.usingFallback || (status.mirrorReachable === false && status.fallbackReachable === true)) {
-    return t('driver_manager.network.summary.mirror_fallback_available');
-  }
-  if (status.reachable) {
-    return t(status.proxyConfigured
-      ? 'driver_manager.network.summary.reachable_with_proxy'
-      : 'driver_manager.network.summary.reachable');
-  }
-  if (status.downloadChainReachable === false) {
-    return t('driver_manager.network.summary.download_chain_unreachable');
-  }
-  if (status.proxyConfigured) {
-    return t('driver_manager.network.summary.unreachable_proxy_configured');
-  }
-  if (status.recommendedProxy) {
-    return t('driver_manager.network.summary.proxy_recommended');
-  }
-  return t('driver_manager.network.summary.unreachable');
-};
-const createDriverBatchProgress = (total: number, currentMessage: string): DriverBatchProgressState => ({
-  total,
-  completed: 0,
-  success: 0,
-  failed: 0,
-  skipped: 0,
-  currentDriverType: '',
-  currentDriverName: '',
-  currentMessage,
-});
-
-const driverStatusSnapshots = createDriverStatusSnapshotRegistry<DriverStatusRow>();
-let driverNetworkSnapshotCache: { status: DriverNetworkStatus; cachedAt: number } | null = null;
-let driverStatusSnapshotIntentSequence = 0;
-type DriverStatusBackendResult = Awaited<ReturnType<typeof GetDriverStatusList>>;
-type DriverNetworkBackendResult = Awaited<ReturnType<typeof CheckDriverNetworkStatus>>;
-const driverStatusInFlightRequests = new Map<string, Promise<DriverStatusBackendResult>>();
-let driverNetworkInFlightRequest: Promise<DriverNetworkBackendResult> | null = null;
-
-const requestDriverStatusShared = (
-  downloadDir: string,
-  options?: { fresh?: boolean },
-): Promise<DriverStatusBackendResult> => {
-  const requestKey = normalizeDriverStatusRequestKey(downloadDir);
-  const pendingRequest = driverStatusInFlightRequests.get(requestKey);
-  // fresh 用于「刚改完必须看到新状态」的场景：复用安装前发出的在途请求会把旧
-  // 快照当成新结果写进 rows（代际守卫只看调用方新旧，不看数据新旧）。
-  if (pendingRequest && !options?.fresh) {
-    return pendingRequest;
-  }
-  const request = Promise.resolve()
-    .then(() => GetDriverStatusList(downloadDir, ''))
-    .finally(() => {
-      if (driverStatusInFlightRequests.get(requestKey) === request) {
-        driverStatusInFlightRequests.delete(requestKey);
-      }
-    });
-  driverStatusInFlightRequests.set(requestKey, request);
-  return request;
-};
-
-const requestDriverNetworkStatusShared = (): Promise<DriverNetworkBackendResult> => {
-  if (driverNetworkInFlightRequest) {
-    return driverNetworkInFlightRequest;
-  }
-  const request = Promise.resolve()
-    .then(() => CheckDriverNetworkStatus())
-    .finally(() => {
-      if (driverNetworkInFlightRequest === request) {
-        driverNetworkInFlightRequest = null;
-      }
-    });
-  driverNetworkInFlightRequest = request;
-  return request;
-};
-
-const isFreshCache = (cachedAt: number, ttlMs: number): boolean => Date.now() - cachedAt <= ttlMs;
-
-const buildVersionSelectOptions = (options: DriverVersionOption[]) => {
-  type SelectOption = { value: string; label: string };
-  type SelectGroup = { label: string; options: SelectOption[] };
-
-  if (options.length === 0) {
-    return [] as Array<SelectOption | SelectGroup>;
-  }
-
-  const yearGroups = new Map<string, SelectOption[]>();
-  const others: SelectOption[] = [];
-  options.forEach((option) => {
-    const selectOption: SelectOption = {
-      value: buildVersionOptionKey(option),
-      label: option.displayLabel || option.version || t('driver.modal.version.default'),
-    };
-    const year = String(option.year || '').trim();
-    if (!year) {
-      others.push(selectOption);
-      return;
-    }
-    const group = yearGroups.get(year) || [];
-    group.push(selectOption);
-    yearGroups.set(year, group);
-  });
-
-  const sortedYears = Array.from(yearGroups.keys()).sort((a, b) => {
-    const left = Number.parseInt(a, 10);
-    const right = Number.parseInt(b, 10);
-    const leftValid = Number.isFinite(left);
-    const rightValid = Number.isFinite(right);
-    if (leftValid && rightValid) {
-      return right - left;
-    }
-    return b.localeCompare(a);
-  });
-
-  const grouped: SelectGroup[] = sortedYears.map((year) => ({
-    label: t('driver.modal.version.group.year', { year }),
-    options: yearGroups.get(year) || [],
-  }));
-  if (others.length > 0) {
-    // 只有「其他」一组时直接平铺，避免出现不可选的分组标题
-    if (grouped.length === 0) {
-      return others;
-    }
-    grouped.push({ label: t('driver.modal.version.group.other'), options: others });
-  }
-  return grouped;
-};
-
-const DriverManagerModal: React.FC<{
+export interface DriverManagerModalProps {
   open: boolean;
   onClose: () => void;
   onBack?: () => void;
@@ -661,7 +45,9 @@ const DriverManagerModal: React.FC<{
   downloadSourceSwitching?: boolean;
   downloadSource?: string;
   embedded?: boolean;
-}> = ({
+}
+
+const DriverManagerModal: React.FC<DriverManagerModalProps> = ({
   open,
   onClose,
   onBack,
@@ -671,1762 +57,301 @@ const DriverManagerModal: React.FC<{
   downloadSource,
   embedded = false,
 }) => {
-  const theme = useStore((state) => state.theme);
-  const languagePreference = useStore((state) => state.languagePreference);
-  void languagePreference;
-  const darkMode = theme === 'dark';
-  const driverManagerTheme = useMemo(
-    () => buildDriverManagerWorkbenchTheme(darkMode),
-    [darkMode],
-  );
-  const [loading, setLoading] = useState(() => open && !driverStatusSnapshots.getPreferred());
-  const [downloadDir, setDownloadDir] = useState(() => driverStatusSnapshots.getPreferred()?.downloadDir || '');
-  const [networkChecking, setNetworkChecking] = useState(() => open && !driverNetworkSnapshotCache);
-  const [networkStatus, setNetworkStatus] = useState<DriverNetworkStatus | null>(() => driverNetworkSnapshotCache?.status || null);
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const [rows, setRows] = useState<DriverStatusRow[]>(() => driverStatusSnapshots.getPreferred()?.rows || []);
-  const [actionState, setActionState] = useState<{ driverType: string; kind: DriverActionKind }>({ driverType: '', kind: '' });
-  const [batchAction, setBatchAction] = useState<DriverBatchActionKind>('');
-  const [batchProgress, setBatchProgress] = useState<DriverBatchProgressState | null>(null);
-  const [progressMap, setProgressMap] = useState<Record<string, DriverProgressState>>({});
-  const [operationLogMap, setOperationLogMap] = useState<Record<string, DriverLogEntry[]>>({});
-  const [batchDirectoryImporting, setBatchDirectoryImporting] = useState(false);
-  const [versionMap, setVersionMap] = useState<Record<string, DriverVersionOption[]>>({});
-  const [selectedVersionMap, setSelectedVersionMap] = useState<Record<string, string>>({});
-  const [versionLoadingMap, setVersionLoadingMap] = useState<Record<string, boolean>>({});
-  const [versionSizeLoadingMap, setVersionSizeLoadingMap] = useState<Record<string, boolean>>({});
-  const [optionalUpdateDismissedRevisions, setOptionalUpdateDismissedRevisions] = useState<string[]>(() => readOptionalUpdateDismissedRevisions());
-  // 已关闭的网络提示条（持久化）。见 driverNetworkNoticeState.ts。
-  const [dismissedNetworkNotices, setDismissedNetworkNotices] = useState<DriverNetworkNoticeKind[]>(
-    () => readDismissedDriverNetworkNotices(),
-  );
-  const [driverFilter, setDriverFilter] = useState<'all' | 'needsUpdate' | 'enabled' | 'notEnabled'>('all');
-  const [driverSortKey, setDriverSortKey] = useState<DriverListSortKey>('name');
-  const [selectedDriverType, setSelectedDriverType] = useState('');
-  const downloadDirRef = useRef(downloadDir);
-  const progressMapRef = useRef<Record<string, DriverProgressState>>({});
-  const progressTaskIdMapRef = useRef<Record<string, string>>({});
-  const tasklessProgressOwnerRef = useRef('');
-  const cancelIntentsRef = useRef(createDriverDownloadCancelIntents());
-  const versionLoadPromiseMapRef = useRef<Record<string, Promise<DriverVersionOption[]>>>({});
-  const statusRequestGenerationRef = useRef(0);
-  const networkRequestGenerationRef = useRef(0);
-  const batchBusy = batchDirectoryImporting || batchAction !== '';
-  const installMutatingBusy = batchBusy || actionState.kind !== '';
-  const hasActiveDriverDownload = useMemo(
-    () => Object.values(progressMap).some(isDriverDownloadActive),
-    [progressMap],
-  );
-  const driverMutationBusy = installMutatingBusy || hasActiveDriverDownload;
-  // “后台运行” must only mean a task that the backend has already accepted and
-  // can restore after this component unmounts. Version resolution still happens
-  // in the UI before that point, so calling it background any earlier is false.
-  const canRunDriverDownloadInBackground = hasActiveDriverDownload;
-
-  useEffect(() => {
-    downloadDirRef.current = downloadDir;
-  }, [downloadDir]);
-
-  useEffect(() => () => {
-    statusRequestGenerationRef.current += 1;
-    networkRequestGenerationRef.current += 1;
-  }, []);
-
-  const resolveDriverErrorMessage = useCallback((
-    rawMessage: unknown,
-    fallbackMessage: string,
-    detailKey?: string,
-    detailParams?: Record<string, unknown>,
-    backendWrapperKeys?: string[],
-  ): string => (
-    resolveDriverErrorMessageText(
-      rawMessage,
-      fallbackMessage,
-      detailKey,
-      detailParams,
-      backendWrapperKeys,
-    )
-  ), []);
-
-  const updateDriverProgress = useCallback((
-    driverType: string,
-    incoming: DriverProgressState,
-    options?: { resetPrevious?: boolean },
-  ) => {
-    const normalized = String(driverType || '').trim().toLowerCase();
-    if (!normalized) {
-      return undefined;
-    }
-    const previousProgress = options?.resetPrevious ? undefined : progressMapRef.current[normalized];
-    if (shouldIgnoreDriverDownloadProgress(incoming.status, cancelIntentsRef.current.isRequested(normalized))) {
-      return previousProgress;
-    }
-    const nextProgress = normalizeDriverProgressUpdate(previousProgress, incoming);
-    progressMapRef.current = {
-      ...progressMapRef.current,
-      [normalized]: nextProgress,
-    };
-    setProgressMap(progressMapRef.current);
-    return nextProgress;
-  }, []);
-
-  const clearDriverDownloadTaskId = useCallback((driverType: string) => {
-    const normalized = String(driverType || '').trim().toLowerCase();
-    if (!normalized) {
-      return;
-    }
-    const nextTaskIds = { ...progressTaskIdMapRef.current };
-    delete nextTaskIds[normalized];
-    progressTaskIdMapRef.current = nextTaskIds;
-  }, []);
-
-  const clearDriverProgress = useCallback((driverType: string) => {
-    const normalized = String(driverType || '').trim().toLowerCase();
-    if (!normalized) {
-      return;
-    }
-    const next = { ...progressMapRef.current };
-    delete next[normalized];
-    progressMapRef.current = next;
-    clearDriverDownloadTaskId(normalized);
-    setProgressMap(next);
-  }, [clearDriverDownloadTaskId]);
-
-  const modalBodyStyle = useMemo<React.CSSProperties>(() => ({
-    maxHeight: 'calc(100vh - 220px)',
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    paddingRight: 18,
-  }), []);
-
-  const appendOperationLog = useCallback((
-    driverType: string,
-    text: string,
-    signature?: string,
-    mode: 'append' | 'update-last' = 'append',
-  ) => {
-    const normalized = String(driverType || '').trim().toLowerCase();
-    const content = String(text || '').trim();
-    if (!normalized || !content) {
-      return;
-    }
-    const sign = String(signature || content).trim() || content;
-    const now = new Date().toLocaleTimeString();
-    setOperationLogMap((prev) => {
-      const history = prev[normalized] || [];
-      if (history.length > 0) {
-        const last = history[history.length - 1];
-        if (last.signature === sign) {
-          if (mode === 'update-last') {
-            if (last.text === content) {
-              return prev;
-            }
-            const nextHistory = [...history];
-            nextHistory[nextHistory.length - 1] = {
-              ...last,
-              text: content,
-              time: now,
-            };
-            return { ...prev, [normalized]: nextHistory };
-          }
-          return prev;
-        }
-      }
-      const nextHistory = [
-        ...history,
-        {
-          time: now,
-          text: content,
-          signature: sign,
-        },
-      ];
-      const sliced = nextHistory.length > 200 ? nextHistory.slice(nextHistory.length - 200) : nextHistory;
-      return { ...prev, [normalized]: sliced };
-    });
-  }, []);
-
-  const applyTaskScopedDriverProgress = useCallback((
-    taskId: string,
-    driverType: string,
-    incoming: DriverProgressState,
-  ): { applied: boolean; progress?: DriverProgressState } => {
-    const normalizedDriverType = String(driverType || '').trim().toLowerCase();
-    const normalizedTaskId = String(taskId || '').trim();
-    if (!normalizedDriverType || !normalizedTaskId) {
-      return { applied: false };
-    }
-    const previousProgress = progressMapRef.current[normalizedDriverType];
-    if (shouldIgnoreDriverDownloadProgress(incoming.status, cancelIntentsRef.current.isRequested(normalizedDriverType))) {
-      return { applied: false, progress: previousProgress };
-    }
-
-    const knownTaskId = progressTaskIdMapRef.current[normalizedDriverType];
-    if (knownTaskId === normalizedTaskId && isDriverDownloadTerminal(previousProgress)) {
-      return { applied: false, progress: previousProgress };
-    }
-    if (knownTaskId === normalizedTaskId && previousProgress?.status === 'downloading' && incoming.status === 'start') {
-      return { applied: false, progress: previousProgress };
-    }
-
-    let resetPrevious = false;
-    if (knownTaskId && knownTaskId !== normalizedTaskId) {
-      if (!isDriverDownloadTerminal(previousProgress)) {
-        return { applied: false, progress: previousProgress };
-      }
-      resetPrevious = true;
-    } else if (!knownTaskId && isDriverDownloadTerminal(previousProgress)) {
-      resetPrevious = true;
-    }
-
-    progressTaskIdMapRef.current = {
-      ...progressTaskIdMapRef.current,
-      [normalizedDriverType]: normalizedTaskId,
-    };
-    const progress = updateDriverProgress(normalizedDriverType, incoming, { resetPrevious });
-    return { applied: !!progress, progress };
-  }, [updateDriverProgress]);
-
-  const applyDriverDownloadTaskSnapshot = useCallback((task: DriverDownloadTaskSnapshot) => {
-    const application = applyTaskScopedDriverProgress(task.taskId, task.driverType, {
-      status: task.status,
-      message: task.message || '',
-      percent: task.percent,
-    });
-    if (!application.applied || !application.progress) {
-      return false;
-    }
-    const nextProgress = application.progress;
-    const statusText = String(nextProgress.status || '').toUpperCase();
-    const messageText = nextProgress.message || '-';
-    appendOperationLog(
-      task.driverType,
-      messageText,
-      `driver-progress:${statusText}:${messageText}`,
-      'update-last',
-    );
-    return isDriverProgressTerminalStatus(task.status);
-  }, [appendOperationLog, applyTaskScopedDriverProgress]);
-
-  const refreshDriverDownloadTasks = useCallback(async (): Promise<boolean> => {
-    try {
-      const result = await ListDriverDownloadTasks();
-      if (!result?.success) {
-        return false;
-      }
-      let hasTerminalTask = false;
-      extractDriverDownloadTaskSnapshots(result.data).forEach((task) => {
-        hasTerminalTask = applyDriverDownloadTaskSnapshot(task) || hasTerminalTask;
-      });
-      return hasTerminalTask;
-    } catch (error) {
-      console.warn('Wails API: ListDriverDownloadTasks unavailable', error);
-      return false;
-    }
-  }, [applyDriverDownloadTaskSnapshot]);
+  const {
+    darkMode,
+    driverManagerTheme,
+    loading,
+    setLoading,
+    downloadDir,
+    setDownloadDir,
+    networkChecking,
+    setNetworkChecking,
+    networkStatus,
+    setNetworkStatus,
+    searchKeyword,
+    setSearchKeyword,
+    rows,
+    setRows,
+    actionState,
+    setActionState,
+    batchAction,
+    setBatchAction,
+    batchProgress,
+    setBatchProgress,
+    progressMap,
+    operationLogMap,
+    setOperationLogMap,
+    batchDirectoryImporting,
+    setBatchDirectoryImporting,
+    versionMap,
+    setVersionMap,
+    selectedVersionMap,
+    setSelectedVersionMap,
+    versionLoadingMap,
+    setVersionLoadingMap,
+    versionSizeLoadingMap,
+    setVersionSizeLoadingMap,
+    optionalUpdateDismissedRevisions,
+    setOptionalUpdateDismissedRevisions,
+    dismissedNetworkNotices,
+    setDismissedNetworkNotices,
+    driverFilter,
+    setDriverFilter,
+    driverSortKey,
+    setDriverSortKey,
+    selectedDriverType,
+    setSelectedDriverType,
+    downloadDirRef,
+    progressMapRef,
+    progressTaskIdMapRef,
+    tasklessProgressOwnerRef,
+    cancelIntentsRef,
+    versionLoadPromiseMapRef,
+    statusRequestGenerationRef,
+    networkRequestGenerationRef,
+    batchBusy,
+    driverMutationBusy,
+    canRunDriverDownloadInBackground,
+    resolveDriverErrorMessage,
+    updateDriverProgress,
+    clearDriverDownloadTaskId,
+    clearDriverProgress,
+    modalBodyStyle,
+  } = useDriverManagerState({ open });
 
   const {
+    appendOperationLog,
+    applyTaskScopedDriverProgress,
+    applyDriverDownloadTaskSnapshot,
+    refreshDriverDownloadTasks,
     batchCancellation,
     cancelIntents,
     installSessions,
     cancelDriverDownload,
     cancelDriverDownloadTask,
     cancelAllDriverDownloads,
-  } = useDriverDownloadCancellation({
-    progressTaskIdMapRef,
+  } = useDriverManagerProgress({
+    setOperationLogMap,
     progressMapRef,
-    cancelIntents: cancelIntentsRef.current,
-    applyDriverDownloadTaskSnapshot,
+    cancelIntentsRef,
+    progressTaskIdMapRef,
     updateDriverProgress,
-    appendOperationLog,
     resolveDriverErrorMessage,
-    onReleaseInstallAction: (driverType) => setActionState((prev) => nextDriverActionStateAfterCancel(prev, driverType)),
+    setActionState,
   });
 
-  const refreshStatus = useCallback(async (
-    toastOnError = true,
-    options?: { showLoading?: boolean; fresh?: boolean },
-  ) => {
-    const requestGeneration = statusRequestGenerationRef.current + 1;
-    statusRequestGenerationRef.current = requestGeneration;
-    const snapshotIntentSequence = driverStatusSnapshotIntentSequence + 1;
-    driverStatusSnapshotIntentSequence = snapshotIntentSequence;
-    const requestedDownloadDir = downloadDirRef.current;
-    const requestKey = driverStatusSnapshots.beginRequest(requestedDownloadDir, snapshotIntentSequence);
-    const showLoading = options?.showLoading ?? true;
-    if (showLoading) {
-      setLoading(true);
-    }
-    try {
-      const res = await requestDriverStatusShared(requestedDownloadDir, { fresh: options?.fresh });
-      if (requestGeneration !== statusRequestGenerationRef.current) {
-        return;
-      }
-      if (!res?.success) {
-        if (toastOnError) {
-          message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.statusFetch'), 'driver.modal.error.statusFetchWithDetail'));
-        }
-        return;
-      }
-
-      const data = (res?.data || {}) as any;
-      const resolvedDir = String(data.downloadDir || '').trim();
-      const drivers = Array.isArray(data.drivers) ? data.drivers : [];
-
-      const effectiveDownloadDir = resolvedDir || requestedDownloadDir;
-      if (resolvedDir) {
-        setDownloadDir(resolvedDir);
-      }
-
-      // 内置驱动无需安装/更新/移除，不进入管理列表。
-      const nextRows: DriverStatusRow[] = drivers
-        .filter((item: any) => !item.builtIn)
-        .map((item: any) => ({
-        type: String(item.type || '').trim(),
-        name: String(item.name || item.type || '').trim(),
-        builtIn: !!item.builtIn,
-        pinnedVersion: String(item.pinnedVersion || '').trim() || undefined,
-        installedVersion: String(item.installedVersion || '').trim() || undefined,
-        packageSizeText: String(item.packageSizeText || '').trim() || undefined,
-        runtimeAvailable: !!item.runtimeAvailable,
-        packageInstalled: !!item.packageInstalled,
-        connectable: !!item.connectable,
-        defaultDownloadUrl: String(item.defaultDownloadUrl || '').trim() || undefined,
-        installDir: String(item.installDir || '').trim() || undefined,
-        packagePath: String(item.packagePath || '').trim() || undefined,
-        executablePath: String(item.executablePath || '').trim() || undefined,
-        downloadedAt: String(item.downloadedAt || '').trim() || undefined,
-        agentRevision: String(item.agentRevision || '').trim() || undefined,
-        expectedRevision: String(item.expectedRevision || '').trim() || undefined,
-        needsUpdate: !!item.needsUpdate,
-        optionalUpdate: !!item.optionalUpdate && !item.needsUpdate,
-        updateReason: String(item.updateReason || '').trim() || undefined,
-        affectedConnections: Number.isFinite(Number(item.affectedConnections))
-          ? Number(item.affectedConnections)
-          : undefined,
-        activeConnections: Number.isFinite(Number(item.activeConnections))
-          ? Number(item.activeConnections)
-          : undefined,
-        reasonCode: String(item.reasonCode || '').trim() || undefined,
-        message: String(item.message || '').trim() || undefined,
-      }));
-      setRows(nextRows);
-      const snapshot: DriverStatusSnapshotState<DriverStatusRow> = {
-        rows: nextRows,
-        downloadDir: effectiveDownloadDir,
-        cachedAt: Date.now(),
-        intentSequence: snapshotIntentSequence,
-      };
-      driverStatusSnapshots.write(requestKey, snapshot);
-      const resolvedRequestKey = normalizeDriverStatusRequestKey(effectiveDownloadDir);
-      if (resolvedRequestKey !== requestKey) {
-        driverStatusSnapshots.write(resolvedRequestKey, snapshot);
-      }
-    } catch (err: any) {
-      if (requestGeneration === statusRequestGenerationRef.current && toastOnError) {
-        message.error(t('driver.modal.error.statusFetchWithDetail', { detail: err?.message || String(err) }));
-      }
-    } finally {
-      settleLatestDriverRequest(requestGeneration, statusRequestGenerationRef.current, setLoading);
-    }
-  }, [resolveDriverErrorMessage]);
-
-  const checkNetworkStatus = useCallback(async (
-    toastOnError = false,
-    options?: { showLoading?: boolean },
-  ) => {
-    const requestGeneration = networkRequestGenerationRef.current + 1;
-    networkRequestGenerationRef.current = requestGeneration;
-    const showLoading = options?.showLoading ?? true;
-    if (showLoading) {
-      setNetworkChecking(true);
-    }
-    try {
-      const res = await requestDriverNetworkStatusShared();
-      if (requestGeneration !== networkRequestGenerationRef.current) {
-        return;
-      }
-      if (!res?.success) {
-        if (toastOnError) {
-          message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.networkCheck'), 'driver.modal.error.networkCheckWithDetail'));
-        }
-        return;
-      }
-      const data = (res?.data || {}) as any;
-      const checks = Array.isArray(data.checks) ? data.checks : [];
-      const normalizedChecks: DriverNetworkProbe[] = checks.map((item: any) => ({
-        probeCode: String(item.probeCode || '').trim() || undefined,
-        name: String(item.name || '').trim(),
-        url: String(item.url || '').trim(),
-        reachable: !!item.reachable,
-        httpStatus: parseOptionalLatency(item.httpStatus),
-        latencyMs: parseOptionalLatency(item.latencyMs),
-        tcpLatencyMs: parseOptionalLatency(item.tcpLatencyMs),
-        httpLatencyMs: parseOptionalLatency(item.httpLatencyMs),
-        method: String(item.method || '').trim().toUpperCase() || undefined,
-        error: String(item.error || '').trim() || undefined,
-      }));
-      const nextStatusBase: DriverNetworkStatus = {
-        reachable: !!data.reachable,
-        summary: '',
-        recommendedProxy: !!data.recommendedProxy,
-        proxyConfigured: !!data.proxyConfigured,
-        mirrorReachable: typeof data.mirrorReachable === 'boolean' ? data.mirrorReachable : undefined,
-        fallbackChecked: typeof data.fallbackChecked === 'boolean' ? data.fallbackChecked : undefined,
-        fallbackReachable: typeof data.fallbackReachable === 'boolean' ? data.fallbackReachable : undefined,
-        usingFallback: typeof data.usingFallback === 'boolean'
-          ? data.usingFallback
-          : data.mirrorReachable === false && data.fallbackReachable === true,
-        downloadChainReachable: typeof data.downloadChainReachable === 'boolean' ? data.downloadChainReachable : undefined,
-        downloadRequiredHosts: Array.isArray(data.downloadRequiredHosts)
-          ? data.downloadRequiredHosts.map((item: unknown) => String(item || '').trim()).filter(Boolean)
-          : undefined,
-        proxyEnv: (data.proxyEnv || {}) as Record<string, string>,
-        checkedAt: String(data.checkedAt || '').trim() || undefined,
-        checks: normalizedChecks,
-        logPath: String(data.logPath || '').trim() || undefined,
-      };
-      const nextStatus: DriverNetworkStatus = {
-        ...nextStatusBase,
-        summary: String(data.summary || '').trim() || formatDriverNetworkSummary(nextStatusBase),
-      };
-      setNetworkStatus(nextStatus);
-      driverNetworkSnapshotCache = {
-        status: nextStatus,
-        cachedAt: Date.now(),
-      };
-    } catch (err: any) {
-      if (requestGeneration === networkRequestGenerationRef.current && toastOnError) {
-        message.error(t('driver.modal.error.networkCheckWithDetail', { detail: err?.message || String(err) }));
-      }
-    } finally {
-      settleLatestDriverRequest(requestGeneration, networkRequestGenerationRef.current, setNetworkChecking);
-    }
-  }, [resolveDriverErrorMessage]);
-
-  const loadVersionOptions = useCallback(async (row: DriverStatusRow, toastOnError = false) => {
-    if (row.builtIn) {
-      return [] as DriverVersionOption[];
-    }
-    const driverType = String(row.type || '').trim();
-    if (!driverType) {
-      return [] as DriverVersionOption[];
-    }
-    const pendingRequest = versionLoadPromiseMapRef.current[driverType];
-    if (pendingRequest) {
-      return pendingRequest;
-    }
-
-    let settlePendingRequest!: (options: DriverVersionOption[]) => void;
-    const request = new Promise<DriverVersionOption[]>((resolve) => {
-      settlePendingRequest = resolve;
-    });
-    versionLoadPromiseMapRef.current[driverType] = request;
-    let requestResult = buildFallbackVersionOptions(row);
-    setVersionLoadingMap((prev) => ({ ...prev, [driverType]: true }));
-    try {
-      const res = await GetDriverVersionList(driverType, '');
-      if (!res?.success) {
-        if (toastOnError) {
-          message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.versionList', { name: row.name }), 'driver.modal.error.versionListLoad', { name: row.name }));
-        }
-        return requestResult;
-      }
-      const data = (res?.data || {}) as any;
-      const rawVersions = Array.isArray(data.versions) ? data.versions : [];
-      const normalizedOptions: DriverVersionOption[] = rawVersions
-        .map((item: any) => {
-          const version = String(item.version || '').trim();
-          const downloadUrl = String(item.downloadUrl || '').trim();
-          if (!version && !downloadUrl) {
-            return null;
-          }
-          return {
-            version,
-            downloadUrl,
-            packageSizeText: String(item.packageSizeText || '').trim() || undefined,
-            recommended: !!item.recommended,
-            source: String(item.source || '').trim() || undefined,
-            year: String(item.year || '').trim() || undefined,
-            displayLabel: String(item.displayLabel || '').trim() || undefined,
-          } as DriverVersionOption;
-        })
-        .filter((item: DriverVersionOption | null): item is DriverVersionOption => !!item);
-
-      const options = mergeFallbackVersionOptions(row, normalizedOptions);
-
-      requestResult = options;
-      setVersionMap((prev) => ({ ...prev, [driverType]: options }));
-      setSelectedVersionMap((prev) => {
-        const currentKey = prev[driverType];
-        const preferred = resolvePreferredVersionOption(row, options, currentKey);
-        if (!preferred) {
-          return prev;
-        }
-        const preferredKey = buildVersionOptionKey(preferred);
-        return currentKey === preferredKey
-          ? prev
-          : { ...prev, [driverType]: preferredKey };
-      });
-      return requestResult;
-    } catch (err: any) {
-      if (toastOnError) {
-        message.error(t('driver.modal.error.versionListLoad', { name: row.name, detail: err?.message || String(err) }));
-      }
-      return requestResult;
-    } finally {
-      setVersionLoadingMap((prev) => ({ ...prev, [driverType]: false }));
-      settlePendingRequest(requestResult);
-      if (versionLoadPromiseMapRef.current[driverType] === request) {
-        delete versionLoadPromiseMapRef.current[driverType];
-      }
-    }
-  }, [resolveDriverErrorMessage]);
-
-  const loadVersionPackageSize = useCallback(async (row: DriverStatusRow, optionKey: string) => {
-    if (row.builtIn) {
-      return;
-    }
-    const driverType = String(row.type || '').trim();
-    if (!driverType || !optionKey) {
-      return;
-    }
-
-    const options = versionMap[driverType] || [];
-    const selectedOption = options.find((item) => buildVersionOptionKey(item) === optionKey);
-    if (!selectedOption) {
-      return;
-    }
-    if (String(selectedOption.packageSizeText || '').trim()) {
-      return;
-    }
-
-    const versionText = String(selectedOption.version || '').trim();
-    if (!versionText) {
-      return;
-    }
-
-    const loadingKey = buildVersionSizeLoadingKey(driverType, optionKey);
-    if (versionSizeLoadingMap[loadingKey]) {
-      return;
-    }
-
-    setVersionSizeLoadingMap((prev) => ({ ...prev, [loadingKey]: true }));
-    try {
-      const res = await GetDriverVersionPackageSize(driverType, versionText);
-      if (!res?.success) {
-        return;
-      }
-      const data = (res?.data || {}) as any;
-      const sizeText = String(data.packageSizeText || '').trim();
-      if (!sizeText) {
-        return;
-      }
-
-      setVersionMap((prev) => {
-        const current = prev[driverType] || [];
-        let changed = false;
-        const next = current.map((item) => {
-          if (buildVersionOptionKey(item) !== optionKey) {
-            return item;
-          }
-          if (String(item.packageSizeText || '').trim() === sizeText) {
-            return item;
-          }
-          changed = true;
-          return { ...item, packageSizeText: sizeText };
-        });
-        if (!changed) {
-          return prev;
-        }
-        return { ...prev, [driverType]: next };
-      });
-    } finally {
-      setVersionSizeLoadingMap((prev) => {
-        if (!prev[loadingKey]) {
-          return prev;
-        }
-        const next = { ...prev };
-        delete next[loadingKey];
-        return next;
-      });
-    }
-  }, [versionMap, versionSizeLoadingMap]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const cachedStatus = driverStatusSnapshots.getPreferred();
-    const hasCachedStatus = !!cachedStatus;
-    restoreDriverStatusSnapshot(cachedStatus, {
-      setRows,
-      setLoading,
-      setDownloadDir: (nextDownloadDir) => {
-        downloadDirRef.current = nextDownloadDir;
-        setDownloadDir(nextDownloadDir);
-      },
-    });
-    const shouldRefreshStatus = !cachedStatus || !isFreshCache(cachedStatus.cachedAt, DRIVER_STATUS_CACHE_TTL_MS);
-    if (shouldRefreshStatus) {
-      void refreshStatus(false, { showLoading: !hasCachedStatus });
-    }
-
-    const cachedNetwork = driverNetworkSnapshotCache;
-    const hasCachedNetwork = !!cachedNetwork;
-    restoreDriverNetworkSnapshot(cachedNetwork, {
-      setStatus: setNetworkStatus,
-      setLoading: setNetworkChecking,
-    });
-    const shouldRefreshNetwork = !cachedNetwork || !isFreshCache(cachedNetwork.cachedAt, DRIVER_NETWORK_CACHE_TTL_MS);
-    if (shouldRefreshNetwork) {
-      void checkNetworkStatus(false, { showLoading: !hasCachedNetwork });
-    }
-    void refreshDriverDownloadTasks().then((hasTerminalTask) => {
-      if (hasTerminalTask) {
-        void refreshStatus(false, { showLoading: false });
-      }
-    });
-  }, [checkNetworkStatus, open, refreshDriverDownloadTasks, refreshStatus]);
-
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    try {
-      off = EventsOn('driver:download-progress', (event: DriverProgressEvent) => {
-        if (!event) {
-          return;
-        }
-        const driverType = String(event.driverType || '').trim().toLowerCase();
-        const status = event.status;
-        if (!driverType || !status) {
-          return;
-        }
-        if (shouldIgnoreDriverDownloadProgress(status, cancelIntentsRef.current.isRequested(driverType))) {
-          return;
-        }
-        const taskId = String(event.taskId || '').trim();
-        if (!taskId && tasklessProgressOwnerRef.current !== driverType) {
-          return;
-        }
-        const messageText = String(event.message || '').trim();
-        const percent = Math.max(0, Math.min(100, Number(event.percent || 0)));
-        const incomingProgress: DriverProgressState = {
-          status,
-          message: messageText,
-          percent,
-        };
-        const application = taskId
-          ? applyTaskScopedDriverProgress(taskId, driverType, incomingProgress)
-          : { applied: true, progress: updateDriverProgress(driverType, incomingProgress) };
-        if (!application.applied || !application.progress) {
-          return;
-        }
-        const nextProgress = application.progress;
-        const statusText = String(nextProgress.status || '').toUpperCase();
-        const logMessageText = nextProgress.message || '-';
-        appendOperationLog(
-          driverType,
-          logMessageText,
-          `driver-progress:${statusText}:${logMessageText}`,
-          'update-last',
-        );
-        if (nextProgress.status === 'done') {
-          void refreshStatus(false, { showLoading: false });
-        }
-      });
-
-      // The modal-open effect also hydrates tasks, but reconcile once more only
-      // after this listener exists. That closes the tiny event-replay window
-      // where a task completes between the first snapshot and subscription.
-      if (open) {
-        void refreshDriverDownloadTasks().then((hasTerminalTask) => {
-          if (hasTerminalTask) {
-            void refreshStatus(false, { showLoading: false });
-          }
-        });
-      }
-    } catch (error) {
-      console.warn('Wails API: EventsOn unavailable', error);
-    }
-    return () => {
-      if (off) {
-        off();
-      }
-    };
-  }, [appendOperationLog, applyTaskScopedDriverProgress, open, refreshDriverDownloadTasks, refreshStatus, updateDriverProgress]);
-
-  const resolveLocalImportVersion = useCallback((row: DriverStatusRow) => {
-    const loadedOptions = versionMap[row.type] || [];
-    const options = loadedOptions.length > 0 ? loadedOptions : buildFallbackVersionOptions(row);
-    const selectedOption = resolvePreferredVersionOption(row, options, selectedVersionMap[row.type]);
-    return selectedOption?.version || row.pinnedVersion || '';
-  }, [selectedVersionMap, versionMap]);
-
-  const resolveSelectedVersionOption = useCallback((row: DriverStatusRow) => {
-    const options = versionMap[row.type] || [];
-    const selectedKey = selectedVersionMap[row.type];
-    return (
-      options.find((item) => buildVersionOptionKey(item) === selectedKey) ||
-      options.find((item) => item.recommended) ||
-      options[0]
-    );
-  }, [selectedVersionMap, versionMap]);
-
-  const resolveInstalledDriverVersion = useCallback((row: DriverStatusRow) => (
-    String(row.installedVersion || '').trim() || String(row.pinnedVersion || '').trim()
-  ), []);
-
-  const isDriverVersionSwitchPending = useCallback((row: DriverStatusRow) => {
-    if (row.builtIn || (!row.packageInstalled && !row.connectable)) {
-      return false;
-    }
-    const selectedVersion = String(resolveSelectedVersionOption(row)?.version || '').trim();
-    const installedVersion = resolveInstalledDriverVersion(row);
-    return !!selectedVersion && !!installedVersion && selectedVersion !== installedVersion;
-  }, [resolveInstalledDriverVersion, resolveSelectedVersionOption]);
-
-  const installDriver = useCallback(async (
-    row: DriverStatusRow,
-    actionOptions?: { silentToast?: boolean; skipRefresh?: boolean; awaitCompletion?: boolean },
-  ) => {
-    const normalizedDriverType = String(row.type || '').trim().toLowerCase();
-    const session = installSessions.begin(normalizedDriverType);
-    cancelIntents.clear(normalizedDriverType);
-    setActionState({ driverType: row.type, kind: 'install' });
-    clearDriverDownloadTaskId(row.type);
-    updateDriverProgress(row.type, {
-      status: 'start',
-      message: t('driver.modal.progress.install.start'),
-      percent: 0,
-    });
-    try {
-      let versionOptions = versionMap[row.type] || [];
-      if (versionOptions.length === 0) {
-        versionOptions = await loadVersionOptions(row, true);
-      }
-      const fallbackOptions = buildFallbackVersionOptions(row);
-      const fallbackSelectedKey = fallbackOptions[0]
-        ? buildVersionOptionKey(fallbackOptions[0])
-        : undefined;
-      const selectedOption = resolvePreferredVersionOption(
-        row,
-        versionOptions,
-        selectedVersionMap[row.type] || fallbackSelectedKey,
-      );
-      const selectedVersion = selectedOption?.version || row.pinnedVersion || '';
-      const selectedDownloadURL = selectedOption?.downloadUrl || row.defaultDownloadUrl || '';
-      if (!installSessions.isCurrent(normalizedDriverType, session) || shouldAbortDriverInstall(normalizedDriverType, cancelIntents.isRequested, batchCancellation.isRequested())) {
-        return false;
-      }
-      const result = await StartDriverPackageDownload(row.type, selectedVersion, selectedDownloadURL, downloadDir);
-      if (!installSessions.isCurrent(normalizedDriverType, session) || shouldAbortDriverInstall(normalizedDriverType, cancelIntents.isRequested, batchCancellation.isRequested())) {
-        const startedTask = normalizeDriverDownloadTaskSnapshot((result?.data as { task?: unknown } | undefined)?.task);
-        if (startedTask?.taskId) {
-          await cancelDriverDownloadTask(row.type, startedTask.taskId, row.name, { silentToast: true });
-        }
-        return false;
-      }
-      if (!result?.success) {
-        const errText = resolveDriverErrorMessage(
-          result?.message,
-          t('driver.modal.error.installDriver', { name: row.name }),
-          undefined,
-          { name: row.name },
-          [
-            'driver_manager.backend.message.download_failed_detail',
-            'driver_manager.backend.message.metadata_write_failed_detail',
-          ],
-        );
-        appendOperationLog(row.type, `[ERROR] ${errText}`);
-        updateDriverProgress(row.type, {
-          status: 'error',
-          message: errText,
-          percent: 0,
-        });
-        if (!actionOptions?.silentToast) {
-          message.error(errText);
-        }
-        return false;
-      }
-
-      const task = normalizeDriverDownloadTaskSnapshot((result.data as { task?: unknown } | undefined)?.task);
-      if (!task) {
-        return true;
-      }
-      applyDriverDownloadTaskSnapshot(task);
-      if (task.driverType !== normalizedDriverType) {
-        // The backend serializes driver installs because they share a
-        // process-wide download directory. Do not leave a phantom local
-        // task behind when another manager instance already owns it.
-        clearDriverProgress(row.type);
-        return !actionOptions?.awaitCompletion;
-      }
-      if (!actionOptions?.awaitCompletion) {
-        return true;
-      }
-      const finishedTask = await waitForDriverDownloadTask(task.taskId, {
-        listTasks: ListDriverDownloadTasks,
-        onSnapshot: applyDriverDownloadTaskSnapshot,
-      });
-      if (!finishedTask) {
-        appendOperationLog(row.type, `[ERROR] ${t('driver_manager.message.install_failed_fallback', { name: row.name })}`);
-        return false;
-      }
-      if (finishedTask.status !== 'done') {
-        return false;
-      }
-      if (!actionOptions?.skipRefresh) {
-        // 变更后必须拿新数据：复用安装前的在途请求会让列表停在旧状态。
-        await refreshStatus(false, { fresh: true });
-      }
-      return true;
-    } catch (error) {
-      if (!installSessions.isCurrent(normalizedDriverType, session) || shouldAbortDriverInstall(normalizedDriverType, cancelIntents.isRequested, batchCancellation.isRequested())) {
-        return false;
-      }
-      const errText = error instanceof Error
-        ? error.message
-        : String(error || t('driver_manager.message.install_failed_fallback', { name: row.name }));
-      appendOperationLog(row.type, `[ERROR] ${errText}`);
-      updateDriverProgress(row.type, {
-        status: 'error',
-        message: errText,
-        percent: 0,
-      });
-      if (!actionOptions?.silentToast) {
-        message.error(errText);
-      }
-      return false;
-    } finally {
-      if (installSessions.isCurrent(normalizedDriverType, session)) setActionState({ driverType: '', kind: '' });
-    }
-  }, [appendOperationLog, applyDriverDownloadTaskSnapshot, batchCancellation, cancelDriverDownloadTask, cancelIntents, clearDriverDownloadTaskId, clearDriverProgress, downloadDir, installSessions, loadVersionOptions, refreshStatus, resolveDriverErrorMessage, selectedVersionMap, updateDriverProgress, versionMap]);
-
-  const runAfterDriverInterruptionConfirmation = useCallback((
-    targetRows: DriverStatusRow[],
-    action: () => void | Promise<unknown>,
-  ) => {
-    const activeConnections = targetRows.reduce(
-      (total, item) => total + Math.max(0, Number(item.activeConnections || 0)),
-      0,
-    );
-    if (activeConnections === 0) {
-      void action();
-      return;
-    }
-    Modal.confirm({
-      title: t('driver.modal.confirm.reinstallInUse.title'),
-      content: t('driver.modal.confirm.reinstallInUse.content', { count: activeConnections }),
-      okText: t('driver.modal.confirm.reinstallInUse.ok'),
-      okButtonProps: { danger: true },
-      cancelText: t('common.action.cancel'),
-      onOk: action,
-    });
-  }, []);
-
-  const requestInstallDriver = useCallback((row: DriverStatusRow) => {
-    runAfterDriverInterruptionConfirmation([row], () => installDriver(row));
-  }, [installDriver, runAfterDriverInterruptionConfirmation]);
+  const {
+    refreshStatus,
+    checkNetworkStatus,
+    loadVersionOptions,
+    loadVersionPackageSize,
+  } = useDriverManagerStatusLoading({
+    statusRequestGenerationRef,
+    downloadDirRef,
+    setLoading,
+    resolveDriverErrorMessage,
+    setDownloadDir,
+    setRows,
+    networkRequestGenerationRef,
+    setNetworkChecking,
+    setNetworkStatus,
+    versionLoadPromiseMapRef,
+    setVersionLoadingMap,
+    setVersionMap,
+    setSelectedVersionMap,
+    versionMap,
+    versionSizeLoadingMap,
+    setVersionSizeLoadingMap,
+    open,
+    refreshDriverDownloadTasks,
+    cancelIntentsRef,
+    tasklessProgressOwnerRef,
+    applyTaskScopedDriverProgress,
+    updateDriverProgress,
+    appendOperationLog,
+  });
 
   const {
-    installDriverFromLocalPath,
+    resolveSelectedVersionOption,
+    resolveInstalledDriverVersion,
+    isDriverVersionSwitchPending,
+    installDriver,
+    runAfterDriverInterruptionConfirmation,
+    requestInstallDriver,
     requestInstallDriverFromLocalFile,
     requestInstallDriversFromDirectory,
     cancelBatchDirectoryImport,
     batchDirectoryImportProgress,
-  } = useDriverLocalInstall({
-    rows: rows as DriverStatusRow[],
-    downloadDir,
-    refreshStatus,
-    appendOperationLog,
-    updateDriverProgress,
-    resolveDriverErrorMessage,
-    clearDriverDownloadTaskId,
-    tasklessProgressOwnerRef,
-    setActionState,
-    setBatchDirectoryImporting,
-    runAfterDriverInterruptionConfirmation,
-    resolveLocalImportVersion,
-  });
-
-  // 除导出自身以外的忙碌态：导出用它判断能否开始，否则会被自己挡住。
-  const driverBusyExcludingExport = driverMutationBusy || batchDirectoryImporting;
-
-  const {
-    exporting: driverPackageExporting,
-    exportJobId: driverPackageExportJobId,
-    inspecting: driverPackageInspecting,
-    importing: driverPackageImporting,
-    importProgress: driverPackageImportProgress,
-    pendingPackage: driverPackagePending,
-    forceOverwrite: driverPackageForceOverwrite,
-    setForceOverwrite: setDriverPackageForceOverwrite,
+    driverPackageExporting,
+    driverPackageExportJobId,
+    driverPackageInspecting,
+    driverPackageImporting,
+    driverPackageImportProgress,
+    driverPackagePending,
+    driverPackageForceOverwrite,
+    setDriverPackageForceOverwrite,
     installedDriverCount,
-    exportPickerOpen: driverPackageExportPickerOpen,
-    installedExportDrivers: driverPackageExportDrivers,
-    closeExportPicker: closeDriverPackageExportPicker,
-    confirmExportDriverPackage: confirmDriverPackageExport,
+    driverPackageExportPickerOpen,
+    driverPackageExportDrivers,
+    closeDriverPackageExportPicker,
+    confirmDriverPackageExport,
     requestExportDriverPackage,
     requestImportDriverPackage,
     confirmImportDriverPackage,
     cancelDriverPackageImport,
-    closeImportModal: closeDriverPackageImportModal,
-  } = useDriverPackageTransfer({
-    rows: rows as DriverStatusRow[],
+    closeDriverPackageImportModal,
+    driverBatchOperationBusy,
+    isDriverRowActionDisabled,
+    packageTransferDisabled,
+    packageTransferDisabledReason,
+  } = useDriverManagerInstall({
+    versionMap,
+    selectedVersionMap,
+    installSessions,
+    cancelIntents,
+    batchCancellation,
+    cancelDriverDownloadTask,
+    setActionState,
+    clearDriverDownloadTaskId,
+    updateDriverProgress,
+    loadVersionOptions,
     downloadDir,
-    isDriverBusy: () => driverBusyExcludingExport,
-    installDriverFromLocalPath,
-    refreshStatus,
     resolveDriverErrorMessage,
-    runAfterDriverInterruptionConfirmation,
+    appendOperationLog,
+    applyDriverDownloadTaskSnapshot,
+    clearDriverProgress,
+    refreshStatus,
+    rows,
+    tasklessProgressOwnerRef,
+    setBatchDirectoryImporting,
+    driverMutationBusy,
+    batchDirectoryImporting,
+    batchBusy,
+    actionState,
   });
 
-  // 变更类操作在导出期间必须禁用：Go 侧导出取全类型排他锁，持锁期间点安装会
-  // 静默阻塞到导出结束。该约束已分别落在行级（isDriverRowActionDisabled）与
-  // 批量级（driverBatchOperationBusy）两处判定里，不再需要全局的合并标志。
+  const {
+    openDriverDirectory,
+    removeDriver,
+    confirmRemoveDriver,
+    resolvePackageSizeText,
+    resolveDriverStatusTag,
+    resolveDriverProgress,
+  } = useDriverManagerRemoval({
+    downloadDir,
+    resolveDriverErrorMessage,
+    setActionState,
+    appendOperationLog,
+    clearDriverProgress,
+    refreshStatus,
+    versionMap,
+    selectedVersionMap,
+    versionSizeLoadingMap,
+    progressMap,
+    optionalUpdateDismissedRevisions,
+  });
 
-  // 批量操作的门控：只取「多行级」互斥源 —— 另一个批量、目录导入、导出排他锁。
-  // 刻意不含单驱动的在途安装/下载：它们操作的是别的驱动，Go 侧安装锁已按类型分片，
-  // 用全局门控会把「删除所有驱动」也锁死（截图里 IoTDB 在装 → 删除按钮全灰）。
-  const driverBatchOperationBusy = batchBusy || batchDirectoryImporting || driverPackageExporting;
+  const { renderVersionControl, renderDriverActions } = useDriverManagerRowControls({
+    versionMap,
+    selectedVersionMap,
+    setSelectedVersionMap,
+    resolveInstalledDriverVersion,
+    isDriverVersionSwitchPending,
+    resolveSelectedVersionOption,
+    versionLoadingMap,
+    isDriverRowActionDisabled,
+    loadVersionOptions,
+    loadVersionPackageSize,
+    embedded,
+    actionState,
+    optionalUpdateDismissedRevisions,
+    setOptionalUpdateDismissedRevisions,
+    requestInstallDriver,
+    confirmRemoveDriver,
+    installDriver,
+    requestInstallDriverFromLocalFile,
+  });
 
-  // 行级忙碌判定：Go 侧安装锁已按驱动类型分片（见 driver_install_lock.go），
-  // 不同类型可并行，所以「别的驱动在装」不该禁用本行。只有三种情况要禁用本行：
-  // 导出中（排他锁）、批量操作中（一次改多行）、本行自己在装/删。
-  const isDriverRowActionDisabled = useCallback(
-    (driverType: string): boolean => (
-      driverPackageExporting
-      || batchBusy
-      || actionState.driverType === driverType
-    ),
-    [actionState.driverType, batchBusy, driverPackageExporting],
-  );
+  const {
+    normalizedSearchKeyword,
+    visibleRows,
+    selectedRow,
+    initialStatusLoading,
+    statusSummary,
+    reinstallableRows,
+    installableRows,
+    removableRows,
+    batchProgressPercent,
+    batchProgressMessage,
+  } = useDriverManagerRows({
+    searchKeyword,
+    rows,
+    optionalUpdateDismissedRevisions,
+    driverFilter,
+    driverSortKey,
+    selectedDriverType,
+    loading,
+    batchProgress,
+    progressMap,
+    batchAction,
+  });
 
-  // Web 运行时没有本机保存对话框，驱动包导出/导入不可用。
-  const packageTransferDisabled = useMemo(
-    () => isWebRuntime() || driverBusyExcludingExport || driverPackageExporting,
-    [driverBusyExcludingExport, driverPackageExporting],
-  );
-  const packageTransferDisabledReason = useMemo(
-    () => (isWebRuntime() ? t('driver_manager.action.package_transfer_desktop_only') : ''),
-    [],
-  );
+  const {
+    cancelBatchDownloads,
+    reinstallNeededDrivers,
+    installAllDrivers,
+    removeAllDrivers,
+    resolveDriverListTone,
+  } = useDriverManagerBatch({
+    progressMapRef,
+    setBatchAction,
+    setBatchProgress,
+    batchCancellation,
+    appendOperationLog,
+    installDriver,
+    refreshStatus,
+    cancelAllDriverDownloads,
+    rows,
+    runAfterDriverInterruptionConfirmation,
+    reinstallableRows,
+    installableRows,
+    removableRows,
+    removeDriver,
+    progressMap,
+    optionalUpdateDismissedRevisions,
+  });
 
-  const openDriverDirectory = useCallback(async () => {
-    const fallbackMessage = t('driver.modal.error.openDirectory');
-    try {
-      const res = await OpenDriverDownloadDirectory(downloadDir);
-      if (!res?.success) {
-        message.error(resolveDriverErrorMessage(
-          res?.message,
-          fallbackMessage,
-          'driver.modal.error.openDirectoryWithDetail',
-          undefined,
-          [
-            'driver_manager.backend.error.create_directory_failed',
-            'driver_manager.backend.error.open_directory_failed',
-          ],
-        ));
-        return;
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error || t('driver.modal.error.unknown'));
-      message.error(resolveDriverErrorMessage(
-        errMsg,
-        fallbackMessage,
-        'driver.modal.error.openDirectoryWithDetail',
-        undefined,
-        [
-          'driver_manager.backend.error.create_directory_failed',
-          'driver_manager.backend.error.open_directory_failed',
-        ],
-      ));
-    }
-  }, [downloadDir, resolveDriverErrorMessage]);
+  const { renderDriverListItem, renderDriverDetail, renderDriverLogSection } = useDriverManagerDetailView({
+    selectedRow,
+    progressMap,
+    resolveDriverProgress,
+    resolvePackageSizeText,
+    setSelectedDriverType,
+    resolveDriverListTone,
+    embedded,
+    optionalUpdateDismissedRevisions,
+    resolveDriverStatusTag,
+    cancelDriverDownload,
+    isDriverVersionSwitchPending,
+    requestInstallDriver,
+    renderDriverActions,
+    renderVersionControl,
+    operationLogMap,
+  });
 
-  const removeDriver = useCallback(async (
-    row: DriverStatusRow,
-    options?: { silentToast?: boolean; skipRefresh?: boolean },
-  ) => {
-    setActionState({ driverType: row.type, kind: 'remove' });
-    appendOperationLog(row.type, t('driver.modal.operationLog.remove.start'));
-    try {
-      const result = await RemoveDriverPackage(row.type, downloadDir);
-      if (!result?.success) {
-        const errText = resolveDriverErrorMessage(
-          result?.message,
-          t('driver.modal.error.removeDriver', { name: row.name }),
-          undefined,
-          { name: row.name },
-          [
-            'driver_manager.backend.error.remove_package_failed',
-          ],
-        );
-        appendOperationLog(row.type, `[ERROR] ${errText}`);
-        if (!options?.silentToast) {
-          message.error(errText);
-        }
-        return false;
-      }
-      appendOperationLog(row.type, t('driver.modal.operationLog.remove.done'));
-      if (!options?.silentToast) {
-        message.success(t('driver.modal.success.removeDriver', { name: row.name }));
-      }
-      clearDriverProgress(row.type);
-      if (!options?.skipRefresh) {
-        await refreshStatus(false, { fresh: true });
-      }
-      return true;
-    } finally {
-      setActionState({ driverType: '', kind: '' });
-    }
-  }, [appendOperationLog, clearDriverProgress, downloadDir, refreshStatus, resolveDriverErrorMessage]);
-
-  const confirmRemoveDriver = useCallback((row: DriverStatusRow) => {
-    Modal.confirm({
-      title: t('driver.modal.confirm.remove.title'),
-      content: t('driver.modal.confirm.remove.content', { name: row.name }),
-      okText: t('driver.modal.confirm.remove.ok'),
-      okButtonProps: { danger: true },
-      cancelText: t('common.action.cancel'),
-      onOk: () => removeDriver(row),
-    });
-  }, [removeDriver, t]);
-
-  const resolvePackageSizeText = (row: DriverStatusRow): string => {
-    if (row.builtIn) {
-      return row.packageSizeText || '-';
-    }
-    const options = versionMap[row.type] || [];
-    const selectedKey = selectedVersionMap[row.type];
-    const loadingKey = buildVersionSizeLoadingKey(row.type, selectedKey || '');
-    const selectedOption =
-      options.find((item) => buildVersionOptionKey(item) === selectedKey) ||
-      options.find((item) => item.recommended) ||
-      options[0];
-    const anyKnownSize = options.find((item) => String(item.packageSizeText || '').trim())?.packageSizeText;
-    if (selectedKey && versionSizeLoadingMap[loadingKey]) {
-      return t('driver.modal.card.versionSizeCalculating');
-    }
-    return selectedOption?.packageSizeText || anyKnownSize || row.packageSizeText || '-';
-  };
-
-  const resolveDriverStatusTag = (row: DriverStatusRow) => {
-    if (row.builtIn) {
-      return <Tag color="success">{t('driver.modal.card.builtInUsable')}</Tag>;
-    }
-    const progress = progressMap[row.type];
-    if (isDriverDownloadActive(progress)) {
-      return <Tag color="processing">{t('driver.modal.card.installing', { percent: resolveDriverProgress(row).percent })}</Tag>;
-    }
-    if (row.needsUpdate || isOptionalUpdateVisible(row, optionalUpdateDismissedRevisions)) {
-      return <Tag color="warning">{t('driver.modal.stats.needsUpdate')}</Tag>;
-    }
-    if (row.connectable) {
-      return <Tag color="success">{t('driver.modal.card.enabled')}</Tag>;
-    }
-    if (row.packageInstalled) {
-      return <Tag color="warning">{t('driver.modal.card.installed')}</Tag>;
-    }
-    return <Tag>{t('driver.modal.card.notEnabled')}</Tag>;
-  };
-
-  const resolveDriverProgress = (row: DriverStatusRow) => resolveDriverProgressDisplay(progressMap[row.type], !!(row.connectable || row.packageInstalled));
-
-  const renderVersionControl = (row: DriverStatusRow) => {
-    if (row.builtIn) {
-      return <Text type="secondary">{t('driver.modal.card.noInstallNeeded')}</Text>;
-    }
-
-    const loadedOptions = versionMap[row.type] || [];
-    const options = loadedOptions.length > 0 ? loadedOptions : buildFallbackVersionOptions(row);
-    const preferredOption = resolvePreferredVersionOption(row, options, selectedVersionMap[row.type]);
-    const selectedKey = preferredOption ? buildVersionOptionKey(preferredOption) : undefined;
-    const selectOptions = buildVersionSelectOptions(options);
-    const installedVersion = resolveInstalledDriverVersion(row);
-    const versionSwitchPending = isDriverVersionSwitchPending(row);
-    const selectedOption = resolveSelectedVersionOption(row);
-    const selectedOptionFromKey = selectedKey
-      ? options.find((item) => buildVersionOptionKey(item) === selectedKey)
-      : undefined;
-    const selectedVersionMatchesInstalled = !!installedVersion
-      && String(selectedOptionFromKey?.version || '').trim() === installedVersion;
-    const showInstalledVersion = !!installedVersion && !selectedVersionMatchesInstalled;
-    const mongoHint = row.type === 'mongodb'
-      ? t('driver.modal.card.mongodbVersionHint')
-      : '';
-    const versionSummaryId = `driver-manager-${row.type}-version-summary`;
-    const versionHintId = `driver-manager-${row.type}-version-hint`;
-    const showVersionSummary = (row.packageInstalled || row.connectable) && (versionSwitchPending || showInstalledVersion);
-    const versionDescription = [
-      showVersionSummary ? versionSummaryId : '',
-      mongoHint ? versionHintId : '',
-    ].filter(Boolean).join(' ');
-    return (
-      <div className="driver-manager-version-control">
-        <Select
-          size="small"
-          style={{ width: '100%' }}
-          loading={!!versionLoadingMap[row.type]}
-          disabled={isDriverRowActionDisabled(row.type)}
-          placeholder={options.length > 0 ? t('driver.modal.card.versionPlaceholder.select') : t('driver.modal.card.versionPlaceholder.load')}
-          value={selectedKey}
-          options={selectOptions as any}
-          aria-describedby={versionDescription || undefined}
-          onOpenChange={(open) => {
-            if (open && loadedOptions.length === 0 && !versionLoadingMap[row.type]) {
-              void loadVersionOptions(row, true);
-              return;
-            }
-            if (open && selectedKey) {
-              void loadVersionPackageSize(row, selectedKey);
-            }
-          }}
-          onChange={(value) => {
-            setSelectedVersionMap((prev) => ({ ...prev, [row.type]: value }));
-            void loadVersionPackageSize(row, value);
-          }}
-        />
-        {(row.packageInstalled || row.connectable) && (versionSwitchPending || showInstalledVersion) ? (
-          <Text id={versionSummaryId} type="secondary" className="driver-manager-small-text driver-manager-version-summary">
-            {versionSwitchPending
-              ? t('driver_manager.version.switch_pending', {
-                installedVersion: installedVersion || t('driver_manager.version.current_fallback'),
-                targetVersion: selectedOption?.version || t('driver_manager.version.target_fallback'),
-              })
-              : t('driver_manager.version.installed_with_version', {
-                version: installedVersion,
-                suffix: '',
-              })}
-          </Text>
-        ) : null}
-        {mongoHint ? <Text id={versionHintId} type="secondary" className="driver-manager-small-text">{mongoHint}</Text> : null}
-      </div>
-    );
-  };
-
-  const renderDriverActions = (row: DriverStatusRow) => {
-    if (row.builtIn) {
-      return null;
-    }
-    const isSlimBuildUnavailable = isSlimBuildInstallUnavailable(row);
-    const loadingInstallOrRemove =
-      actionState.driverType === row.type && (actionState.kind === 'install' || actionState.kind === 'remove');
-    const loadingLocal = actionState.driverType === row.type && actionState.kind === 'local';
-    const versionSwitchPending = isDriverVersionSwitchPending(row);
-
-    if (isSlimBuildUnavailable && !row.packageInstalled) {
-      return <Text type="secondary">{t('driver.modal.card.fullOnly')}</Text>;
-    }
-
-    const rowActionDisabled = isDriverRowActionDisabled(row.type);
-    const mainAction = isDriverReinstallTarget(row, optionalUpdateDismissedRevisions) ? (
-      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={rowActionDisabled} loading={loadingInstallOrRemove} onClick={() => requestInstallDriver(row)}>
-        {t('driver.modal.card.action.reinstall')}
-      </Button>
-    ) : versionSwitchPending ? (
-      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={rowActionDisabled} loading={loadingInstallOrRemove} onClick={() => requestInstallDriver(row)}>
-        {t('driver_manager.action.switch_version')}
-      </Button>
-    ) : row.connectable ? (
-      <Button size={embedded ? 'small' : undefined} danger icon={<DeleteOutlined />} disabled={rowActionDisabled} loading={loadingInstallOrRemove} onClick={() => confirmRemoveDriver(row)}>
-        {t('driver.modal.card.action.remove')}
-      </Button>
-    ) : (
-      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={rowActionDisabled} loading={loadingInstallOrRemove} onClick={() => installDriver(row)}>
-        {t('driver.modal.card.action.install')}
-      </Button>
-    );
-
-    return (
-      <Space size={8} wrap className="driver-manager-card-actions">
-        {mainAction}
-        {isOptionalUpdateVisible(row, optionalUpdateDismissedRevisions) ? (
-          <Button
-            size={embedded ? 'small' : undefined}
-            type="text"
-            disabled={rowActionDisabled}
-            onClick={() => {
-              if (!row.expectedRevision) {
-                return;
-              }
-              const nextDismissed = Array.from(new Set([...optionalUpdateDismissedRevisions, row.expectedRevision]));
-              try {
-                window.localStorage.setItem(OPTIONAL_UPDATE_DISMISS_KEY, JSON.stringify(nextDismissed));
-              } catch {
-                // localStorage 不可用时仅本次会话内生效
-              }
-              setOptionalUpdateDismissedRevisions(nextDismissed);
-            }}
-          >
-            {t('driver.modal.card.optionalUpdate.dismiss')}
-          </Button>
-        ) : null}
-        {!row.connectable ? (
-          <Button size={embedded ? 'small' : undefined} danger ghost icon={<DeleteOutlined />} disabled={rowActionDisabled} onClick={() => confirmRemoveDriver(row)}>
-            {t('driver.modal.card.action.remove')}
-          </Button>
-        ) : null}
-        <Button size={embedded ? 'small' : undefined} icon={<FileSearchOutlined />} disabled={rowActionDisabled} loading={loadingLocal} onClick={() => requestInstallDriverFromLocalFile(row)}>
-          {getDriverLocalImportButtonLabel()}
-        </Button>
-      </Space>
-    );
-  };
-
-  const normalizedSearchKeyword = useMemo(() => normalizeDriverSearchText(searchKeyword), [searchKeyword]);
-  const filteredRows = useMemo(() => {
-    if (!normalizedSearchKeyword) {
-      return rows;
-    }
-    return rows.filter((row) => {
-      const searchableParts = [
-        row.name,
-        row.type,
-        row.pinnedVersion,
-        row.installedVersion,
-        formatDriverCardStatusMessage(row, optionalUpdateDismissedRevisions),
-        row.builtIn ? t('driver.modal.search.builtIn') : t('driver.modal.search.external'),
-        isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)
-          ? t('driver.modal.search.reinstallRecommended')
-          : row.connectable
-            ? t('driver.modal.card.enabled')
-            : row.packageInstalled
-              ? t('driver.modal.card.installed')
-              : t('driver.modal.card.notEnabled'),
-      ];
-      const searchableText = normalizeDriverSearchText(searchableParts.filter(Boolean).join(' '));
-      return searchableText.includes(normalizedSearchKeyword);
-    });
-  }, [normalizedSearchKeyword, rows, optionalUpdateDismissedRevisions]);
-  const visibleRows = useMemo(() => {
-    let nextRows: DriverStatusRow[];
-    switch (driverFilter) {
-      case 'needsUpdate':
-        nextRows = filteredRows.filter((row) => isDriverReinstallTarget(row, optionalUpdateDismissedRevisions));
-        break;
-      case 'enabled':
-        nextRows = filteredRows.filter((row) => !row.builtIn && row.connectable);
-        break;
-      case 'notEnabled':
-        // 与 statusSummary.notEnabled 同口径，否则计数与筛出的条数对不上。
-        nextRows = filteredRows.filter((row) => !row.builtIn && !row.connectable);
-        break;
-      default:
-        nextRows = filteredRows;
-        break;
-    }
-    return [...nextRows].sort((left, right) => compareDriverRows(left, right, driverSortKey));
-  }, [driverFilter, driverSortKey, filteredRows, optionalUpdateDismissedRevisions]);
-  const selectedRow = useMemo(() => (
-    visibleRows.find((row) => row.type === selectedDriverType) || visibleRows[0]
-  ), [selectedDriverType, visibleRows]);
-  const initialStatusLoading = loading && rows.length === 0;
-  const statusSummary = useMemo(() => {
-    const optionalRows = filteredRows.filter((row) => !row.builtIn);
-    return {
-      total: filteredRows.length,
-      enabled: optionalRows.filter((row) => row.connectable).length,
-      needsUpdate: optionalRows.filter((row) => isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)).length,
-      // 与 enabled 互补：此前额外的 !packageInstalled 条件会让「装了但不可用」的驱动
-      // 两个计数都不进，出现「已启用 0 + 未启用 22」却对不上总数的缺口。
-      notEnabled: optionalRows.filter((row) => !row.connectable).length,
-    };
-  }, [filteredRows, optionalUpdateDismissedRevisions]);
-  const reinstallableRows = useMemo(
-    () => rows.filter((row) => isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)),
-    [rows, optionalUpdateDismissedRevisions],
-  );
-  const installableRows = useMemo(
-    // 已装但当前不可用（packageInstalled && !connectable）的驱动同样排除：
-    // 它们需要的是「修」而不是「装」，纳入安装集会让「安装所有驱动」重复安装。
-    () => rows.filter((row) => !row.builtIn && !row.connectable && !row.packageInstalled),
-    [rows],
-  );
-  const removableRows = useMemo(
-    () => rows.filter((row) => !row.builtIn && (row.connectable || row.packageInstalled)),
-    [rows],
-  );
-  const batchProgressPercent = useMemo(() => {
-    if (!batchProgress || batchProgress.total <= 0) {
-      return 0;
-    }
-    const currentProgress = batchProgress.currentDriverType
-      ? progressMap[batchProgress.currentDriverType]
-      : undefined;
-    const shouldUseCurrentProgress = batchAction === 'install-all' || batchAction === 'reinstall-updates';
-    const currentContribution = shouldUseCurrentProgress && currentProgress && currentProgress.status !== 'error'
-      ? Math.max(0, Math.min(100, Number(currentProgress.percent || 0))) / 100
-      : 0;
-    const completed = Math.max(0, Math.min(batchProgress.completed, batchProgress.total));
-    const percent = ((completed + currentContribution) / batchProgress.total) * 100;
-    return Math.max(0, Math.min(100, Math.round(percent)));
-  }, [batchAction, batchProgress, progressMap]);
-  const activeBatchDriverProgress = (batchAction === 'install-all' || batchAction === 'reinstall-updates') && batchProgress?.currentDriverType
-    ? progressMap[batchProgress.currentDriverType]
-    : undefined;
-  const batchProgressMessage = activeBatchDriverProgress?.message || batchProgress?.currentMessage || '';
-
-  const runBatchInstall = useCallback(async (
-    targetRows: DriverStatusRow[],
-    actionKind: DriverBatchActionKind,
-    emptyMessage: string,
-    successLabel: string,
-  ) => {
-    // 排掉正在单装/单删的驱动：批量已放开全局门控，不排除会对同类型重复触发。
-    // 在启动前一次性过滤而非循环内 continue —— 后者会让进度总数与实际处理数
-    // 不一致，把「正在装」误报成「失败」或「未处理」。
-    const rowsToProcess = targetRows.filter((row) => !isDriverDownloadActive(progressMapRef.current[row.type]));
-    if (rowsToProcess.length === 0) {
-      message.info(emptyMessage);
-      return;
-    }
-
-    setBatchAction(actionKind);
-    setBatchProgress(createDriverBatchProgress(rowsToProcess.length, t('driver.modal.batch.prepare', { action: successLabel })));
-    batchCancellation.reset();
-    let successCount = 0;
-    let failCount = 0;
-    let slimSkipCount = 0;
-    let unfinishedCount = 0;
-    try {
-      for (const row of rowsToProcess) {
-        if (batchCancellation.isRequested()) {
-          unfinishedCount += 1;
-          continue;
-        }
-        if (isSlimBuildInstallUnavailable(row)) {
-          slimSkipCount += 1;
-          appendOperationLog(row.type, t('driver.modal.operationLog.autoInstall.slimSkipped'));
-          setBatchProgress((prev) => {
-            if (!prev) {
-              return prev;
-            }
-            const completed = Math.min(prev.total, prev.completed + 1);
-            return {
-              ...prev,
-              completed,
-              skipped: prev.skipped + 1,
-              currentDriverType: '',
-              currentDriverName: '',
-              currentMessage: t('driver.modal.batch.driverSkipped', { name: row.name }),
-            };
-          });
-          continue;
-        }
-        setBatchProgress((prev) => {
-          if (!prev) {
-            return prev;
-          }
-          return {
-            ...prev,
-            currentDriverType: row.type,
-            currentDriverName: row.name,
-            currentMessage: t('driver.modal.batch.driverRunning', { action: successLabel, name: row.name }),
-          };
-        });
-        const ok = await installDriver(row, { silentToast: true, skipRefresh: true, awaitCompletion: true });
-        const canceled = !ok && batchCancellation.isRequested();
-        if (ok) {
-          successCount += 1;
-          await refreshStatus(false, { showLoading: false, fresh: true });
-        } else if (canceled) {
-          unfinishedCount += 1;
-        } else {
-          failCount += 1;
-        }
-        setBatchProgress((prev) => {
-          if (!prev) {
-            return prev;
-          }
-          const completed = Math.min(prev.total, prev.completed + 1);
-          return {
-            ...prev,
-            completed,
-            success: prev.success + (ok ? 1 : 0),
-            failed: prev.failed + (ok || canceled ? 0 : 1),
-            currentDriverType: '',
-            currentDriverName: '',
-            currentMessage: ok
-              ? t('driver.modal.batch.driverCompleted', { name: row.name })
-              : canceled
-                ? t('driver_manager.batch.driver.canceled', { name: row.name })
-                : t('driver.modal.batch.driverFailed', { name: row.name }),
-          };
-        });
-      }
-      // 批量收尾：整批过程共享一个在途请求，不复用才能反映最终状态。
-      await refreshStatus(false, { fresh: true });
-    } finally {
-      setBatchAction('');
-      setBatchProgress(null);
-    }
-
-    const skipTip = formatDriverBatchSkipSummary(0, slimSkipCount);
-    if (batchCancellation.isRequested()) {
-      batchCancellation.reset();
-      message.warning(t('driver_manager.batch.result.canceled', { action: successLabel, success: successCount, failed: failCount, remaining: unfinishedCount, skip: skipTip }));
-      return;
-    }
-    if (failCount === 0) {
-      message.success(t('driver.modal.batch.actionResult.success', { action: successLabel, success: successCount, skip: skipTip }));
-      return;
-    }
-    if (successCount > 0) {
-      message.warning(t('driver.modal.batch.actionResult.partial', { action: successLabel, success: successCount, failed: failCount, skip: skipTip }));
-      return;
-    }
-    message.error(t('driver.modal.batch.actionResult.failed', { action: successLabel, failed: failCount, skip: skipTip }));
-  }, [appendOperationLog, batchCancellation, installDriver, refreshStatus]);
-
-  const cancelBatchDownloads = useCallback(() => {
-    setBatchProgress((prev) => (prev ? { ...prev, currentMessage: t('driver_manager.batch.cancel_requested') } : prev));
-    void cancelAllDriverDownloads((driverType) => rows.find((row) => row.type === driverType)?.name || driverType);
-  }, [cancelAllDriverDownloads, rows]);
-
-  const reinstallNeededDrivers = useCallback(() => {
-    runAfterDriverInterruptionConfirmation(reinstallableRows, () => runBatchInstall(
-      reinstallableRows,
-      'reinstall-updates',
-      t('driver.modal.info.noReinstallableDrivers'),
-      t('driver.modal.batch.action.reinstallUpdates'),
-    ));
-  }, [reinstallableRows, runAfterDriverInterruptionConfirmation, runBatchInstall]);
-
-  const installAllDrivers = useCallback(async () => {
-    await runBatchInstall(
-      installableRows,
-      'install-all',
-      t('driver.modal.info.noInstallableDrivers'),
-      t('driver.modal.batch.action.installAll'),
-    );
-  }, [installableRows, runBatchInstall]);
-
-  const removeAllDrivers = useCallback(() => {
-    if (removableRows.length === 0) {
-      message.info(t('driver.modal.info.noRemovableDrivers'));
-      return;
-    }
-
-    Modal.confirm({
-      title: t('driver.modal.confirm.removeAll.title'),
-      content: t('driver.modal.confirm.removeAll.content', { count: removableRows.length }),
-      okText: t('driver.modal.confirm.removeAll.ok'),
-      okButtonProps: { danger: true },
-      cancelText: t('common.action.cancel'),
-      onOk: async () => {
-        // 同批量安装：先排掉在途驱动，既不重复触发，也不把「正在装」误报成失败。
-        const rowsToRemove = removableRows.filter((row) => !isDriverDownloadActive(progressMapRef.current[row.type]));
-        setBatchAction('remove-all');
-        setBatchProgress(createDriverBatchProgress(rowsToRemove.length, t('driver.modal.batch.prepareRemoveAll')));
-        let successCount = 0;
-        let failCount = 0;
-        try {
-          for (const row of rowsToRemove) {
-            setBatchProgress((prev) => {
-              if (!prev) {
-                return prev;
-              }
-              return {
-                ...prev,
-                currentDriverType: row.type,
-                currentDriverName: row.name,
-                currentMessage: t('driver.modal.batch.driverRemoving', { name: row.name }),
-              };
-            });
-            const ok = await removeDriver(row, { silentToast: true, skipRefresh: true });
-            if (ok) {
-              successCount += 1;
-              await refreshStatus(false, { showLoading: false, fresh: true });
-            } else {
-              failCount += 1;
-            }
-            setBatchProgress((prev) => {
-              if (!prev) {
-                return prev;
-              }
-              const completed = Math.min(prev.total, prev.completed + 1);
-              return {
-                ...prev,
-                completed,
-                success: prev.success + (ok ? 1 : 0),
-                failed: prev.failed + (ok ? 0 : 1),
-                currentDriverType: '',
-                currentDriverName: '',
-                currentMessage: ok
-                  ? t('driver.modal.batch.driverCompleted', { name: row.name })
-                  : t('driver.modal.batch.driverRemoveFailed', { name: row.name }),
-              };
-            });
-          }
-          await refreshStatus(false, { fresh: true });
-        } finally {
-          setBatchAction('');
-          setBatchProgress(null);
-        }
-
-        if (failCount === 0) {
-          message.success(t('driver.modal.batch.removeAll.success', { success: successCount }));
-          return;
-        }
-        if (successCount > 0) {
-          message.warning(t('driver.modal.batch.removeAll.partial', { success: successCount, failed: failCount }));
-          return;
-        }
-        message.error(t('driver.modal.batch.removeAll.failed', { failed: failCount }));
-      },
-    });
-  }, [refreshStatus, removableRows, removeDriver]);
-
-  const resolveDriverListTone = (row: DriverStatusRow) => {
-    const progressState = progressMap[row.type];
-    if (progressState?.status === 'error') return 'error';
-    if (isDriverDownloadActive(progressState)) return 'checking';
-    if (isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)) return 'warning';
-    // 真实可用性优先于进度态：progressMap.status === 'done' 只是「本次会话装过」的
-    // 动作记录，驱动可能已被卸载、或安装产物不完整。让它压过 connectable 会点出
-    // 假绿点 —— 目录已删除的驱动仍显示为可用，直到重开页面才露出真身。
-    if (row.builtIn || row.connectable) return 'ok';
-    if (row.packageInstalled) return 'warning';
-    return 'idle';
-  };
-
-  const renderDriverListItem = (row: DriverStatusRow) => {
-    const selected = selectedRow?.type === row.type;
-    const progressState = progressMap[row.type];
-    const isDownloading = isDriverDownloadActive(progressState);
-    const metaText = row.builtIn
-      ? t('driver.modal.card.noInstallNeeded')
-      : isDownloading
-        ? t('driver.modal.card.installing', { percent: resolveDriverProgress(row).percent })
-        : [
-          row.installedVersion || row.pinnedVersion,
-          resolvePackageSizeText(row),
-        ].filter((part) => String(part || '').trim() && part !== '-').join(' · ') || '-';
-    return (
-      <button
-        key={row.type}
-        type="button"
-        className={`driver-manager-list-item${selected ? ' is-selected' : ''}`}
-        onClick={() => setSelectedDriverType(row.type)}
-        aria-current={selected ? 'true' : undefined}
-      >
-        <span className="driver-manager-list-item-main">
-          <span className="driver-manager-list-item-name">{row.name}</span>
-          <span className="driver-manager-list-item-meta">{metaText}</span>
-        </span>
-        <span className={`driver-manager-net-dot driver-manager-net-dot-${resolveDriverListTone(row)}`} aria-hidden="true" />
-      </button>
-    );
-  };
-
-  const renderDriverDetail = (row: DriverStatusRow) => {
-    const progressState = progressMap[row.type];
-    const progress = resolveDriverProgress(row);
-    const statusMessage = formatDriverCardStatusMessage(row, optionalUpdateDismissedRevisions);
-    const affectedText = row.affectedConnections && row.affectedConnections > 0
-      ? t('driver.modal.card.affectedConnections', { count: row.affectedConnections })
-      : '';
-    const isDownloading = isDriverDownloadActive(progressState);
-    const isDownloadDone = progressState?.status === 'done';
-    const isDownloadError = progressState?.status === 'error';
-    const isDownloadCanceled = progressState?.status === 'canceled';
-
-    return (
-      <div key={row.type} className="driver-manager-detail-body">
-        <div className="driver-manager-title-row">
-          <Text strong className="driver-manager-driver-name">{row.name}</Text>
-          {resolveDriverStatusTag(row)}
-        </div>
-        {!row.builtIn || affectedText ? (
-          <div className="driver-manager-meta-row">
-            {!row.builtIn ? (
-              <Text type="secondary">{t('driver.modal.card.packageSize', { size: resolvePackageSizeText(row) })}</Text>
-            ) : null}
-            {affectedText ? <Text type="secondary">{affectedText}</Text> : null}
-          </div>
-        ) : null}
-        {(row.needsUpdate || isOptionalUpdateVisible(row, optionalUpdateDismissedRevisions)) && statusMessage ? (
-          <div className="driver-manager-update-note">
-            <Paragraph
-              className="driver-manager-note-text"
-              ellipsis={{ rows: 3, expandable: true, symbol: t('driver.modal.card.expandReason') }}
-            >
-              {statusMessage}
-            </Paragraph>
-          </div>
-        ) : statusMessage && (row.connectable || row.runtimeAvailable || row.packageInstalled || String(row.message || '').trim()) ? (
-          <Paragraph
-            className="driver-manager-muted-message"
-            type="secondary"
-            ellipsis={{ rows: 3, expandable: true, symbol: t('driver.modal.card.expand') }}
-          >
-            {statusMessage}
-          </Paragraph>
-        ) : null}
-
-        <div className="driver-manager-detail-controls">
-          {isDownloading ? (
-            <div className="driver-manager-control-block driver-manager-card-progress-active">
-              <div className="driver-manager-progress-header">
-                <Text type="secondary" className="driver-manager-control-label">
-                  {t('driver_manager.progress.status.downloading')}
-                </Text>
-                <span className="driver-manager-progress-side">
-                  <Text className="driver-manager-progress-value">{Math.round(progress.percent)}%</Text>
-                  <Button
-                    size="small"
-                    type="text"
-                    danger
-                    onClick={() => { void cancelDriverDownload(row.type, row.name); }}
-                  >
-                    {t('common.action.cancel')}
-                  </Button>
-                </span>
-              </div>
-              <Progress
-                className="driver-manager-progress driver-manager-progress-lg"
-                percent={progress.percent}
-                status="active"
-                showInfo={false}
-              />
-            </div>
-          ) : isDownloadDone ? (
-            <div className="driver-manager-control-block driver-manager-card-progress-done">
-              <Text type="success" className="driver-manager-card-ready-text">✓ {t('driver.modal.card.ready')}</Text>
-              {isDriverVersionSwitchPending(row) ? (
-                <Button
-                  size={embedded ? 'small' : undefined}
-                  type="primary"
-                  onClick={() => requestInstallDriver(row)}
-                >
-                  {t('driver_manager.action.switch_version')}
-                </Button>
-              ) : null}
-              {/* 「已就绪」是会话内的动作终态，不是永久的 UI 状态。此前该分支直接
-                  吞掉了 renderDriverActions，导致刚装好的驱动再也看不到「移除」，
-                  只能等 progressMap 清空。这里补回操作按钮，与下方分支同源。 */}
-              {renderDriverActions(row)}
-            </div>
-          ) : (
-            <>
-              {!row.builtIn ? (
-                <div className="driver-manager-control-block driver-manager-version-block">
-                  <Text type="secondary" className="driver-manager-control-label">{t('driver.modal.card.versionLabel')}</Text>
-                  {renderVersionControl(row)}
-                </div>
-              ) : null}
-              {(isDownloadError || isDownloadCanceled) && progressState?.message ? (
-                <Paragraph
-                  className="driver-manager-progress-error"
-                  type={isDownloadError ? 'danger' : 'warning'}
-                  role={isDownloadError ? 'alert' : 'status'}
-                  ellipsis={{ rows: 2, expandable: true, symbol: t('driver.modal.card.expand') }}
-                  style={{ marginBottom: 0 }}
-                >
-                  {progressState.message}
-                </Paragraph>
-              ) : null}
-              {renderDriverActions(row)}
-            </>
-          )}
-        </div>
-
-        {!row.builtIn && row.installDir ? (
-          <Paragraph
-            className="driver-manager-muted-message driver-manager-detail-path"
-            type="secondary"
-            copyable={{ text: row.installDir }}
-          >
-            {t('driver_manager.log_modal.install_dir', { path: row.installDir })}
-          </Paragraph>
-        ) : null}
-        {!row.builtIn && row.executablePath ? (
-          <Paragraph
-            className="driver-manager-muted-message driver-manager-detail-path"
-            type="secondary"
-            copyable={{ text: row.executablePath }}
-          >
-            {t('driver_manager.log_modal.executable_path', { path: row.executablePath })}
-          </Paragraph>
-        ) : null}
-      </div>
-    );
-  };
-
-  const renderDriverLogSection = (row: DriverStatusRow) => {
-    const selectedLogEntries = operationLogMap[row.type] || [];
-    return (
-      <div className="driver-manager-log-section">
-        <Text type="secondary" className="driver-manager-control-label">
-          {t('driver_manager.action.logs')}
-        </Text>
-        {selectedLogEntries.length > 0 ? (
-          <div className="driver-manager-log-list">
-            {selectedLogEntries.map((entry, index) => {
-              const rawText = String(entry.text || '');
-              const isError = rawText.startsWith('[ERROR]');
-              const signatureStatus = entry.signature.startsWith('driver-progress:')
-                ? entry.signature.split(':')[1]
-                : '';
-              const tone = isError || signatureStatus === 'ERROR'
-                ? 'error'
-                : signatureStatus === 'DONE' ? 'done' : '';
-              const displayText = rawText.replace(/^\[[A-Z]+\]\s*/, '');
-              return (
-                <div
-                  key={`${entry.signature}:${index}`}
-                  className={`driver-manager-log-line${tone ? ` is-${tone}` : ''}`}
-                >
-                  <span className="driver-manager-log-time">{entry.time}</span>
-                  <span className="driver-manager-log-text">{displayText}</span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <Text type="secondary" className="driver-manager-log-empty">
-            {t('driver_manager.log_modal.empty')}
-          </Text>
-        )}
-      </div>
-    );
-  };
-
-  const downloadSourceMeta = resolveDriverDownloadSourceMeta(downloadSource);
-  const proxyEnvEntries = Object.entries(networkStatus?.proxyEnv || {});
-  const downloadRequiredHosts = (networkStatus?.downloadRequiredHosts || []).filter(Boolean);
-  const showDownloadChainAlert = networkStatus?.downloadChainReachable === false;
-  const networkUnreachable = networkStatus?.reachable === false;
-  const usingFallback = networkStatus?.usingFallback === true
-    || (networkStatus?.mirrorReachable === false && networkStatus?.fallbackReachable === true);
-  const listSeparator = t('driver_manager.punctuation.list_separator');
-  const downloadRequiredHostText = (downloadRequiredHosts.length > 0
-    ? downloadRequiredHosts
-    : [
-        'download.syngnat.top',
-        'github.com',
-        'api.github.com',
-        'release-assets.githubusercontent.com',
-        'objects.githubusercontent.com',
-        'proxy.golang.org',
-      ]).join(listSeparator);
-  const networkSummaryText = networkStatus ? formatDriverNetworkSummary(networkStatus) : '';
-  const networkDotTone = networkChecking
-    ? 'checking'
-    : networkUnreachable
-      ? 'error'
-      : networkStatus
-        ? (usingFallback ? 'warning' : 'ok')
-        : 'idle';
-  const networkPillText = networkChecking
-    ? t('driver_manager.network.checking')
-    : networkUnreachable
-      ? t('driver_manager.network.unreachable')
-      : networkStatus
-        ? networkSummaryText
-        : t('driver_manager.network.not_checked');
-  const networkTooltipTitle = networkPillText;
+  const {
+    downloadSourceMeta,
+    proxyEnvEntries,
+    showDownloadChainAlert,
+    networkUnreachable,
+    usingFallback,
+    listSeparator,
+    downloadRequiredHostText,
+    networkSummaryText,
+    networkDotTone,
+    networkPillText,
+    networkTooltipTitle,
+  } = buildDriverManagerNetworkSummary({ downloadSource, networkStatus, networkChecking });
 
   const driverManagerContent = (
     <>
@@ -2478,56 +403,13 @@ const DriverManagerModal: React.FC<{
               )}
             />
           ) : (
-            <Alert
-              className="driver-manager-network-notice"
-              type={usingFallback ? 'warning' : 'success'}
-              showIcon
-              closable
-              onClose={() => setDismissedNetworkNotices((prev) => dismissDriverNetworkNotice(prev, 'fallback'))}
-              message={networkSummaryText}
-              description={(
-                <Collapse
-                  size="small"
-                  items={[
-                    {
-                      key: 'checks',
-                      label: t('driver_manager.network.details_label'),
-                      children: (
-                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                          {(networkStatus?.checks || []).length > 0
-                            ? (networkStatus?.checks || []).map((probe, index) => {
-                                const latency = probe.httpLatencyMs ?? probe.latencyMs ?? probe.tcpLatencyMs;
-                                return (
-                                  <Text key={`${probe.probeCode || probe.url || 'probe'}-${index}`} type="secondary">
-                                    {t('driver_manager.network.probe_latency', {
-                                      name: resolveDriverNetworkProbeLabel(probe),
-                                      status: probe.reachable
-                                        ? t('driver_manager.network.reachable')
-                                        : t('driver_manager.network.unreachable'),
-                                      latency: latency !== undefined
-                                        ? t('driver_manager.network.latency_value', { latency })
-                                        : '',
-                                      detail: probe.error
-                                        ? t('driver_manager.network.error_value', { detail: probe.error })
-                                        : '',
-                                    })}
-                                  </Text>
-                                );
-                              })
-                            : <Text type="secondary">{t('driver_manager.network.no_result')}</Text>}
-                          {proxyEnvEntries.length > 0 ? (
-                            <Text type="secondary">
-                              {t('driver_manager.network.proxy_env_detected', { keys: proxyEnvEntries.map(([key]) => key).join(listSeparator) })}
-                            </Text>
-                          ) : (
-                            <Text type="secondary">{t('driver_manager.network.no_proxy_env')}</Text>
-                          )}
-                        </Space>
-                      ),
-                    },
-                  ]}
-                />
-              )}
+            <DriverManagerNetworkNotice
+              usingFallback={usingFallback}
+              setDismissedNetworkNotices={setDismissedNetworkNotices}
+              networkSummaryText={networkSummaryText}
+              networkStatus={networkStatus}
+              proxyEnvEntries={proxyEnvEntries}
+              listSeparator={listSeparator}
             />
           )
         ) : (
@@ -2603,91 +485,28 @@ const DriverManagerModal: React.FC<{
         </div>
         ) : null}
 
-        <div className={`driver-manager-bulkbar${embedded ? ' is-embedded-toolbar' : ''}`}>
-          <div className="driver-manager-bulkbar-primary">
-            <Button
-              size={embedded ? 'middle' : 'small'}
-              type="primary"
-              icon={<DownloadOutlined />}
-              disabled={driverBatchOperationBusy || (!initialStatusLoading && installableRows.length === 0)}
-              loading={batchAction === 'install-all' || initialStatusLoading}
-              onClick={() => void installAllDrivers()}
-            >
-              {t('driver.modal.toolbar.installAll')}
-            </Button>
-            <Button
-              size={embedded ? 'middle' : 'small'}
-              type={embedded ? 'default' : 'primary'}
-              icon={<DownloadOutlined />}
-              disabled={driverBatchOperationBusy || (!initialStatusLoading && reinstallableRows.length === 0)}
-              loading={batchAction === 'reinstall-updates' || initialStatusLoading}
-              onClick={() => void reinstallNeededDrivers()}
-            >
-              {t('driver.modal.toolbar.reinstallUpdates')}
-            </Button>
-            <Button
-              size={embedded ? 'middle' : 'small'}
-              danger
-              icon={<DeleteOutlined />}
-              disabled={driverBatchOperationBusy || (!initialStatusLoading && removableRows.length === 0)}
-              loading={batchAction === 'remove-all' || initialStatusLoading}
-              onClick={() => void removeAllDrivers()}
-            >
-              {t('driver.modal.toolbar.removeAll')}
-            </Button>
-          </div>
-          <span className="driver-manager-bulkbar-dir">
-            <Button
-              size={embedded ? 'middle' : 'small'}
-              icon={<FolderOpenOutlined />}
-              onClick={() => void openDriverDirectory()}
-            >
-              {t('driver.modal.toolbar.openDirectory')}
-            </Button>
-            <Dropdown.Button
-              size={embedded ? 'middle' : 'small'}
-              className="driver-manager-import-directory-dropdown"
-              icon={<DownOutlined />}
-              loading={batchDirectoryImporting}
-              disabled={batchDirectoryImporting}
-              onClick={() => requestInstallDriversFromDirectory({ forceOverwrite: false })}
-              menu={{
-                items: [
-                  {
-                    key: 'overwrite',
-                    label: t('driver.modal.toolbar.importDirectoryOverwrite'),
-                    disabled: batchDirectoryImporting,
-                    onClick: () => requestInstallDriversFromDirectory({ forceOverwrite: true }),
-                  },
-                ],
-              }}
-            >
-              {t('driver.modal.toolbar.importDirectory')}
-            </Dropdown.Button>
-            <Tooltip title={packageTransferDisabledReason}>
-              <Button
-                size={embedded ? 'middle' : 'small'}
-                icon={<ExportOutlined />}
-                loading={driverPackageExporting}
-                disabled={packageTransferDisabled || installedDriverCount === 0}
-                onClick={() => void requestExportDriverPackage()}
-              >
-                {t('driver.modal.toolbar.exportPackage')}
-              </Button>
-            </Tooltip>
-            <Tooltip title={packageTransferDisabledReason}>
-              <Button
-                size={embedded ? 'middle' : 'small'}
-                icon={<ImportOutlined />}
-                loading={driverPackageInspecting}
-                disabled={packageTransferDisabled}
-                onClick={() => void requestImportDriverPackage()}
-              >
-                {t('driver.modal.toolbar.importPackageZip')}
-              </Button>
-            </Tooltip>
-                                  </span>
-        </div>
+        <DriverManagerBulkBar
+          embedded={embedded}
+          driverBatchOperationBusy={driverBatchOperationBusy}
+          initialStatusLoading={initialStatusLoading}
+          installableRows={installableRows}
+          batchAction={batchAction}
+          installAllDrivers={installAllDrivers}
+          reinstallableRows={reinstallableRows}
+          reinstallNeededDrivers={reinstallNeededDrivers}
+          removableRows={removableRows}
+          removeAllDrivers={removeAllDrivers}
+          openDriverDirectory={openDriverDirectory}
+          batchDirectoryImporting={batchDirectoryImporting}
+          requestInstallDriversFromDirectory={requestInstallDriversFromDirectory}
+          packageTransferDisabledReason={packageTransferDisabledReason}
+          driverPackageExporting={driverPackageExporting}
+          packageTransferDisabled={packageTransferDisabled}
+          installedDriverCount={installedDriverCount}
+          requestExportDriverPackage={requestExportDriverPackage}
+          driverPackageInspecting={driverPackageInspecting}
+          requestImportDriverPackage={requestImportDriverPackage}
+        />
         {batchProgress ? (
           <DriverBatchProgressBar
             icon={<DownloadOutlined />}
@@ -2736,133 +555,35 @@ const DriverManagerModal: React.FC<{
             )}
           />
         ) : null}
-        <div className="driver-manager-columns">
-          <aside className="driver-manager-list-pane">
-            {embedded ? (
-              <div className="driver-manager-list-search-row is-embedded">
-                <div className="driver-manager-list-search-row-left">
-                  <Button
-                    size="middle"
-                    icon={<ReloadOutlined />}
-                    onClick={() => refreshStatus(true)}
-                    loading={loading}
-                  >
-                    {t('driver.modal.footer.refresh')}
-                  </Button>
-                  <Tooltip title={networkTooltipTitle} placement="bottomRight">
-                    <Button
-                      size="middle"
-                      className="driver-manager-network-check-btn"
-                      icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
-                      onClick={() => checkNetworkStatus(true)}
-                      loading={networkChecking}
-                    >
-                      {t('driver.modal.footer.networkCheck')}
-                    </Button>
-                  </Tooltip>
-                </div>
-                {onChangeDownloadSource ? (
-                  <div
-                    className="driver-manager-mirror-chip is-compact"
-                    data-download-source={downloadSource}
-                  >
-                    <div className="driver-manager-mirror-chip-copy">
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 999,
-                          background: darkMode ? downloadSourceMeta.darkDot : downloadSourceMeta.lightDot,
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span className="driver-manager-mirror-chip-label" style={{ color: driverManagerTheme.mutedText, fontSize: 13 }}>
-                        {t('driver_manager.mirror_source.label')}
-                      </span>
-                    </div>
-                    <DownloadSourceSelect
-                      value={downloadSource}
-                      darkMode={darkMode}
-                      saving={downloadSourceSwitching}
-                      onChange={onChangeDownloadSource}
-                      size="small"
-                      borderless
-                      style={{ minWidth: 132 }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="driver-manager-filterbar">
-              {([
-                { key: 'all', label: t('driver.modal.stats.total'), count: statusSummary.total },
-                { key: 'needsUpdate', label: t('driver.modal.stats.needsUpdate'), count: statusSummary.needsUpdate, tone: 'needsUpdate' },
-                { key: 'enabled', label: t('driver.modal.stats.enabled'), count: statusSummary.enabled },
-                { key: 'notEnabled', label: t('driver.modal.stats.notEnabled'), count: statusSummary.notEnabled },
-              ]).map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  data-tone={chip.tone}
-                  className={`driver-manager-filter-chip${driverFilter === chip.key ? ' is-active' : ''}`}
-                  onClick={() => setDriverFilter(chip.key as typeof driverFilter)}
-                >
-                  <span>{chip.label}</span>
-                  <span className="driver-manager-filter-chip-count">{chip.count}</span>
-                </button>
-              ))}
-            </div>
-            <div className="driver-manager-list-head">
-              {loading ? (
-                <Text type="secondary" className="driver-manager-list-head-loading">
-                  {t('driver.modal.status.refreshing')}
-                </Text>
-              ) : null}
-              <Input.Search
-                allowClear
-                size="small"
-                placeholder={t('driver.modal.toolbar.searchPlaceholder')}
-                value={searchKeyword}
-                onChange={(event) => setSearchKeyword(event.target.value)}
-                className="driver-manager-list-search is-in-head"
-              />
-              <div className="driver-manager-list-head-right">
-                <Select
-                  size="small"
-                  className="driver-manager-list-head-sort"
-                  value={driverSortKey}
-                  popupMatchSelectWidth={false}
-                  variant="borderless"
-                  aria-label={t('driver.modal.list.sortLabel')}
-                  options={[
-                    { value: 'name', label: t('driver.modal.list.sortByName') },
-                    { value: 'status', label: t('driver.modal.list.sortByStatus') },
-                    { value: 'size', label: t('driver.modal.list.sortBySize') },
-                    { value: 'version', label: t('driver.modal.list.sortByVersion') },
-                  ]}
-                  onChange={(value) => setDriverSortKey(value as DriverListSortKey)}
-                />
-              </div>
-            </div>
-            <div className="driver-manager-list" aria-busy={initialStatusLoading}>
-              {initialStatusLoading ? null : visibleRows.map(renderDriverListItem)}
-            </div>
-          </aside>
-          <section className="driver-manager-detail" aria-live="polite">
-            {selectedRow ? (
-              renderDriverDetail(selectedRow)
-            ) : initialStatusLoading ? null : (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={normalizedSearchKeyword
-                  ? t('driver.modal.empty.noMatch', { keyword: String(searchKeyword || '').trim() })
-                  : t('driver.modal.empty.noData')}
-              />
-            )}
-            {selectedRow ? renderDriverLogSection(selectedRow) : null}
-          </section>
-        </div>
+        <DriverManagerColumns
+          embedded={embedded}
+          refreshStatus={refreshStatus}
+          loading={loading}
+          networkTooltipTitle={networkTooltipTitle}
+          networkDotTone={networkDotTone}
+          checkNetworkStatus={checkNetworkStatus}
+          networkChecking={networkChecking}
+          onChangeDownloadSource={onChangeDownloadSource}
+          downloadSource={downloadSource}
+          darkMode={darkMode}
+          downloadSourceMeta={downloadSourceMeta}
+          driverManagerTheme={driverManagerTheme}
+          downloadSourceSwitching={downloadSourceSwitching}
+          statusSummary={statusSummary}
+          driverFilter={driverFilter}
+          setDriverFilter={setDriverFilter}
+          searchKeyword={searchKeyword}
+          setSearchKeyword={setSearchKeyword}
+          driverSortKey={driverSortKey}
+          setDriverSortKey={setDriverSortKey}
+          initialStatusLoading={initialStatusLoading}
+          visibleRows={visibleRows}
+          renderDriverListItem={renderDriverListItem}
+          selectedRow={selectedRow}
+          renderDriverDetail={renderDriverDetail}
+          normalizedSearchKeyword={normalizedSearchKeyword}
+          renderDriverLogSection={renderDriverLogSection}
+        />
         </div>
         {embedded && onBack ? (
           <div className="driver-manager-footer-actions">

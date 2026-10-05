@@ -145,6 +145,7 @@ func (q *agentBusinessQueue) run(handle func(agentRequest)) {
 
 // dispatchBusinessRequest 串行执行一条业务请求，并登记它作为取消通知的目标。
 func dispatchBusinessRequest(runtimeState *agentRuntime, req agentRequest, writer *agentResponseWriter) {
+	defer recoverAgentRequestPanic(req, writer)
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	defer cancelRequest()
 	generation := runtimeState.canceller.register(req.ID, cancelRequest)

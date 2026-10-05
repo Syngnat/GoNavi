@@ -98,6 +98,7 @@ class PrepareVPSReleasePayloadTest(unittest.TestCase):
             )
             (driver_dir / "mysql-driver-agent-windows-amd64.exe").write_bytes(b"raw driver")
             (driver_dir / "GoNavi-DriverAgents.zip").write_bytes(b"CI bundle")
+            (driver_dir / "GoNavi-DriverAgents.7z").write_bytes(b"CI bundle")
             index = driver_index(
                 driver_name,
                 driver_bytes,
@@ -166,6 +167,12 @@ class PrepareVPSReleasePayloadTest(unittest.TestCase):
                 (
                     output
                     / "payload/drivers/releases/download/v1.2.3/GoNavi-DriverAgents.zip"
+                ).exists()
+            )
+            self.assertFalse(
+                (
+                    output
+                    / "payload/drivers/releases/download/v1.2.3/GoNavi-DriverAgents.7z"
                 ).exists()
             )
             self.assertTrue(

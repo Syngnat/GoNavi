@@ -1,0 +1,107 @@
+{
+  "type": "firebird",
+  "aliases": [
+    "firebirdsql"
+  ],
+  "displayName": "Firebird",
+  "group": "relational",
+  "order": 60,
+  "defaultPort": 3050,
+  "wire": "firebird",
+  "dialect": "firebird",
+  "family": "firebird",
+  "objectKind": "table",
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "syntheticDatabase": true,
+  "versionQuery": "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') AS version FROM rdb$database",
+  "driverTransactions": true,
+  "agent": {
+    "buildTag": "gonavi_firebird_driver",
+    "goModule": "github.com/nakagami/firebirdsql",
+    "version": "0.9.21",
+    "sourcePrefixes": [
+      "firebird"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v25",
+        "label": "Firebird 2.5",
+        "descriptionKey": "datasource.variant.firebird.v25",
+        "maxServer": "3.0"
+      },
+      {
+        "id": "v30",
+        "label": "Firebird 3.0",
+        "descriptionKey": "datasource.variant.firebird.v30",
+        "minServer": "3.0",
+        "maxServer": "4.0"
+      },
+      {
+        "id": "v40",
+        "label": "Firebird 4.0 / 5.0",
+        "descriptionKey": "datasource.variant.firebird.v40",
+        "minServer": "4.0"
+      }
+    ]
+  },
+  "ui": {
+    "uriSchemes": [
+      "firebird"
+    ],
+    "defaultUser": "SYSDBA",
+    "paramFields": [
+      {
+        "key": "databasePath",
+        "labelKey": "connection_modal.field.firebird.database",
+        "helpKey": "connection_modal.field.firebird.database.help",
+        "placeholder": "/var/lib/firebird/data/app.fdb  /  C:\\data\\app.fdb  /  employee"
+      }
+    ],
+    "connectionParams": true,
+    "driverObjectDefinitions": true,
+    "quoting": "double",
+    "pagination": "rows-to",
+    "objectStatements": {
+      "dropTable": "DROP TABLE {table}",
+      "dropView": "DROP VIEW {view}",
+      "dropRoutine": "DROP {type} {name}",
+      "clearTable": "DELETE FROM {table}"
+    },
+    "hiddenObjectGroups": [
+      "materializedViews",
+      "events",
+      "packages"
+    ],
+    "metadataQueries": {
+      "views": [
+        "SELECT TRIM(RDB$RELATION_NAME) AS view_name FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$VIEW_BLR IS NOT NULL ORDER BY 1"
+      ],
+      "triggers": [
+        "SELECT TRIM(RDB$TRIGGER_NAME) AS trigger_name, TRIM(RDB$RELATION_NAME) AS table_name FROM RDB$TRIGGERS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ORDER BY 2, 1"
+      ],
+      "routines": [
+        "SELECT TRIM(RDB$PROCEDURE_NAME) AS routine_name, 'PROCEDURE' AS routine_type FROM RDB$PROCEDURES WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$PACKAGE_NAME IS NULL UNION ALL SELECT TRIM(RDB$FUNCTION_NAME), 'FUNCTION' FROM RDB$FUNCTIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$PACKAGE_NAME IS NULL AND RDB$FUNCTION_SOURCE IS NOT NULL ORDER BY 1",
+        "SELECT TRIM(RDB$PROCEDURE_NAME) AS routine_name, 'PROCEDURE' AS routine_type FROM RDB$PROCEDURES WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ORDER BY 1"
+      ],
+      "sequences": [
+        "SELECT TRIM(RDB$GENERATOR_NAME) AS sequence_name FROM RDB$GENERATORS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ORDER BY 1"
+      ],
+      "tableStatus": [
+        {
+          "sql": "SELECT TRIM(RDB$RELATION_NAME) AS table_name, CAST(RDB$DESCRIPTION AS VARCHAR(8191)) AS table_comment FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$VIEW_BLR IS NULL ORDER BY 1"
+        }
+      ]
+    },
+    "hint": "SQL standard RDBMS / Firebird 2.5 – 5.0",
+    "icon": {
+      "color": "#F40F02",
+      "text": "Fb"
+    }
+  }
+}

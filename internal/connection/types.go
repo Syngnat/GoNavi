@@ -301,6 +301,7 @@ type ConnectionConfig struct {
 	URI                      string                     `json:"uri,omitempty"`                      // Connection URI for copy/paste
 	ClickHouseProtocol       string                     `json:"clickHouseProtocol,omitempty"`       // auto | http | native
 	OceanBaseProtocol        string                     `json:"oceanBaseProtocol,omitempty"`        // OceanBase tenant compatibility protocol: mysql | oracle
+	DriverVariant            string                     `json:"driverVariant,omitempty"`            // Registry data sources: "" (default) | "auto" | declared variant id
 	Hosts                    []string                   `json:"hosts,omitempty"`                    // Multi-host addresses: host:port
 	Topology                 string                     `json:"topology,omitempty"`                 // single | replica | cluster | sentinel
 	MySQLReplicaUser         string                     `json:"mysqlReplicaUser,omitempty"`         // MySQL replica auth user

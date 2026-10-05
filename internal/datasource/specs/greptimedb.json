@@ -1,0 +1,77 @@
+{
+  "type": "greptimedb",
+  "aliases": [
+    "greptime"
+  ],
+  "displayName": "GreptimeDB",
+  "group": "timeseries",
+  "order": 50,
+  "defaultPort": 4002,
+  "wire": "mysql",
+  "dialect": "greptimedb",
+  "family": "mysql",
+  "objectKind": "table",
+  "protection": true,
+  "versionQuery": "SELECT version() AS version",
+  "excelImport": true,
+  "sqlFileImport": true,
+  "agent": {
+    "buildTag": "gonavi_greptimedb_driver",
+    "goModule": "github.com/go-sql-driver/mysql",
+    "version": "1.9.3",
+    "sourcePrefixes": [
+      "greptimedb",
+      "registry",
+      "mysql"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v0",
+        "label": "GreptimeDB 0.x",
+        "descriptionKey": "datasource.variant.greptimedb.v0",
+        "maxServer": "1.0"
+      },
+      {
+        "id": "v1",
+        "label": "GreptimeDB 1.x +",
+        "descriptionKey": "datasource.variant.greptimedb.v1",
+        "minServer": "1.0"
+      }
+    ]
+  },
+  "ui": {
+    "usernameOptional": true,
+    "formatDdl": false,
+    "uriSchemes": [
+      "greptimedb",
+      "greptime",
+      "mysql"
+    ],
+    "hiddenObjectGroups": [
+      "sequences",
+      "routines",
+      "triggers",
+      "events"
+    ],
+    "metadataQueries": {
+      "views": [
+        "SHOW VIEWS",
+        "SELECT table_name AS view_name FROM information_schema.tables WHERE table_schema = '{{database}}' AND table_type = 'VIEW'"
+      ]
+    },
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "hint": "Time-series / MySQL wire",
+    "icon": {
+      "color": "#8322FF",
+      "text": "Gt",
+      "scale": 0.72
+    }
+  }
+}

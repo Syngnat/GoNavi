@@ -1,6 +1,7 @@
 import { format, type SqlLanguage } from 'sql-formatter';
 import { resolveSqlDialect } from './sqlDialect';
 import { normalizeOceanBaseProtocol } from './oceanBaseProtocol';
+import { getDataSourceSpec } from './dataSourceRegistry';
 
 const normalizeDbType = (dbType: string): string => String(dbType || '').trim().toLowerCase();
 
@@ -63,6 +64,9 @@ export const formatDdlForDisplay = (
   }
   const normalizedDialect = normalizeDbType(resolveSqlDialect(dbType, '', options));
   if (normalizedDialect === 'oracle' && isOracleViewDdl(raw)) {
+    return raw;
+  }
+  if (getDataSourceSpec(dbType)?.ui?.formatDdl === false) {
     return raw;
   }
   const language = resolveDdlFormatterLanguage(dbType, options);

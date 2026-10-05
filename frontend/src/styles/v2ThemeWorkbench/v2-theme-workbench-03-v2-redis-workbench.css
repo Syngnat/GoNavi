@@ -1,0 +1,685 @@
+/* ─── V2 Redis workbench ─ */
+body[data-ui-version="v2"] .gn-v2-redis-workbench {
+  display: grid !important;
+  grid-template-columns: clamp(320px, var(--gn-redis-sidebar-width, 50%), calc(100% - 361px)) 1px minmax(360px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0 !important;
+  padding: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-sidebar {
+  display: grid !important;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-rows: max-content minmax(0, 1fr);
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0;
+  gap: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-header,
+body[data-ui-version="v2"] .gn-v2-redis-tree-card,
+body[data-ui-version="v2"] .gn-v2-redis-value-header,
+body[data-ui-version="v2"] .gn-v2-redis-value-card,
+body[data-ui-version="v2"] .gn-v2-redis-empty-value {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-header,
+body[data-ui-version="v2"] .gn-v2-redis-tree-card {
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-header {
+  grid-row: 1;
+  padding: 14px !important;
+  border-bottom: 1px solid var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-toolbar {
+  align-items: center;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-key-view-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 0.5px solid var(--gn-br-1);
+  border-radius: 6px;
+  background: var(--gn-bg-active);
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-key-view-switch-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gn-fg-4);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-key-view-switch-btn.is-active,
+body[data-ui-version="v2"] .gn-v2-redis-key-view-switch-btn[aria-pressed="true"] {
+  color: var(--gn-accent);
+  background: color-mix(in srgb, var(--gn-fg-1) 6%, var(--gn-bg-panel-2));
+  box-shadow: var(--gn-shadow-sm);
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-key-view-switch-btn:hover {
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-key-view-switch-btn:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid color-mix(in srgb, var(--gn-accent) 72%, transparent);
+  outline-offset: 1px;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-tree-card {
+  grid-row: 2;
+  padding: 10px 12px 12px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-tree-shell {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Redis highlights the complete Tree row, including its checkbox. Keep the
+   nested Ant Tree content wrapper transparent so hover/selection does not
+   render a second, inset highlight behind the Key label. */
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-treenode:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
+  background: var(--gn-bg-selected) !important;
+  border: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-node-content-wrapper:hover,
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-node-content-wrapper:active,
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-node-content-wrapper:focus,
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-node-content-wrapper:focus-visible,
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected,
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected:hover {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-workbench .ant-tree-checkbox {
+  margin-inline-end: 5px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-pane {
+  display: block !important;
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 360px !important;
+  min-height: 0;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-layout {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-top {
+  display: flex;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  gap: 0 !important;
+  background: var(--gn-bg-panel-2);
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-header {
+  flex: 0 0 auto !important;
+  padding: 14px 16px !important;
+  border-bottom: 0 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-header strong {
+  font-family: var(--gn-font-mono);
+  font-size: 20px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-actions,
+body[data-ui-version="v2"] .gn-v2-redis-view-mode,
+body[data-ui-version="v2"] .gn-v2-redis-value-subtoolbar,
+body[data-ui-version="v2"] .gn-v2-redis-value-actionbar {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-subtoolbar {
+  min-height: 30px;
+  border-bottom: 1px solid var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-actionbar {
+  padding: 10px 12px !important;
+  margin-bottom: 0 !important;
+  border-bottom: 1px solid var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-view-mode {
+  padding: 8px 16px !important;
+  border-bottom: 1px solid var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-value-card {
+  min-height: 0;
+  padding: 0 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-empty-value {
+  min-height: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-workbench > .redis-resizable-divider {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  width: 1px !important;
+  background: var(--gn-br-1) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-workbench > .redis-resizable-divider::before {
+  position: absolute;
+  inset: 0 -5px;
+  content: '';
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-data-section .ant-table-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-redis-context-menu {
+  width: 208px !important;
+  min-width: 188px !important;
+  padding: var(--gn-v2-menu-surface-padding) !important;
+}
+
+/* ─── V2 Nacos workbench (flat split + aligned headers, match Redis) ─ */
+body[data-ui-version="v2"] .gn-v2-nacos-workbench {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice {
+  width: auto !important;
+  max-width: min(680px, 100%);
+  min-width: 0;
+  min-height: 30px;
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 3px 4px 3px 9px;
+  border: 0;
+  border-inline-start: 2px solid color-mix(in srgb, var(--gn-warn) 72%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--gn-warn) 7%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice.is-dirty {
+  background: color-mix(in srgb, var(--gn-warn) 10%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__icon {
+  flex: 0 0 auto;
+  color: var(--gn-warn);
+  font-size: 13px;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__copy {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__title {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  color: var(--gn-fg-1);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__hint {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--gn-fg-3);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice .ant-btn {
+  height: 24px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__reload {
+  padding-inline: 7px;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__dismiss {
+  width: 24px;
+  padding: 0;
+  color: var(--gn-fg-3);
+}
+
+@media (max-width: 900px) {
+  body[data-ui-version="v2"] .gn-v2-nacos-remote-notice {
+    align-self: stretch;
+    max-width: none;
+  }
+
+  body[data-ui-version="v2"] .gn-v2-nacos-remote-notice__hint {
+    display: none;
+  }
+}
+
+/*
+ * Each pane owns its own header/body rows. A shared subgrid row sized by
+ * max-content made the detail header follow the config toolbar's wrapping
+ * (issue #1372): dragging the divider moved the other pane's header.
+ */
+body[data-ui-version="v2"] .gn-v2-nacos-split {
+  display: grid !important;
+  grid-template-columns: clamp(280px, var(--gn-nacos-sidebar-width, 42%), calc(100% - 321px)) 1px minmax(320px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  gap: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane {
+  --gn-v2-nacos-selection-column-width: 36px;
+  --gn-v2-nacos-selection-inline-offset: 8px;
+  display: grid !important;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-rows: max-content minmax(0, 1fr);
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--gn-bg-panel-2) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane {
+  display: grid !important;
+  grid-column: 3;
+  grid-row: 1;
+  grid-template-rows: max-content minmax(0, 1fr);
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--gn-bg-panel-2) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Per-pane header row — sized by its own content, not the sibling pane */
+body[data-ui-version="v2"] .gn-v2-nacos-pane-header {
+  grid-row: 1;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: center;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 10px 14px !important;
+  gap: 8px;
+  border: 0 !important;
+  border-bottom: 1px solid var(--gn-br-1) !important;
+  border-radius: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-pane-header > * {
+  width: 100%;
+}
+
+/* Filter row: grow with left pane width so long DataId/Group names fit better */
+body[data-ui-version="v2"] .gn-nacos-filter-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-nacos-filter-row .gn-nacos-filter-data-id,
+body[data-ui-version="v2"] .gn-nacos-filter-row .gn-nacos-filter-group {
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-nacos-filter-row .gn-nacos-filter-data-id,
+body[data-ui-version="v2"] .gn-nacos-filter-row .gn-nacos-filter-group {
+  flex: 1 1 0 !important;
+}
+
+body[data-ui-version="v2"] .gn-nacos-filter-row .ant-select,
+body[data-ui-version="v2"] .gn-nacos-filter-row .ant-select-selector {
+  width: 100% !important;
+}
+
+/* Keep the filter fields continuous with the flat Nacos workbench surface. */
+body[data-ui-version="v2"] .gn-nacos-filter-row .ant-select-selector {
+  background: var(--gn-bg-panel-2) !important;
+}
+
+.gn-nacos-selection-toolbar {
+  min-height: 32px;
+  padding: 8px 4px 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 10px;
+  row-gap: 6px;
+}
+
+.gn-nacos-selection-toolbar__summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gn-nacos-selection-toolbar__summary .ant-checkbox-wrapper {
+  flex: 0 0 auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.gn-nacos-selection-toolbar__count {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 28px;
+  white-space: nowrap;
+}
+
+.gn-nacos-selection-toolbar__actions {
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.gn-nacos-selection-toolbar__actions .ant-btn {
+  min-height: 32px;
+  padding-inline: 12px;
+  border-radius: 6px;
+}
+
+body[data-ui-version="v2"] .gn-nacos-selection-toolbar__count {
+  color: var(--gn-fg-4) !important;
+}
+
+/* Dropdown options: use full popup width; only ellipsis at real overflow */
+.gn-nacos-filter-dropdown .ant-select-item-option-content {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-nacos-filter-dropdown .ant-select-item-option-content > span {
+  max-width: none !important;
+  width: 100%;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-pane-body {
+  grid-row: 2;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+/* Full-height 1px divider like Redis */
+body[data-ui-version="v2"] .gn-v2-nacos-split > .redis-resizable-divider {
+  grid-column: 2;
+  grid-row: 1;
+  width: 1px !important;
+  background: var(--gn-br-1) !important;
+  position: relative;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-split > .redis-resizable-divider::before {
+  position: absolute;
+  inset: 0 -5px;
+  content: '';
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-container,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-header,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-body,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-thead > tr > th,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-tbody > tr > td,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-placeholder,
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table-cell,
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane .ant-table,
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane .ant-table-container,
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane .ant-table-thead > tr > th,
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane .ant-table-tbody > tr > td,
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane .ant-table-cell {
+  background: transparent !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-pane .ant-table,
+body[data-ui-version="v2"] .gn-v2-nacos-detail-pane .ant-table {
+  border: 0 !important;
+}
+
+/* Config list row content (works for v1/v2; v2 adds selection chrome below) */
+.gn-nacos-config-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 4px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.gn-nacos-config-table {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.gn-nacos-config-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gn-nacos-config-row__id {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-nacos-config-row__group {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.gn-nacos-config-row__type.ant-tag {
+  margin-inline-end: 0 !important;
+  flex: 0 0 auto;
+  /* Keep full type labels like "yaml" visible; only long custom types ellipsis */
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Config list: Redis-like rows instead of spreadsheet grid */
+body[data-ui-version="v2"] .gn-v2-nacos-list-body {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 8px 10px 10px !important;
+  gap: 0;
+}
+
+/* Disable browser text-selection chrome when clicking list rows */
+body[data-ui-version="v2"] .gn-v2-nacos-list-body,
+body[data-ui-version="v2"] .gn-nacos-config-table,
+body[data-ui-version="v2"] .gn-nacos-config-table .ant-table-tbody,
+body[data-ui-version="v2"] .gn-nacos-config-table .ant-table-cell,
+body[data-ui-version="v2"] .gn-nacos-config-row {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body[data-ui-version="v2"] .gn-nacos-config-table .ant-table-tbody > tr > td::selection,
+body[data-ui-version="v2"] .gn-nacos-config-row *::selection {
+  background: transparent;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-spin-nested-loading,
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-spin-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-spin-container > .ant-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Don't force 100% height on container — scroll.y already sizes the body; 100% can overflow pagination. */
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-table-container {
+  height: auto;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-table-body {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  /* Reserve gutter so type tags are not covered by the scrollbar */
+  scrollbar-gutter: stable;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-table-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-table-tbody > tr > td:last-child {
+  /* Extra room so content never sits under the scrollbar track */
+  padding-right: 10px !important;
+}
+
+/* Pagination bar: total left, page/size controls stick together on the right */
+body[data-ui-version="v2"] .gn-v2-nacos-list-body .gn-nacos-config-table .ant-pagination {
+  flex-shrink: 0;
+  width: 100%;
+  margin: 8px 0 0 !important;
+  padding: 8px 2px 2px !important;
+  border-top: 1px solid var(--gn-br-1);
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  column-gap: 4px;
+  row-gap: 8px;
+}
+

@@ -311,3 +311,21 @@ func TestScramVerifierMatchesRFC7677(t *testing.T) {
 func boolPtr(value bool) *bool {
 	return &value
 }
+
+func TestOpenGaussSysadminCanManageRoles(t *testing.T) {
+	profile := dbuser.ServerProfile{Dialect: map[string]string{dialectRolesRelation: "pg_catalog.pg_roles"}}
+	sysadmin := dbusertest.NewExecutor(dbusertest.Response{Match: "WHERE rolname = current_user", Rows: []map[string]any{dbusertest.Row("rolsuper", false, "rolcreaterole", false, "rolsystemadmin", true)}})
+	if got := probePermissions(context.Background(), dbuser.Env{SQL: sysadmin}, profile, variantOpenGauss); !got.CanCreate || !got.CanDrop {
+		t.Fatalf("openGauss SYSADMIN should manage roles: %+v", got)
+	}
+	if query := sysadmin.Queries[0]; !strings.Contains(query, "rolsystemadmin") {
+		t.Fatalf("openGauss probe must read rolsystemadmin: %s", query)
+	}
+	plain := dbusertest.NewExecutor(dbusertest.Response{Match: "WHERE rolname = current_user", Rows: []map[string]any{dbusertest.Row("rolsuper", false, "rolcreaterole", false)}})
+	if got := probePermissions(context.Background(), dbuser.Env{SQL: plain}, profile, variantPostgres); got.CanCreate {
+		t.Fatalf("PostgreSQL account without SUPERUSER / CREATEROLE cannot manage roles: %+v", got)
+	}
+	if strings.Contains(plain.Queries[0], "rolsystemadmin") {
+		t.Fatalf("PostgreSQL has no rolsystemadmin column: %s", plain.Queries[0])
+	}
+}

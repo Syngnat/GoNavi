@@ -370,7 +370,7 @@ describe("Oracle object metadata loaders", () => {
       "SELECT OWNER AS schema_name, VIEW_NAME AS view_name FROM ALL_VIEWS WHERE OWNER = 'SBDEV' ORDER BY VIEW_NAME",
     ]);
     expect(buildFunctionsMetadataQuerySpecs("oracle", "SBDEV").map((spec) => spec.sql)).toEqual([
-      "SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type, STATUS AS object_status FROM ALL_OBJECTS WHERE OWNER = 'SBDEV' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME",
+      "SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, CASE OBJECT_TYPE WHEN 'UDF' THEN 'FUNCTION' ELSE OBJECT_TYPE END AS routine_type, STATUS AS object_status FROM ALL_OBJECTS WHERE OWNER = 'SBDEV' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE','UDF') ORDER BY OBJECT_TYPE, OBJECT_NAME",
     ]);
     expect(buildSequencesMetadataQuerySpecs("oracle", "MYCIMLED").map((spec) => spec.sql)).toEqual([
       "SELECT OWNER AS schema_name, OBJECT_NAME AS sequence_name FROM ALL_OBJECTS WHERE OWNER = 'MYCIMLED' AND OBJECT_TYPE = 'SEQUENCE' ORDER BY OBJECT_NAME",
@@ -439,7 +439,7 @@ describe("Oracle object metadata loaders", () => {
           data: [{ OWNER: "SBDEV", VIEW_NAME: "V_RISK" }],
         };
       }
-      if (sql.includes("ALL_OBJECTS") && sql.includes("('FUNCTION','PROCEDURE')")) {
+      if (sql.includes("ALL_OBJECTS") && sql.includes("('FUNCTION','PROCEDURE','UDF')")) {
         return {
           success: true,
           message: "",

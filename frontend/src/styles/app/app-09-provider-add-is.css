@@ -1,0 +1,700 @@
+/* Provider add is a compact action, not a 44px list row. */
+body[data-ui-version] .gonavi-settings-center-modal .gonavi-ai-provider-add.ant-btn {
+  min-height: var(--gn-control-height, 32px);
+  height: var(--gn-control-height, 32px) !important;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn-icon-only {
+  width: var(--gn-control-height, 32px) !important;
+  min-width: var(--gn-control-height, 32px);
+  padding-inline: 0 !important;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn-sm.ant-btn-icon-only {
+  width: var(--gn-control-height-sm, 24px) !important;
+  min-width: var(--gn-control-height-sm, 24px);
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .gonavi-settings-center-entry.ant-btn {
+  height: auto !important;
+  min-height: 58px;
+  padding: 8px 6px !important;
+  border: none !important;
+  border-radius: 4px !important;
+  font-size: var(--gn-settings-font-body) !important;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .gonavi-ai-provider-add.ant-btn {
+  border-radius: 0 !important;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn-primary {
+  box-shadow: none !important;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn-text,
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn-link {
+  padding-inline: 8px !important;
+}
+
+.gonavi-settings-center-modal .ant-input,
+.gonavi-settings-center-modal .ant-input-affix-wrapper,
+.gonavi-settings-center-modal .ant-input-number,
+.gonavi-settings-center-modal .ant-input-number-group-addon,
+.gonavi-settings-center-modal .ant-select-selector,
+.gonavi-settings-center-modal .ant-segmented,
+.gonavi-settings-center-modal .ant-picker {
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.gonavi-settings-center-modal .ant-segmented-item,
+.gonavi-settings-center-modal .ant-segmented-thumb,
+.gonavi-settings-center-modal .ant-tag,
+.gonavi-settings-center-modal .ant-alert {
+  border-radius: 4px !important;
+}
+
+.gonavi-settings-center-modal .ant-form-item-label > label {
+  font-size: var(--gn-settings-font-caption);
+  font-weight: 600;
+}
+
+.gonavi-cloud-backup-settings .ant-input-affix-wrapper > input.ant-input:focus,
+.gonavi-cloud-backup-settings .ant-input-affix-wrapper > input.ant-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.gonavi-cloud-backup-feedback {
+  display: grid;
+  gap: 2px;
+  min-width: min(320px, calc(100vw - 96px));
+  max-width: 420px;
+  text-align: left;
+}
+
+.gonavi-cloud-backup-feedback__title {
+  color: var(--gn-fg-1, #0c1322);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.gonavi-cloud-backup-feedback__description {
+  color: var(--gn-fg-4, #6b7280);
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 1.45;
+}
+
+.gonavi-cloud-backup-remote-preview {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 6px;
+  background: var(--gn-bg-panel, #fff);
+}
+
+.gonavi-cloud-backup-remote-preview__header {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--gn-bg-panel-2, #fafaf8);
+}
+
+.gonavi-cloud-backup-remote-preview__icon {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--gn-accent, #15803d) 28%, transparent);
+  border-radius: 6px;
+  background: var(--gn-accent-soft, #dcfce7);
+  color: var(--gn-accent-2, #166534);
+  font-size: 16px;
+}
+
+.gonavi-cloud-backup-remote-preview__heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gonavi-cloud-backup-remote-preview__heading .ant-typography {
+  margin: 0;
+}
+
+.gonavi-cloud-backup-remote-preview__metrics {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: var(--gn-settings-font-caption, 12px);
+  white-space: nowrap;
+}
+
+.gonavi-cloud-backup-remote-preview__metrics > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gonavi-cloud-backup-remote-preview__metrics .anticon {
+  color: var(--gn-fg-4, #6b7280);
+}
+
+.gonavi-cloud-backup-remote-preview__categories {
+  max-height: min(320px, 38vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.gonavi-cloud-backup-remote-preview__category {
+  min-width: 0;
+  border-top: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gonavi-cloud-backup-remote-preview__category-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 7px 14px;
+}
+
+.gonavi-cloud-backup-remote-preview__category-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--gn-fg-2, #1f2937);
+  font-weight: 600;
+}
+
+.gonavi-cloud-backup-remote-preview__category-name .anticon {
+  flex: 0 0 auto;
+  color: var(--gn-accent, #15803d);
+}
+
+.gonavi-cloud-backup-remote-preview__restart {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gn-warn, #d97706);
+  font-size: var(--gn-settings-font-caption, 12px);
+  white-space: nowrap;
+}
+
+.gonavi-cloud-backup-remote-preview__files {
+  display: grid;
+  margin: 0;
+  padding: 0 14px 8px 36px;
+  list-style: none;
+}
+
+.gonavi-cloud-backup-remote-preview__files li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--gn-fg-4, #6b7280);
+}
+
+.gonavi-cloud-backup-remote-preview__files li:hover {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+}
+
+.gonavi-cloud-backup-remote-preview__file-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gonavi-cloud-backup-remote-preview__file-name,
+.gonavi-cloud-backup-remote-preview__file-directory,
+.gonavi-cloud-backup-remote-preview__connection-name,
+.gonavi-cloud-backup-remote-preview__connection-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-cloud-backup-remote-preview__file-name {
+  flex: 0 1 auto;
+  color: var(--gn-fg-2, #1f2937);
+  font-family: var(--gn-font-mono, Consolas, monospace);
+  font-size: var(--gn-font-size-mono, 12px);
+}
+
+.gonavi-cloud-backup-remote-preview__file-directory {
+  flex: 1 1 auto;
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: var(--gn-font-size-xs, 11px);
+}
+
+.gonavi-cloud-backup-remote-preview__connection-name {
+  flex: 0 1 auto;
+  color: var(--gn-fg-2, #1f2937);
+  font-weight: 500;
+}
+
+.gonavi-cloud-backup-remote-preview__connection-host {
+  flex: 1 1 auto;
+  color: var(--gn-fg-5, #9ca3af);
+  font-family: var(--gn-font-mono, Consolas, monospace);
+  font-size: var(--gn-font-size-xs, 11px);
+}
+
+.gonavi-cloud-backup-remote-preview__empty {
+  display: block;
+  padding: 18px 14px;
+  text-align: center;
+}
+
+body[data-theme='dark'] .gonavi-cloud-backup-feedback__title {
+  color: var(--gn-fg-1, #f1f3f5);
+}
+
+@media (max-width: 760px) {
+  .gonavi-cloud-backup-remote-preview__header {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .gonavi-cloud-backup-remote-preview__metrics {
+    grid-column: 1 / -1;
+    padding-left: 42px;
+  }
+
+  .gonavi-cloud-backup-remote-preview__category-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .gonavi-cloud-backup-remote-preview__restart {
+    grid-column: 1 / -1;
+    padding-left: 24px;
+  }
+
+  .gonavi-cloud-backup-remote-preview__file-copy {
+    display: grid;
+    gap: 1px;
+  }
+}
+
+.gonavi-settings-center-group-tab,
+.gonavi-settings-center-entry {
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.gonavi-settings-center-group-tab:hover:not(.is-active),
+.gonavi-settings-center-entry:hover {
+  background: rgba(15, 23, 42, 0.035) !important;
+}
+
+.gonavi-settings-center-group-tab:focus-visible,
+.gonavi-settings-center-entry:focus-visible {
+  outline: 2px solid rgba(22, 163, 74, 0.55);
+  outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gonavi-settings-center-group-tab:hover:not(.is-active),
+body[data-theme='dark'] .gonavi-settings-center-entry:hover {
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+@media (max-width: 1120px) {
+  .gonavi-settings-center-layout {
+    grid-template-columns: 220px minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gonavi-settings-center-modal *,
+  .gonavi-settings-center-modal *::before,
+  .gonavi-settings-center-modal *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  /* Loading indicators communicate ongoing work, rather than decorative motion. */
+  .gonavi-settings-center-modal .ant-btn-loading-icon .anticon-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+.gonavi-ai-settings-nav-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-language-option {
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.gonavi-language-option:hover {
+  background: rgba(15, 23, 42, 0.035);
+}
+
+.gonavi-language-option.is-selected {
+  border-left-color: #16a34a;
+  background: rgba(34, 197, 94, 0.08);
+  color: #15803d;
+}
+
+.gonavi-language-option-check {
+  width: 7px;
+  height: 12px;
+  margin: -3px 3px 0 0;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  flex: 0 0 auto;
+}
+
+.gonavi-language-option:focus-visible {
+  outline: 2px solid rgba(22, 163, 74, 0.55);
+  outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gonavi-language-option:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+body[data-theme='dark'] .gonavi-language-option.is-selected {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+}
+
+.gonavi-ai-mcp-tabs {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.gonavi-ai-mcp-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.gonavi-ai-mcp-tab.is-active {
+  border-color: var(--gn-mcp-accent, #16a34a);
+  background: var(--gn-mcp-accent-bg, rgba(22, 163, 74, 0.12));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.gonavi-ai-mcp-route-arrow {
+  color: rgba(100, 116, 139, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  transform: translateY(-0.5px);
+}
+
+.gonavi-ai-mcp-tab.is-active .gonavi-ai-mcp-route-arrow {
+  color: currentColor;
+}
+
+.gonavi-ai-mcp-tab:hover:not(.is-active) {
+  color: rgba(15, 23, 42, 0.88) !important;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-tab:hover:not(.is-active) {
+  color: rgba(248, 250, 252, 0.9) !important;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-tabs {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-tab.is-active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24);
+}
+
+.gonavi-ai-mcp-panel {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gonavi-ai-mcp-tab:focus-visible,
+.gonavi-ai-mcp-disclosure > summary:focus-visible,
+.gonavi-ai-mcp-client-option:focus-visible {
+  outline: 2px solid rgba(22, 163, 74, 0.55);
+  outline-offset: 2px;
+}
+
+.gonavi-ai-mcp-disclosure {
+  border-radius: 6px;
+}
+
+.gonavi-ai-mcp-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.038);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background 160ms ease;
+}
+
+.gonavi-ai-mcp-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.gonavi-ai-mcp-disclosure > summary::after {
+  content: '›';
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.07);
+  color: rgba(100, 116, 139, 0.78);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  flex: 0 0 30px;
+  transform: rotate(0deg);
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.gonavi-ai-mcp-disclosure[open] > summary::after {
+  background: var(--gn-mcp-accent-bg, rgba(22, 163, 74, 0.12));
+  color: var(--gn-mcp-accent, #16a34a);
+  transform: rotate(90deg);
+}
+
+.gonavi-ai-mcp-disclosure > summary:hover {
+  background: rgba(15, 23, 42, 0.065);
+}
+
+.gonavi-ai-mcp-disclosure > summary:hover::after {
+  background: rgba(15, 23, 42, 0.11);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-disclosure > summary:hover {
+  background: rgba(255, 255, 255, 0.075);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-disclosure > summary {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-disclosure > summary::after {
+  background: rgba(255, 255, 255, 0.075);
+  color: rgba(203, 213, 225, 0.86);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-disclosure > summary:hover::after {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+body[data-theme='dark'] .gonavi-ai-mcp-disclosure[open] > summary::after {
+  background: var(--gn-mcp-accent-bg, rgba(34, 197, 94, 0.14));
+  color: var(--gn-mcp-accent, #86efac);
+}
+
+.gonavi-ai-tool-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.gonavi-ai-tool-view-tab {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--gn-settings-font-secondary, 13px);
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.gonavi-ai-tool-view-tab:hover:not(.is-active) {
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.gonavi-ai-tool-view-tab.is-active {
+  border-color: var(--gn-ai-disclosure-accent, #16a34a);
+  background: var(--gn-ai-disclosure-accent-bg, rgba(22, 163, 74, 0.12));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.gonavi-ai-tool-view-tab:focus-visible {
+  outline: 2px solid var(--gn-ai-disclosure-accent, rgba(22, 163, 74, 0.55));
+  outline-offset: 2px;
+}
+
+.gonavi-ai-tool-view-tab-icon {
+  font-size: 14px;
+}
+
+.gonavi-ai-tool-view-tab-label {
+  min-width: 0;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.gonavi-ai-tool-view-count {
+  min-width: 42px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.065);
+  color: inherit;
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 20px;
+  text-align: center;
+}
+
+.gonavi-ai-tool-view-tab.is-active .gonavi-ai-tool-view-count {
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.gonavi-ai-tool-view-empty {
+  padding: 20px 10px;
+  border-radius: 4px;
+  font-size: var(--gn-settings-font-secondary, 13px);
+  line-height: 1.7;
+}
+
+body[data-theme='dark'] .gonavi-ai-tool-view-tabs {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+body[data-theme='dark'] .gonavi-ai-tool-view-tab:hover:not(.is-active) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+body[data-theme='dark'] .gonavi-ai-tool-view-tab.is-active {
+  background: var(--gn-ai-disclosure-accent-bg, rgba(34, 197, 94, 0.14));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24);
+}
+
+body[data-theme='dark'] .gonavi-ai-tool-view-count {
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.gonavi-ai-settings-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 5px;
+  background: transparent;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background 160ms ease;
+}
+
+.gonavi-ai-settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.gonavi-ai-settings-disclosure > summary::marker {
+  content: '';
+}
+
+.gonavi-ai-settings-disclosure-content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.gonavi-ai-settings-disclosure-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.065);
+  color: rgba(100, 116, 139, 0.82);
+  font-size: 12px;
+  flex: 0 0 28px;
+  transform: rotate(0deg);
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.gonavi-ai-settings-disclosure > summary:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.gonavi-ai-settings-disclosure[open] > summary {
+  background: var(--gn-ai-disclosure-accent-bg, rgba(22, 163, 74, 0.1));
+}
+
+.gonavi-ai-settings-disclosure[open] > summary .gonavi-ai-settings-disclosure-icon {
+  background: var(--gn-ai-disclosure-accent-bg, rgba(22, 163, 74, 0.12));
+  color: var(--gn-ai-disclosure-accent, #16a34a);
+  transform: rotate(90deg);
+}
+
+.gonavi-ai-settings-disclosure > summary:focus-visible {
+  outline: 2px solid var(--gn-ai-disclosure-accent, rgba(22, 163, 74, 0.55));
+  outline-offset: 2px;
+}
+

@@ -17,12 +17,9 @@ func (a *App) DBGetServerVersion(config connection.ConnectionConfig) connection.
 
 func (a *App) dbGetServerVersion(config connection.ConnectionConfig) connection.QueryResult {
 	query, ok := db.ServerVersionQuery(config)
-	if !ok {
-		return connection.QueryResult{
-			Success: true,
-			Data:    []map[string]interface{}{},
-			Fields:  []string{"version"},
-		}
+	_, registryType := db.DataSourceSpec(config.Type)
+	if !ok && !registryType {
+		return emptyServerVersionResult()
 	}
 
 	dbInst, err := a.getDatabase(config)
@@ -32,6 +29,19 @@ func (a *App) dbGetServerVersion(config connection.ConnectionConfig) connection.
 			Success: false,
 			Message: a.appText("db.backend.error.server_version_failed", map[string]any{"detail": err.Error()}),
 		}
+	}
+
+	if reported, ok := reportedServerVersion(dbInst); ok {
+		// 描述表数据源的驱动代理在连接时已识别版本，不再额外发查询（非 SQL 数据源也能拿到版本）。
+		return connection.QueryResult{
+			Success: true,
+			Message: reported,
+			Data:    []map[string]interface{}{{"version": reported}},
+			Fields:  []string{"version"},
+		}
+	}
+	if !ok {
+		return emptyServerVersionResult()
 	}
 
 	rows, fields, err := dbInst.Query(query)

@@ -248,7 +248,7 @@
 | | |
 |---|---|
 | **内置** | MySQL · GoldenDB · PostgreSQL · Oracle · Redis · Chroma · Qdrant · Milvus · RocketMQ · MQTT · Kafka · RabbitMQ |
-| **可选** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · 达梦 · 人大金仓 · 瀚高 · 海量 · openGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · Custom Driver/DSN |
+| **可选** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · 达梦 · 人大金仓 · 瀚高 · 海量 · openGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · TiDB · CockroachDB · KWDB · TimescaleDB · GBase 8a · GBase 8c · GBase 8s · 崖山 · Firebird · QuestDB · GreptimeDB · InfluxDB · Presto · OpenSearch · Weaviate · Meilisearch · Typesense · etcd · ZooKeeper · Custom Driver/DSN |
 
 <details>
 <summary><b>完整能力矩阵</b></summary>
@@ -289,6 +289,25 @@
 | 列式分析 | ClickHouse | 可选驱动代理 | 分析查询、对象浏览、SQL 执行 |
 | 联邦查询 | Trino | 可选驱动代理 | 跨多数据源联邦 SQL、`catalog.schema` 浏览、SQL 执行 |
 | 搜索 | Elasticsearch | 可选驱动代理 | 索引浏览、Mapping 检查、受控 REST 控制台、JSON DSL / query_string 查询 |
+| 关系型 | TiDB | 可选驱动代理 | 兼容 MySQL 的查询、TiDB 执行计划、数据编辑、同步与迁移 |
+| 关系型 | CockroachDB | 可选驱动代理 | PostgreSQL 协议查询、SHOW CREATE 建表语句、数据编辑、同步与迁移 |
+| 时序 | KWDB | 可选驱动代理 | PostgreSQL 协议下的关系库与时序库、数据编辑、同步与迁移 |
+| 时序 | TimescaleDB | 可选驱动代理 | 超表与连续聚合、分块统计、PostgreSQL 工作流、同步与迁移 |
+| 国产数据库 | GBase 8a | 可选驱动代理 | MySQL 协议的 MPP 查询、HASH 索引、按类分批提交、同步与迁移 |
+| 国产数据库 | GBase 8c | 可选驱动代理 | openGauss 内核（A / B / PG 兼容模式）、sha256 认证、对象管理、同步与迁移 |
+| 国产数据库 | GBase 8s | 可选驱动代理 | 经用户自备的 GBase 8s CSDK 接入（Informix SQLI）、对象浏览、数据编辑、SQL 备份恢复 |
+| 国产数据库 | 崖山 YashanDB | 可选驱动代理 | 经用户自备的崖山客户端接入、兼容 Oracle 的查询与 PL/SQL 对象、执行计划、同步与迁移 |
+| 关系型 | Firebird | 可选驱动代理 | Firebird 2.5 / 3.0 / 4–5、存储过程 / 触发器 / 包、数据编辑、SQL 备份恢复 |
+| 时序 | QuestDB | 可选驱动代理 | 分区时序表、SQL 查询、执行计划、追加导入 |
+| 时序 | GreptimeDB | 可选驱动代理 | MySQL 协议查询、TIME INDEX / Tag 元数据、追加导入 |
+| 时序 | InfluxDB | 可选驱动代理 | InfluxDB 1.x（InfluxQL）/ 2.x（Flux）/ 3.x（SQL）、行协议写入、网格编辑 |
+| 联邦查询 | Presto | 可选驱动代理 | PrestoDB / PrestoSQL 多目录、SQL 执行与取消、作为迁移源 |
+| 搜索 | OpenSearch | 可选驱动代理 | OpenSearch 1.x / 2.x / 3.x 索引、受控 REST 控制台、SQL / PPL |
+| 向量数据库 | Weaviate | 可选驱动代理 | Class 与租户、基于 GraphQL 的网格浏览与编辑、向量列 |
+| 搜索 | Meilisearch | 可选驱动代理 | 索引即表、过滤 / 排序下推、文档编辑、REST 控制台 |
+| 搜索 | Typesense | 可选驱动代理 | 集合即表、filter_by 下推、文档编辑、REST 控制台 |
+| 键值 | etcd | 可选驱动代理 | 前缀树浏览、键与租约编辑、etcdctl 风格控制台（v2 / v3 API） |
+| 协调服务 | ZooKeeper | 可选驱动代理 | Znode 树浏览、数据与 ACL 查看、节点编辑、zkCli 风格控制台 |
 | 扩展接入 | Custom Driver/DSN | 自定义 | 通过 Driver + DSN 接入更多数据源 |
 
 </details>

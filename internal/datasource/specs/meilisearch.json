@@ -1,0 +1,90 @@
+{
+  "type": "meilisearch",
+  "aliases": [
+    "meili",
+    "meili-search"
+  ],
+  "displayName": "Meilisearch",
+  "group": "search",
+  "order": 30,
+  "defaultPort": 7700,
+  "wire": "http",
+  "dialect": "meilisearch",
+  "objectKind": "index",
+  "caseSensitiveIdentifiers": true,
+  "syntheticDatabase": true,
+  "protection": true,
+  "excelImport": true,
+  "agent": {
+    "buildTag": "gonavi_meilisearch_driver",
+    "version": "1.0.0",
+    "sourcePrefixes": [
+      "meilisearch",
+      "registry",
+      "document_filter",
+      "document_rest",
+      "vector_sql_where"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v0",
+        "label": "Meilisearch 0.20 – 0.27",
+        "descriptionKey": "datasource.variant.meilisearch.v0",
+        "maxServer": "0.28"
+      },
+      {
+        "id": "v1",
+        "label": "Meilisearch 0.28 – 1.1",
+        "descriptionKey": "datasource.variant.meilisearch.v1",
+        "minServer": "0.28",
+        "maxServer": "1.2"
+      },
+      {
+        "id": "v2",
+        "label": "Meilisearch 1.2+",
+        "descriptionKey": "datasource.variant.meilisearch.v2",
+        "minServer": "1.2"
+      }
+    ]
+  },
+  "ui": {
+    "layout": "search",
+    "usernameOptional": true,
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "uriSchemes": [
+      "http",
+      "https",
+      "meilisearch"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "tableAlias": "none",
+    "naturalOrder": true,
+    "formatDdl": false,
+    "objectStatements": {
+      "renameTable": "ALTER TABLE {old} RENAME TO {new}",
+      "dropTable": "DROP TABLE {table}",
+      "truncateTable": "TRUNCATE TABLE {table}",
+      "clearTable": "DELETE FROM {table}"
+    },
+    "hint": "Index browsing, REST console, data grid aware of filterable / sortable attributes",
+    "icon": {
+      "color": "#FF5CAA",
+      "text": "Ms"
+    }
+  }
+}

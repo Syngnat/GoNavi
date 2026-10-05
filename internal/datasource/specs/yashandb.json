@@ -1,0 +1,85 @@
+{
+  "type": "yashandb",
+  "aliases": [
+    "yashan",
+    "yasdb"
+  ],
+  "displayName": "YashanDB",
+  "group": "domestic",
+  "order": 40,
+  "defaultPort": 1688,
+  "wire": "yacli",
+  "dialect": "yashandb",
+  "ddlDialect": "oracle",
+  "family": "oracle",
+  "objectKind": "table",
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "versionQuery": "SELECT banner AS version FROM v$version",
+  "driverTransactions": true,
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "clientLibrary": {
+    "param": "clientDir",
+    "homeEnv": [
+      "YASDB_HOME"
+    ],
+    "libraryDirs": [
+      "lib"
+    ],
+    "windowsLibraryDirs": [
+      "lib",
+      "bin"
+    ]
+  },
+  "agent": {
+    "buildTag": "gonavi_yashandb_driver",
+    "goModule": "github.com/ebitengine/purego",
+    "version": "0.10.0",
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64",
+      "windows/amd64"
+    ],
+    "sourcePrefixes": [
+      "yashandb",
+      "oracle",
+      "purego_library"
+    ]
+  },
+  "variants": {
+    "default": "v23",
+    "items": [
+      {
+        "id": "v23",
+        "label": "YashanDB 23.x",
+        "descriptionKey": "datasource.variant.yashandb.v23"
+      }
+    ]
+  },
+  "ui": {
+    "uriSchemes": [
+      "yashandb"
+    ],
+    "defaultUser": "sys",
+    "paramFields": [
+      {
+        "key": "clientDir",
+        "labelKey": "connection_modal.field.yashandb.client_dir",
+        "helpKey": "connection_modal.field.yashandb.client_dir.help",
+        "placeholder": "C:\\yashandb\\client  /  /opt/yashandb/client"
+      }
+    ],
+    "connectionParams": true,
+    "driverObjectDefinitions": true,
+    "hint": "Oracle compatible / user-installed client",
+    "icon": {
+      "color": "#1F5FFF",
+      "text": "Ya"
+    }
+  }
+}

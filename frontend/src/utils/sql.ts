@@ -1,4 +1,6 @@
+import { buildOffsetLimitSelectSQL, buildRegistryPaginatedSelectSQL, resolveRegistryQuoting, usesRegistryFlatObjectNames } from './dataSourceRegistry/sqlBehavior';
 import { splitQualifiedNameSegments, stripIdentifierQuotes } from './qualifiedName';
+import { isElasticsearchFamilyType } from './elasticsearchFamily';
 
 export type FilterValueSelection = {
   values: string[];
@@ -35,13 +37,14 @@ export const quoteIdentPart = (dbType: string, ident: string) => {
   const raw = normalizeIdentPart(ident);
   if (!raw) return raw;
   const dbTypeLower = (dbType || '').toLowerCase();
+  const registryQuoting = resolveRegistryQuoting(dbTypeLower);
 
-  if (dbTypeLower === 'mysql' || dbTypeLower === 'goldendb' || dbTypeLower === 'mariadb' || dbTypeLower === 'oceanbase' || dbTypeLower === 'diros' || dbTypeLower === 'starrocks' || dbTypeLower === 'sphinx' || dbTypeLower === 'tdengine' || dbTypeLower === 'iotdb' || dbTypeLower === 'clickhouse') {
+  if (registryQuoting === 'backtick' || dbTypeLower === 'mysql' || dbTypeLower === 'goldendb' || dbTypeLower === 'mariadb' || dbTypeLower === 'oceanbase' || dbTypeLower === 'diros' || dbTypeLower === 'starrocks' || dbTypeLower === 'sphinx' || dbTypeLower === 'tdengine' || dbTypeLower === 'iotdb' || dbTypeLower === 'clickhouse') {
     return `\`${raw.replace(/`/g, '``')}\``;
   }
 
   // 对于 KingBase/PostgreSQL，只在必要时加引号
-  if (dbTypeLower === 'kingbase' || dbTypeLower === 'postgres' || dbTypeLower === 'opengauss' || dbTypeLower === 'gaussdb') {
+  if (registryQuoting === 'pg' || dbTypeLower === 'kingbase' || dbTypeLower === 'postgres' || dbTypeLower === 'opengauss' || dbTypeLower === 'gaussdb') {
     if (needsQuote(raw)) {
       return `"${raw.replace(/"/g, '""')}"`;
     }
@@ -50,7 +53,7 @@ export const quoteIdentPart = (dbType: string, ident: string) => {
   }
 
   // SQL Server 使用 [bracket] 标识符
-  if (dbTypeLower === 'sqlserver' || dbTypeLower === 'mssql') {
+  if (registryQuoting === 'bracket' || dbTypeLower === 'sqlserver' || dbTypeLower === 'mssql') {
     return `[${raw.replace(/]/g, ']]')}]`;
   }
 
@@ -62,7 +65,7 @@ export const quoteQualifiedIdent = (dbType: string, ident: string) => {
   const raw = (ident || '').trim();
   if (!raw) return raw;
   const normalizedType = (dbType || '').trim().toLowerCase();
-  if (['rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'pulsar'].includes(normalizedType)) {
+  if (['rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'pulsar'].includes(normalizedType) || usesRegistryFlatObjectNames(normalizedType)) {
     return quoteIdentPart(dbType, raw);
   }
   const parts = splitQualifiedNameSegments(raw).filter(Boolean);
@@ -138,7 +141,7 @@ export const buildOrderBySQL = (
   fallbackColumns: string[] = [],
 ) => {
   const dbTypeLower = String(dbType || '').trim().toLowerCase();
-  const isElasticsearch = dbTypeLower === 'elasticsearch' || dbTypeLower === 'elastic';
+  const isElasticsearch = isElasticsearchFamilyType(dbTypeLower);
   const items = normalizeSortInfoItems(sortInfo);
   const seen = new Set<string>();
   const sortParts: string[] = [];
@@ -341,6 +344,8 @@ export const buildPaginatedSelectSQL = (
   if (!base || safeLimit <= 0) {
     return `${base}${orderBy}`;
   }
+  const registrySql = buildRegistryPaginatedSelectSQL(normalizedType, base, orderBy, safeLimit, safeOffset);
+  if (registrySql !== undefined) return registrySql;
 
   switch (normalizedType) {
     case 'oracle': {
@@ -364,6 +369,9 @@ export const buildPaginatedSelectSQL = (
     case 'mssql': {
       return buildSqlServerPaginatedSelectSQL(base, orderBy, safeLimit, safeOffset);
     }
+    case 'trino':
+      // 查询结果翻页按方言拼装，借用 Trino 方言的 Presto 也走这里。
+      return buildOffsetLimitSelectSQL(base, orderBy, safeLimit, safeOffset);
     default:
       return `${base}${orderBy} LIMIT ${safeLimit} OFFSET ${safeOffset}`;
   }

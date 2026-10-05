@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { readCssWithImports } from '../test/readCssWithImports';
 
-const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
+const appCss = readCssWithImports(new URL('../App.css', import.meta.url));
 
 describe('TableDesigner checkbox theme', () => {
   it('keeps the check mark white when a checked field constraint is disabled', () => {

@@ -247,7 +247,7 @@ func resolveProviderConfigSecretsFromStoreWithLocalizer(store secretstore.Secret
 }
 
 func providerMetadataView(cfg ai.ProviderConfig) ai.ProviderConfig {
-	meta, _ := splitProviderSecrets(normalizeProviderConfig(cfg))
+	meta, _ := splitProviderSecrets(normalizeBuiltinAIProviderConfig(normalizeProviderConfig(cfg)))
 	return meta
 }
 

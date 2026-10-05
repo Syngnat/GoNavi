@@ -1142,6 +1142,26 @@ export function NacosUpdateService(arg1, arg2) {
   return window['go']['app']['App']['NacosUpdateService'](arg1, arg2);
 }
 
+export function OCRCancelInstall() {
+  return window['go']['app']['App']['OCRCancelInstall']();
+}
+
+export function OCRGetStatus() {
+  return window['go']['app']['App']['OCRGetStatus']();
+}
+
+export function OCRInstall() {
+  return window['go']['app']['App']['OCRInstall']();
+}
+
+export function OCRRemove() {
+  return window['go']['app']['App']['OCRRemove']();
+}
+
+export function OCRServe() {
+  return window['go']['app']['App']['OCRServe']();
+}
+
 export function OpenDataRootDirectory() {
   return window['go']['app']['App']['OpenDataRootDirectory']();
 }
@@ -1168,6 +1188,10 @@ export function OpenSavedQueryDirectory() {
 
 export function PreflightDatabaseSQLImport(arg1, arg2, arg3) {
   return window['go']['app']['App']['PreflightDatabaseSQLImport'](arg1, arg2, arg3);
+}
+
+export function PrepareWindowsBrandIconRestart(arg1) {
+  return window['go']['app']['App']['PrepareWindowsBrandIconRestart'](arg1);
 }
 
 export function PreviewChanges(arg1, arg2, arg3, arg4) {
@@ -1500,6 +1524,10 @@ export function SelectSSHKnownHostsFile(arg1) {
 
 export function SelectSavedQueryDirectory(arg1) {
   return window['go']['app']['App']['SelectSavedQueryDirectory'](arg1);
+}
+
+export function SetApplicationBrandIcon(arg1) {
+  return window['go']['app']['App']['SetApplicationBrandIcon'](arg1);
 }
 
 export function SetLanguage(arg1) {

@@ -29,6 +29,9 @@ func ServerVersionQuery(config connection.ConnectionConfig) (string, bool) {
 	case "tdengine":
 		return "SELECT SERVER_VERSION() AS version", true
 	default:
+		if spec, ok := DataSourceSpec(typeName); ok && spec.VersionQuery != "" {
+			return spec.VersionQuery, true
+		}
 		return "", false
 	}
 }

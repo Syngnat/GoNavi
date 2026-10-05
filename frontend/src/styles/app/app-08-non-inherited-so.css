@@ -1,0 +1,535 @@
+/* ── 驱动管理暗色适配 ──
+   扁平布局下几乎没有面板表面：var(--ant-*) 未启用 cssVar 时回退亮色，
+   暗色的次要文字、分隔线与浅色底改由 data-driver-theme='dark' /
+   body[data-theme='dark'] 覆盖。 */
+body[data-theme='dark'] .driver-manager-modal .ant-modal-body {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+body[data-theme='dark'] .driver-manager-log-list {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme='dark'] .driver-manager-log-time {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+body[data-theme='dark'] .driver-manager-log-text {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+body[data-theme='dark'] .driver-manager-log-line.is-done .driver-manager-log-text {
+    color: #95de64;
+}
+
+body[data-theme='dark'] .driver-manager-log-line.is-error .driver-manager-log-text {
+    color: #ff7875;
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-net-text,
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-control-label,
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-page-sub {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip[data-tone='needsUpdate'] .driver-manager-filter-chip-count {
+    color: #faad14;
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip {
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip.is-active {
+    background: rgba(22, 119, 255, 0.22);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip-count {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-pane {
+    border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-item.is-selected {
+    background: rgba(22, 119, 255, 0.24);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-item-meta {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-batch-bar {
+    background: rgba(22, 119, 255, 0.16);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-mirror-chip {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+body[data-theme='dark'] .driver-manager-embedded-layout > .driver-manager-footer-actions {
+    border-top-color: rgba(255, 255, 255, 0.10);
+}
+
+.security-update-action-btn.ant-btn,
+.security-update-action-btn.ant-btn-default,
+.security-update-action-btn.ant-btn-primary,
+.security-update-action-btn.ant-btn-text {
+    box-shadow: none !important;
+}
+
+.security-update-action-btn.ant-btn:focus,
+.security-update-action-btn.ant-btn:focus-visible,
+.security-update-action-btn.ant-btn-default:focus,
+.security-update-action-btn.ant-btn-default:focus-visible,
+.security-update-action-btn.ant-btn-primary:focus,
+.security-update-action-btn.ant-btn-primary:focus-visible,
+.security-update-action-btn.ant-btn-text:focus,
+.security-update-action-btn.ant-btn-text:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.security-update-banner {
+    position: relative;
+    isolation: isolate;
+}
+
+.security-update-result-card {
+    transition: background 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
+}
+
+.security-update-result-card-active {
+    animation: security-update-result-pulse 1.8s ease;
+}
+
+@keyframes security-update-result-pulse {
+    0% {
+        transform: translateY(0);
+    }
+    30% {
+        transform: translateY(-2px);
+    }
+    100% {
+        transform: translateY(0);
+    }
+}
+.gonavi-query-editor-link-hint {
+  color: #1677ff !important;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.gonavi-query-editor-object-token {
+  color: #2563eb;
+}
+
+.gonavi-query-editor-column-token {
+  color: #0f766e;
+}
+
+.gonavi-query-editor-field-drop-anchor {
+  background-color: rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+}
+
+.gonavi-query-editor-db-token {
+  color: #7c3aed;
+}
+
+body[data-theme='dark'] .gonavi-query-editor-object-token {
+  color: #7dd3fc;
+}
+
+body[data-theme='dark'] .gonavi-query-editor-link-hint {
+  color: #69b1ff !important;
+}
+
+body[data-theme='dark'] .gonavi-query-editor-column-token {
+  color: #5eead4;
+}
+
+body[data-theme='dark'] .gonavi-query-editor-field-drop-anchor {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+body[data-theme='dark'] .gonavi-query-editor-db-token {
+  color: #c4b5fd;
+}
+
+.gonavi-query-editor-ai-inline-ghost {
+  color: rgba(100, 116, 139, 0.7);
+  font-style: italic;
+  pointer-events: none;
+}
+
+.gonavi-query-editor-ai-inline-ghost-overlay {
+  color: rgba(100, 116, 139, 0.7);
+  font-style: italic;
+  pointer-events: none;
+  position: absolute;
+  white-space: pre;
+  z-index: 6;
+}
+
+body[data-theme='dark'] .gonavi-query-editor-ai-inline-ghost {
+  color: rgba(203, 213, 225, 0.56);
+}
+
+body[data-theme='dark'] .gonavi-query-editor-ai-inline-ghost-overlay {
+  color: rgba(203, 213, 225, 0.56);
+}
+
+body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] {
+  --gonavi-sidebar-collapse-duration: 200ms;
+}
+
+/*
+ * Ant Design Sider defaults to `transition: all`. That is desirable for the
+ * collapse/expand animation, but drag-resizing width must snap immediately —
+ * otherwise the workbench/DataGrid reflows for ~200ms and feels heavily janky.
+ */
+body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'][data-sidebar-resizing='true'],
+body[data-sidebar-resizing='true'] .ant-layout-sider[data-sidebar-panel='true'] {
+  transition: none !important;
+  min-width: var(--gonavi-sidebar-resize-width) !important;
+  max-width: var(--gonavi-sidebar-resize-width) !important;
+  width: var(--gonavi-sidebar-resize-width) !important;
+  flex: 0 0 var(--gonavi-sidebar-resize-width) !important;
+}
+
+body[data-ui-version] .ant-layout-sider[data-sidebar-collapsed='true'] {
+  min-width: var(--gonavi-sidebar-collapsed-width, 0px) !important;
+  max-width: var(--gonavi-sidebar-collapsed-width, 0px) !important;
+  width: var(--gonavi-sidebar-collapsed-width, 0px) !important;
+  flex: 0 0 var(--gonavi-sidebar-collapsed-width, 0px) !important;
+  border-right: 0 !important;
+}
+
+/*
+ * Only the fixed rail leaves the collapsed explorer reachable. The docked
+ * titlebar mode clips it to zero width and marks the sidebar inert; toggling
+ * visibility there as well makes the virtual tree re-render on every expand.
+ */
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='true'][data-sidebar-actions-placement='fixed-rail'] [data-sidebar-tree-panel='true'] {
+  visibility: hidden;
+  pointer-events: none;
+  transition: visibility 0s linear var(--gonavi-sidebar-collapse-duration);
+}
+
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] [data-sidebar-tree-panel='true'] {
+  visibility: visible;
+  transition: none;
+}
+
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-connection-rail {
+  display: none;
+}
+
+/* Non-inherited, so writing them on the explorer does not restyle the tree. */
+@property --gonavi-sidebar-tree-panel-frozen-width {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --gonavi-sidebar-tree-panel-frozen-height {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+/*
+ * The sider clips the explorer while it collapses, stays collapsed and expands.
+ * Keeping the last expanded size means the virtual tree never sees a resize.
+ */
+body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] [data-sidebar-tree-panel-frozen='true'] {
+  flex: 0 0 var(--gonavi-sidebar-tree-panel-frozen-width) !important;
+  width: var(--gonavi-sidebar-tree-panel-frozen-width) !important;
+  min-width: var(--gonavi-sidebar-tree-panel-frozen-width) !important;
+  height: var(--gonavi-sidebar-tree-panel-frozen-height) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] {
+    --gonavi-sidebar-collapse-duration: 0ms;
+  }
+}
+
+body[data-ui-version] .gonavi-sidebar-collapse-trigger.ant-btn {
+  display: inline-flex;
+  width: 26px;
+  min-width: 26px;
+  height: 26px !important;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+body[data-ui-version] .gonavi-sidebar-collapse-trigger.ant-btn:focus-visible {
+  outline: 2px solid var(--gn-accent, #1677ff);
+  outline-offset: 2px;
+}
+
+body[data-ui-version='v2'] .gonavi-sidebar-collapse-trigger.ant-btn {
+  background: transparent;
+  color: var(--gn-fg-4);
+}
+
+body[data-ui-version='v2'] .gonavi-sidebar-collapse-trigger.ant-btn[data-sidebar-toggle-placement='explorer-header'] {
+  width: 24px;
+  min-width: 24px;
+  height: 24px !important;
+  flex: 0 0 24px;
+  border: 1px solid var(--gn-br-2) !important;
+  border-radius: 7px !important;
+}
+
+body[data-ui-version='v2'] .gonavi-sidebar-collapse-trigger.ant-btn:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-2);
+}
+
+body[data-ui-version='v2'] .gonavi-sidebar-collapse-trigger.ant-btn[data-sidebar-toggle-placement='explorer-header']:hover {
+  color: var(--gn-fg-1);
+}
+
+.gonavi-about-project-entry {
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.gonavi-about-project-entry:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.035) !important;
+}
+
+.gonavi-about-project-entry:focus-visible {
+  outline: 2px solid rgba(22, 163, 74, 0.55);
+  outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gonavi-about-project-entry:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+.gonavi-ai-settings-nav-item,
+.gonavi-ai-provider-row,
+.gonavi-ai-provider-add {
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.gonavi-ai-settings-nav-item:hover:not(.is-active),
+.gonavi-ai-provider-row:hover:not(.is-active),
+.gonavi-ai-provider-add:hover {
+  background: rgba(15, 23, 42, 0.035) !important;
+}
+
+.gonavi-ai-settings-nav-item:focus-visible,
+.gonavi-ai-provider-select:focus-visible,
+.gonavi-ai-provider-add:focus-visible,
+.gonavi-ai-provider-support > summary:focus-visible,
+.gonavi-ai-provider-support-table:focus-visible,
+.gonavi-ai-cli-details > summary:focus-visible,
+.gonavi-ai-provider-more > summary:focus-visible {
+  outline: 2px solid rgba(22, 163, 74, 0.55);
+  outline-offset: -2px;
+}
+
+.gonavi-ai-cli-model-fields,
+.gonavi-ai-provider-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 0 12px;
+}
+
+.gonavi-ai-cli-model-fields > .ant-form-item,
+.gonavi-ai-provider-field-grid > .ant-form-item {
+  min-width: 0;
+}
+
+.gonavi-ai-provider-form > .gonavi-ai-provider-field-grid > .ant-form-item,
+.gonavi-ai-provider-more .gonavi-ai-provider-field-grid > .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.gonavi-ai-provider-form[hidden] {
+  display: none;
+}
+
+.gonavi-ai-provider-guide {
+  margin: 14px 0 12px;
+}
+
+.gonavi-ai-provider-guide-label {
+  display: block;
+  font-size: var(--gn-font-size-sm, 12px);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.gonavi-ai-provider-guide .gonavi-ai-provider-field-grid {
+  gap: 10px 12px;
+}
+
+.gonavi-ai-provider-guide .gonavi-ai-provider-field-grid > div {
+  min-width: 0;
+}
+
+.gonavi-ai-provider-guide-hint,
+.gonavi-ai-provider-guide-restore,
+.gonavi-ai-provider-support {
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 1.6;
+}
+
+.gonavi-ai-provider-guide-hint {
+  margin: 8px 0 2px;
+}
+
+.gonavi-ai-provider-guide-restore {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.gonavi-ai-provider-support > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.gonavi-ai-provider-support p {
+  margin: 6px 0 8px;
+}
+
+.gonavi-ai-provider-support-table {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.gonavi-ai-provider-support table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+}
+
+.gonavi-ai-provider-support th,
+.gonavi-ai-provider-support td {
+  padding: 6px 8px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid currentColor;
+  border-bottom-color: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.gonavi-ai-provider-support th:first-child {
+  width: 35%;
+  font-weight: 500;
+}
+
+.gonavi-ai-provider-support caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.gonavi-ai-provider-support-configured {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.9em;
+  opacity: 0.7;
+}
+
+body[data-theme='dark'] .gonavi-ai-settings-nav-item:hover:not(.is-active),
+body[data-theme='dark'] .gonavi-ai-provider-row:hover:not(.is-active),
+body[data-theme='dark'] .gonavi-ai-provider-add:hover {
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+/* Settings center is a flat control surface: UI copy stays sans-serif and
+   machine-readable values opt into the mono stack through code/pre or local classes. */
+.gonavi-settings-center-modal,
+.gonavi-settings-center-modal .ant-modal-content,
+.gonavi-settings-center-modal button,
+.gonavi-settings-center-modal input,
+.gonavi-settings-center-modal textarea,
+.gonavi-settings-center-modal select {
+  font-family: var(--gn-font-sans);
+}
+
+.gonavi-settings-center-modal {
+  --gn-font-size: calc(var(--gonavi-font-size, 14px) * var(--gn-ui-scale, 1));
+  --gn-font-size-sm: calc(var(--gonavi-font-size, 14px) * var(--gn-ui-scale, 1) * 0.86);
+  --gn-font-size-xs: calc(var(--gonavi-font-size, 14px) * var(--gn-ui-scale, 1) * 0.76);
+  --gn-font-size-mono: calc(var(--gonavi-font-size, 14px) * var(--gn-ui-scale, 1) * 0.92);
+  --gn-settings-font-body: var(--gn-font-size);
+  --gn-settings-font-secondary: var(--gn-font-size-sm);
+  --gn-settings-font-caption: var(--gn-settings-font-secondary);
+  font-size: var(--gn-settings-font-body);
+}
+
+
+.gonavi-settings-center-workbench-host,
+.gonavi-settings-center-workbench {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gonavi-settings-center-workbench .gonavi-settings-center-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.gonavi-settings-center-modal code,
+.gonavi-settings-center-modal pre,
+.gonavi-settings-center-modal kbd,
+.gonavi-settings-center-modal samp {
+  font-family: var(--gn-font-mono);
+  font-size: var(--gn-font-size-mono);
+}
+
+.gonavi-settings-center-modal button:focus-visible,
+.gonavi-settings-center-modal [role='button']:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--gn-accent, #16a34a) 68%, transparent);
+  outline-offset: 2px;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn {
+  min-height: var(--gn-control-height, 32px);
+  height: var(--gn-control-height, 32px) !important;
+  padding-inline: 12px !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  font-size: var(--gn-settings-font-caption) !important;
+  font-weight: 600 !important;
+}
+
+body[data-ui-version] .gonavi-settings-center-modal .ant-btn-sm {
+  min-height: var(--gn-control-height-sm, 24px);
+  height: var(--gn-control-height-sm, 24px) !important;
+  padding-inline: 10px !important;
+  font-size: var(--gn-font-size-xs, 11px) !important;
+}
+

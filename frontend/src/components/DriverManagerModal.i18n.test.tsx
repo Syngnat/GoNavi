@@ -1,5 +1,5 @@
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { Modal, type ModalFuncProps } from 'antd';
 import { t } from '../i18n';
@@ -239,6 +239,12 @@ vi.mock('antd', () => {
 });
 
 describe('DriverManagerModal i18n', () => {
+
+  beforeAll(async () => {
+    // 预热组件模块树的转换缓存：beforeEach 会 resetModules，首个用例的动态 import
+    // 不应在 5s 用例超时内承担整棵组件树的冷编译耗时。
+    await import('./DriverManagerModal');
+  }, 30_000);
 
   beforeEach(() => {
     vi.resetModules();

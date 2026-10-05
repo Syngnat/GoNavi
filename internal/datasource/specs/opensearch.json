@@ -1,0 +1,81 @@
+{
+  "type": "opensearch",
+  "aliases": [
+    "open-search",
+    "amazon-opensearch",
+    "aws-opensearch"
+  ],
+  "displayName": "OpenSearch",
+  "group": "search",
+  "order": 20,
+  "defaultPort": 9200,
+  "wire": "http",
+  "dialect": "opensearch",
+  "ddlDialect": "elasticsearch",
+  "family": "elasticsearch",
+  "objectKind": "index",
+  "caseSensitiveIdentifiers": true,
+  "protection": true,
+  "agent": {
+    "buildTag": "gonavi_opensearch_driver",
+    "goModule": "github.com/elastic/go-elasticsearch/v8",
+    "version": "8.19.6",
+    "sourcePrefixes": [
+      "opensearch",
+      "elasticsearch"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v1",
+        "label": "OpenSearch 1.x",
+        "descriptionKey": "datasource.variant.opensearch.v1",
+        "maxServer": "2.0"
+      },
+      {
+        "id": "v2",
+        "label": "OpenSearch 2.x",
+        "descriptionKey": "datasource.variant.opensearch.v2",
+        "minServer": "2.0",
+        "maxServer": "3.0"
+      },
+      {
+        "id": "v3",
+        "label": "OpenSearch 3.x",
+        "descriptionKey": "datasource.variant.opensearch.v3",
+        "minServer": "3.0"
+      }
+    ]
+  },
+  "ui": {
+    "layout": "search",
+    "usernameOptional": true,
+    "hiddenObjectGroups": [
+      "views",
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "uriSchemes": [
+      "http",
+      "https",
+      "opensearch"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "hint": "Index browsing, DSL / SQL / PPL console",
+    "icon": {
+      "color": "#005EB8",
+      "text": "Os",
+      "scale": 0.72
+    }
+  }
+}

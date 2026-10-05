@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+import functools
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -11,6 +13,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+
+from driver_bundle_7z import BUNDLE_NAME, LEGACY_BUNDLE_NAME, extract_members, list_members
 
 
 DRIVERS = [
@@ -36,9 +40,49 @@ DRIVERS = [
     "clickhouse",
     "elasticsearch",
     "trino",
+    "kafka",
+    "rocketmq",
+    "pulsar",
 ]
 
-BUNDLE_NAME = "GoNavi-DriverAgents.zip"
+# Releases before v1.0.2 only carry the deflate ZIP bundle.
+BUNDLE_NAMES = (BUNDLE_NAME, LEGACY_BUNDLE_NAME)
+
+ALL_PLATFORMS = (
+    "windows/amd64",
+    "windows/arm64",
+    "darwin/amd64",
+    "darwin/arm64",
+    "linux/amd64",
+    "linux/arm64",
+)
+PLATFORM_DIRS = {"windows": "Windows", "darwin": "MacOS", "linux": "Linux"}
+
+
+@functools.lru_cache(maxsize=1)
+def load_registry_drivers():
+    """Drivers declared in internal/datasource/specs, with the platforms they ship on.
+
+    The data-source registry is the single source of truth for drivers added after
+    the hard-coded list above; an empty platform list means all six platforms.
+    """
+    script = Path(__file__).resolve().with_name("datasource-registry.py")
+    output = subprocess.run(
+        [sys.executable, str(script), "json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout
+    return tuple((entry["driver"], tuple(entry.get("platforms") or ALL_PLATFORMS)) for entry in json.loads(output))
+
+
+def platform_asset(driver, platform):
+    goos, goarch = platform.split("/", 1)
+    name = f"{driver}-driver-agent-{goos}-{goarch}"
+    if goos == "windows":
+        name += ".exe"
+    return PLATFORM_DIRS[goos], name
 
 
 def asset_download_url(asset):
@@ -70,6 +114,8 @@ def required_assets():
             assets.append(("Windows", "duckdb.dll"))
         else:
             assets.append(("Windows", f"{driver}-driver-agent-windows-arm64.exe"))
+    for driver, platforms in load_registry_drivers():
+        assets.extend(platform_asset(driver, platform) for platform in platforms)
     return assets
 
 
@@ -130,12 +176,29 @@ def asset_map(release):
     return result
 
 
-def copy_missing_from_bundle(bundle_path, target_root):
-    copied = 0
-    required = {
+def required_bundle_members():
+    return {
         (Path(platform) / file_name).as_posix()
         for platform, file_name in required_assets()
     }
+
+
+def copy_missing_from_7z_bundle(bundle_path, target_root):
+    members = list_members(bundle_path)
+    missing = [
+        item
+        for item in sorted(required_bundle_members())
+        if item in members and not (target_root / item).exists()
+    ]
+    extract_members(bundle_path, missing, target_root)
+    return len(missing)
+
+
+def copy_missing_from_bundle(bundle_path, target_root):
+    if Path(bundle_path).suffix.lower() == ".7z":
+        return copy_missing_from_7z_bundle(bundle_path, target_root)
+    copied = 0
+    required = required_bundle_members()
     with zipfile.ZipFile(bundle_path) as zf:
         members = {
             Path(info.filename).as_posix(): info
@@ -211,11 +274,11 @@ def main():
 
         releases_assets = asset_map(release)
         copied = 0
-        bundle_asset = releases_assets.get(BUNDLE_NAME)
-        if bundle_asset:
+        bundle_name = next((name for name in BUNDLE_NAMES if name in releases_assets), "")
+        if bundle_name:
             with tempfile.TemporaryDirectory(prefix="gonavi-driver-release-") as tmp:
-                bundle_path = Path(tmp) / BUNDLE_NAME
-                download_asset(bundle_asset, bundle_path)
+                bundle_path = Path(tmp) / bundle_name
+                download_asset(releases_assets[bundle_name], bundle_path)
                 copied += copy_missing_from_bundle(bundle_path, driver_root)
         copied += copy_missing_standalone(releases_assets, driver_root)
         total_copied += copied

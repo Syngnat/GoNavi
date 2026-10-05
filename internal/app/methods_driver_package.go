@@ -1,6 +1,6 @@
 package app
 
-// 驱动包（ZIP）解析。
+// 驱动包（ZIP / 7z）解析。
 //
 // 解析只读，返回包内可安装的驱动清单与本机状态（是否已装、revision/平台是否匹配），
 // 不执行任何安装；真正的安装仍由 InstallLocalDriverPackage 逐个驱动完成。
@@ -8,7 +8,6 @@ package app
 // 导出侧（含条目布局约定与进度上报）见 methods_driver_package_export.go。
 
 import (
-	"archive/zip"
 	"encoding/json"
 	"io"
 	"path/filepath"
@@ -67,7 +66,7 @@ type driverPackageInspectItem struct {
 	PlatformMismatch bool   `json:"platformMismatch,omitempty"`
 }
 
-// InspectDriverPackage 解析驱动包 zip，返回包内可安装的驱动清单与本机状态，不做任何安装。
+// InspectDriverPackage 解析驱动包（ZIP / 7z），返回包内可安装的驱动清单与本机状态，不做任何安装。
 func (a *App) InspectDriverPackage(zipPath string, downloadDir string) connection.QueryResult {
 	pathText := strings.TrimSpace(zipPath)
 	if pathText == "" {
@@ -82,21 +81,21 @@ func (a *App) InspectDriverPackage(zipPath string, downloadDir string) connectio
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	reader, err := zip.OpenReader(pathText)
+	archive, err := openDriverPackageArchive(pathText)
 	if err != nil {
 		return connection.QueryResult{
 			Success: false,
 			Message: a.appText("driver_manager.backend.error.package_open_failed", nil),
 		}
 	}
-	defer reader.Close()
+	defer archive.Close()
 
-	if guardErr := guardDriverPackageEntries(reader.File); guardErr != nil {
+	if guardErr := guardDriverPackageEntries(archive.Entries); guardErr != nil {
 		return connection.QueryResult{Success: false, Message: localizedDriverBackendErrorMessage(a, guardErr)}
 	}
 
-	manifest, manifestErr := readDriverPackageManifest(reader.File)
-	items := buildDriverPackageInspectItems(a, reader.File, manifest, manifestErr, resolvedDir)
+	manifest, manifestErr := readDriverPackageManifest(archive.Entries)
+	items := buildDriverPackageInspectItems(a, archive.Entries, manifest, manifestErr, resolvedDir)
 	if len(items) == 0 {
 		return connection.QueryResult{
 			Success: false,
@@ -114,44 +113,28 @@ func (a *App) InspectDriverPackage(zipPath string, downloadDir string) connectio
 	}
 }
 
-// guardDriverPackageEntries 在解压任何条目之前检查体积与压缩比，
+// guardDriverPackageEntries 在解压任何条目之前检查体积（ZIP 另查压缩比），
 // 阻止 zip bomb 把磁盘或内存打满。
-func guardDriverPackageEntries(files []*zip.File) error {
+func guardDriverPackageEntries(entries []*driverPackageArchiveEntry) error {
 	var total uint64
-	for _, entry := range files {
-		if entry.UncompressedSize64 > driverPackageMaxEntryUncompressedBytes {
-			return newLocalizedDriverBackendError("driver_manager.backend.error.package_entry_limit_exceeded", map[string]any{
-				"name": entry.Name,
-			}, nil)
-		}
-		if entry.UncompressedSize64 > 0 {
-			compressed := entry.CompressedSize64
-			exceeded := compressed == 0
-			if compressed > 0 {
-				quotient := entry.UncompressedSize64 / compressed
-				exceeded = quotient > driverPackageMaxCompressionRatio ||
-					(quotient == driverPackageMaxCompressionRatio && entry.UncompressedSize64%compressed > 0)
-			}
-			if exceeded {
-				return newLocalizedDriverBackendError("driver_manager.backend.error.package_entry_limit_exceeded", map[string]any{
-					"name": entry.Name,
-				}, nil)
-			}
+	for _, entry := range entries {
+		if err := entry.guard(); err != nil {
+			return err
 		}
 		if total > driverPackageMaxTotalUncompressedBytes ||
-			entry.UncompressedSize64 > driverPackageMaxTotalUncompressedBytes-total {
+			entry.UncompressedSize > driverPackageMaxTotalUncompressedBytes-total {
 			return newLocalizedDriverBackendError("driver_manager.backend.error.package_entry_limit_exceeded", map[string]any{
 				"name": entry.Name,
 			}, nil)
 		}
-		total += entry.UncompressedSize64
+		total += entry.UncompressedSize
 	}
 	return nil
 }
 
 // readDriverPackageManifest 读取可选清单；包内没有清单时返回 (nil, nil)。
-func readDriverPackageManifest(files []*zip.File) (*driverPackageManifest, error) {
-	for _, file := range files {
+func readDriverPackageManifest(entries []*driverPackageArchiveEntry) (*driverPackageManifest, error) {
+	for _, file := range entries {
 		name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
 		if !strings.EqualFold(name, driverPackageManifestEntry) {
 			continue
@@ -172,7 +155,7 @@ func readDriverPackageManifest(files []*zip.File) (*driverPackageManifest, error
 	return nil, nil
 }
 
-func readDriverPackageEntry(file *zip.File, limit uint64) ([]byte, error) {
+func readDriverPackageEntry(file *driverPackageArchiveEntry, limit uint64) ([]byte, error) {
 	reader, err := file.Open()
 	if err != nil {
 		return nil, err
@@ -185,14 +168,14 @@ func readDriverPackageEntry(file *zip.File, limit uint64) ([]byte, error) {
 }
 
 // buildDriverPackageInspectItems 汇总解析结果：优先信任包内清单，缺失时回退到条目名反解。
-func buildDriverPackageInspectItems(a *App, files []*zip.File, manifest *driverPackageManifest, manifestErr error, resolvedDir string) []driverPackageInspectItem {
+func buildDriverPackageInspectItems(a *App, files []*driverPackageArchiveEntry, manifest *driverPackageManifest, manifestErr error, resolvedDir string) []driverPackageInspectItem {
 	if manifestErr == nil && manifest != nil && len(manifest.Drivers) > 0 {
 		return buildDriverPackageItemsFromManifest(a, files, manifest, resolvedDir)
 	}
 	return buildDriverPackageItemsFromEntries(a, files, resolvedDir)
 }
 
-func buildDriverPackageItemsFromManifest(a *App, files []*zip.File, manifest *driverPackageManifest, resolvedDir string) []driverPackageInspectItem {
+func buildDriverPackageItemsFromManifest(a *App, files []*driverPackageArchiveEntry, manifest *driverPackageManifest, resolvedDir string) []driverPackageInspectItem {
 	available := make(map[string]struct{}, len(files))
 	for _, file := range files {
 		available[normalizeDriverPackageEntryName(file.Name)] = struct{}{}
@@ -228,7 +211,7 @@ func buildDriverPackageItemsFromManifest(a *App, files []*zip.File, manifest *dr
 // 这里刻意不使用 optionalDriverBundleEntryPathsForVersion —— 该函数内部绑定
 // stdRuntime.GOOS/GOARCH，只能生成宿主平台路径，在 macOS 上解析 Windows 导出的包
 // 会永远匹配不到 Windows/... 条目。改为平台无关的 basename 反解。
-func buildDriverPackageItemsFromEntries(a *App, files []*zip.File, resolvedDir string) []driverPackageInspectItem {
+func buildDriverPackageItemsFromEntries(a *App, files []*driverPackageArchiveEntry, resolvedDir string) []driverPackageInspectItem {
 	items := make([]driverPackageInspectItem, 0, 8)
 	seen := make(map[string]struct{}, 8)
 	for _, file := range files {

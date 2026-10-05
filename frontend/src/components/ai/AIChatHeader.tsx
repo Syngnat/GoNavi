@@ -104,9 +104,6 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
         >
             <div className="gn-v2-ai-header-top">
                 <div className="ai-chat-header-left gn-v2-ai-brand" style={{ gap: 8 }}>
-                    <div className="ai-logo" style={{ background: overlayTheme.iconBg, color: overlayTheme.iconColor, display: 'flex', alignItems: 'center', justifyContent: 'center', width: aiPx(20), height: aiPx(20), borderRadius: 6, fontSize: aiPx(12) }}>
-                        <AiSparkOutlined />
-                    </div>
                     <div className="ai-title-stack">
                         <span className="ai-title" style={{ color: textColor, fontSize: aiPx(13), fontWeight: 600 }}>GoNavi AI</span>
                         <small>{t('ai_chat.header.session.connected', { title: resolvedSessionTitle })}</small>

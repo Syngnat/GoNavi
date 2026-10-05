@@ -19,7 +19,10 @@ from pathlib import Path
 
 MANIFEST_ASSET_NAME = "GoNavi-DriverAgents-Manifest.json"
 INDEX_ASSET_NAME = "GoNavi-DriverAgents-Index.json"
-CI_BUNDLE_ASSET_NAME = "GoNavi-DriverAgents.zip"
+# v1.0.2 起 CI 总包为 7z；旧发布仍是 ZIP。两者都只供 CI 补齐与离线导入，不得进入索引。
+CI_BUNDLE_ASSET_NAME = "GoNavi-DriverAgents.7z"
+LEGACY_CI_BUNDLE_ASSET_NAME = "GoNavi-DriverAgents.zip"
+CI_BUNDLE_ASSET_NAMES = frozenset((CI_BUNDLE_ASSET_NAME, LEGACY_CI_BUNDLE_ASSET_NAME))
 DUCKDB_WINDOWS_AGENT_NAME = "duckdb-driver-agent-windows-amd64.exe"
 DUCKDB_WINDOWS_LIBRARY_NAME = "duckdb.dll"
 
@@ -357,7 +360,7 @@ def _validate_indexed_release_assets(
             mismatches.append((archive, "index_asset_name", archive, "archive basename"))
             archive_metadata_valid[archive] = False
             continue
-        if archive == CI_BUNDLE_ASSET_NAME:
+        if archive in CI_BUNDLE_ASSET_NAMES:
             mismatches.append((archive, "index_ci_bundle", "present in assets", "absent"))
             valid = False
         if not is_nonnegative_int(expected_size):
@@ -386,7 +389,7 @@ def _validate_indexed_release_assets(
         archive_metadata_valid[archive] = valid
 
     for archive_name in sorted(index_asset_sha256):
-        if archive_name == CI_BUNDLE_ASSET_NAME:
+        if archive_name in CI_BUNDLE_ASSET_NAMES:
             mismatches.append((archive_name, "index_ci_bundle_sha256", "present in assetSha256", "absent"))
         if archive_name not in index_assets:
             mismatches.append((archive_name, "index_asset", "assetSha256", "assets"))
@@ -419,7 +422,7 @@ def _validate_indexed_release_assets(
         if not is_basename(archive):
             mismatches.append((name, "index_archive", archive, "archive basename"))
             valid = False
-        elif archive == CI_BUNDLE_ASSET_NAME:
+        elif archive in CI_BUNDLE_ASSET_NAMES:
             mismatches.append((name, "index_ci_bundle_entry", archive, "individual driver archive"))
             valid = False
         if archive not in index_assets:

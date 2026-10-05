@@ -17,9 +17,9 @@ import (
 	wailsassetoptions "github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
 
-// TestEmbeddedAssetsServeIndexAndDirectories 校验嵌入 zip 满足 Wails assetserver
+// TestEmbeddedAssetsServeIndexAndDirectories 校验嵌入的 tar.br 包满足 Wails assetserver
 // 的访问模式:打开 index.html、fs.WalkDir 定位页面、fs.ReadDir 列目录。
-// 对 CI 的 stub zip(仅含占位 index.html)同样成立。
+// 对 CI 的占位包(仅含占位 index.html)同样成立。
 func TestEmbeddedAssetsServeIndexAndDirectories(t *testing.T) {
 	data, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
@@ -63,15 +63,15 @@ func TestEmbeddedAssetsServeIndexAndDirectories(t *testing.T) {
 }
 
 // TestEmbeddedAssetsMatchDistDirectory 在本机存在真实 dist 产物时,
-// 交叉校验嵌入 zip 与 dist 目录的文件清单和 index.html 内容一致。
-// CI 里的 stub zip 只含占位页,自动跳过。
+// 交叉校验嵌入包与 dist 目录的文件清单和 index.html 内容一致。
+// CI 里的占位包只含占位页,自动跳过。
 func TestEmbeddedAssetsMatchDistDirectory(t *testing.T) {
 	if info, err := os.Stat("frontend/dist"); err != nil || !info.IsDir() {
 		t.Skip("本地没有 frontend/dist,跳过交叉校验")
 	}
-	zipStat, err := os.Stat("frontend/dist.zip")
-	if err != nil || zipStat.Size() < 4096 {
-		t.Skip("frontend/dist.zip 是占位 stub,跳过交叉校验")
+	bundleStat, err := os.Stat("frontend/dist.tar.br")
+	if err != nil || bundleStat.Size() < 4096 {
+		t.Skip("frontend/dist.tar.br 是占位包,跳过交叉校验")
 	}
 
 	if _, err := fs.ReadDir(assets, "assets"); err != nil {
@@ -79,26 +79,26 @@ func TestEmbeddedAssetsMatchDistDirectory(t *testing.T) {
 	}
 
 	distFiles := collectRelFiles(t, "frontend/dist")
-	zipFiles := map[string]bool{}
+	bundleFiles := map[string]bool{}
 	err = fs.WalkDir(assets, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() {
-			zipFiles[p] = true
+			bundleFiles[p] = true
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("遍历嵌入 zip 失败: %v", err)
+		t.Fatalf("遍历嵌入包失败: %v", err)
 	}
 
-	if len(distFiles) != len(zipFiles) {
-		t.Fatalf("文件数不一致: dist=%d zip=%d", len(distFiles), len(zipFiles))
+	if len(distFiles) != len(bundleFiles) {
+		t.Fatalf("文件数不一致: dist=%d bundle=%d", len(distFiles), len(bundleFiles))
 	}
 	for _, name := range distFiles {
-		if !zipFiles[name] {
-			t.Errorf("zip 缺少 dist 里的文件: %s", name)
+		if !bundleFiles[name] {
+			t.Errorf("嵌入包缺少 dist 里的文件: %s", name)
 		}
 	}
 
@@ -106,38 +106,38 @@ func TestEmbeddedAssetsMatchDistDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取 dist/index.html 失败: %v", err)
 	}
-	zipIndex, err := fs.ReadFile(assets, "index.html")
+	bundleIndex, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
-		t.Fatalf("读取 zip/index.html 失败: %v", err)
+		t.Fatalf("读取嵌入包 index.html 失败: %v", err)
 	}
-	if !bytes.Equal(distIndex, zipIndex) {
+	if !bytes.Equal(distIndex, bundleIndex) {
 		t.Fatal("index.html 内容与 dist 不一致")
 	}
 
-	// 逐文件字节比对:zipFS 解出的每个文件必须与 dist 磁盘内容一致
+	// 逐文件字节比对:嵌入包解出的每个文件必须与 dist 磁盘内容一致
 	for _, name := range distFiles {
 		distData, err := os.ReadFile(filepath.Join("frontend", "dist", filepath.FromSlash(name)))
 		if err != nil {
 			t.Fatalf("读取 dist/%s 失败: %v", name, err)
 		}
-		zipData, err := fs.ReadFile(assets, name)
+		bundleData, err := fs.ReadFile(assets, name)
 		if err != nil {
-			t.Fatalf("读取 zip/%s 失败: %v", name, err)
+			t.Fatalf("读取嵌入包 %s 失败: %v", name, err)
 		}
-		if !bytes.Equal(distData, zipData) {
-			t.Errorf("zip 与 dist 内容不一致: %s", name)
+		if !bytes.Equal(distData, bundleData) {
+			t.Errorf("嵌入包与 dist 内容不一致: %s", name)
 		}
 	}
 }
 
-// TestEmbeddedAssetsViaWailsAssetHandler 把嵌入 zip 挂到 Wails 自己的
+// TestEmbeddedAssetsViaWailsAssetHandler 把嵌入包挂到 Wails 自己的
 // asset handler 上发真实 HTTP 请求,验证 GUI 资产服务路径端到端可用。
 func TestEmbeddedAssetsViaWailsAssetHandler(t *testing.T) {
 	if info, err := os.Stat("frontend/dist"); err != nil || !info.IsDir() {
 		t.Skip("本地没有 frontend/dist,跳过 asset handler 验证")
 	}
-	if zipStat, err := os.Stat("frontend/dist.zip"); err != nil || zipStat.Size() < 4096 {
-		t.Skip("frontend/dist.zip 是占位 stub,跳过 asset handler 验证")
+	if bundleStat, err := os.Stat("frontend/dist.tar.br"); err != nil || bundleStat.Size() < 4096 {
+		t.Skip("frontend/dist.tar.br 是占位包,跳过 asset handler 验证")
 	}
 
 	handler, err := assetserver.NewAssetHandler(wailsassetoptions.Options{Assets: assets}, nil)

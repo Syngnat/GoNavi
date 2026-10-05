@@ -1,0 +1,99 @@
+{
+  "type": "questdb",
+  "aliases": [
+    "quest-db",
+    "quest_db"
+  ],
+  "displayName": "QuestDB",
+  "group": "timeseries",
+  "order": 40,
+  "defaultPort": 8812,
+  "wire": "postgres",
+  "dialect": "questdb",
+  "objectKind": "table",
+  "protection": true,
+  "versionQuery": "SELECT build() AS version",
+  "excelImport": true,
+  "sqlFileImport": true,
+  "agent": {
+    "buildTag": "gonavi_questdb_driver",
+    "goModule": "github.com/lib/pq",
+    "version": "1.11.1",
+    "sourcePrefixes": [
+      "questdb",
+      "registry",
+      "postgres",
+      "pg"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "v7",
+        "label": "QuestDB 6.x – 7.x",
+        "descriptionKey": "datasource.variant.questdb.v7",
+        "maxServer": "8.0"
+      },
+      {
+        "id": "v8",
+        "label": "QuestDB 8.x – 9.x",
+        "descriptionKey": "datasource.variant.questdb.v8",
+        "minServer": "8.0",
+        "maxServer": "10.0"
+      },
+      {
+        "id": "v10",
+        "label": "QuestDB 10.x +",
+        "descriptionKey": "datasource.variant.questdb.v10",
+        "minServer": "10.0"
+      }
+    ]
+  },
+  "ui": {
+    "defaultUser": "admin",
+    "formatDdl": false,
+    "uriSchemes": [
+      "questdb",
+      "postgresql",
+      "postgres"
+    ],
+    "hiddenObjectGroups": [
+      "sequences",
+      "routines",
+      "triggers",
+      "events"
+    ],
+    "metadataQueries": {
+      "views": [
+        "SELECT view_name FROM views() UNION ALL SELECT view_name FROM materialized_views()",
+        "SELECT view_name FROM materialized_views()",
+        "SELECT table_name AS view_name FROM information_schema.tables WHERE table_type IN ('VIEW', 'MATERIALIZED VIEW')"
+      ],
+      "tableStatus": [
+        {
+          "minServer": "10.0",
+          "sql": "SELECT t.table_name AS table_name, '' AS table_comment, s.rowCount AS table_rows, s.diskSize AS data_length, NULL AS index_length FROM tables() t LEFT JOIN table_storage() s ON s.tableName = t.table_name WHERE t.table_type = 'T' ORDER BY t.table_name"
+        },
+        {
+          "minServer": "8.3",
+          "sql": "SELECT t.table_name AS table_name, '' AS table_comment, s.rowCount AS table_rows, s.diskSize AS data_length, NULL AS index_length FROM tables() t LEFT JOIN table_storage() s ON s.tableName = t.table_name WHERE NOT t.matView ORDER BY t.table_name"
+        },
+        {
+          "sql": "SELECT table_name, '' AS table_comment, NULL AS table_rows, NULL AS data_length, NULL AS index_length FROM tables() ORDER BY table_name"
+        }
+      ]
+    },
+    "pagination": "limit-range",
+    "quoting": "pg",
+    "ssl": true,
+    "connectionParams": true,
+    "hint": "Time-series / PostgreSQL wire",
+    "icon": {
+      "color": "#D14671",
+      "text": "Q",
+      "scale": 0.72
+    }
+  }
+}

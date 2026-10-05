@@ -1,5 +1,7 @@
 import type { AIChatAttachment, AIChatMessage, AIChatTokenUsage, AIToolCall } from '../../types';
 import { decodeRawJSON, decodeRawJSONWithStatus } from './aiRawMessage';
+import { CONTEXT_CHIP_MEDIA_TYPE, parseContextChipAttachment } from './aiContextChips';
+import { OCR_TEXT_MEDIA_TYPE } from './aiAgentAttachments';
 import { collectRunProcessingTimes } from './aiRunProcessingTime';
 
 export type AIRunDispatchMode = 'queue' | 'steer';
@@ -162,6 +164,7 @@ export interface AgentLedgerStatus {
 
 export interface AIRunHarnessService {
   AISubmitAgentInput?: (request: AgentInputRequest) => Promise<AgentInputReceipt>;
+  AIPreviewAgentContext?: (request: AgentInputRequest) => Promise<unknown>;
   AIControlAgentRun?: (request: RunControlRequest) => Promise<RunSnapshot>;
   AIReadAgentRun?: (request: RunReadRequest) => Promise<RunReadResult>;
   AIListAgentSessions?: (request: SessionListRequest) => Promise<SessionListResult>;
@@ -453,6 +456,12 @@ export const toAIChatMessages = (projection: SessionProjectionResult | null | un
         if (!name) return [];
         const mimeType = String(attachment.mediaType || attachment.mimeType || 'application/octet-stream');
         const data = String(attachment.data || attachment.dataUrl || attachment.text || '');
+        if (mimeType === CONTEXT_CHIP_MEDIA_TYPE) {
+          const chip = parseContextChipAttachment(String(attachment.id || `ledger-att-${id}-${name}`), name, data);
+          return chip ? [chip] : [];
+        }
+        // The text read from an image is for the model; the chat shows the image itself.
+        if (mimeType === OCR_TEXT_MEDIA_TYPE) return [];
         const kind = mimeType.startsWith('image/') ? 'image' : 'document';
         return [{
           id: String(attachment.id || `ledger-att-${id}-${name}`),

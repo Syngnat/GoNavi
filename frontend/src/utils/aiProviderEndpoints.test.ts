@@ -5,7 +5,7 @@ import { getProviderEndpointType, getProviderEndpointTypes, resolveProviderEndpo
 describe('provider endpoint compatibility', () => {
   it.each<[ProviderEndpointType, string[]]>([
     ['openai-responses', ['openai', 'deepseek', 'custom']],
-    ['openai', ['openai', 'atlascloud', 'orcarouter', 'deepseek', 'qwen-bailian', 'zhipu', 'moonshot', 'xiaomi-mimo', 'volcengine-ark', 'minimax', 'ollama', 'custom']],
+    ['openai', ['gonavi-ai', 'openai', 'atlascloud', 'orcarouter', 'deepseek', 'qwen-bailian', 'zhipu', 'moonshot', 'xiaomi-mimo', 'volcengine-ark', 'minimax', 'ollama', 'custom']],
     ['anthropic', ['qwen-bailian', 'moonshot', 'xiaomi-mimo', 'anthropic', 'minimax', 'custom']],
     ['gemini', ['gemini', 'custom']],
     ['cli', ['qwen-bailian', 'anthropic', 'grok', 'codebuddy', 'cursor', 'custom']],

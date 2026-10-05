@@ -22,7 +22,16 @@ func (p *pulsarPartialMetadataDB) GetTables(string) ([]string, error) {
 
 func TestPulsarObjectMetadataKeepsDefaultTopicWithDiscoveryWarning(t *testing.T) {
 	previousFactory := newDatabaseFunc
-	t.Cleanup(func() { newDatabaseFunc = previousFactory })
+	previousSupport := driverRuntimeSupportStatusFunc
+	previousRevision := verifyDriverAgentRevisionFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = previousFactory
+		driverRuntimeSupportStatusFunc = previousSupport
+		verifyDriverAgentRevisionFunc = previousRevision
+	})
+	// Pulsar 已改为按需下载的驱动代理：这里模拟代理已安装，只验证部分结果的展示。
+	driverRuntimeSupportStatusFunc = func(string) (bool, string) { return true, "" }
+	verifyDriverAgentRevisionFunc = func(connection.ConnectionConfig) error { return nil }
 	instance := &pulsarPartialMetadataDB{
 		fakeMetadataRetryDB: &fakeMetadataRetryDB{},
 		topic:               "persistent://public/default/orders",
@@ -53,14 +62,14 @@ func TestPulsarRegistrationAndMetadata(t *testing.T) {
 	for _, kind := range []string{"pulsar", "apache-pulsar", "apache_pulsar"} {
 		t.Run(kind, func(t *testing.T) {
 			definition, ok := resolveDriverDefinitionWithPackages(kind, nil)
-			if !ok || !definition.BuiltIn {
-				t.Fatal("missing built-in driver")
+			if !ok || definition.BuiltIn {
+				t.Fatal("Pulsar must be an optional driver agent")
 			}
 			inst, err := db.NewDatabase(kind)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, ok := inst.(*db.PulsarDB); !ok {
+			if _, ok := inst.(*db.OptionalDriverAgentDB); !ok {
 				t.Fatalf("wrong driver: %T", inst)
 			}
 			cfg := connection.ConnectionConfig{Type: kind, Database: "persistent://public/default/orders.events"}

@@ -4,6 +4,7 @@ import {
   stripIdentifierQuotes,
 } from '../utils/qualifiedName';
 import { isOracleLikeDialect, isSqlServerDialect, resolveSqlDialect } from '../utils/sqlDialect';
+import { getDataSourceDialectFamily } from '../utils/dataSourceRegistry';
 
 const supportsRequestedSchemaSelection = (dbType: string): boolean => {
   const dialect = resolveSqlDialect(dbType);
@@ -133,6 +134,9 @@ export const resolveTableDesignerTableInfo = ({
       schema = '';
     } else if (isSqlServerDialect(dialect)) {
       schema = 'dbo';
+    } else if (['informix', 'firebird'].includes(getDataSourceDialectFamily(dialect) ?? '')) {
+      // Informix 的 a.b 是 owner.table、Firebird 没有 schema，库名都不能当限定符；连接本身已经选定库。
+      schema = '';
     } else if (isOracleLikeDialect(dialect)) {
       schema = stripIdentifierQuotes(rawDb, dialect);
     } else {

@@ -1,0 +1,30 @@
+/* 「驱动版本」下拉：选项首行是档位名与安装标签，第二行是适用版本与差异说明。 */
+.gn-conn-variant-select {
+  min-width: 220px;
+}
+
+.gn-conn-variant-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  padding: 2px 0;
+  white-space: normal;
+}
+
+.gn-conn-variant-option__title {
+  font-weight: 500;
+}
+
+.gn-conn-variant-option__tag {
+  margin-inline-end: 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.gn-conn-variant-option__description {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--gn-fg-5, rgba(0, 0, 0, 0.45));
+}

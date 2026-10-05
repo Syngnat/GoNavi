@@ -123,6 +123,13 @@ const wasLimitAppliedByQueryEditorCap = (
   return normalizeSqlForComparison(executed) === normalizeSqlForComparison(queryEditorCappedSql);
 };
 
+// Presto / Trino 会丢弃子查询里的 ORDER BY：包一层再分页会打乱顺序。语句自带顶层 ORDER BY、且没有自己的
+// LIMIT / OFFSET / FETCH，结果网格也没有另加排序时，分页子句直接追加在语句末尾。
+const appendsPageToStatement = (dialect: string, sql: string, orderBySql: string): boolean => {
+  if (dialect !== 'trino' || orderBySql.trim() || findTopLevelKeyword(sql, 'order by', dialect) < 0) return false;
+  return ['limit', 'offset', 'fetch'].every((keyword) => findTopLevelKeyword(sql, keyword, dialect) < 0);
+};
+
 const resolveWrappedBaseSql = (dbType: string, baseSql: string): string => {
   const normalizedType = String(dbType || '').trim().toLowerCase();
   const base = baseSql.trim();
@@ -187,13 +194,10 @@ export const buildQueryResultPageSql = (params: {
   const page = Math.max(1, Math.floor(Number(params.page) || 1));
   const limit = params.lookahead ? pageSize + 1 : pageSize;
   const offset = (page - 1) * pageSize;
-  return buildPaginatedSelectSQL(
-    dialect,
-    resolveWrappedBaseSql(dialect, statement.main),
-    orderBySql,
-    limit,
-    offset,
-  ) + statement.tail;
+  const pageBaseSql = appendsPageToStatement(dialect, statement.main, orderBySql)
+    ? statement.main.trim()
+    : resolveWrappedBaseSql(dialect, statement.main);
+  return buildPaginatedSelectSQL(dialect, pageBaseSql, orderBySql, limit, offset) + statement.tail;
 };
 
 export const resolveQueryResultPaginationTotal = (params: {

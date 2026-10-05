@@ -1,6 +1,6 @@
 package app
 
-// 驱动包（ZIP）的条目定位与解压原语。
+// 驱动包（ZIP / 7z）的条目定位与解压原语；归档的打开与格式识别见 methods_driver_archive.go。
 //
 // 从 methods_driver.go / methods_driver_assets.go 抽出：这两个文件均已超出行数上限，
 // 且本文件是 zip 解压的唯一出口，把体积护栏集中在这里可一次覆盖所有调用点。
@@ -63,52 +63,24 @@ func copyDriverZipEntry(dst io.Writer, src io.Reader, name string) error {
 	return nil
 }
 
-func installOptionalDriverAgentFromLocalZip(zipPath string, definition driverDefinition, executablePath string, selectedVersion string) (string, error) {
+func installOptionalDriverAgentFromLocalArchive(archivePath string, definition driverDefinition, executablePath string, selectedVersion string) (string, error) {
 	driverType := normalizeDriverType(definition.Type)
 	displayName := resolveDriverDisplayName(definition)
-	reader, err := zip.OpenReader(zipPath)
+	archive, err := openDriverPackageArchive(archivePath)
 	if err != nil {
 		return "", newLocalizedDriverBackendError("driver_manager.backend.error.open_local_package_failed", nil, err)
 	}
-	defer reader.Close()
+	defer archive.Close()
 
 	entryPath := optionalDriverBundleEntryPathForVersion(driverType, selectedVersion)
 	entryPaths := optionalDriverBundleEntryPathsForVersion(driverType, selectedVersion)
 	expectedBaseNames := optionalDriverReleaseAssetNamesForVersion(driverType, selectedVersion)
-	findEntry := func() *zip.File {
-		for _, file := range reader.File {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			for _, expectedPath := range entryPaths {
-				if name == expectedPath {
-					return file
-				}
-			}
-		}
-		for _, file := range reader.File {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			for _, expectedPath := range entryPaths {
-				if strings.EqualFold(name, expectedPath) {
-					return file
-				}
-			}
-		}
-		for _, file := range reader.File {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			for _, expectedName := range expectedBaseNames {
-				if strings.EqualFold(filepath.Base(name), expectedName) {
-					return file
-				}
-			}
-		}
-		return nil
-	}
-
-	entry := findEntry()
+	entry := findDriverPackageArchiveEntry(archive.Entries, entryPaths, expectedBaseNames)
 	if entry == nil {
 		return "", newLocalizedDriverBackendError("driver_manager.backend.error.local_package_entry_missing", map[string]any{"name": displayName, "path": entryPath}, nil)
 	}
-	// 与解析侧同口径：命中条目后、解压前先按声明体积与压缩比拦一道。
-	if guardErr := guardDriverPackageFile(entry); guardErr != nil {
+	// 与解析侧同口径：命中条目后、解压前先按声明体积（ZIP 另加压缩比）拦一道。
+	if guardErr := entry.guard(); guardErr != nil {
 		return "", guardErr
 	}
 
@@ -149,20 +121,27 @@ func installOptionalDriverAgentFromLocalZip(zipPath string, definition driverDef
 	if chmodErr := os.Chmod(executablePath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
 		return "", newLocalizedDriverBackendError("driver_manager.backend.error.chmod_agent_failed", nil, chmodErr)
 	}
-	if supportErr := extractOptionalDriverSupportFilesFromZip(reader.File, driverType, entry.Name, filepath.Dir(executablePath)); supportErr != nil {
+	if supportErr := extractOptionalDriverSupportFilesFromArchive(archive.Entries, driverType, entry.Name, filepath.Dir(executablePath)); supportErr != nil {
 		return "", supportErr
 	}
-	return filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(entry.Name), "./")), nil
+	return normalizeDriverPackageArchiveName(entry.Name), nil
 }
 
 func extractZipFileToPath(file *zip.File, targetPath string) error {
 	if file == nil {
 		return newLocalizedDriverBackendError("driver_manager.backend.error.zip_entry_empty", nil, nil)
 	}
-	if err := guardDriverPackageFile(file); err != nil {
+	return extractDriverPackageEntryToPath(newZipDriverPackageArchiveEntry(file), targetPath)
+}
+
+func extractDriverPackageEntryToPath(entry *driverPackageArchiveEntry, targetPath string) error {
+	if entry == nil {
+		return newLocalizedDriverBackendError("driver_manager.backend.error.zip_entry_empty", nil, nil)
+	}
+	if err := entry.guard(); err != nil {
 		return err
 	}
-	src, err := file.Open()
+	src, err := entry.Open()
 	if err != nil {
 		return err
 	}
@@ -176,7 +155,7 @@ func extractZipFileToPath(file *zip.File, targetPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := copyDriverZipEntry(dst, src, file.Name); err != nil {
+	if err := copyDriverZipEntry(dst, src, entry.Name); err != nil {
 		dst.Close()
 		_ = os.Remove(tempPath)
 		return err
@@ -197,8 +176,8 @@ func extractZipFileToPath(file *zip.File, targetPath string) error {
 	return nil
 }
 
-func findOptionalDriverSupportFileInZip(files []*zip.File, agentEntryName string, supportName string) *zip.File {
-	normalizedAgent := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(agentEntryName), "./"))
+func findOptionalDriverSupportFileInArchive(entries []*driverPackageArchiveEntry, agentEntryName string, supportName string) *driverPackageArchiveEntry {
+	normalizedAgent := normalizeDriverPackageArchiveName(agentEntryName)
 	agentDir := filepath.ToSlash(filepath.Dir(normalizedAgent))
 	if agentDir == "." {
 		agentDir = ""
@@ -210,29 +189,26 @@ func findOptionalDriverSupportFileInZip(files []*zip.File, agentEntryName string
 	candidatePaths = append(candidatePaths, supportName)
 
 	for _, candidate := range candidatePaths {
-		for _, file := range files {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			if name == candidate {
-				return file
+		for _, entry := range entries {
+			if normalizeDriverPackageArchiveName(entry.Name) == candidate {
+				return entry
 			}
 		}
-		for _, file := range files {
-			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-			if strings.EqualFold(name, candidate) {
-				return file
+		for _, entry := range entries {
+			if strings.EqualFold(normalizeDriverPackageArchiveName(entry.Name), candidate) {
+				return entry
 			}
 		}
 	}
-	for _, file := range files {
-		name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
-		if strings.EqualFold(filepath.Base(name), supportName) {
-			return file
+	for _, entry := range entries {
+		if strings.EqualFold(filepath.Base(normalizeDriverPackageArchiveName(entry.Name)), supportName) {
+			return entry
 		}
 	}
 	return nil
 }
 
-func extractOptionalDriverSupportFilesFromZip(files []*zip.File, driverType string, agentEntryName string, targetDir string) error {
+func extractOptionalDriverSupportFilesFromArchive(entries []*driverPackageArchiveEntry, driverType string, agentEntryName string, targetDir string) error {
 	names := optionalDriverSupportFileNames(driverType)
 	if len(names) == 0 {
 		return nil
@@ -242,11 +218,11 @@ func extractOptionalDriverSupportFilesFromZip(files []*zip.File, driverType stri
 		return newLocalizedDriverBackendError("driver_manager.backend.error.runtime_dependency_target_directory_empty", nil, nil)
 	}
 	for _, name := range names {
-		entry := findOptionalDriverSupportFileInZip(files, agentEntryName, name)
+		entry := findOptionalDriverSupportFileInArchive(entries, agentEntryName, name)
 		if entry == nil {
 			return newLocalizedDriverBackendError("driver_manager.backend.error.runtime_dependency_entry_missing", map[string]any{"name": name}, nil)
 		}
-		if err := extractZipFileToPath(entry, filepath.Join(targetRoot, name)); err != nil {
+		if err := extractDriverPackageEntryToPath(entry, filepath.Join(targetRoot, name)); err != nil {
 			return newLocalizedDriverBackendError("driver_manager.backend.error.extract_runtime_dependency_failed", map[string]any{"name": name}, err)
 		}
 	}

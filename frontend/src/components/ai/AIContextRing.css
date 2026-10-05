@@ -1,0 +1,183 @@
+/* Context ring in the composer, and the popover that breaks the context down. */
+
+.gn-ai-ctx-ring {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(20 * var(--gn-ai-unit, 1px));
+  height: calc(20 * var(--gn-ai-unit, 1px));
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--gn-accent, #4c8dff);
+  cursor: pointer;
+  transition: color 0.25s ease, background-color 0.15s ease;
+}
+
+.gn-ai-ctx-ring:hover,
+.gn-ai-ctx-ring:focus-visible {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  outline: none;
+}
+
+.gn-ai-ctx-ring[data-level="warn"] {
+  color: var(--gn-warn, #e8a33d);
+}
+
+.gn-ai-ctx-ring[data-level="full"] {
+  color: var(--gn-danger, #e75d66);
+}
+
+/* The hit area stays comfortable, the drawn ring is small: it is a gauge, not a button. */
+.gn-ai-ctx-ring svg {
+  width: calc(15 * var(--gn-ai-unit, 1px));
+  height: calc(15 * var(--gn-ai-unit, 1px));
+  transform: rotate(-90deg);
+}
+
+.gn-ai-ctx-ring-track,
+.gn-ai-ctx-ring-arc {
+  fill: none;
+  stroke-width: 4;
+}
+
+.gn-ai-ctx-ring-track {
+  stroke: color-mix(in srgb, var(--gn-fg-3, #8a8f98) 35%, transparent);
+}
+
+.gn-ai-ctx-ring-arc {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gn-ai-ctx-ring,
+  .gn-ai-ctx-ring-arc {
+    transition: none;
+  }
+}
+
+/* The popover is rendered on the document body, so nothing here relies on the panel's variables. */
+.gn-ai-ctx-popover {
+  width: 288px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-ai-ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.gn-ai-ctx-title {
+  font-weight: 600;
+}
+
+.gn-ai-ctx-summary,
+.gn-ai-ctx-window,
+.gn-ai-ctx-note,
+.gn-ai-ctx-share {
+  color: color-mix(in srgb, currentColor 58%, transparent);
+}
+
+.gn-ai-ctx-popover[data-level="warn"] .gn-ai-ctx-summary {
+  color: var(--gn-warn, #e8a33d);
+}
+
+.gn-ai-ctx-popover[data-level="full"] .gn-ai-ctx-summary {
+  color: var(--gn-danger, #e75d66);
+}
+
+.gn-ai-ctx-bar {
+  display: flex;
+  height: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.gn-ai-ctx-bar-part {
+  flex: 0 0 auto;
+  min-width: 2px;
+  height: 100%;
+  transition: width 0.35s ease;
+}
+
+.gn-ai-ctx-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.gn-ai-ctx-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.gn-ai-ctx-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-ai-ctx-size {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-ai-ctx-share {
+  flex: 0 0 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-ai-ctx-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.gn-ai-ctx-window {
+  margin-bottom: 4px;
+}
+
+.gn-ai-ctx-note {
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.gn-ai-ctx-note.is-alert {
+  color: var(--gn-danger, #e75d66);
+}
+
+.gn-ai-ctx-bar-part[data-seg="instructions"], .gn-ai-ctx-dot[data-seg="instructions"] { background: #7d8aa3; }
+.gn-ai-ctx-bar-part[data-seg="workspace"], .gn-ai-ctx-dot[data-seg="workspace"] { background: #5b8def; }
+.gn-ai-ctx-bar-part[data-seg="bound"],     .gn-ai-ctx-dot[data-seg="bound"]     { background: #9b6bdf; }
+.gn-ai-ctx-bar-part[data-seg="skills"],    .gn-ai-ctx-dot[data-seg="skills"]    { background: #2fb8a6; }
+.gn-ai-ctx-bar-part[data-seg="user"],      .gn-ai-ctx-dot[data-seg="user"]      { background: #4caf6a; }
+.gn-ai-ctx-bar-part[data-seg="assistant"], .gn-ai-ctx-dot[data-seg="assistant"] { background: #e8a33d; }
+.gn-ai-ctx-bar-part[data-seg="toolResults"], .gn-ai-ctx-dot[data-seg="toolResults"] { background: #e26d8c; }
+
+/* Room kept for the reply is hatched; free space is an empty outline. */
+.gn-ai-ctx-bar-part[data-seg="reserved"],
+.gn-ai-ctx-dot[data-seg="reserved"] {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, currentColor 38%, transparent) 0 2px, transparent 2px 4px);
+}
+
+.gn-ai-ctx-dot[data-seg="free"] {
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+}

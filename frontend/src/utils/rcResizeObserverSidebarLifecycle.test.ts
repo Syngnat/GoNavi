@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readCssWithImports } from '../test/readCssWithImports';
 
 const SIDEBAR_RESIZING_ATTRIBUTE = 'data-sidebar-resizing';
 const SIDEBAR_TRANSITIONING_ATTRIBUTE = 'data-sidebar-transitioning';
@@ -99,7 +100,7 @@ describe('rc-resize-observer sidebar resize patch', () => {
   });
 
   it('overrides every Ant Design Sider width constraint during live preview', () => {
-    const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
+    const appCss = readCssWithImports(new URL('../App.css', import.meta.url));
     const activeResizeRule = appCss.match(
       /body\[data-sidebar-resizing='true'\][\s\S]*?\{([\s\S]*?)\}/,
     )?.[1] ?? '';

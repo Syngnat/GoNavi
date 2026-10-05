@@ -36,6 +36,7 @@ func TestSessionCapabilityFor(t *testing.T) {
 		{name: "dameng alias", config: connection.ConnectionConfig{Type: "dm8"}, engine: "dameng", supported: true, terminate: true},
 		{name: "clickhouse", config: connection.ConnectionConfig{Type: "clickhouse"}, engine: "clickhouse", supported: true, cancel: true},
 		{name: "trino", config: connection.ConnectionConfig{Type: "trino"}, engine: "trino", supported: true, cancel: true},
+		{name: "presto borrows trino", config: connection.ConnectionConfig{Type: "presto"}, engine: "presto", supported: true, cancel: true},
 		{name: "tdengine probe pending", config: connection.ConnectionConfig{Type: "tdengine"}, engine: "tdengine", reason: sessionReasonUnsupported},
 		{name: "iotdb probe pending", config: connection.ConnectionConfig{Type: "iotdb"}, engine: "iotdb", reason: sessionReasonUnsupported},
 		{name: "iotdb alias probe pending", config: connection.ConnectionConfig{Type: "apache-iotdb"}, engine: "iotdb", reason: sessionReasonUnsupported},
@@ -65,6 +66,20 @@ func TestSessionCapabilityFor(t *testing.T) {
 				t.Fatalf("reason = %q, want %q", capability.ReasonCode, test.reason)
 			}
 		})
+	}
+}
+
+func TestPrestoSessionSpecFiltersUnfinishedQueriesByState(t *testing.T) {
+	t.Parallel()
+
+	spec := sessionSpecFor(connection.ConnectionConfig{Type: "presto"})
+	// PrestoDB 0.29x 把运行中查询的 end 记为 1970-01-01，必须按状态筛选。
+	if spec.engine != "presto" || !strings.Contains(spec.listQuery, "state NOT IN ('FINISHED', 'FAILED')") || strings.Contains(spec.listQuery, `"end" IS NULL`) {
+		t.Fatalf("presto session spec: %+v", spec)
+	}
+	statement, err := buildSessionActionStatement(spec, actionRequest(connection.SessionActionCancelQuery, "", "20261003_181746_00140_aqqm5"))
+	if err != nil || !strings.Contains(statement.sql, "system.runtime.kill_query") {
+		t.Fatalf("presto cancel action %q: %v", statement.sql, err)
 	}
 }
 

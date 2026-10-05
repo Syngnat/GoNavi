@@ -117,6 +117,7 @@ export interface ProviderPresetMatcher {
 }
 
 export type ProviderPresetCandidate = Pick<AIProviderConfig, 'type' | 'baseUrl'>
+  & Partial<Pick<AIProviderConfig, 'id'>>
   & Partial<Pick<AIProviderConfig, 'apiFormat' | 'authMode' | 'model' | 'apiKey' | 'hasSecret' | 'secretRef'>>;
 
 const inferProviderAuthMode = (provider: ProviderPresetCandidate): AIProviderAuthMode => {
@@ -259,6 +260,7 @@ export const resolveProviderPresetKey = (
   presets: ProviderPresetMatcher[],
   fallbackKey = 'custom',
 ): string => {
+  if (String(provider.id || '').trim() === 'gonavi-ai') return 'gonavi-ai';
   const inferredAuthMode = inferProviderAuthMode(provider);
   const mergedModePreset = presets.find((preset) =>
     preset.modes?.some((mode) => providerMatchesMode(provider, mode, inferredAuthMode)));

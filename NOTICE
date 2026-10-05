@@ -210,3 +210,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Tesseract.js and Tesseract OCR
+Copyright (c) 2016 Tesseract.js contributors; Tesseract OCR Copyright Google Inc. and contributors.
+
+Licensed under the Apache License, Version 2.0. The optional image text
+recognition component (tesseract.js, its WebAssembly core tesseract.js-core and
+the English and Simplified Chinese language data from the tessdata project) is
+downloaded only after the user agrees, and is not part of the installer.
+https://github.com/naptha/tesseract.js

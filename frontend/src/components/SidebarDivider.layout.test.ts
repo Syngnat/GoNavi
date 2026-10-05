@@ -1,10 +1,9 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { readV2ThemeCss } from '../test/readV2ThemeCss';
+import { readCssWithImports } from '../test/readCssWithImports';
 
-const readCssFile = (relativePath: string): string => readFileSync(
+const readCssFile = (relativePath: string): string => readCssWithImports(
   new URL(relativePath, import.meta.url),
-  'utf8',
 );
 
 const readCssRule = (css: string, selector: string): string => {

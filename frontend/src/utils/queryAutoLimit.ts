@@ -1,6 +1,8 @@
 import { resolveSqlDialect } from './sqlDialect';
 import { buildPaginatedSelectSQL, splitTrailingIsolationClause } from './sql';
 import { isSqlDashLineCommentStart } from './sqlStatementSelection';
+import { getDataSourceSpec } from './dataSourceRegistry';
+import { buildRegistryPaginatedSelectSQL } from './dataSourceRegistry/sqlBehavior';
 
 const isWS = (ch: string) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
 const isWord = (ch: string) => /[A-Za-z0-9_]/.test(ch);
@@ -560,6 +562,18 @@ export const applyQueryAutoLimit = (
     // moves the original SELECT into a subquery.
     if (hasOracleSequencePseudoColumn(executableMain)) return { sql: executableSql, applied: false, maxRows };
     return { sql: `${buildPaginatedSelectSQL(normalizedType, main, '', maxRows, 0)}${tail}`, applied: true, maxRows };
+  }
+
+  // 描述表声明了非 LIMIT 分页语法的数据源（Firebird 的 ROWS m TO n、GBase 8s 的 SKIP / FIRST）不能追加 LIMIT。
+  const registryPagination = getDataSourceSpec(dbType)?.ui?.pagination;
+  if (registryPagination === 'rows-to' || registryPagination === 'skip-first') {
+    const ownLimit = ['rows', 'first', 'skip'].some((keyword) => findTopLevelKeyword(executableMain, keyword, normalizedType) >= 0);
+    const limited = ownLimit || (registryPagination === 'skip-first' && cteBodyStart > 0)
+      ? undefined
+      : buildRegistryPaginatedSelectSQL(dbType, executableMain, '', maxRows, 0);
+    return limited
+      ? { sql: `${limited}${isolationStatement.tail}${tail}`, applied: true, maxRows }
+      : { sql: executableSql, applied: false, maxRows };
   }
 
   const offsetPos = findTopLevelKeyword(executableMain, 'offset', normalizedType);

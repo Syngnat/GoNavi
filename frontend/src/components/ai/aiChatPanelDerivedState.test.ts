@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAIChatInlineHistorySessions,
   buildAIChatInsights,
-  calculateAIContextUsageChars,
   collectAIChatContextTableNames,
   inferAIChatConnectionContext,
   resolveAIChatPanelMode,
@@ -110,7 +109,7 @@ describe('aiChatPanelDerivedState', () => {
     });
   });
 
-  it('collects context table names, usage chars, panel mode, and inline history sessions', () => {
+  it('collects context table names, panel mode, and inline history sessions', () => {
     expect(collectAIChatContextTableNames({
       aiContexts: {
         'conn-1:analytics': [
@@ -121,17 +120,6 @@ describe('aiChatPanelDerivedState', () => {
       activeConnectionId: 'conn-1',
       activeDbName: 'analytics',
     })).toEqual(['analytics.orders', 'analytics.events']);
-
-    expect(calculateAIContextUsageChars([
-      {
-        id: 'msg-1',
-        role: 'assistant',
-        content: 'abc',
-        reasoning_content: 'xy',
-        tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'inspect', arguments: '{}' } }],
-        timestamp: 1,
-      },
-    ])).toBeGreaterThan(5);
 
     expect(buildAIChatInlineHistorySessions([
       { id: '1', title: 'one', updatedAt: 1 },

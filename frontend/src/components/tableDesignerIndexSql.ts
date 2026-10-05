@@ -6,6 +6,7 @@ import {
   quoteSqlIdentifierPart,
 } from '../utils/sqlDialect';
 import { t as catalogTranslate } from '../i18n/catalog';
+import { isElasticsearchFamilyType } from '../utils/elasticsearchFamily';
 
 export type TableDesignerIndexKind = 'NORMAL' | 'UNIQUE' | 'PRIMARY' | 'FULLTEXT' | 'SPATIAL';
 type TableDesignerIndexMessageParams = Record<string, string | number | boolean | null | undefined>;
@@ -27,7 +28,7 @@ export interface BuildIndexCreateSqlResult {
   severity?: 'error' | 'warning';
 }
 
-const isNonRelationalDialect = (dbType: string): boolean => dbType === 'redis' || dbType === 'mongodb' || dbType === 'elasticsearch';
+const isNonRelationalDialect = (dbType: string): boolean => dbType === 'redis' || dbType === 'mongodb' || isElasticsearchFamilyType(dbType);
 
 const formatTableDesignerIndexMessage = (
   translate: TableDesignerIndexTranslate | undefined,

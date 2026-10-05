@@ -1,0 +1,543 @@
+/* ─── V2 Table Overview ─ */
+.gn-table-overview {
+  container-name: gn-table-overview;
+  container-type: inline-size;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview {
+  /* 与左侧 sider / 主内容区同用 panel-2，消除并排色差 */
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-header {
+  min-height: 54px;
+  padding: 12px 16px !important;
+  background: var(--gn-bg-panel-2) !important;
+  border-bottom: 0.5px solid var(--gn-br-1);
+}
+
+/* 视图切换器：底/选中态跟主题，不再写死白/灰 */
+body[data-ui-version="v2"] .gn-v2-table-overview-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--gn-bg-active) !important;
+  border: 0.5px solid var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-view-switch-btn {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font: inherit;
+  color: var(--gn-fg-4);
+  background: transparent;
+  box-shadow: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-view-switch-btn.is-active {
+  background: color-mix(in srgb, var(--gn-fg-1) 6%, var(--gn-bg-panel-2)) !important;
+  color: var(--gn-accent) !important;
+  box-shadow: var(--gn-shadow-sm);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-view-switch-btn:hover {
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--gn-on-accent, #fff);
+  background: linear-gradient(135deg, var(--gn-accent) 0%, var(--gn-accent-2) 100%);
+  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.3);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-title {
+  color: var(--gn-fg-1) !important;
+  font-family: var(--gn-font-sans);
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-summary {
+  color: var(--gn-fg-4) !important;
+  font-family: var(--gn-font-sans);
+  font-weight: 500;
+}
+
+.gn-table-overview-summary {
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-summary strong {
+  color: var(--gn-fg-2);
+  font-family: var(--gn-font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@container gn-table-overview (max-width: 700px) {
+  .gn-table-overview-header {
+    gap: 8px !important;
+  }
+
+  .gn-table-overview-summary {
+    display: none;
+  }
+}
+
+/* 卡片保留内边距；列表/表格铺满内容区，去掉红框里那圈空白 */
+body[data-ui-version="v2"] .gn-v2-table-overview-content {
+  background: var(--gn-bg-panel-2) !important;
+  min-height: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="card"] {
+  padding: 14px 16px 20px !important;
+  overflow: auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="list"],
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="table"] {
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="list"] {
+  overflow: auto !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  background: var(--gn-bg-panel-2);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-section {
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="list"] .gn-v2-table-overview-section-title {
+  margin: 0 !important;
+  padding: 8px 14px 6px !important;
+  background: var(--gn-bg-panel-2);
+  border-bottom: 0.5px solid var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-section-title {
+  color: var(--gn-fg-4) !important;
+  font-family: var(--gn-font-mono);
+  font-size: var(--gn-font-size-xs, 10px) !important;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-section-title span:last-child {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-3);
+  font-size: var(--gn-font-size-xs, 10px);
+  font-weight: 700;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card,
+body[data-ui-version="v2"] .gn-v2-table-row {
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: 8px !important;
+  /* 底已是 panel-2：卡片用轻微抬升混合色，避免与底/左侧同色糊成一片 */
+  background: color-mix(in srgb, var(--gn-fg-1) 3.5%, var(--gn-bg-panel-2)) !important;
+  color: var(--gn-fg-1) !important;
+  box-shadow: var(--gn-shadow-card);
+  transition: background 0.08s, border-color 0.08s, box-shadow 0.08s;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card:hover,
+body[data-ui-version="v2"] .gn-v2-table-row:hover {
+  background: var(--gn-bg-hover) !important;
+  border-color: color-mix(in srgb, var(--gn-accent) 45%, var(--gn-br-2)) !important;
+  box-shadow: var(--gn-shadow-md);
+}
+
+/* 列表铺满：去掉卡片间距与圆角容器，整列跟面板色 */
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="list"] .gn-v2-table-row-list {
+  gap: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+  min-height: 100%;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="list"] .gn-v2-table-row {
+  border-radius: 0 !important;
+  border-width: 0 0 0.5px !important;
+  border-color: var(--gn-br-1) !important;
+  box-shadow: none !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-content[data-view-mode="list"] .gn-v2-table-row:hover {
+  background: var(--gn-bg-hover) !important;
+  border-color: var(--gn-br-1) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card-name span {
+  font-family: var(--gn-font-mono);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card-meta {
+  font-family: var(--gn-font-mono);
+  font-size: 11px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-size-bar {
+  height: 2px;
+  margin-top: 10px;
+  border-radius: 1px;
+  background: var(--gn-bg-active);
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-size-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gn-accent) 0%, var(--gn-info) 100%);
+}
+
+body[data-ui-version="v2"] .gn-v2-table-row-list {
+  gap: 0 !important;
+  background: var(--gn-bg-panel);
+  border: 0.5px solid var(--gn-br-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-row {
+  border-width: 0 0 0.5px !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.gn-table-overview-compact-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
+  background: #fff;
+  overscroll-behavior: contain;
+}
+
+.gn-table-overview-compact-header,
+.gn-table-overview-compact-row {
+  width: max(100%, 1120px);
+  box-sizing: border-box;
+  grid-template-columns:
+    minmax(190px, 1.7fr)
+    minmax(170px, 1.4fr)
+    minmax(88px, 0.65fr)
+    minmax(104px, 0.75fr)
+    minmax(104px, 0.75fr)
+    minmax(100px, 0.75fr)
+    minmax(154px, 1.1fr)
+    minmax(154px, 1.1fr);
+}
+
+.gn-table-overview-compact-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  align-items: stretch;
+  min-width: 1120px;
+  min-height: 32px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f7f8fa;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 11.5px;
+}
+
+.gn-table-overview-compact-header > [role="columnheader"] {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.gn-table-overview-compact-header > [role="columnheader"]:last-child {
+  border-right: 0;
+}
+
+.gn-table-overview-compact-section {
+  min-width: 1120px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f9fafb;
+}
+
+.gn-table-overview-compact-section .gn-v2-table-overview-section-title {
+  margin: 0 !important;
+  min-height: 27px;
+}
+
+.gn-table-overview-compact-name,
+.gn-table-overview-compact-cell {
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 21px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-table-overview-compact-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+
+.gn-table-overview-compact-name .anticon {
+  flex: 0 0 auto;
+  color: #1677ff;
+}
+
+.gn-table-overview-compact-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-table-overview-compact-row:hover {
+  background: rgba(22, 119, 255, 0.06) !important;
+}
+
+/* 表格视图：贴边铺满内容区，背景全程跟主题 token */
+body[data-ui-version="v2"] .gn-table-overview-compact-scroll {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--gn-bg-panel-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-header {
+  min-height: 30px;
+  min-width: 1120px;
+  width: max(100%, 1120px);
+  border-bottom-width: 0.5px;
+  border-bottom-color: var(--gn-br-2);
+  background: color-mix(in srgb, var(--gn-fg-1) 2.5%, var(--gn-bg-panel-2)) !important;
+  color: var(--gn-fg-3) !important;
+  font-family: var(--gn-font-mono);
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-header > [role="columnheader"] {
+  border-right-width: 0.5px;
+  border-right-color: var(--gn-br-1);
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-sort-button {
+  color: inherit;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-sort-button:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-sort-button[aria-pressed="true"] {
+  color: var(--gn-accent) !important;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-section {
+  min-width: 1120px;
+  width: max(100%, 1120px);
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-bottom-width: 0.5px;
+  border-bottom-color: var(--gn-br-1);
+  background: color-mix(in srgb, var(--gn-fg-1) 2.5%, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-row {
+  min-height: 30px !important;
+  min-width: 1120px !important;
+  width: max(100%, 1120px) !important;
+  border-bottom-width: 0.5px !important;
+  border-bottom-color: var(--gn-br-1) !important;
+  background: var(--gn-bg-panel-2) !important;
+  color: var(--gn-fg-1) !important;
+  font-family: var(--gn-font-mono);
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-row:hover {
+  background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-name,
+body[data-ui-version="v2"] .gn-table-overview-compact-cell {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 11.5px;
+  line-height: 21px;
+  color: inherit;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-name .anticon {
+  color: var(--gn-accent) !important;
+}
+
+/* 表概览筛选条也跟主题 */
+body[data-ui-version="v2"] .gn-v2-table-overview-filter-bar {
+  margin: 0 !important;
+  padding: 8px 14px !important;
+  border-radius: 0 !important;
+  border-bottom: 0.5px solid var(--gn-br-1);
+  background: color-mix(in srgb, var(--gn-fg-1) 2.5%, var(--gn-bg-panel-2)) !important;
+  color: var(--gn-fg-4) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 28px !important;
+  min-height: 28px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-row {
+  display: grid !important;
+  grid-template-columns: 180px 28px !important;
+  align-items: stretch !important;
+  column-gap: 4px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-field,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-autocomplete,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-autocomplete .ant-select,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-field .ant-input-affix-wrapper {
+  width: 180px !important;
+  min-width: 180px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  box-sizing: border-box !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-field,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-autocomplete,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-autocomplete .ant-select {
+  display: flex !important;
+  align-items: stretch !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-field .ant-input-affix-wrapper {
+  display: flex !important;
+  align-items: center !important;
+  line-height: 28px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn {
+  width: 28px !important;
+  min-width: 28px !important;
+  max-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  align-self: stretch !important;
+  justify-self: stretch !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  vertical-align: top !important;
+  box-sizing: border-box !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn > span,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn .ant-btn-icon,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn .anticon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  line-height: 1 !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn .anticon svg {
+  display: block !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn:focus,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn:focus-visible,
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn:active {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-column-quick-find-submit.ant-btn::after {
+  display: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-page-find {
+  gap: 2px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-page-find .ant-input-prefix,
+body[data-ui-version="v2"] .gn-v2-data-grid-page-find .ant-input-suffix {
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-page-find .ant-input-prefix {
+  margin-inline-end: 6px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-page-find .ant-input,
+body[data-ui-version="v2"] .gn-v2-data-grid-page-find .ant-input::placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

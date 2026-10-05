@@ -1,5 +1,5 @@
 import type { SqlLog } from '../../store';
-import type { AIChatMessage, AIContextItem } from '../../types';
+import type { AIContextItem } from '../../types';
 import { isAITableSchemaContext } from './aiEditorSelectionContext';
 import { t as translateCatalog, type I18nParams } from '../../i18n';
 import type { AIChatInlineHistorySession, AIChatInsightItem, AIChatPanelMode } from './AIChatPanelModeContent';
@@ -30,16 +30,6 @@ export const inferAIChatConnectionContext = ({
     inferredDbName: activeDbName,
   };
 };
-
-export const calculateAIContextUsageChars = (messages: AIChatMessage[]) =>
-  messages.reduce(
-    (sum, item) =>
-      sum
-      + (item.content?.length || 0)
-      + (item.reasoning_content?.length || 0)
-      + JSON.stringify(item.tool_calls || []).length,
-    0,
-  );
 
 export const collectAIChatContextTableNames = ({
   aiContexts,

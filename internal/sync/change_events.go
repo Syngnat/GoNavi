@@ -99,10 +99,12 @@ type changeEventTableRuntime struct {
 	targetTable      string
 	targetQueryTable string
 	targetType       string
-	targetColumns    []connection.ColumnDefinition
-	sourceKeys       []string
-	targetKeys       []string
-	projection       *CompiledProjection
+	// singleKindBatches 为 true 时删除、修改、新增分开提交（描述表 sync.singleKindBatches，如 GBase 8a）。
+	singleKindBatches bool
+	targetColumns     []connection.ColumnDefinition
+	sourceKeys        []string
+	targetKeys        []string
+	projection        *CompiledProjection
 }
 
 type preparedChangeEvent struct {
@@ -503,7 +505,7 @@ func prepareChangeEvent(config SyncConfig, targetDB db.Database, runtimes map[st
 
 func buildChangeEventTableRuntime(config SyncConfig, targetDB db.Database, sourceTable string) (*changeEventTableRuntime, error) {
 	targetType := resolveMigrationDBType(config.TargetConfig)
-	runtime := &changeEventTableRuntime{sourceTable: sourceTable, targetType: targetType}
+	runtime := &changeEventTableRuntime{sourceTable: sourceTable, targetType: targetType, singleKindBatches: targetNeedsSingleKindBatches(config.TargetConfig)}
 	var mapping SyncObjectMapping
 	if len(config.Mappings) > 0 {
 		resolved, err := explicitSyncMappingForTable(config, sourceTable)
@@ -713,7 +715,7 @@ func applyPreparedChangeEventBatch(ctx context.Context, targetDB db.Database, ap
 	if counts.total() == 0 {
 		return counts, nil
 	}
-	if err := applySyncChangesContext(ctx, applier, runtime.targetTable, changes); err != nil {
+	if err := applySyncChangesByKindContext(ctx, applier, runtime.targetTable, changes, runtime.singleKindBatches); err != nil {
 		return appliedChangeCounts{}, err
 	}
 	return counts, nil

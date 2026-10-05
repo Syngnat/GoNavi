@@ -3,6 +3,7 @@
 import hashlib
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -11,6 +12,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tools" / "package-driver-release-assets.py"
+sys.path.insert(0, str(ROOT / "tools"))
+
+from driver_bundle_7z import _run, extract_members, list_members  # noqa: E402
+
+
+def bundle_methods(bundle_path):
+    proc = _run(["l", "-slt", str(bundle_path)], bundle_path.parent)
+    methods = {}
+    path = ""
+    for line in proc.stdout.splitlines():
+        key, sep, value = line.partition(" = ")
+        if not sep:
+            continue
+        if key == "Path":
+            path = value.replace("\\", "/")
+        elif key == "Method" and path:
+            methods[path] = value
+    return methods
 
 
 class PackageDriverReleaseAssetsTest(unittest.TestCase):
@@ -36,8 +55,9 @@ class PackageDriverReleaseAssetsTest(unittest.TestCase):
                 check=True,
             )
 
-            self.assertIn("created GoNavi-DriverAgents.zip", proc.stdout)
-            self.assertTrue((output_dir / "GoNavi-DriverAgents.zip").is_file())
+            self.assertIn("created GoNavi-DriverAgents.7z", proc.stdout)
+            self.assertTrue((output_dir / "GoNavi-DriverAgents.7z").is_file())
+            self.assertFalse((output_dir / "GoNavi-DriverAgents.zip").exists())
             windows_archive = output_dir / "clickhouse-driver-agent-windows-amd64.zip"
             darwin_archive = output_dir / "clickhouse-driver-agent-darwin-arm64.zip"
             self.assertTrue(windows_archive.is_file())
@@ -80,8 +100,8 @@ class PackageDriverReleaseAssetsTest(unittest.TestCase):
                     },
                 },
             )
-            self.assertNotIn("GoNavi-DriverAgents.zip", index["assets"])
-            self.assertNotIn("GoNavi-DriverAgents.zip", index["assetSha256"])
+            self.assertNotIn("GoNavi-DriverAgents.7z", index["assets"])
+            self.assertNotIn("GoNavi-DriverAgents.7z", index["assetSha256"])
 
             with zipfile.ZipFile(windows_archive) as zf:
                 self.assertEqual(
@@ -111,18 +131,36 @@ class PackageDriverReleaseAssetsTest(unittest.TestCase):
                     b"darwin-asset",
                 )
 
-            with zipfile.ZipFile(output_dir / "GoNavi-DriverAgents.zip") as zf:
-                self.assertEqual(
-                    sorted(zf.namelist()),
-                    [
-                        "LICENSE",
-                        "MacOS/clickhouse-driver-agent-darwin-arm64",
-                        "NOTICE",
-                        "Windows/clickhouse-driver-agent-windows-amd64.exe",
-                    ],
-                )
-                self.assertEqual(zf.read("LICENSE"), (ROOT / "LICENSE").read_bytes())
-                self.assertEqual(zf.read("NOTICE"), (ROOT / "NOTICE").read_bytes())
+            bundle = output_dir / "GoNavi-DriverAgents.7z"
+            self.assertEqual(
+                sorted(list_members(bundle)),
+                [
+                    "LICENSE",
+                    "MacOS/clickhouse-driver-agent-darwin-arm64",
+                    "NOTICE",
+                    "Windows/clickhouse-driver-agent-windows-amd64.exe",
+                ],
+            )
+            extracted = tmpdir / "extracted"
+            extract_members(bundle, list_members(bundle), extracted)
+            self.assertEqual((extracted / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
+            self.assertEqual((extracted / "NOTICE").read_bytes(), (ROOT / "NOTICE").read_bytes())
+            self.assertEqual(
+                (extracted / "Windows" / "clickhouse-driver-agent-windows-amd64.exe").read_bytes(),
+                b"windows-asset",
+            )
+            self.assertEqual(
+                (extracted / "MacOS" / "clickhouse-driver-agent-darwin-arm64").read_bytes(),
+                b"darwin-asset",
+            )
+
+            # The app decodes the bundle with github.com/bodgit/sevenzip: x86 BCJ is
+            # supported there, the ARM64 branch filter is not.
+            methods = bundle_methods(bundle)
+            self.assertIn("BCJ", methods["Windows/clickhouse-driver-agent-windows-amd64.exe"])
+            for member, method in methods.items():
+                self.assertIn("LZMA2", method, member)
+                self.assertNotIn("ARM64", method, member)
 
     def test_rebuilds_duckdb_windows_archive_with_agent_and_library(self):
         with tempfile.TemporaryDirectory(prefix="gonavi-driver-assets-test-") as tmp:
@@ -191,8 +229,9 @@ class PackageDriverReleaseAssetsTest(unittest.TestCase):
                 )
                 self.assertEqual(zf.read("Windows/duckdb.dll"), b"duckdb-library")
 
-            with zipfile.ZipFile(output_dir / "GoNavi-DriverAgents.zip") as zf:
-                self.assertNotIn("Windows/duckdb-driver.zip", zf.namelist())
+            bundle_members = list_members(output_dir / "GoNavi-DriverAgents.7z")
+            self.assertNotIn("Windows/duckdb-driver.zip", bundle_members)
+            self.assertIn("Windows/duckdb.dll", bundle_members)
 
 
 if __name__ == "__main__":

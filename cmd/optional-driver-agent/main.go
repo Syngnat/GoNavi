@@ -57,14 +57,9 @@ type agentResponse struct {
 	RowsAffected              int64                         `json:"rowsAffected,omitempty"`
 	Truncated                 bool                          `json:"truncated,omitempty"`
 	BudgetExhausted           bool                          `json:"budgetExhausted,omitempty"`
-}
-
-type agentConnectionInfo struct {
-	ElasticsearchServerMajor int    `json:"elasticsearchServerMajor,omitempty"`
-	ProtocolSchema           string `json:"protocolSchema,omitempty"`
-	// InFlightCancel 声明本 agent 支持在途查询取消通道：主进程据此决定停止查询时
-	// 是先发取消通知，还是沿用杀进程的旧路径。旧版主进程忽略该字段。
-	InFlightCancel bool `json:"inFlightCancel,omitempty"`
+	// PartialData 表示失败响应仍携带部分结果（如 Pulsar 主题发现失败时的已知主题）；
+	// 旧版主进程忽略该字段，只看到错误。
+	PartialData bool `json:"partialData,omitempty"`
 }
 
 const (
@@ -204,11 +199,7 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 			return failWithSSHHostKeyTrust(resp, err)
 		}
 		runtimeState.inst = next
-		connectionInfo := agentConnectionInfo{ProtocolSchema: agentProtocolSchemaV2, InFlightCancel: true}
-		if versionProvider, ok := next.(db.ElasticsearchServerVersionProvider); ok {
-			connectionInfo.ElasticsearchServerMajor = versionProvider.ElasticsearchServerMajor()
-		}
-		resp.Data = connectionInfo
+		resp.Data = newAgentConnectionInfo(next)
 		return resp
 	case agentMethodClose:
 		if runtimeState.inst != nil {
@@ -419,7 +410,12 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 	case agentMethodGetTables:
 		data, err := runtimeState.inst.GetTables(req.DBName)
 		if err != nil {
-			return fail(resp, err.Error())
+			failed := fail(resp, err.Error())
+			if len(data) > 0 {
+				failed.Data = data
+				failed.PartialData = true
+			}
+			return failed
 		}
 		resp.Data = data
 	case agentMethodTableExists:
@@ -540,6 +536,8 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 		}
 		resp.Data = attachments
 		return resp
+	case agentMethodPreviewChanges:
+		return handlePreviewChanges(runtimeState.inst, req, resp)
 	case agentMethodApplyChanges:
 		if req.Changes == nil {
 			return fail(resp, "变更集为空")

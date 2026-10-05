@@ -5,10 +5,13 @@ import type { AIChatAttachment } from '../../types';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
 import { formatAIChatAttachmentSize } from './aiChatAttachments';
+import { AIOcrBadge } from './ocr/AIOcrBadge';
 
 interface AIChatAttachmentStripProps {
   attachments: AIChatAttachment[];
   onRemove: (index: number) => void;
+  /** Read the text in an image (again): offered on an image whose text could not be read. */
+  onReadImage?: (attachment: AIChatAttachment) => void;
 }
 
 type AttachmentKindLabels = {
@@ -47,6 +50,7 @@ const AttachmentFileChip: React.FC<{
 export const AIChatAttachmentStrip: React.FC<AIChatAttachmentStripProps> = ({
   attachments,
   onRemove,
+  onReadImage,
 }) => {
   const i18n = useOptionalI18n();
   const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
@@ -68,15 +72,18 @@ export const AIChatAttachmentStrip: React.FC<AIChatAttachmentStripProps> = ({
     <div className="gn-v2-ai-attachment-row">
       {attachments.map((attachment, index) => (
         attachment.kind === 'image' && attachment.dataUrl ? (
-          <div key={attachment.id || index} className="gn-v2-ai-attachment-thumb">
-            <img src={attachment.dataUrl} alt={buildImageAlt(index)} />
-            <button
-              type="button"
-              onClick={() => onRemove(index)}
-              aria-label={removeImageAriaLabel}
-            >
-              ×
-            </button>
+          <div key={attachment.id || index} className={attachment.ocr ? 'gn-ocr-thumb-cell' : undefined}>
+            <div className="gn-v2-ai-attachment-thumb">
+              <img src={attachment.dataUrl} alt={buildImageAlt(index)} />
+              <button
+                type="button"
+                onClick={() => onRemove(index)}
+                aria-label={removeImageAriaLabel}
+              >
+                ×
+              </button>
+            </div>
+            {attachment.ocr ? <AIOcrBadge ocr={attachment.ocr} onRead={() => onReadImage?.(attachment)} /> : null}
           </div>
         ) : (
           <AttachmentFileChip

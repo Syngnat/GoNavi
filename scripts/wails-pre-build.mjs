@@ -23,12 +23,12 @@ const MIN_NODE_MAJOR = 18;
 
 assertNodeVersion();
 
-// frontend/dist.zip 占位：沿用原 preBuildHook 行为，本地未构建前端时保证
+// frontend/dist.tar.br 占位：沿用原 preBuildHook 行为，本地未构建前端时保证
 // wails 能找到 embed 目标。
-const stubDistZip = join(repoRoot, 'tools', 'stub-dist.zip');
-const frontendDistZip = join(repoRoot, 'frontend', 'dist.zip');
-if (!existsSync(frontendDistZip)) {
-  copyFileSync(stubDistZip, frontendDistZip);
+const stubDistBundle = join(repoRoot, 'tools', 'stub-dist.tar.br');
+const frontendDistBundle = join(repoRoot, 'frontend', 'dist.tar.br');
+if (!existsSync(frontendDistBundle)) {
+  copyFileSync(stubDistBundle, frontendDistBundle);
 }
 
 // 只在「目标为 linux 且宿主也是 linux」时校验：跨平台交叉编译不在本机链接

@@ -85,6 +85,9 @@ func (s *SyncEngine) applySnapshotChangesByPolicy(config SyncConfig, res *SyncRe
 		return appliedChangeCounts{}, err
 	}
 	if policy == RowErrorPolicyStop {
+		if targetNeedsSingleKindBatches(config.TargetConfig) {
+			return s.applyChangesByKind(config, res, targetTable, applier, changes)
+		}
 		return s.applyChangesInBatches(config.JobID, res, targetTable, applier, changes, config.BatchSize)
 	}
 	return s.applySnapshotChangesOneByOne(config, res, sourceTable, targetTable, applier, changes, indexBase)
