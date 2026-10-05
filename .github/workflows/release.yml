@@ -1627,22 +1627,29 @@ jobs:
           CHANGED_DRIVER_AGENTS: ${{ needs.driver_agents.outputs.drivers }}
         run: |
           set -euo pipefail
+          # 数据源描述表只声明了部分平台的驱动（崖山、GBase 8s）只在这些平台发布，其余平台不要求资产。
+          source ./tools/datasource-registry.sh
+          load_datasource_registry "$PWD"
           cd release-assets
 
           missing=0
           IFS=',' read -r -a DRIVERS <<< "$CHANGED_DRIVER_AGENTS"
           for driver in "${DRIVERS[@]}"; do
-            REQUIRED_FILES=(
-              "drivers/Windows/${driver}-driver-agent-windows-amd64.exe"
-              "drivers/MacOS/${driver}-driver-agent-darwin-amd64"
-              "drivers/MacOS/${driver}-driver-agent-darwin-arm64"
-              "drivers/Linux/${driver}-driver-agent-linux-amd64"
-            )
-            if [ "$driver" != "duckdb" ]; then
-              REQUIRED_FILES+=("drivers/Windows/${driver}-driver-agent-windows-arm64.exe")
-            else
+            REQUIRED_FILES=()
+            for platform_file in \
+              "windows/amd64=drivers/Windows/${driver}-driver-agent-windows-amd64.exe" \
+              "darwin/amd64=drivers/MacOS/${driver}-driver-agent-darwin-amd64" \
+              "darwin/arm64=drivers/MacOS/${driver}-driver-agent-darwin-arm64" \
+              "linux/amd64=drivers/Linux/${driver}-driver-agent-linux-amd64"; do
+              if registry_driver_platform_supported "$driver" "${platform_file%%=*}"; then
+                REQUIRED_FILES+=("${platform_file#*=}")
+              fi
+            done
+            if [ "$driver" = "duckdb" ]; then
               REQUIRED_FILES+=("drivers/Windows/duckdb.dll")
               REQUIRED_FILES+=("drivers/Windows/duckdb-driver.zip")
+            elif registry_driver_platform_supported "$driver" "windows/arm64"; then
+              REQUIRED_FILES+=("drivers/Windows/${driver}-driver-agent-windows-arm64.exe")
             fi
 
             for file in "${REQUIRED_FILES[@]}"; do
