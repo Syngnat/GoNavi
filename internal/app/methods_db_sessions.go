@@ -267,6 +267,8 @@ func sessionWorkbenchAuditStatement(
 	if capability.TerminateRequiresInstanceAndSerial && request.Action == connection.SessionActionTerminateSession &&
 		target != "" && serialNumber != "" && instanceID != "" {
 		target = strings.Join([]string{target, serialNumber, "@" + instanceID}, ",")
+	} else if capability.RequiresSerial && target != "" && serialNumber != "" {
+		target = target + "," + serialNumber
 	}
 	if target == "" {
 		return verb

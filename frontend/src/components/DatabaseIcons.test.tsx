@@ -17,6 +17,7 @@ const BRAND_ICON_CASES: Array<[string, string, string]> = [
   ['oceanbase', 'OceanBase', 'oceanbase.png'],
   ['oracle', 'Oracle', 'oracle.ico'],
   ['starrocks', 'StarRocks', 'starrocks.png'],
+  ['trino', 'Trino', 'trino.svg'],
   ['kingbase', 'Kingbase', 'kingbase.ico'],
   ['dameng', 'Dameng', 'dameng.png'],
   ['vastbase', 'VastBase', 'vastbase.svg'],

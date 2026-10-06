@@ -10,6 +10,7 @@ import NativeDetachedWindowController from '../../components/NativeDetachedWindo
 import AIPanelErrorBoundary from '../../components/ai/AIPanelErrorBoundary';
 import { hasNativeDetachedWindowManager } from '../../utils/nativeDetachedWindowHost';
 import FloatingAIChatWindow from '../../components/FloatingAIChatWindow';
+import SessionAlertHost from '../../components/sessionAlerts/SessionAlertHost';
 import type { AppShellStateApi } from '../hooks/useAppShellState';
 import type { AppCoreStateApi } from '../hooks/useAppCoreState';
 import type { AppSecurityUpdateApi } from '../hooks/useAppSecurityUpdate';
@@ -81,6 +82,7 @@ export const AppContent = ({
     <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent', marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
          <TabManager onFocusSidebarSearch={handleFocusSidebarSearch} />
+         <SessionAlertHost />
          <FloatingWorkbenchWindows />
          <FloatingQueryResultWindows />
          <NativeDetachedWindowController

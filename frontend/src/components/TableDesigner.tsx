@@ -83,8 +83,8 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
       setTableColumns, connections, resizeRafRef, resizeDragRef, ghostRef, latestResizeXRef,
       resizeListenerRef, resizeBodyStyleRef, shellRef, tableColumns, indexColumns, setIndexColumns,
       setColumnsLoading, setIndexesLoading, setForeignKeysLoading, setTriggersLoading,
-      setDdlLoading, metadataLoadSeqRef, isNewTable, resolveTableInfo, setColumns,
-      setOriginalColumns, setSelectedColumnRowKeys, setIndexes, setFks, setTriggers, setDdl,
+      setDdlLoading, metadataLoadSeqRef, isNewTable, resolveTableInfo, columns, originalColumns,
+      setColumns, setOriginalColumns, setSelectedColumnRowKeys, setIndexes, setFks, setTriggers, setDdl,
       setTableComment, isTableCommentModalOpen, setTableCommentDraft, selectedSchema,
   });
 

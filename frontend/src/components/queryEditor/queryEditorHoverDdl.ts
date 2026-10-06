@@ -24,6 +24,10 @@ import {
     sharedQueryEditorMetadataReloadRequestListeners,
 } from './queryEditorCompletionState';
 import { invalidateSharedLazyTablesCache } from './queryEditorLazyTablesCache';
+import {
+    ensureQueryEditorSessionMetadataInvalidationListener,
+    invalidateQueryEditorSessionMetadata,
+} from './metadata/queryEditorSessionMetadataStore';
 
 const QUERY_EDITOR_HOVER_DDL_CACHE_LIMIT = 100;
 export const sharedQueryEditorHoverDdlCache = new Map<string, string>();
@@ -146,6 +150,7 @@ export const invalidateQueryEditorHoverDdlCacheForConnection = (connectionId: st
 
 export const installQueryEditorHoverDdlCacheInvalidationListener = () => {
     if (typeof window === 'undefined') return;
+    ensureQueryEditorSessionMetadataInvalidationListener();
 
     const listenerState = _g.__gonaviQueryEditorHoverDdlCacheInvalidationListener;
     if (typeof listenerState?.listener === 'function') {
@@ -158,6 +163,8 @@ export const installQueryEditorHoverDdlCacheInvalidationListener = () => {
         if (!request) return;
         invalidateQueryEditorHoverDdlCacheForConnection(request.connectionId);
         invalidateSharedLazyTablesCache(request.connectionId, request.dbName);
+        // 先让会话级缓存失效，下面各编辑器重载时才不会取回变更前的结构。
+        invalidateQueryEditorSessionMetadata(request.connectionId, request.dbName);
         // 每个编辑器实例按自己的连接上下文判断是否重载。不能依赖共享的「最后活跃」连接，
         // 否则连接 A 在后台发生结构变化、当前 Query Tab 是连接 B 时，A 切回后会永久复用旧 metadata。
         sharedQueryEditorMetadataReloadRequestListeners.forEach((listener) => listener(request));

@@ -135,6 +135,7 @@ export const SQL_AUDIT_SOURCES = [
   'message_publish',
   'user_management',
   'ai_action',
+  'sql_analysis',
   'application_api',
   'audit_control',
 ] as const;

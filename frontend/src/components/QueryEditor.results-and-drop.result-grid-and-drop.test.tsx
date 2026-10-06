@@ -801,11 +801,10 @@ describe('QueryEditor external SQL save', () => {
       );
     });
 
-    await vi.waitFor(() => {
-      expect(backendApp.DBGetDatabases).toHaveBeenCalledTimes(2);
-      expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
-      expect(backendApp.DBGetAllColumns).toHaveBeenCalledTimes(2);
-    });
+    // The second tab asks for its own database list but reuses the object metadata the first one loaded.
+    await vi.waitFor(() => expect(backendApp.DBGetDatabases).toHaveBeenCalledTimes(2));
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(1);
+    expect(backendApp.DBGetAllColumns).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       renderer.unmount();

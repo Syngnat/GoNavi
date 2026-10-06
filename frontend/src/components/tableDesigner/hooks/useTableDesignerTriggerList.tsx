@@ -3,14 +3,16 @@ import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { message } from 'antd';
 import {
     supportsTableDesignerSchemaSelection as supportsRequestedTableDesignerSchemaSelection,
-    TABLE_DESIGNER_CURRENT_SCHEMA_SQL,
-    extractTableDesignerCurrentSchema,
     resolveLoadedTableDesignerSchema,
 } from '../../tableDesignerSchemaContext';
 import { stripIdentifierQuotes, splitQualifiedNameLast } from '../../../utils/qualifiedName';
-import { DBQuery } from '../../../../wailsjs/go/app/App';
-import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
-import { loadSchemas } from '../../sidebar/sidebarMetadataLoaders';
+import {
+    buildQueryEditorSessionMetadataKey,
+    buildQueryEditorSessionMetadataScope,
+    queryEditorSchemaContextSession,
+    type QueryEditorSchemaContext,
+} from '../../queryEditor/metadata/queryEditorSessionMetadataStore';
+import { fetchQueryEditorSchemaContext } from '../../queryEditor/metadata/queryEditorSchemaContextFetch';
 import Modal from '../../common/ResizableDraggableModal';
 import { t } from '../../../i18n';
 import {
@@ -134,58 +136,67 @@ export const useTableDesignerTriggerList = ({
         }
 
         let cancelled = false;
-        setSchemaReady(false);
-        setSchemaLoading(true);
-        const loadCurrentSchema = DBQuery(
-            buildRpcConnectionConfig({
-                ...conn.config,
-                port: Number(conn.config.port),
-                password: conn.config.password || '',
-                database: conn.config.database || '',
-                useSSH: conn.config.useSSH || false,
-                ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
-            }) as any,
-            dbName,
-            TABLE_DESIGNER_CURRENT_SCHEMA_SQL,
-        ).then(result => {
-            if (!result.success) return '';
-            return extractTableDesignerCurrentSchema(result.data);
-        }).catch(() => '');
+        const applySchemaContext = (context: QueryEditorSchemaContext) => {
+            const schemaNames = Array.from(new Map(
+                context.schemaNames
+                    .map(schema => String(schema || '').trim())
+                    .filter(Boolean)
+                    .map(schema => [schema.toLocaleLowerCase(), schema] as const),
+            ).values());
+            const resolved = resolveLoadedTableDesignerSchema({
+                requestSeq,
+                currentRequestSeq: schemaLoadSeqRef.current,
+                latestSelectedSchema: latestSelectedSchemaRef.current,
+                explicitSchema,
+                rememberedSchema,
+                currentSchema: context.defaultSchema,
+                schemaNames,
+            });
+            if (!resolved) return;
+            latestSelectedSchemaRef.current = resolved.selectedSchema;
+            setSelectedSchema(resolved.selectedSchema);
+            setSchemaOptions(resolved.schemaNames.map(schema => ({ label: schema, value: schema })));
+            if (resolved.selectedSchema) {
+                setTableDesignerSchema?.(tab.connectionId, resolved.selectedSchema);
+            }
+        };
 
-        void Promise.all([loadSchemas(conn, dbName), loadCurrentSchema])
-            .then(([result, currentSchema]) => {
-                if (cancelled) return;
-                const schemaNames = Array.from(new Map(
-                    (Array.isArray(result.schemas) ? result.schemas : [])
-                        .map(schema => String(schema || '').trim())
-                        .filter(Boolean)
-                        .map(schema => [schema.toLocaleLowerCase(), schema] as const),
-                ).values());
-                const resolved = resolveLoadedTableDesignerSchema({
-                    requestSeq,
-                    currentRequestSeq: schemaLoadSeqRef.current,
-                    latestSelectedSchema: latestSelectedSchemaRef.current,
-                    explicitSchema,
-                    rememberedSchema,
-                    currentSchema,
-                    schemaNames,
-                });
-                if (!resolved) return;
-                latestSelectedSchemaRef.current = resolved.selectedSchema;
-                setSelectedSchema(resolved.selectedSchema);
-                setSchemaOptions(resolved.schemaNames.map(schema => ({ label: schema, value: schema })));
-                if (resolved.selectedSchema) {
-                    setTableDesignerSchema?.(tab.connectionId, resolved.selectedSchema);
-                }
+        // schema 列表与查询页共用同一份会话缓存：已经加载过就直接用，不再转圈也不再发请求；
+        // 过期的先用着，后台刷新。
+        const schemaSessionKey = buildQueryEditorSessionMetadataKey(tab.connectionId, conn.config, dbName);
+        const cachedSchemaContext = queryEditorSchemaContextSession.read(schemaSessionKey);
+        if (cachedSchemaContext) {
+            applySchemaContext(cachedSchemaContext.value);
+            setSchemaReady(true);
+            setSchemaLoading(false);
+            if (!cachedSchemaContext.stale) {
+                return () => {
+                    cancelled = true;
+                };
+            }
+        } else {
+            setSchemaReady(false);
+            setSchemaLoading(true);
+        }
+        const blocksOnSchemaLoad = !cachedSchemaContext;
+
+        void queryEditorSchemaContextSession.load({
+            key: schemaSessionKey,
+            scope: buildQueryEditorSessionMetadataScope(tab.connectionId, dbName),
+            fetch: () => fetchQueryEditorSchemaContext(conn, dbName),
+        }).promise
+            .then((result) => {
+                if (cancelled || !result) return;
+                applySchemaContext(result.value);
             })
             .catch(() => {
-                if (cancelled || requestSeq !== schemaLoadSeqRef.current) return;
+                if (cancelled || !blocksOnSchemaLoad || requestSeq !== schemaLoadSeqRef.current) return;
                 const fallback = latestSelectedSchemaRef.current || explicitSchema;
                 setSelectedSchema(fallback);
                 setSchemaOptions(fallback ? [{ label: fallback, value: fallback }] : []);
             })
             .finally(() => {
-                if (!cancelled && requestSeq === schemaLoadSeqRef.current) {
+                if (blocksOnSchemaLoad && !cancelled && requestSeq === schemaLoadSeqRef.current) {
                     setSchemaReady(true);
                     setSchemaLoading(false);
                 }

@@ -139,11 +139,18 @@ func parsePostgresPlanNode(planRaw json.RawMessage, parentID string, result *con
 		EstRows:    parseExplainInt64(string(node.PlanRows)),
 		ActualRows: parseExplainInt64(string(node.ActualRows)),
 		Loops:      parseExplainInt64(string(node.ActualLoops)),
-		Cost:       node.StartupCost + node.TotalCost,
+		// "Total Cost" already includes the startup cost and every child's cost.
+		Cost:       node.TotalCost,
 		DurationMs: node.ActualTotal,
 	}
+	if node.StartupCost > 0 {
+		en.Extra = map[string]any{"startupCost": node.StartupCost}
+	}
 	if node.Strategy != "" {
-		en.Extra = map[string]any{"strategy": node.Strategy}
+		if en.Extra == nil {
+			en.Extra = map[string]any{}
+		}
+		en.Extra["strategy"] = node.Strategy
 	}
 	if node.Filter != "" {
 		if en.Extra == nil {

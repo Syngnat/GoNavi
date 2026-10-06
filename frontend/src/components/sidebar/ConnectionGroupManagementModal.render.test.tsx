@@ -26,7 +26,7 @@ const storeState = vi.hoisted(() => ({
   moveConnectionsToTag: vi.fn(),
   moveConnectionTag: vi.fn(),
 }));
-const messageMock = vi.hoisted(() => ({ error: vi.fn() }));
+const messageMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 
 vi.mock('../../store', () => ({
   useStore: (selector: (state: typeof storeState) => unknown) => selector(storeState),
@@ -197,7 +197,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
       '新建分组',
       '添加连接',
       '重命名',
-      '删除',
+      '删除分组',
       '编辑连接',
       '删除连接',
     ]));
@@ -278,7 +278,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
     const root = renderModal();
     selectGroup(root);
 
-    const groupDelete = root.findByProps({ 'aria-label': '删除' });
+    const groupDelete = root.findByProps({ 'aria-label': '删除分组' });
     expect(groupDelete.props.className).toContain('connection-group-management-toolbar-button');
     act(() => groupDelete.props.onClick());
     expect((Modal as any).confirm).toHaveBeenCalledWith(expect.objectContaining({
@@ -296,7 +296,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
     const root = renderModal();
     selectGroup(root);
 
-    act(() => root.findByProps({ 'aria-label': '删除' }).props.onClick());
+    act(() => root.findByProps({ 'aria-label': '删除分组' }).props.onClick());
     expect((Modal as any).confirm).toHaveBeenCalledWith(expect.objectContaining({
       title: '删除分组',
       content: '确定删除分组“Production”吗？该分组及所有子分组不包含连接。删除后无法恢复。',
@@ -364,7 +364,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
     });
     const root = renderModal(closeTabsByConnection);
     selectGroup(root);
-    const groupDelete = root.findByProps({ 'aria-label': '删除' });
+    const groupDelete = root.findByProps({ 'aria-label': '删除分组' });
     act(() => groupDelete.props.onClick());
     const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
 
@@ -395,7 +395,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
     });
     const root = renderModal();
     selectGroup(root);
-    act(() => root.findByProps({ 'aria-label': '删除' }).props.onClick());
+    act(() => root.findByProps({ 'aria-label': '删除分组' }).props.onClick());
     const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
 
     await act(async () => { await confirmOptions.onOk(); });
@@ -430,7 +430,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
       onConnectionGroupDeleted={onConnectionGroupDeleted}
     />));
     selectGroup(renderer!.root);
-    act(() => renderer!.root.findByProps({ 'aria-label': '删除' }).props.onClick());
+    act(() => renderer!.root.findByProps({ 'aria-label': '删除分组' }).props.onClick());
     const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
 
     await act(async () => { await confirmOptions.onOk(); });
@@ -450,13 +450,80 @@ describe('ConnectionGroupManagementModal rendering', () => {
     });
     const root = renderModal();
     selectGroup(root);
-    act(() => root.findByProps({ 'aria-label': '删除' }).props.onClick());
+    act(() => root.findByProps({ 'aria-label': '删除分组' }).props.onClick());
     const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
 
     await expect(act(async () => { await confirmOptions.onOk(); })).rejects.toThrow('backend unavailable');
     expect(messageMock.error).toHaveBeenCalledWith('删除分组失败');
     expect(storeState.removeConnection).not.toHaveBeenCalled();
     expect(storeState.removeConnectionTagTree).not.toHaveBeenCalled();
+  });
+
+  it('offers a labelled delete action only while connections are selected', () => {
+    const root = renderModal();
+    selectGroup(root);
+    const isDeleteSelected = (node: ReactTestInstance) => (
+      node.type === 'button' && node.props.className === 'connection-group-management-delete-selected'
+    );
+    const findDeleteSelected = () => root.findAll(isDeleteSelected);
+    expect(findDeleteSelected()).toHaveLength(0);
+
+    act(() => findByData(root, 'select-visible').props.onClick());
+    const [deleteSelected] = findDeleteSelected();
+    expect(deleteSelected.props.danger).toBe(true);
+    expect(deleteSelected.children).toContain('删除所选');
+    const actions = root.findByProps({ className: 'connection-group-management-toolbar-actions' });
+    expect(actions.findAll(isDeleteSelected)).toHaveLength(1);
+
+    act(() => findByData(root, 'clear-visible').props.onClick());
+    expect(findDeleteSelected()).toHaveLength(0);
+  });
+
+  it('deletes only the selected connections and keeps their group', async () => {
+    const deleteConnections = vi.fn().mockResolvedValue(undefined);
+    const deleteConnectionGroup = vi.fn().mockResolvedValue(undefined);
+    const closeTabsByConnection = vi.fn();
+    vi.stubGlobal('window', {
+      go: { app: { App: { DeleteConnections: deleteConnections, DeleteConnectionGroup: deleteConnectionGroup } } },
+    });
+    const root = renderModal(closeTabsByConnection);
+    selectGroup(root);
+    act(() => findByData(root, 'select-visible').props.onClick());
+
+    act(() => root.findByProps({ className: 'connection-group-management-delete-selected' }).props.onClick());
+    const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
+    expect(confirmOptions.title).toBe('确认删除已选连接');
+    expect(confirmOptions.okButtonProps).toEqual({ danger: true });
+    let confirmRenderer: ReactTestRenderer | null = null;
+    act(() => { confirmRenderer = create(confirmOptions.content); });
+    const confirmText = JSON.stringify(confirmRenderer!.toJSON());
+    expect(confirmText).toContain('删除 1 个已保存连接？此操作不可撤销。');
+    expect(confirmText).toContain('Primary database');
+    act(() => confirmRenderer!.unmount());
+
+    await act(async () => { await confirmOptions.onOk(); });
+    expect(deleteConnections).toHaveBeenCalledWith(['connection-1']);
+    expect(deleteConnectionGroup).not.toHaveBeenCalled();
+    expect(closeTabsByConnection).toHaveBeenCalledWith('connection-1');
+    expect(storeState.removeConnection).toHaveBeenCalledWith('connection-1');
+    expect(storeState.removeConnectionTagTree).not.toHaveBeenCalled();
+    expect(messageMock.success).toHaveBeenCalledWith('已删除 1 个连接。');
+  });
+
+  it('keeps the selected connections when the backend rejects the deletion', async () => {
+    vi.stubGlobal('window', {
+      go: { app: { App: { DeleteConnections: vi.fn().mockRejectedValue(new Error('backend unavailable')) } } },
+    });
+    const root = renderModal();
+    selectGroup(root);
+    act(() => findByData(root, 'select-visible').props.onClick());
+    act(() => root.findByProps({ className: 'connection-group-management-delete-selected' }).props.onClick());
+    const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
+
+    await expect(act(async () => { await confirmOptions.onOk(); })).rejects.toThrow('backend unavailable');
+    expect(messageMock.error).toHaveBeenCalledWith('删除连接失败：backend unavailable');
+    expect(storeState.removeConnection).not.toHaveBeenCalled();
+    expect(messageMock.success).not.toHaveBeenCalled();
   });
 
   it('blocks deletion when another window moved the connection out of the group', async () => {
@@ -472,7 +539,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
     });
     const root = renderModal();
     selectGroup(root);
-    act(() => root.findByProps({ 'aria-label': '删除' }).props.onClick());
+    act(() => root.findByProps({ 'aria-label': '删除分组' }).props.onClick());
     const confirmOptions = (Modal as any).confirm.mock.calls.at(-1)[0];
 
     await expect(act(async () => { await confirmOptions.onOk(); })).rejects.toThrow('分组内容已被其他窗口更新，请刷新后再删除。');

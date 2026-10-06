@@ -1,4 +1,5 @@
-import { message } from 'antd';
+import { Spin, message } from 'antd';
+import { lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import DataGridModals from '../../DataGridModals';
 import TableDesigner from '../../TableDesigner';
@@ -12,6 +13,9 @@ import { V2ColumnHeaderContextMenuView, V2CellContextMenuView } from '../../V2Ta
 import { GONAVI_ROW_KEY } from '../../DataGridCore';
 import type { DataGridShellRenderersApi } from './useDataGridShellRenderers';
 import type { DataGridShellProps } from '../../DataGridShell';
+
+// Charts pull in recharts; load them only when the chart view is opened.
+const ResultChartView = lazy(() => import('../chart/ResultChartView'));
 
 export interface DataGridShellBodyProps {
   containerRef: DataGridShellProps['containerRef'];
@@ -291,6 +295,20 @@ export const DataGridShellBody = ({
   />
   ) : viewMode === 'sqlLog' ? (
   <LogPanel variant="embedded" />
+  ) : viewMode === 'chart' ? (
+  <Suspense fallback={<Spin />}>
+  <ResultChartView
+  rows={mergedDisplayData}
+  columns={displayOutputColumnNames}
+  columnMetaMap={columnMetaMap}
+  columnMetaMapByLowerName={columnMetaMapByLowerName}
+  selectedRowKeys={selectedRowKeys}
+  selectedCells={selectedCells}
+  darkMode={darkMode}
+  translate={translateDataGrid}
+  onReturnToTable={() => handleViewModeChange('table')}
+  />
+  </Suspense>
   ) : viewMode === 'json' ? (
   <DataGridJsonView
   darkMode={darkMode}

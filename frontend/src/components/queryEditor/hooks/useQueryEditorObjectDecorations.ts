@@ -37,6 +37,7 @@ import {
     isExactQueryEditorTableName,
 } from '../queryEditorCompletionTables';
 import { buildQueryEditorMonacoActionLabel } from '../queryEditorRunHelpers';
+import { invalidateQueryEditorSessionMetadata } from '../metadata/queryEditorSessionMetadataStore';
 import { t as translate } from '../../../i18n';
 import type { QueryEditorCoreStateApi } from './useQueryEditorCoreState';
 import type { QueryEditorConnectionContextApi } from './useQueryEditorConnectionContext';
@@ -372,6 +373,8 @@ export const useQueryEditorObjectDecorations = ({
     ) => {
         metadataGenerationRef.current += 1;
         setSharedQueryEditorMetadataGeneration(sharedQueryEditorMetadataGeneration + 1);
+        // 表已不存在：其它查询页也不能再从会话缓存里拿到它。
+        invalidateQueryEditorSessionMetadata(connectionId, dbName);
         const metadataDialect = normalizeMetadataDialect(
             connectionsRef.current.find((item) => item.id === connectionId),
         );

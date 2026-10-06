@@ -146,7 +146,7 @@ describe('QueryEditor external SQL save', () => {
 
       expect(backendApp.DBGetTables).toHaveBeenCalledTimes(1);
       expect(backendApp.DBTableExists).toHaveBeenCalledWith(expect.anything(), 'main', 'customer');
-      expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+      expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1); // click-time column prefetch for the tab
       expect(storeState.addTab).toHaveBeenCalledWith(expect.objectContaining({
         type: 'table',
         connectionId: 'conn-1',
@@ -211,7 +211,7 @@ describe('QueryEditor external SQL save', () => {
       }
     });
 
-    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1); // click-time column prefetch for the tab
     expect(storeState.addTab).not.toHaveBeenCalled();
     expect(messageApi.warning).not.toHaveBeenCalled();
   });
@@ -543,7 +543,7 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBTableExists).toHaveBeenCalledTimes(2);
     expect(backendApp.DBTableExists).toHaveBeenCalledWith(expect.anything(), 'main', 'alpha');
     expect(backendApp.DBTableExists).toHaveBeenCalledWith(expect.anything(), 'main', 'beta');
-    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(2); // click-time column prefetch, one per link
     expect(storeState.addTab).not.toHaveBeenCalled();
     expect(messageApi.warning).toHaveBeenCalledWith('表 alpha 已不存在，已刷新 SQL 编辑器元数据。');
     expect(messageApi.warning).toHaveBeenCalledWith('表 beta 已不存在，已刷新 SQL 编辑器元数据。');

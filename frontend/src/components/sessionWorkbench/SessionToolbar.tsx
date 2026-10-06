@@ -17,6 +17,8 @@ export interface SessionToolbarProps {
   databaseName: string;
   filter: string;
   runningOnly: boolean;
+  /** The text filter and running-only shortcut apply to the session list only. */
+  showSessionFilters?: boolean;
   loading: boolean;
   /** The catalog request for the current connection is still running. */
   databaseLoading: boolean;
@@ -35,6 +37,7 @@ export default function SessionToolbar({
   databaseLoading,
   filter,
   runningOnly,
+  showSessionFilters = true,
   loading,
   onConnectionChange,
   onDatabaseChange,
@@ -82,22 +85,24 @@ export default function SessionToolbar({
           {t('session_workbench.refresh')}
         </Button>
       </div>
-      <Space className="gn-session-workbench-filter" size={8} wrap>
-        <Typography.Text>{t('session_workbench.filter.label')}</Typography.Text>
-        <Input
-          allowClear
-          value={filter}
-          aria-label={t('session_workbench.filter.label')}
-          placeholder={t('session_workbench.filter.placeholder')}
-          onChange={(event) => onFilterChange(event.target.value)}
-        />
-        <Checkbox
-          checked={runningOnly}
-          onChange={(event) => onRunningOnlyChange(event.target.checked)}
-        >
-          {t('session_workbench.filter.running_only')}
-        </Checkbox>
-      </Space>
+      {showSessionFilters ? (
+        <Space className="gn-session-workbench-filter" size={8} wrap>
+          <Typography.Text>{t('session_workbench.filter.label')}</Typography.Text>
+          <Input
+            allowClear
+            value={filter}
+            aria-label={t('session_workbench.filter.label')}
+            placeholder={t('session_workbench.filter.placeholder')}
+            onChange={(event) => onFilterChange(event.target.value)}
+          />
+          <Checkbox
+            checked={runningOnly}
+            onChange={(event) => onRunningOnlyChange(event.target.checked)}
+          >
+            {t('session_workbench.filter.running_only')}
+          </Checkbox>
+        </Space>
+      ) : null}
     </div>
   );
 }

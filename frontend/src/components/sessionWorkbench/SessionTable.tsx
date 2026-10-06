@@ -17,7 +17,7 @@ const actionButtonClass = (kind: 'choose' | 'cancel' | 'terminate'): string => (
   `gn-session-action-btn is-${kind}`
 );
 
-function SessionActions({
+export function SessionActions({
   session,
   capability,
   onAction,

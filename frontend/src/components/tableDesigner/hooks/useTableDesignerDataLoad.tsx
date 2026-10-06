@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { Input, AutoComplete, Checkbox, Tooltip, Button, message } from 'antd';
 import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import {
@@ -34,6 +34,12 @@ import {
 import { ColumnDefinition, IndexDefinition } from '../../../types';
 import { resolveIndexMetadataResponse } from '../../tableDesignerIndexUtils';
 import { parseTableCommentFromDDL } from '../../tableDesignerExecutionSql';
+import { requestTableMetadata, type TableMetadataRequestKind } from '../../../utils/tableMetadataRequestCache';
+import { hasAlterTableDraftChanges } from '../../tableDesignerSchemaSqlAlter';
+import {
+    buildTableDesignerStructureCache,
+    loadTableDesignerStructure,
+} from '../tableDesignerStructureCache';
 import type { TableDesignerStateApi } from './useTableDesignerState';
 import type { TableDesignerProps } from '../../TableDesigner';
 
@@ -66,6 +72,8 @@ export interface UseTableDesignerDataLoadInput {
     metadataLoadSeqRef: TableDesignerStateApi['metadataLoadSeqRef'];
     isNewTable: TableDesignerStateApi['isNewTable'];
     resolveTableInfo: TableDesignerStateApi['resolveTableInfo'];
+    columns: TableDesignerStateApi['columns'];
+    originalColumns: TableDesignerStateApi['originalColumns'];
     setColumns: TableDesignerStateApi['setColumns'];
     setOriginalColumns: TableDesignerStateApi['setOriginalColumns'];
     setSelectedColumnRowKeys: TableDesignerStateApi['setSelectedColumnRowKeys'];
@@ -85,7 +93,8 @@ export const useTableDesignerDataLoad = ({
     resizeDragRef, ghostRef, latestResizeXRef, resizeListenerRef, resizeBodyStyleRef, shellRef,
     tableColumns, indexColumns, setIndexColumns, setColumnsLoading, setIndexesLoading,
     setForeignKeysLoading, setTriggersLoading, setDdlLoading, metadataLoadSeqRef, isNewTable,
-    resolveTableInfo, setColumns, setOriginalColumns, setSelectedColumnRowKeys, setIndexes, setFks,
+    resolveTableInfo, columns, originalColumns, setColumns, setOriginalColumns,
+    setSelectedColumnRowKeys, setIndexes, setFks,
     setTriggers, setDdl, setTableComment, isTableCommentModalOpen, setTableCommentDraft,
     selectedSchema,
 }: UseTableDesignerDataLoadInput) => {
@@ -353,7 +362,14 @@ export const useTableDesignerDataLoad = ({
       return String(error || '');
     };
 
-    const fetchData = async () => {
+    const columnDraftRef = useRef({ columns, originalColumns });
+    columnDraftRef.current = { columns, originalColumns };
+
+    // 打开设计器时与数据网格、预取共用同一批字段 / 索引 / 外键请求（reuseRecentRequests），
+    // 并先显示上次加载的结构、后台刷新；其余调用都发生在刷新或执行 DDL 之后，必须重新请求。
+    const fetchData = async (options?: { reuseRecentRequests?: boolean }) => {
+      const isOpening = options?.reuseRecentRequests === true;
+      const requestOptions = { force: !isOpening };
       const requestSeq = metadataLoadSeqRef.current + 1;
       metadataLoadSeqRef.current = requestSeq;
       const isCurrentRequest = () => metadataLoadSeqRef.current === requestSeq;
@@ -386,16 +402,39 @@ export const useTableDesignerDataLoad = ({
             ? tableInfo.qualifiedName
             : (tab.tableName || '');
         const tableName = resolvedTableName || tab.tableName || '';
+        const metadataKey = (kind: TableMetadataRequestKind) => ({
+            connectionId: tab.connectionId, dbName, tableName, kind,
+        });
+        // 复用到的若是一次失败的响应，就自己再请求一遍，不把别处的瞬时失败带进设计器。
+        const requestMetadata = <T extends { success?: boolean }>(
+            kind: TableMetadataRequestKind,
+            loader: () => Promise<T>,
+        ): Promise<T> => requestTableMetadata(metadataKey(kind), loader, requestOptions).then((result) => (
+            result?.success || requestOptions.force
+                ? result
+                : requestTableMetadata(metadataKey(kind), loader, { force: true })
+        ));
 
-        setColumnsLoading(true);
-      setIndexesLoading(true);
-      setForeignKeysLoading(true);
-      setTriggersLoading(true);
-      setDdlLoading(true);
+        const structureCache = buildTableDesignerStructureCache(tab.connectionId, conn.config, dbName, tableName);
+        const hasUnsavedColumnDraft = () => !readOnly && hasAlterTableDraftChanges({
+            dbType: tableInfo.dbType,
+            tableName: tableInfo.qualifiedName,
+            originalColumns: columnDraftRef.current.originalColumns,
+            columns: columnDraftRef.current.columns,
+        });
 
-      const loadColumns = DBGetColumns(rpcConfig, dbName, tableName)
-          .then((colsRes) => {
-              if (!isCurrentRequest()) return;
+      const loadColumns = loadTableDesignerStructure({
+          ...structureCache('columns'),
+          useCached: isOpening,
+          isCurrent: isCurrentRequest,
+          setLoading: setColumnsLoading,
+          request: () => requestMetadata('columns', () => DBGetColumns(rpcConfig, dbName, tableName)),
+          // 结构已在别处变化、而用户已经改了字段：不覆盖草稿，提示先刷新。
+          canReplaceShown: () => !hasUnsavedColumnDraft(),
+          onKeptStale: () => {
+              message.warning(t('table_designer.message.structure_changed_elsewhere', undefined, i18nLanguage));
+          },
+          apply: (colsRes) => {
               if (colsRes.success) {
                   const colsWithKey = (colsRes.data as ColumnDefinition[]).map((c, index) => ({
                       ...normalizeColumnDefinition(c),
@@ -408,21 +447,24 @@ export const useTableDesignerDataLoad = ({
               } else {
                   message.error(t('table_designer.message.load_columns_failed', { detail: colsRes.message }, i18nLanguage));
               }
-          })
-          .catch((error: unknown) => {
-              if (!isCurrentRequest()) return;
+          },
+          fail: (error) => {
               message.error(t('table_designer.message.load_columns_failed', { detail: formatLoadError(error) }, i18nLanguage));
-          })
-          .finally(() => {
-              if (isCurrentRequest()) setColumnsLoading(false);
-          });
+          },
+      });
 
-      await loadColumns;
-      if (!isCurrentRequest()) return;
-
-      const loadIndexes = DBGetIndexes(rpcConfig, dbName, tableName)
-          .then((idxRes) => {
-              if (!isCurrentRequest()) return;
+      // 其余四项先把缓存里的显示出来，请求仍排在字段之后；字段返回时已被新的加载取代就不再发。
+      const afterColumns = <T,>(run: () => Promise<T>): Promise<T> => loadColumns.then(() => {
+          if (!isCurrentRequest()) throw new Error('superseded');
+          return run();
+      });
+      const loadIndexes = loadTableDesignerStructure({
+          ...structureCache('indexes'),
+          useCached: isOpening,
+          isCurrent: isCurrentRequest,
+          setLoading: setIndexesLoading,
+          request: () => afterColumns(() => requestMetadata('indexes', () => DBGetIndexes(rpcConfig, dbName, tableName))),
+          apply: (idxRes) => {
               const result = resolveIndexMetadataResponse<IndexDefinition>(idxRes);
               setIndexes(result.indexes);
               if (result.errorDetail !== null) {
@@ -430,45 +472,47 @@ export const useTableDesignerDataLoad = ({
                       detail: result.errorDetail || t('table_designer.fallback.unknown_error', undefined, i18nLanguage),
                   }, i18nLanguage));
               }
-          })
-          .catch((error: unknown) => {
-              if (!isCurrentRequest()) return;
+          },
+          fail: (error) => {
               setIndexes([]);
               message.error(t('table_designer.message.load_indexes_failed', {
                   detail: formatLoadError(error) || t('table_designer.fallback.unknown_error', undefined, i18nLanguage),
               }, i18nLanguage));
-          })
-          .finally(() => {
-              if (isCurrentRequest()) setIndexesLoading(false);
-          });
+          },
+      });
 
-      const loadForeignKeys = DBGetForeignKeys(rpcConfig, dbName, tableName)
-          .then((fkRes) => {
-              if (!isCurrentRequest()) return;
+      const loadForeignKeys = loadTableDesignerStructure({
+          ...structureCache('foreignKeys'),
+          useCached: isOpening,
+          isCurrent: isCurrentRequest,
+          setLoading: setForeignKeysLoading,
+          request: () => afterColumns(() => requestMetadata('foreignKeys', () => DBGetForeignKeys(rpcConfig, dbName, tableName))),
+          apply: (fkRes) => {
               setFks(fkRes.success && Array.isArray(fkRes.data) ? fkRes.data : []);
-          })
-          .catch(() => {
-              if (isCurrentRequest()) setFks([]);
-          })
-          .finally(() => {
-              if (isCurrentRequest()) setForeignKeysLoading(false);
-          });
+          },
+          fail: () => setFks([]),
+      });
 
-      const loadTriggers = DBGetTriggers(rpcConfig, dbName, tableName)
-          .then((trigRes) => {
-              if (!isCurrentRequest()) return;
+      const loadTriggers = loadTableDesignerStructure({
+          ...structureCache('triggers'),
+          useCached: isOpening,
+          isCurrent: isCurrentRequest,
+          setLoading: setTriggersLoading,
+          request: () => afterColumns(() => DBGetTriggers(rpcConfig, dbName, tableName)),
+          apply: (trigRes) => {
               setTriggers(trigRes.success && Array.isArray(trigRes.data) ? trigRes.data : []);
-          })
-          .catch(() => {
-              if (isCurrentRequest()) setTriggers([]);
-          })
-          .finally(() => {
-              if (isCurrentRequest()) setTriggersLoading(false);
-          });
+          },
+          fail: () => setTriggers([]),
+      });
 
-      const loadDdl = DBShowCreateTable(rpcConfig, dbName, tableName)
-          .then((ddlRes) => {
-              if (!isCurrentRequest() || !ddlRes.success) return;
+      const loadDdl = loadTableDesignerStructure({
+          ...structureCache('ddl'),
+          useCached: isOpening,
+          isCurrent: isCurrentRequest,
+          setLoading: setDdlLoading,
+          request: () => afterColumns(() => DBShowCreateTable(rpcConfig, dbName, tableName)),
+          apply: (ddlRes) => {
+              if (!ddlRes.success) return;
               const ddlText = String(ddlRes.data || '');
               setDdl(ddlText);
               const parsedTableComment = parseTableCommentFromDDL(ddlText);
@@ -476,17 +520,17 @@ export const useTableDesignerDataLoad = ({
               if (!isTableCommentModalOpen) {
                   setTableCommentDraft(parsedTableComment);
               }
-          })
-          .catch(() => undefined)
-          .finally(() => {
-              if (isCurrentRequest()) setDdlLoading(false);
-          });
+          },
+          fail: () => undefined,
+      });
 
       await Promise.allSettled([loadIndexes, loadForeignKeys, loadTriggers, loadDdl]);
     };
 
-    useEffect(() => {
-      fetchData();
+    // Layout effect: a structure kept from an earlier visit is put on screen before the
+    // first paint, so reopening a table never flashes an empty designer.
+    useLayoutEffect(() => {
+      fetchData({ reuseRecentRequests: true });
       // Depend on the identity fields fetchData actually reads instead of the whole
       // `tab` object: hosts such as DataGridShell pass an inline literal, so a new
       // object identity on every parent render would otherwise re-run all five

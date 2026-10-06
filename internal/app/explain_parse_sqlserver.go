@@ -66,6 +66,10 @@ type sqlServerXMLStmtSimple struct {
 
 type sqlServerXMLPlan struct {
 	RelOps []sqlServerXMLRelOp `xml:"RelOp"`
+	// QueryTimeStats 只在实际执行计划（STATISTICS XML）中出现，单位毫秒。
+	QueryTimeStats *struct {
+		ElapsedTime float64 `xml:"ElapsedTime,attr"`
+	} `xml:"QueryTimeStats"`
 }
 
 // sqlServerXMLRelOp 是 SHOWPLAN_XML 的核心节点；嵌套子 RelOp 通过多种容器元素持有。
@@ -118,9 +122,11 @@ type sqlServerXMLRunTimeInfo struct {
 }
 
 type sqlServerXMLRunTimeCounter struct {
-	ActualRows     int64   `xml:"ActualRows,attr"`
-	ActualElapsedMs float64 `xml:"ActualElapsedms,attr"`
-	ActualScans    int64   `xml:"ActualScans,attr"`
+	ActualRows          int64   `xml:"ActualRows,attr"`
+	ActualElapsedMs     float64 `xml:"ActualElapsedms,attr"`
+	ActualScans         int64   `xml:"ActualScans,attr"`
+	ActualExecutions    *int64  `xml:"ActualExecutions,attr"`
+	ActualExecutionMode string  `xml:"ActualExecutionMode,attr"`
 }
 
 func parseSQLServerExplain(sourceSQL, raw string, format connection.ExplainFormat) (connection.ExplainResult, error) {
@@ -165,8 +171,13 @@ func parseSQLServerExplain(sourceSQL, raw string, format connection.ExplainForma
 			for _, relOp := range stmt.QueryPlan.RelOps {
 				parseSQLServerRelOp(&relOp, "", &result, nodeByOpID)
 			}
+			if stats := stmt.QueryPlan.QueryTimeStats; stats != nil {
+				result.Stats.TotalDurationMs += stats.ElapsedTime
+			}
 		}
 	}
+	includeSQLServerBatchModeChildTime(result.Nodes)
+	markSQLServerStepsWithoutRuntime(result.Nodes)
 
 	if len(result.Nodes) == 0 {
 		result.Warnings = append(result.Warnings, "SHOWPLANXML 解析未提取到任何 RelOp 节点")
@@ -174,7 +185,12 @@ func parseSQLServerExplain(sourceSQL, raw string, format connection.ExplainForma
 
 	result.RawFormat = connection.ExplainFormatXML
 	result.RawPayload = raw
+	measuredTotal := result.Stats.TotalDurationMs
 	finalizeExplainStats(&result)
+	if measuredTotal == 0 && result.Stats.TotalDurationMs > 0 {
+		// No QueryTimeStats (older servers): step times include their children.
+		result.Stats.TotalDurationMs = explainMeasuredWallMs(result.Nodes)
+	}
 	return result, nil
 }
 
@@ -198,9 +214,8 @@ func parseSQLServerRelOp(rel *sqlServerXMLRelOp, parentID string, result *connec
 		Cost:     rel.EstimatedTotalSubtreeCost,
 	}
 
-	// 取第一个 Object 作为表/索引来源
-	if len(rel.Objects) > 0 {
-		obj := rel.Objects[0]
+	// 取第一个 Object 作为表/索引来源；扫描与查找类算子把 Object 放在 IndexScan 等子元素里
+	if obj, ok := firstSQLServerObject(rel); ok {
 		node.Table = stripSQLServerBrackets(obj.Table)
 		node.Index = stripSQLServerBrackets(obj.Index)
 	}
@@ -213,16 +228,11 @@ func parseSQLServerRelOp(rel *sqlServerXMLRelOp, parentID string, result *connec
 		node.Extra["filter"] = rel.Predicate.ScalarString
 	}
 
-	// ActualRows（来自 RunTimeCountersPerThread 累加）
 	if rel.RunTimeInfo != nil {
-		var actualRows int64
-		var elapsedMs float64
-		for _, c := range rel.RunTimeInfo.RunTimeCounters {
-			actualRows += c.ActualRows
-			elapsedMs += c.ActualElapsedMs
-		}
-		node.ActualRows = actualRows
-		node.DurationMs = elapsedMs
+		applySQLServerRunTimeCounters(&node, rel.RunTimeInfo.RunTimeCounters, rel.Parallel == 1)
+	} else {
+		// Only meaningful in an actual plan; see markSQLServerStepsWithoutRuntime.
+		setExplainExtra(&node, sqlServerNoRuntimeKey, true)
 	}
 
 	// 物理算子归类
@@ -237,7 +247,7 @@ func parseSQLServerRelOp(rel *sqlServerXMLRelOp, parentID string, result *connec
 
 	// 关联 LogicalOp 优化提示
 	if strings.Contains(strings.ToLower(rel.LogicalOp), "aggregate") {
-		node.Flags = append(node.Flags, connection.ExplainFlagTempTable)
+		node.Flags = appendExplainFlag(node.Flags, connection.ExplainFlagTempTable)
 	}
 
 	nodeID := appendExplainChild(result, parentID, node)
@@ -302,4 +312,123 @@ func stripSQLServerBrackets(s string) string {
 	s = strings.TrimPrefix(s, "[")
 	s = strings.TrimSuffix(s, "]")
 	return s
+}
+
+// applySQLServerRunTimeCounters turns the per-thread counters of an actual
+// plan into the per-loop figures every dialect reports. Rows add up across
+// threads; threads run side by side, so the step took as long as its slowest
+// thread. ActualRows and ActualElapsedms cover all executions, while
+// EstimateRows is per execution of the whole step: a parallel step runs once
+// per thread for one loop, so its loops are the most any thread executed.
+func applySQLServerRunTimeCounters(node *connection.ExplainNode, counters []sqlServerXMLRunTimeCounter, parallel bool) {
+	if len(counters) == 0 {
+		return
+	}
+	var rows, executions int64
+	var elapsedMs float64
+	mode := ""
+	reported := false
+	for _, counter := range counters {
+		rows += counter.ActualRows
+		if counter.ActualExecutions != nil {
+			reported = true
+			if !parallel {
+				executions += *counter.ActualExecutions
+			} else if *counter.ActualExecutions > executions {
+				executions = *counter.ActualExecutions
+			}
+		}
+		if counter.ActualElapsedMs > elapsedMs {
+			elapsedMs = counter.ActualElapsedMs
+		}
+		if counter.ActualExecutionMode != "" {
+			mode = counter.ActualExecutionMode
+		}
+	}
+	if !reported {
+		// Older servers omit ActualExecutions; the step ran at least once.
+		executions = 1
+	}
+	if executions <= 0 {
+		// ActualExecutions="0": the executor never started this step.
+		return
+	}
+	node.Loops = executions
+	node.ActualRows = int64(float64(rows)/float64(executions) + 0.5)
+	node.DurationMs = elapsedMs / float64(executions)
+	if strings.EqualFold(mode, "Batch") {
+		setExplainExtra(node, "executionMode", "Batch")
+	}
+}
+
+// includeSQLServerBatchModeChildTime makes batch-mode times include the steps
+// below them, as row-mode times already do: a batch-mode operator reports only
+// its own time. Children follow their parent in the list, so walking it
+// backwards sees every child's final time first.
+func includeSQLServerBatchModeChildTime(nodes []connection.ExplainNode) {
+	index := make(map[string]int, len(nodes))
+	for position, node := range nodes {
+		index[node.ID] = position
+	}
+	childTotals := make([]float64, len(nodes))
+	for position := len(nodes) - 1; position >= 0; position-- {
+		node := &nodes[position]
+		if node.Extra["executionMode"] == "Batch" && childTotals[position] > 0 {
+			loops := node.Loops
+			if loops < 1 {
+				loops = 1
+			}
+			node.DurationMs = (explainNodeTotalMs(*node) + childTotals[position]) / float64(loops)
+		}
+		if parent, ok := index[node.ParentID]; ok && node.ParentID != "" {
+			childTotals[parent] += explainNodeTotalMs(*node)
+		}
+	}
+}
+
+// sqlServerNoRuntimeKey marks a step an actual plan carries no runtime counters
+// for (Compute Scalar is usually evaluated inside its consumer).
+const sqlServerNoRuntimeKey = "runtimeNotReported"
+
+// markSQLServerStepsWithoutRuntime keeps the marker only in actual plans, where
+// it stops a counter-less step from reading as "never executed"; an estimated
+// plan has no counters anywhere and needs no marker.
+func markSQLServerStepsWithoutRuntime(nodes []connection.ExplainNode) {
+	actual := false
+	for _, node := range nodes {
+		if node.Extra[sqlServerNoRuntimeKey] == nil {
+			actual = true
+			break
+		}
+	}
+	if actual {
+		return
+	}
+	for index := range nodes {
+		delete(nodes[index].Extra, sqlServerNoRuntimeKey)
+		if len(nodes[index].Extra) == 0 {
+			nodes[index].Extra = nil
+		}
+	}
+}
+
+// firstSQLServerObject finds the table a step reads: on the RelOp itself or in
+// the operator element below it (<IndexScan><Object .../></IndexScan>).
+func firstSQLServerObject(rel *sqlServerXMLRelOp) (sqlServerXMLObject, bool) {
+	if len(rel.Objects) > 0 {
+		return rel.Objects[0], true
+	}
+	containers := []*sqlServerXMLContainer{
+		rel.IndexScan, rel.NestedLoops, rel.Hash, rel.Merge,
+		rel.Concat, rel.Sort, rel.Filter, rel.ComputeScalar, rel.Top,
+	}
+	for index := range rel.GenericRelOps {
+		containers = append(containers, &rel.GenericRelOps[index])
+	}
+	for _, container := range containers {
+		if container != nil && len(container.Objects) > 0 {
+			return container.Objects[0], true
+		}
+	}
+	return sqlServerXMLObject{}, false
 }

@@ -67,45 +67,9 @@ func (a *App) DiagnoseQuery(config connection.ConnectionConfig, dbName, query st
 	return a.diagnoseQueryContext(context.Background(), config, dbName, query)
 }
 
+// diagnoseQueryContext 只生成估算计划；实测模式见 methods_explain_diagnose.go。
 func (a *App) diagnoseQueryContext(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return connection.QueryResult{Success: false, Message: a.appText("sql_analysis.backend.error.query_required", nil)}
-	}
-
-	runConfig := normalizeRunConfig(config, dbName)
-	dbType := resolveExplainDBType(runConfig)
-	if !isSafeExplainQuery(dbType, query) {
-		return connection.QueryResult{Success: false, Message: a.appText("sql_analysis.backend.error.select_only", nil)}
-	}
-	if !explainSupportedDBTypes[dbType] && !isRegistryExplainDialect(dbType) {
-		return connection.QueryResult{
-			Success: false,
-			Message: a.appText("sql_analysis.backend.error.unsupported_db_type", map[string]any{"dbType": dbType}),
-		}
-	}
-
-	dbInst, err := a.getDatabaseSynchronouslyWithContext(ctx, runConfig, false)
-	if err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-
-	plan, err := a.executeExplainContext(ctx, dbInst, runConfig, dbType, query)
-	if err != nil {
-		logger.Warnf("DiagnoseQuery 执行 EXPLAIN 失败：type=%s err=%v sql=%q", dbType, err, sqlSnippet(query))
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-
-	suggestions := runExplainRules(plan)
-	report := connection.DiagnoseReport{Plan: plan, Suggestions: suggestions}
-	logger.Infof("DiagnoseQuery 完成：type=%s nodes=%d suggestions=%d", dbType, len(plan.Nodes), len(suggestions))
-	return connection.QueryResult{Success: true, Message: a.appText("sql_analysis.backend.message.completed", nil), Data: report}
+	return a.runDiagnoseQuery(ctx, config, dbName, query, connection.DiagnoseOptions{})
 }
 
 // isSafeExplainQuery 只允许单条只读 SELECT/WITH。
@@ -609,6 +573,14 @@ func parseExplainRaw(dbType, sourceSQL, raw string, format connection.ExplainFor
 }
 
 func parseExplainRawWithText(dbType, sourceSQL, raw string, format connection.ExplainFormat, text func(string, map[string]any) string) (connection.ExplainResult, error) {
+	result, err := parseExplainRawByDialect(dbType, sourceSQL, raw, format, text)
+	if err == nil {
+		annotateExplainHotspots(&result, explainCostIsCumulative(dbType))
+	}
+	return result, err
+}
+
+func parseExplainRawByDialect(dbType, sourceSQL, raw string, format connection.ExplainFormat, text func(string, map[string]any) string) (connection.ExplainResult, error) {
 	if text == nil {
 		text = defaultExplainBackendText
 	}
@@ -617,6 +589,12 @@ func parseExplainRawWithText(dbType, sourceSQL, raw string, format connection.Ex
 	}
 	switch dbType {
 	case "mysql", "mariadb", "oceanbase":
+		if isMySQLTreeExplain(raw) {
+			return parseMySQLTreeExplain(dbType, sourceSQL, raw)
+		}
+		if isMariaDBExplainJSON(raw) {
+			return parseMariaDBExplain(dbType, sourceSQL, raw)
+		}
 		return parseMySQLExplain(dbType, sourceSQL, raw, format)
 	case "diros", "starrocks":
 		return parseDistributedMySQLTextExplain(dbType, sourceSQL, raw, format), nil

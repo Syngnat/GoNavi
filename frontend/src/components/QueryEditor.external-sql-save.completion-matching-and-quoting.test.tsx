@@ -698,7 +698,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(referencedDatabaseAttempts).toBe(2);
-    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(4);
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(3); // main is reused; only the failed database is requested again
     await act(async () => {
       renderer.unmount();
     });

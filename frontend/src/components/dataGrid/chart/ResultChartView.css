@@ -1,0 +1,60 @@
+.gn-result-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  padding: 8px 10px 10px;
+}
+
+.gn-result-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.gn-result-chart-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.gn-result-chart-select.ant-select {
+  width: 180px;
+}
+
+.gn-result-chart-select.is-wide.ant-select {
+  width: 260px;
+}
+
+.gn-result-chart-select.is-narrow.ant-select {
+  width: 104px;
+}
+
+.gn-result-chart-select.is-split.ant-select {
+  width: 140px;
+}
+
+.gn-result-chart-back.ant-btn {
+  margin-left: auto;
+}
+
+.gn-result-chart-body {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  /* Result panes can be short; the chart shrinks rather than pushing its axis out of view. */
+  min-height: 140px;
+}
+
+.gn-result-chart-body > .recharts-responsive-container {
+  flex: 1 1 auto;
+  align-self: stretch;
+}
+
+.gn-result-chart .gn-result-chart-notes.ant-typography {
+  font-size: 12px;
+}

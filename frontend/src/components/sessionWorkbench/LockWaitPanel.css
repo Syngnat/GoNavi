@@ -1,0 +1,137 @@
+.gn-session-workbench-header-extra {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.gn-lock-wait-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.gn-lock-wait-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gn-lock-wait-auto-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.gn-lock-wait-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gn-lock-wait-summary-item {
+  padding: 3px 10px;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 999px;
+  background: var(--gn-bg-panel-2);
+  color: var(--gn-fg-2);
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 18px;
+}
+
+.gn-lock-wait-summary-item.is-waiting {
+  border-color: color-mix(in srgb, var(--gn-warn) 42%, transparent);
+  background: var(--gn-warn-soft);
+  color: var(--gn-warn);
+}
+
+.gn-lock-wait-summary-item.is-root,
+.gn-lock-wait-summary-item.is-cycle {
+  border-color: color-mix(in srgb, var(--gn-danger) 42%, transparent);
+  background: color-mix(in srgb, var(--gn-danger) 12%, transparent);
+  color: var(--gn-danger);
+}
+
+.gn-lock-wait-session,
+.gn-lock-wait-status,
+.gn-lock-wait-lock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gn-lock-wait-session-id {
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  font-weight: 600;
+}
+
+.gn-lock-wait-instance {
+  margin-left: 2px;
+  color: var(--gn-fg-4);
+  font-weight: 400;
+}
+
+.gn-lock-wait-status-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.gn-session-workbench .gn-lock-wait-session-user.ant-typography,
+.gn-session-workbench .gn-lock-wait-duration.ant-typography,
+.gn-session-workbench .gn-lock-wait-lock-detail.ant-typography {
+  overflow: hidden;
+  font-size: var(--gn-font-size-sm, 12px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-lock-wait-role.ant-tag {
+  margin-inline-end: 0;
+  border-style: solid !important;
+  border-width: 1px !important;
+  font-size: var(--gn-font-size-sm, 12px) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-lock-wait-role.is-root.ant-tag,
+body[data-ui-version="v2"] .gn-session-workbench .gn-lock-wait-role.is-cycle.ant-tag {
+  color: var(--gn-danger) !important;
+  background: color-mix(in srgb, var(--gn-danger) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--gn-danger) 42%, transparent) !important;
+}
+
+body[data-ui-version="v2"] .gn-session-workbench .gn-lock-wait-role.is-waiting.ant-tag {
+  color: var(--gn-warn) !important;
+  background: var(--gn-warn-soft) !important;
+  border-color: color-mix(in srgb, var(--gn-warn) 42%, transparent) !important;
+}
+
+.gn-lock-wait-object {
+  overflow: hidden;
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-lock-wait-blocks {
+  color: var(--gn-danger);
+  font-weight: 600;
+}
+
+.gn-lock-wait-last-label {
+  margin-right: 4px;
+  color: var(--gn-warn);
+}
+
+.gn-session-statement-cell.is-idle-holder {
+  cursor: help;
+}
+
+/* Root blockers are what the user acts on: give the row a quiet accent rail. */
+.gn-lock-wait-table .gn-lock-wait-row.is-root > td:first-child {
+  box-shadow: inset 3px 0 0 var(--gn-danger);
+}

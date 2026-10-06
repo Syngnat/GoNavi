@@ -1,9 +1,8 @@
 import React from 'react';
 import { Segmented, Tooltip } from 'antd';
-import { GnJsonIcon, GnTableIcon, GnTextViewIcon } from './icons/gnIcons';
+import { GnChartIcon, GnJsonIcon, GnTableIcon, GnTextViewIcon } from './icons/gnIcons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
-
-type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLog';
+import type { GridViewMode } from './dataGrid/core/dataGridTypes';
 
 export type DataGridResultViewTranslate = (key: string, params?: I18nParams) => string;
 
@@ -23,6 +22,7 @@ const DataGridResultViewSwitcher: React.FC<DataGridResultViewSwitcherProps> = ({
     { label: translate('data_grid.view.table'), value: 'table', icon: <GnTableIcon /> },
     { label: 'JSON', value: 'json', icon: <GnJsonIcon /> },
     { label: translate('data_grid.view.text'), value: 'text', icon: <GnTextViewIcon /> },
+    { label: translate('data_grid.view.chart'), value: 'chart', icon: <GnChartIcon /> },
   ];
 
   return (
@@ -33,7 +33,7 @@ const DataGridResultViewSwitcher: React.FC<DataGridResultViewSwitcherProps> = ({
       <Segmented
         aria-label={resultViewLabel}
         size="small"
-        value={viewMode === 'json' || viewMode === 'text' ? viewMode : 'table'}
+        value={viewMode === 'json' || viewMode === 'text' || viewMode === 'chart' ? viewMode : 'table'}
         options={viewOptions.map((option) => ({
           label: <Tooltip title={option.label}>
               <span className="gn-v2-data-grid-result-option">

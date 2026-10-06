@@ -60,20 +60,26 @@ const (
 
 // ExplainNode 表示执行计划中的一个节点（归一化后跨方言通用）。
 type ExplainNode struct {
-	ID         string         `json:"id"`
-	ParentID   string         `json:"parentId,omitempty"`
-	OpType     string         `json:"opType"`
-	OpDetail   string         `json:"opDetail,omitempty"`   // 原始操作符文本，如 "Hash Join" / "Using where"
-	Table      string         `json:"table,omitempty"`      // 涉及的表名
-	Index      string         `json:"index,omitempty"`      // 使用的索引名
-	EstRows    int64          `json:"estRows,omitempty"`    // 估算扫描行数
-	ActualRows int64          `json:"actualRows,omitempty"` // 实际返回行数（需 ANALYZE）
-	Loops      int64          `json:"loops,omitempty"`      // 循环执行次数
-	Cost       float64        `json:"cost,omitempty"`       // 估算成本
-	DurationMs float64        `json:"durationMs,omitempty"` // 实际耗时毫秒（需 ANALYZE）
-	BufferHit  float64        `json:"bufferHit,omitempty"`  // 缓冲命中率 0-1
-	Flags      []string       `json:"flags,omitempty"`      // 警告标志
-	Extra      map[string]any `json:"extra,omitempty"`      // 方言特定字段，前端按需展示
+	ID         string  `json:"id"`
+	ParentID   string  `json:"parentId,omitempty"`
+	OpType     string  `json:"opType"`
+	OpDetail   string  `json:"opDetail,omitempty"`   // 原始操作符文本，如 "Hash Join" / "Using where"
+	Table      string  `json:"table,omitempty"`      // 涉及的表名
+	Index      string  `json:"index,omitempty"`      // 使用的索引名
+	EstRows    int64   `json:"estRows,omitempty"`    // 估算扫描行数
+	ActualRows int64   `json:"actualRows,omitempty"` // 实际返回行数（需 ANALYZE）
+	Loops      int64   `json:"loops,omitempty"`      // 循环执行次数
+	Cost       float64 `json:"cost,omitempty"`       // 估算成本
+	DurationMs float64 `json:"durationMs,omitempty"` // 实际耗时毫秒（需 ANALYZE）
+	BufferHit  float64 `json:"bufferHit,omitempty"`  // 缓冲命中率 0-1
+	// CostShare 是这一步自身（不含子节点）承担的估算工作量占整份计划的比例 0-1，
+	// 口径见 ExplainResult.HotspotBasis。
+	CostShare float64 `json:"costShare,omitempty"`
+	// EstimateFactor 是实测时实际行数与估算行数之比（各自按每次循环计、小于 1 行按 1 行算）：
+	// 大于 1 表示少估，小于 1 表示多估；仅实测计划中执行过的步骤填写。
+	EstimateFactor float64        `json:"estimateFactor,omitempty"`
+	Flags          []string       `json:"flags,omitempty"` // 警告标志
+	Extra          map[string]any `json:"extra,omitempty"` // 方言特定字段，前端按需展示
 }
 
 // ExplainEdge 表示执行计划节点间的父子关系，前端 react-flow 用于绘制连线。
@@ -97,14 +103,19 @@ type ExplainStats struct {
 
 // ExplainResult 是一次 EXPLAIN 解析后的归一化结果。
 type ExplainResult struct {
-	DBType     string        `json:"dbType"`
-	SourceSQL  string        `json:"sourceSql"`
-	Nodes      []ExplainNode `json:"nodes"`
-	Edges      []ExplainEdge `json:"edges,omitempty"`
-	Stats      ExplainStats  `json:"stats"`
-	Warnings   []string      `json:"warnings,omitempty"` // 解析/降级过程中的提示
-	RawFormat  ExplainFormat `json:"rawFormat"`
-	RawPayload string        `json:"rawPayload,omitempty"` // 原始 EXPLAIN 输出，前端调试用
+	DBType    string        `json:"dbType"`
+	SourceSQL string        `json:"sourceSql"`
+	Nodes     []ExplainNode `json:"nodes"`
+	Edges     []ExplainEdge `json:"edges,omitempty"`
+	Stats     ExplainStats  `json:"stats"`
+	Warnings  []string      `json:"warnings,omitempty"` // 解析/降级过程中的提示
+	RawFormat ExplainFormat `json:"rawFormat"`
+	// HotspotBasis 说明 ExplainNode.CostShare 的口径："cost"（估算成本）或
+	// "rows"（方言没有成本时按访问步骤的估算读取行数）；为空表示无法估算。
+	HotspotBasis string `json:"hotspotBasis,omitempty"`
+	// Analyzed 表示计划来自实测（真实执行后的耗时与行数），而不只是估算。
+	Analyzed   bool   `json:"analyzed,omitempty"`
+	RawPayload string `json:"rawPayload,omitempty"` // 原始 EXPLAIN 输出，前端调试用
 }
 
 // IndexSuggestion 是规则引擎针对某个节点产生的索引建议。
@@ -122,6 +133,14 @@ type IndexSuggestion struct {
 type DiagnoseReport struct {
 	Plan        ExplainResult     `json:"plan"`
 	Suggestions []IndexSuggestion `json:"suggestions"`
+	// AnalyzeSupported 表示该数据源可以用实测模式再跑一次（真实执行并对照估算）。
+	AnalyzeSupported bool `json:"analyzeSupported,omitempty"`
+}
+
+// DiagnoseOptions 是 DiagnoseQueryWithOptions 的可选项。
+type DiagnoseOptions struct {
+	// Analyze 真实执行查询（只读事务内执行后回滚），返回每一步的实际耗时与行数。
+	Analyze bool `json:"analyze,omitempty"`
 }
 
 // QueryExecutionRecord 是慢 SQL 历史的一条记录（PR5 慢 SQL 摘要用，提前定义便于 PR1 数据流贯通）。

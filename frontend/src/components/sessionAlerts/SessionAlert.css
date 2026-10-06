@@ -1,0 +1,112 @@
+.gn-session-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gn-session-alert .gn-session-alert-statement.ant-typography {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gn-session-alert-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+}
+
+.gn-session-alert-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gn-session-alert-settings .ant-input-number-group-wrapper {
+  flex: none;
+  width: 132px;
+}
+
+.gn-session-alert-settings .ant-input-number-group-addon {
+  width: 48px;
+}
+
+.gn-session-alert-settings .ant-input-number {
+  width: 100%;
+}
+
+.gn-session-alert-settings .gn-session-alert-settings-hint.ant-typography {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-session-alert-history {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.gn-session-alert-history__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.gn-session-alert-history__all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.gn-session-alert-history__hint.ant-typography {
+  font-size: 12px;
+}
+
+.gn-session-alert-history__kind {
+  font-weight: 600;
+}
+
+.gn-session-alert-history__kind.is-lockWait {
+  color: var(--gn-danger);
+}
+
+.gn-session-alert-history__kind.is-longTransaction {
+  color: var(--gn-warn);
+}
+
+.gn-session-alert-history__session,
+.gn-session-alert-history__detail {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+}
+
+.gn-session-alert-history__detail .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-session-alert-history__status.is-ongoing {
+  color: var(--gn-danger);
+  font-weight: 600;
+}
+
+.gn-session-alert-history__status.is-ended,
+.gn-session-alert-history__status.is-endedUnobserved,
+.gn-session-alert-history__status.is-unchecked {
+  color: var(--gn-fg-3);
+}

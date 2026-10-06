@@ -155,6 +155,18 @@
   background: color-mix(in srgb, var(--ant-color-error, #ff4d4f) 8%, transparent);
 }
 
+.connection-group-management-delete-selected.ant-btn {
+  height: 30px;
+  padding-inline: 10px;
+  background: var(--gn-bg-panel, transparent);
+  white-space: nowrap;
+}
+
+.connection-group-management-delete-selected.ant-btn-dangerous:hover,
+.connection-group-management-delete-selected.ant-btn-dangerous:focus-visible {
+  background: color-mix(in srgb, var(--ant-color-error, #ff4d4f) 8%, transparent);
+}
+
 .connection-group-management-sort.ant-select {
   width: 116px;
 }

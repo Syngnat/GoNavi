@@ -23,6 +23,7 @@ import type { TabData } from '../../../types';
 import type { SavedConnection } from '../../../typeDefs/connectionTypes';
 import type { createQueryEditorNavigationHover } from './queryEditorNavigationHover';
 import type { createQueryEditorImeAndDropHandlers } from './queryEditorImeAndDropHandlers';
+import { prefetchQueryEditorNavigationTableColumns } from '../queryEditorNavigationPrefetch';
 
 export interface BindQueryEditorMouseAndDisposeInput {
     editor: Parameters<OnMount>[0];
@@ -239,12 +240,20 @@ export const bindQueryEditorMouseAndDispose = ({
                 }
             };
             const navigationAction = (async () => {
-                const targetExists = await validateTableNavigationTarget(
+                // 点击的同时就取字段：页签打开后直接复用这次请求；取到字段也说明表存在，不用再等存在性校验。
+                const columnsPrefetch = prefetchQueryEditorNavigationTableColumns(
+                    targetConnection, connectionId, targetDbName, targetLookupTableName,
+                );
+                const validation = validateTableNavigationTarget(
                     connectionId,
                     targetDbName,
                     targetLookupTableName,
                     navigationContextVersion,
                 );
+                const targetExists = await Promise.race([
+                    columnsPrefetch.then((hasColumns) => (hasColumns ? true : validation)),
+                    validation,
+                ]);
                 if (
                     !queryEditorMountedRef.current
                     || !queryEditorActiveRef.current

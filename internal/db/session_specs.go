@@ -20,10 +20,13 @@ const (
 )
 
 type sessionSpec struct {
-	engine       string
-	capability   connection.SessionCapability
-	listQuery    string
-	durationUnit sessionDurationUnit
+	engine     string
+	capability connection.SessionCapability
+	listQuery  string
+	// fallbackListQueries run in order when listQuery fails, for engines whose
+	// session views changed between server versions. The first success wins.
+	fallbackListQueries []string
+	durationUnit        sessionDurationUnit
 	// rowDatabaseAuthoritative marks engines whose list query reports each
 	// session's own database. An empty value then means "no database selected"
 	// and must stay empty instead of borrowing the connection's default
@@ -41,12 +44,16 @@ func SessionCapabilityFor(config connection.ConnectionConfig) (string, connectio
 func sessionSpecFor(config connection.ConnectionConfig) sessionSpec {
 	engine := normalizeSessionEngine(config)
 	switch engine {
-	case "mysql", "mariadb", "goldendb", "oceanbase-mysql":
+	case "mysql", "mariadb", "goldendb":
 		return mysqlSessionSpec(engine)
+	case "oceanbase-mysql":
+		return oceanBaseMySQLSessionSpec()
 	case "doris", "starrocks":
 		return mysqlCompatibleAnalyticsSessionSpec(engine)
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "gbase8c":
 		return postgresSessionSpec(engine)
+	case "yashandb":
+		return yashanDBSessionSpec()
 	case "oracle":
 		return oracleSessionSpec()
 	case "oceanbase-oracle":
@@ -162,18 +169,10 @@ func postgresClientOnlyFilter(engine string) string {
 }
 
 func oracleSessionSpec() sessionSpec {
-	return oracleCompatibleSessionSpec("oracle")
-}
-
-func oceanBaseOracleSessionSpec() sessionSpec {
-	return oracleCompatibleSessionSpec("oceanbase-oracle")
-}
-
-func oracleCompatibleSessionSpec(engine string) sessionSpec {
 	capability := supportedSessionCapability(false, "", true, connection.SessionActionTargetSessionID)
 	capability.TerminateRequiresInstanceAndSerial = true
 	return sessionSpec{
-		engine:     engine,
+		engine:     "oracle",
 		capability: capability,
 		listQuery: `SELECT s.inst_id AS instance_id, s.sid AS session_id,
 s.serial# AS serial_number, s.service_name AS database_or_tenant,

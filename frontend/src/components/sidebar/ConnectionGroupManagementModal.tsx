@@ -10,6 +10,7 @@ import { t } from '../../i18n';
 import { buildSidebarRootTagToken, resolveConnectionTagChildOrder, resolveSidebarRootOrderTokens } from '../../store';
 import { APP_FOREGROUND_MODAL_Z_INDEX, APP_NESTED_MODAL_Z_INDEX } from '../../utils/overlayZIndex';
 import { formatSidebarTableTimestamp } from './sidebarHelpers';
+import ConnectionGroupSelectionActions from './ConnectionGroupSelectionActions';
 import './ConnectionGroupManagementModal.css';
 
 type Props = {
@@ -343,10 +344,11 @@ const ConnectionGroupManagementModal: React.FC<Props> = ({ open, onClose, onOpen
               {selectedExistingConnectionIds.length > 0 && <Tag className="connection-group-management-selected-tag" color="success">{t('connection.sidebar.management.selected', { count: selectedExistingConnectionIds.length })}</Tag>}
             </div>
             <Space size={6} className="connection-group-management-toolbar-actions">
+              {selectedExistingConnectionIds.length > 0 && <ConnectionGroupSelectionActions selectedConnectionIds={selectedExistingConnectionIds} connectionById={connectionById} onCloseTabsByConnection={onCloseTabsByConnection} />}
               {currentTag && <>
                 <Tooltip title={t('connection.sidebar.management.addConnection')} placement="bottom" mouseEnterDelay={0.35}><Button className="connection-group-management-toolbar-button is-primary" type="primary" icon={<PlusOutlined />} aria-label={t('connection.sidebar.management.addConnection')} onClick={() => onCreateConnectionInGroup(currentTag.id)} /></Tooltip>
                 <Tooltip title={t('connection.sidebar.management.rename')} placement="bottom" mouseEnterDelay={0.35}><Button className="connection-group-management-toolbar-button" icon={<EditOutlined />} aria-label={t('connection.sidebar.management.rename')} onClick={() => { setRenameTag(currentTag); nameForm.setFieldsValue({ name: currentTag.name }); }} /></Tooltip>
-                <Tooltip title={t('connection.sidebar.management.delete')} placement="bottom" mouseEnterDelay={0.35}><Button className="connection-group-management-toolbar-button" danger icon={<DeleteOutlined />} aria-label={t('connection.sidebar.management.delete')} onClick={deleteGroup} /></Tooltip>
+                <Tooltip title={t('connection.sidebar.management.deleteGroup')} placement="bottom" mouseEnterDelay={0.35}><Button className="connection-group-management-toolbar-button" danger icon={<DeleteOutlined />} aria-label={t('connection.sidebar.management.deleteGroup')} onClick={deleteGroup} /></Tooltip>
               </>}
               <div className="connection-group-management-sort-control" role="group" aria-label={t('connection.sidebar.management.sort')}>
                 <Tooltip title={t('connection.sidebar.management.sort')} placement="bottom" mouseEnterDelay={0.35}>

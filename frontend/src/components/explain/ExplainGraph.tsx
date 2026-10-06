@@ -1,39 +1,47 @@
-import { memo, useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import ReactFlow, {
   Background,
   BackgroundVariant,
   Controls,
+  MiniMap,
   type Edge,
   type Node,
   Position,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
+  useReactFlow,
 } from 'reactflow'
 import dagre from 'dagre'
 import 'reactflow/dist/style.css'
 import './ExplainAnalysis.css'
-import {
-  type ExplainEdge,
-  type ExplainNode,
-  formatNumber,
-} from '../../utils/explainTypes'
+import type { ExplainEdge, ExplainNode } from '../../utils/explainTypes'
 import { useI18n } from '../../i18n/provider'
+import { ExplainGraphNodeRenderer, type ExplainGraphNodeData } from './ExplainGraphNode'
+import { explainActualRows } from './explainActuals'
+import {
+  explainEdgeWidth,
+  explainHotPath,
+  formatCompactRows,
+  type ExplainLayoutDirection,
+} from './explainPlanInsights'
+
+export type { ExplainGraphNodeData } from './ExplainGraphNode'
 
 const NODE_WIDTH = 240
-const NODE_HEIGHT = 128
-
-export interface ExplainGraphNodeData {
-  node: ExplainNode
-  isSelected: boolean
-  onSelect?: (nodeId: string) => void
-}
+const NODE_HEIGHT = 146
+/** Past this many steps a minimap is the only way to keep one's bearings. */
+const MINIMAP_NODE_COUNT = 15
 
 interface ExplainGraphProps {
   nodes: ExplainNode[]
   edges: ExplainEdge[]
   selectedNodeId?: string
   onSelectNode?: (nodeId: string | null) => void
+  /** TB: result on top, scans at the bottom. LR: scans on the left, data flowing right to the result. */
+  direction?: ExplainLayoutDirection
+  /** The plan was measured: nodes show actual rows and time, edges the rows really handed up. */
+  analyzed?: boolean
 }
 
 export default function ExplainGraph(props: ExplainGraphProps) {
@@ -44,12 +52,22 @@ export default function ExplainGraph(props: ExplainGraphProps) {
   )
 }
 
-function ExplainGraphInner({ nodes, edges, selectedNodeId, onSelectNode }: ExplainGraphProps) {
+function ExplainGraphInner({ nodes, edges, selectedNodeId, onSelectNode, direction = 'TB', analyzed }: ExplainGraphProps) {
+  const { language, t } = useI18n()
   // Selection is deliberately excluded: highlighting a node must not run dagre again.
-  const { rfNodes, rfEdges } = useMemo(
-    () => layoutWithDagre(nodes, edges),
-    [nodes, edges],
-  )
+  const { rfNodes, rfEdges } = useMemo(() => {
+    const layout = layoutWithDagre(nodes, edges, direction)
+    const hotPath = explainHotPath(nodes)
+    return {
+      rfNodes: layout.rfNodes.map((node) => ({
+        ...node,
+        data: { ...node.data, direction, onHotPath: hotPath.has(node.id), analyzed },
+      })),
+      rfEdges: decorateExplainEdges(layout.rfEdges, nodes, hotPath, (rows) => (
+        t('sql_analysis.explain_graph.edge.rows', { rows: formatCompactRows(rows, language) })
+      ), analyzed),
+    }
+  }, [analyzed, direction, edges, language, nodes, t])
 
   const [nodeState, setNodeState, onNodesChange] = useNodesState(
     applyGraphNodeState(rfNodes, selectedNodeId, onSelectNode),
@@ -70,6 +88,21 @@ function ExplainGraphInner({ nodes, edges, selectedNodeId, onSelectNode }: Expla
     onSelectNode?.(null)
   }, [onSelectNode])
 
+  // Switching direction moves every node; the viewport has to follow once the
+  // new positions are in the store, which is one render after the direction
+  // changes. Selecting a node keeps the user's zoom.
+  const { fitView } = useReactFlow()
+  const fittedLayoutRef = useRef(direction)
+  const renderedDirection = nodeState[0]?.data?.direction
+  useEffect(() => {
+    if (renderedDirection !== direction || fittedLayoutRef.current === direction) return undefined
+    const frame = requestAnimationFrame(() => {
+      fittedLayoutRef.current = direction
+      fitView({ padding: 0.2, duration: 200 })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [direction, fitView, renderedDirection])
+
   return (
     <div className="gn-explain-graph">
       <ReactFlow
@@ -86,6 +119,7 @@ function ExplainGraphInner({ nodes, edges, selectedNodeId, onSelectNode }: Expla
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
         <Controls showInteractive={false} />
+        {nodes.length > MINIMAP_NODE_COUNT ? <MiniMap pannable zoomable className="gn-explain-minimap" /> : null}
       </ReactFlow>
     </div>
   )
@@ -96,9 +130,18 @@ function ExplainGraphInner({ nodes, edges, selectedNodeId, onSelectNode }: Expla
 export function layoutWithDagre(
   nodes: ExplainNode[],
   edges: ExplainEdge[],
+  direction: ExplainLayoutDirection = 'TB',
 ): { rfNodes: Node<ExplainGraphNodeData>[]; rfEdges: Edge[] } {
+  const horizontal = direction === 'LR'
   const graph = new dagre.graphlib.Graph()
-  graph.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 60, marginx: 20, marginy: 20 })
+  // Horizontal plans put the result on the right so data reads left to right.
+  graph.setGraph({
+    rankdir: horizontal ? 'RL' : 'TB',
+    nodesep: horizontal ? 24 : 40,
+    ranksep: horizontal ? 90 : 60,
+    marginx: 20,
+    marginy: 20,
+  })
   graph.setDefaultEdgeLabel(() => ({}))
 
   for (const node of nodes) {
@@ -114,10 +157,13 @@ export function layoutWithDagre(
     return {
       id: node.id,
       type: 'explain',
-      position: { x: position?.x ?? 0, y: position?.y ?? 0 },
-      data: { node, isSelected: false },
-      targetPosition: Position.Top,
-      sourcePosition: Position.Bottom,
+      position: {
+        x: (position?.x ?? 0) - NODE_WIDTH / 2,
+        y: (position?.y ?? 0) - NODE_HEIGHT / 2,
+      },
+      data: { node, isSelected: false, direction },
+      targetPosition: horizontal ? Position.Right : Position.Top,
+      sourcePosition: horizontal ? Position.Left : Position.Bottom,
       draggable: false,
       selectable: false,
       focusable: false,
@@ -136,6 +182,48 @@ export function layoutWithDagre(
   return { rfNodes, rfEdges }
 }
 
+/**
+ * An edge carries the child's rows up to its parent: draw it as wide as that
+ * flow (log scale) and say how many rows it is; the chain feeding the costliest
+ * step is drawn in the danger color.
+ */
+export function decorateExplainEdges(
+  edges: Edge[],
+  nodes: ExplainNode[],
+  hotPath: Set<string>,
+  formatRows: (rows: number) => string,
+  analyzed?: boolean,
+): Edge[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  // MySQL reports per-lookup rows; the rows a step hands up are in extra.rowsProduced.
+  // A measured step reports rows per loop, so it hands up rows times loops.
+  const rowsOf = (node?: ExplainNode) => {
+    if (analyzed && node && (node.loops ?? 0) > 0) {
+      return (explainActualRows(node, true) ?? 0) * (node.loops ?? 1)
+    }
+    const produced = node?.extra?.rowsProduced
+    return typeof produced === 'number' ? produced : (node?.actualRows ?? node?.estRows)
+  }
+  const maxRows = nodes.reduce((max, node) => Math.max(max, rowsOf(node) ?? 0), 0)
+  return edges.map((edge) => {
+    const child = byId.get(edge.target)
+    const rows = rowsOf(child)
+    const hot = hotPath.has(edge.source) && hotPath.has(edge.target)
+    const label = [edge.label, rows ? formatRows(rows) : ''].filter(Boolean).join(' · ')
+    return {
+      ...edge,
+      label: label || undefined,
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+      className: hot ? 'gn-explain-edge gn-explain-edge--hot' : 'gn-explain-edge',
+      style: {
+        stroke: hot ? 'var(--gn-danger)' : 'var(--gn-fg-5)',
+        strokeWidth: explainEdgeWidth(rows, maxRows),
+      },
+    }
+  })
+}
+
 export function applyGraphNodeState(
   nodes: Node<ExplainGraphNodeData>[],
   selectedNodeId?: string,
@@ -151,126 +239,4 @@ export function applyGraphNodeState(
   }))
 }
 
-const ExplainGraphNodeRenderer = memo(function ExplainGraphNodeRenderer({
-  data,
-}: {
-  data: ExplainGraphNodeData
-}) {
-  const { language, t } = useI18n()
-  const { node, isSelected, onSelect } = data
-  const operationColor = resolveOperationColor(node.opType)
-  const hasFullScan = node.flags?.includes('FULL_SCAN')
-  const hasFilesort = node.flags?.includes('FILESORT')
-  const hasTempTable = node.flags?.includes('TEMP_TABLE')
-  const operationLabel = node.opDetail || formatOperationLabel(node.opType)
-
-  return (
-    <button
-      type="button"
-      className={`gn-explain-node${isSelected ? ' gn-explain-node--selected' : ''}`}
-      style={{ borderColor: isSelected ? 'var(--gn-accent)' : operationColor }}
-      aria-pressed={isSelected}
-      title={operationLabel}
-      onClick={(event) => {
-        event.stopPropagation()
-        onSelect?.(node.id)
-      }}
-    >
-      <span
-        className="gn-explain-node__label"
-        style={{ color: operationColor }}
-        title={operationLabel}
-      >
-        {operationLabel}
-      </span>
-      {node.table && (
-        <span className="gn-explain-node__field" title={node.table}>
-          <span className="gn-explain-node__field-label">
-            {t('sql_analysis.explain_graph.label.table')}
-          </span>
-          <code>{node.table}</code>
-        </span>
-      )}
-      {node.index && (
-        <span className="gn-explain-node__field" title={node.index}>
-          <span className="gn-explain-node__field-label">
-            {t('sql_analysis.explain_graph.label.index')}
-          </span>
-          <code>{node.index}</code>
-        </span>
-      )}
-      <span className="gn-explain-node__metrics">
-        {isFiniteMetric(node.estRows) && (
-          <span>
-            {t('sql_analysis.explain_graph.metric.est_rows')}{' '}
-            <strong>{formatNumber(node.estRows, language)}</strong>
-          </span>
-        )}
-        {isFiniteMetric(node.actualRows) && (
-          <span>
-            {t('sql_analysis.explain_graph.metric.actual_rows')}{' '}
-            <strong>{formatNumber(node.actualRows, language)}</strong>
-          </span>
-        )}
-        {isFiniteMetric(node.cost) && (
-          <span>
-            {t('sql_analysis.explain_graph.metric.cost')}{' '}
-            <strong>{node.cost?.toFixed(1)}</strong>
-          </span>
-        )}
-      </span>
-      {(hasFullScan || hasFilesort || hasTempTable) && (
-        <span className="gn-explain-node__flags">
-          {hasFullScan && (
-            <FlagBadge tone="danger" text={t('sql_analysis.explain_graph.flag.full_scan')} />
-          )}
-          {hasFilesort && (
-            <FlagBadge tone="warning" text={t('sql_analysis.explain_graph.flag.filesort')} />
-          )}
-          {hasTempTable && (
-            <FlagBadge tone="info" text={t('sql_analysis.explain_graph.flag.temp_table')} />
-          )}
-        </span>
-      )}
-    </button>
-  )
-})
-
 const EXPLAIN_NODE_TYPES = { explain: ExplainGraphNodeRenderer }
-
-function FlagBadge({ tone, text }: { tone: 'danger' | 'warning' | 'info'; text: string }) {
-  return <span className={`gn-explain-flag gn-explain-flag--${tone}`}>{text}</span>
-}
-
-function isFiniteMetric(value?: number): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function formatOperationLabel(operation: string): string {
-  const normalized = String(operation || '')
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[_-]+/g, ' ')
-  return normalized ? normalized.charAt(0).toLocaleUpperCase() + normalized.slice(1) : '-'
-}
-
-function resolveOperationColor(operation: string): string {
-  switch (operation) {
-    case 'SCAN':
-    case 'MATERIALIZE':
-      return 'var(--gn-danger)'
-    case 'INDEX_SCAN':
-    case 'INDEX_ONLY':
-      return 'var(--gn-accent)'
-    case 'JOIN':
-    case 'AGGREGATE':
-    case 'SUBQUERY':
-    case 'UNION':
-    case 'WINDOW':
-      return 'var(--gn-info)'
-    case 'SORT':
-      return 'var(--gn-warn)'
-    default:
-      return 'var(--gn-fg-3)'
-  }
-}

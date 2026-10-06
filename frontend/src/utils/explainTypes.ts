@@ -52,6 +52,10 @@ export interface ExplainNode {
   cost?: number
   durationMs?: number
   bufferHit?: number
+  // 这一步自身（不含子步骤）承担的估算工作量占整份计划的比例 0-1，口径见 ExplainResult.hotspotBasis。
+  costShare?: number
+  // 实测时实际行数 / 估算行数（每次循环、不足 1 行按 1 行）：大于 1 少估，小于 1 多估。
+  estimateFactor?: number
   flags?: ExplainNodeFlag[] | string[]
   extra?: Record<string, unknown>
 }
@@ -82,6 +86,10 @@ export interface ExplainResult {
   warnings?: string[]
   rawFormat: ExplainFormat | string
   rawPayload?: string
+  // costShare 的口径：'cost' 估算成本；'rows' 方言无成本时按访问步骤的估算读取行数；'time' 实测的自身耗时。
+  hotspotBasis?: 'cost' | 'rows' | 'time' | string
+  // 计划来自实测（真实执行后的耗时与行数）。
+  analyzed?: boolean
 }
 
 export interface IndexSuggestion {
@@ -97,6 +105,8 @@ export interface IndexSuggestion {
 export interface DiagnoseReport {
   plan: ExplainResult
   suggestions: IndexSuggestion[]
+  // 该数据源可以用实测模式再跑一次。
+  analyzeSupported?: boolean
 }
 
 // severityRank 用于 UI 排序：critical 最前。

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
@@ -225,18 +226,31 @@ func ruleTempTableForDistinct(_ connection.ExplainResult, node connection.Explai
 }
 
 // ruleHighEstimationSkew：估算与实际行数偏差大（需 ANALYZE 才有数据）。
-func ruleHighEstimationSkew(_ connection.ExplainResult, node connection.ExplainNode) *connection.IndexSuggestion {
+func ruleHighEstimationSkew(result connection.ExplainResult, node connection.ExplainNode) *connection.IndexSuggestion {
 	if node.EstRows <= 0 || node.ActualRows <= 0 {
+		return nil
+	}
+	// A measured plan already judged each step, including how many rows the
+	// miss involved over all loops; follow that verdict.
+	if node.EstimateFactor > 0 && !hasFlag(node.Flags, connection.ExplainFlagUccWarn) {
+		return nil
+	}
+	// A misestimate carries upwards; advise where it starts, not at every step above it.
+	if node.EstimateFactor > 0 && hasMisestimatedDescendant(result, node.ID) {
 		return nil
 	}
 	ratio := float64(node.ActualRows) / float64(node.EstRows)
 	if ratio < ruleEstimationSkewRatio && ratio > 1.0/ruleEstimationSkewRatio {
 		return nil
 	}
+	rows := fmt.Sprintf("估算 %d 行 / 实际 %d 行", node.EstRows, node.ActualRows)
+	if node.Loops > 1 {
+		rows += fmt.Sprintf("（每次循环，共 %d 次）", node.Loops)
+	}
 	return &connection.IndexSuggestion{
 		Severity:       connection.SeverityInfo,
 		Rule:           "high_estimation_skew",
-		Reason:         fmt.Sprintf("估算 %d 行 / 实际 %d 行（偏差 %.1fx）；统计信息可能过期，考虑 ANALYZE TABLE", node.EstRows, node.ActualRows, ratio),
+		Reason:         fmt.Sprintf("%s，相差约 %.0f 倍；统计信息可能过期，考虑 ANALYZE TABLE", rows, math.Max(ratio, 1/ratio)),
 		AffectedNodeID: node.ID,
 		AffectedTable:  node.Table,
 		EstRows:        node.EstRows,
@@ -618,4 +632,25 @@ func ruleCartesianProductRisk(result connection.ExplainResult) *connection.Index
 // 用于 OR 关键字检测；若需要更精确可在后续迭代增强。
 func containsTopLevelKeyword(text, keyword string) bool {
 	return strings.Contains(text, keyword)
+}
+
+// hasMisestimatedDescendant reports whether a step below nodeID was itself
+// measured as misestimated.
+func hasMisestimatedDescendant(result connection.ExplainResult, nodeID string) bool {
+	children := make(map[string][]string, len(result.Nodes))
+	flagged := make(map[string]bool, len(result.Nodes))
+	for _, node := range result.Nodes {
+		children[node.ParentID] = append(children[node.ParentID], node.ID)
+		flagged[node.ID] = hasFlag(node.Flags, connection.ExplainFlagUccWarn)
+	}
+	pending := append([]string(nil), children[nodeID]...)
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if flagged[current] {
+			return true
+		}
+		pending = append(pending, children[current]...)
+	}
+	return false
 }

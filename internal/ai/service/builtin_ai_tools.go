@@ -51,6 +51,32 @@ func builtinAITools(tools []ai.Tool) []ai.Tool {
 	return kept
 }
 
+// builtinAIKnown is what the context already tells the model in one turn.
+type builtinAIKnown struct {
+	// version: the database version.
+	version bool
+	// tables: the columns of the tables the person's SQL names (see builtin_ai_columns.go).
+	tables bool
+}
+
+// builtinAITurnTools leaves out the tools that would only look up what the context already says.
+// The hosted model looks things up even when told them, one model turn per lookup: asked to
+// optimize a five-table query with their columns in front of it, it read the server version, the
+// table list and every table's columns and definition, nine minutes on the small server (seen
+// 2026-10-06). With the tables of the person's SQL in the context only execute_sql stays (an
+// EXPLAIN or SHOW INDEX still runs); with the version in it, get_server_version goes.
+func builtinAITurnTools(tools []ai.Tool, known builtinAIKnown) []ai.Tool {
+	var kept []ai.Tool
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Function.Name)
+		if known.tables && name != "execute_sql" || known.version && name == "get_server_version" {
+			continue
+		}
+		kept = append(kept, tool)
+	}
+	return kept
+}
+
 // guardBuiltinAIToolCalls lets through the calls the built-in AI may make. A query that is not
 // read-only is not run: the person gets the SQL to look at instead, with a note that says why.
 // (The tool's own checks and the approval step stay in place for everything that passes.)

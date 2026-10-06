@@ -435,7 +435,7 @@ export const useDataGridColumnTitles = ({
             if (String(detail.tableName || '') !== String(tableName || '')) return;
             const nextMode = String(detail.viewMode || '').trim();
             if (!nextMode) return;
-            if (!['table', 'json', 'text', 'fields', 'ddl', 'er', 'sqlLog'].includes(nextMode)) return;
+            if (!['table', 'json', 'text', 'chart', 'fields', 'ddl', 'er', 'sqlLog'].includes(nextMode)) return;
             handleViewModeChange(nextMode as GridViewMode);
         };
 
@@ -459,6 +459,7 @@ export const useDataGridColumnTitles = ({
             viewMode === 'table'
             || viewMode === 'json'
             || viewMode === 'text'
+            || viewMode === 'chart'
             || (viewMode === 'ddl' && isTableSurfaceActive)
         );
         if (!requiresTableData) {

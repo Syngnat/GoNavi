@@ -911,6 +911,7 @@ export namespace app {
 	    connections: connection.SavedConnectionView[];
 	    redisDbAliases?: Record<string, any>;
 	    excelGroups?: ConnectionExcelGroupAssignment[];
+	    skippedCount?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionPackageImportResult(source);
@@ -921,6 +922,7 @@ export namespace app {
 	        this.connections = this.convertValues(source["connections"], connection.SavedConnectionView);
 	        this.redisDbAliases = source["redisDbAliases"];
 	        this.excelGroups = this.convertValues(source["excelGroups"], ConnectionExcelGroupAssignment);
+	        this.skippedCount = source["skippedCount"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2781,6 +2783,18 @@ export namespace connection {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tagId = source["tagId"];
 	        this.expectedRevision = source["expectedRevision"];
+	    }
+	}
+	export class DiagnoseOptions {
+	    analyze?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiagnoseOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.analyze = source["analyze"];
 	    }
 	}
 	export class GlobalProxyView {

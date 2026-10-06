@@ -701,7 +701,7 @@ func (s *Service) resolveAgentProvider(ctx context.Context, request runharness.M
 		heading := func(shown, total int) string {
 			return serviceTextFromLocalizer(localizer, "ai_service.backend.builtin.result_preview", map[string]any{"shown": shown, "total": total})
 		}
-		return builtinAIPromptProvider{Provider: agentProvider, readOnlyNotice: notice, lookup: s.builtinAIContextFor, resultHeading: heading}, nil
+		return builtinAIPromptProvider{Provider: agentProvider, readOnlyNotice: notice, lookup: s.builtinAIContextFor, columns: s.builtinAIColumnsFor, resultHeading: heading}, nil
 	}
 	return agentProvider, nil
 }

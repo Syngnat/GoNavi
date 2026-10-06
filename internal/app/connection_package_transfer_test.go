@@ -251,7 +251,7 @@ func TestImportConnectionPackagePayloadOverwritesExistingSecrets(t *testing.T) {
 		t.Fatalf("SaveConnection returned error: %v", err)
 	}
 
-	imported, err := app.importConnectionPackagePayload(connectionPackagePayload{
+	report, err := app.importConnectionPackagePayload(connectionPackagePayload{
 		Connections: []connectionPackageItem{
 			{
 				ID:   "conn-1",
@@ -278,6 +278,7 @@ func TestImportConnectionPackagePayloadOverwritesExistingSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("importConnectionPackagePayload returned error: %v", err)
 	}
+	imported := report.Views
 	if len(imported) != 1 {
 		t.Fatalf("expected 1 imported item, got %d", len(imported))
 	}
@@ -313,7 +314,7 @@ func TestImportConnectionPackagePayloadLatestEntryWinsForSameID(t *testing.T) {
 	app := NewAppWithSecretStore(newFakeAppSecretStore())
 	app.configDir = t.TempDir()
 
-	imported, err := app.importConnectionPackagePayload(connectionPackagePayload{
+	report, err := app.importConnectionPackagePayload(connectionPackagePayload{
 		Connections: []connectionPackageItem{
 			{
 				ID:   "conn-dup",
@@ -344,6 +345,7 @@ func TestImportConnectionPackagePayloadLatestEntryWinsForSameID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("importConnectionPackagePayload returned error: %v", err)
 	}
+	imported := report.Views
 	if len(imported) != 1 {
 		t.Fatalf("expected duplicate ids to return 1 final imported item, got %d", len(imported))
 	}
@@ -631,7 +633,7 @@ func TestImportConnectionPackagePayloadRollsBackOnSaveFailure(t *testing.T) {
 		t.Fatalf("SaveConnection returned error: %v", err)
 	}
 
-	imported, err := app.importConnectionPackagePayload(connectionPackagePayload{
+	report, err := app.importConnectionPackagePayload(connectionPackagePayload{
 		Connections: []connectionPackageItem{
 			{
 				ID:   "conn-1",
@@ -662,6 +664,7 @@ func TestImportConnectionPackagePayloadRollsBackOnSaveFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected importConnectionPackagePayload to succeed without secret store, got %v", err)
 	}
+	imported := report.Views
 	if len(imported) != 2 {
 		t.Fatalf("expected 2 imported results after import, got %#v", imported)
 	}

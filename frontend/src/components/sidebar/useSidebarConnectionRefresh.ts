@@ -8,6 +8,7 @@ import {
   NACOS_SERVICES_CHANGED_EVENT,
 } from './sidebarRootHelpers';
 import { useEffect } from 'react';
+import { invalidateQueryEditorSessionMetadata } from '../queryEditor/metadata/queryEditorSessionMetadataStore';
 import {
   normalizeSidebarDatabaseListRefreshRequest,
   SIDEBAR_DATABASE_LIST_REFRESH_EVENT,
@@ -49,6 +50,7 @@ export const useSidebarConnectionRefresh = ({
       });
 
       invalidateConnectionLoads(connectionId);
+      invalidateQueryEditorSessionMetadata(connectionId);
       setLoadedKeys((previous) => previous.filter((key) => !isConnectionTreeKey(key, connectionId)));
       Array.from(loadingNodesRef.current).forEach((loadingKey) => {
           if (loadingKey === `dbs-${connectionId}` || loadingKey.startsWith(`tables-${connectionId}-`)) {

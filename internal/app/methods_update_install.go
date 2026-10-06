@@ -125,13 +125,16 @@ func (a *App) prepareWindowsUpdateInstances(staged *stagedUpdate, installTarget 
 			}),
 		}
 	}
-	if windowsUpdateCloseConfirmationRequired(stdRuntime.GOOS, confirmed, len(runningInstances)) {
+	// 只有带界面窗口的其他实例才需要确认（可能有未保存内容）；自家的无头后台进程
+	// （运行时清理进程、MCP 服务）不计数，下面直接随安装关闭。
+	interactiveInstances := interactiveWindowsUpdateProcesses(runningInstances)
+	if windowsUpdateCloseConfirmationRequired(stdRuntime.GOOS, confirmed, len(interactiveInstances)) {
 		return connection.QueryResult{
 			Success: false,
 			Data: map[string]any{
 				"requiresCloseConfirmation": true,
-				"instanceCount":             len(runningInstances),
-				"runningPids":               otherWindowsUpdateProcessIDs(runningInstances),
+				"instanceCount":             len(interactiveInstances),
+				"runningPids":               otherWindowsUpdateProcessIDs(interactiveInstances),
 			},
 		}
 	}
@@ -147,7 +150,7 @@ func (a *App) prepareWindowsUpdateInstances(staged *stagedUpdate, installTarget 
 		}
 	}
 
-	if confirmed {
+	if confirmed || len(runningInstances) > 0 {
 		closedPIDs, closeErr := closeOtherWindowsUpdateInstancesForInstall([]string{installTarget, finalTarget}, os.Getpid())
 		if closeErr != nil {
 			logger.Warnf("关闭 Windows 更新相关实例失败 current=%s target=%s pids=%v error=%v", installTarget, finalTarget, closedPIDs, closeErr)

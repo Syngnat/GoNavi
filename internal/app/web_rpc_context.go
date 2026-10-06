@@ -15,8 +15,8 @@ var requiredIssue1098WebRPCContextMethods = []string{
 	"DBQuery", "DBQueryApplicationWithCancel", "DBQueryWithCancel", "DBQueryMulti", "DBQueryMultiWithOptions", "DBQueryMultiCompact", "DBQueryAudited", "DBQueryAI", "DBQueryIsolated", "MySQLQuery",
 	"DBGetDatabases", "DBGetTables", "DBGetViews", "DBGetObjects", "DBGetAllColumns", "DBGetColumns", "DBGetIndexes",
 	"DBGetForeignKeys", "DBGetDatabaseForeignKeys", "DBGetTriggers", "DBShowCreateTable", "DBTableExists",
-	"DBListSessions", "DBExecuteSessionAction",
-	"MySQLGetDatabases", "MySQLGetTables", "MySQLShowCreateTable", "MongoDiscoverMembers", "DBRefreshTableStats", "DiagnoseQuery",
+	"DBListSessions", "DBListLockWaits", "DBListLongTransactions", "DBExecuteSessionAction",
+	"MySQLGetDatabases", "MySQLGetTables", "MySQLShowCreateTable", "MongoDiscoverMembers", "DBRefreshTableStats", "DiagnoseQuery", "DiagnoseQueryWithOptions",
 	"DataSyncDatabaseList", "DataSyncObjectList", "DataSyncFieldList", "DataSyncCapabilityResolve", "DataSyncCDCProbe", "DataSyncJobPreflight",
 	"DataSyncJobList", "DataSyncJobGet", "DataSyncRunGet", "DataSyncRunList", "DataSyncRunPage", "DataSyncRunEventList",
 	"DataSyncErrorRowList", "DataSyncErrorRowGet", "DataSyncCheckpointGet", "DataSync", "DataSyncAnalyze", "DataSyncPreview",
@@ -69,6 +69,12 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		},
 		"DBListSessions": func(ctx context.Context, config connection.ConnectionConfig, dbName string) connection.QueryResult {
 			return a.dbListSessionsContext(ctx, config, dbName)
+		},
+		"DBListLockWaits": func(ctx context.Context, config connection.ConnectionConfig, dbName string) connection.QueryResult {
+			return a.dbListLockWaitsContext(ctx, config, dbName)
+		},
+		"DBListLongTransactions": func(ctx context.Context, config connection.ConnectionConfig, dbName string) connection.QueryResult {
+			return a.dbListLongTransactionsContext(ctx, config, dbName)
 		},
 		"DBExecuteSessionAction": func(ctx context.Context, config connection.ConnectionConfig, dbName string, request connection.SessionActionRequest) connection.QueryResult {
 			return a.dbExecuteSessionActionWithAuditContext(ctx, config, dbName, request)
@@ -132,6 +138,9 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		},
 		"DiagnoseQuery": func(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
 			return a.diagnoseQueryContext(ctx, config, dbName, query)
+		},
+		"DiagnoseQueryWithOptions": func(ctx context.Context, config connection.ConnectionConfig, dbName, query string, options connection.DiagnoseOptions) connection.QueryResult {
+			return a.runDiagnoseQuery(ctx, config, dbName, query, options)
 		},
 
 		"DataSyncDatabaseList": func(ctx context.Context, connectionID string) connection.QueryResult {

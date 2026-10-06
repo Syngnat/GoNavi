@@ -6,6 +6,10 @@ export const SESSION_WORKBENCH_TAB_ID = 'session-workbench-center';
 export interface SessionWorkbenchTabInput {
   connectionId?: string;
   dbName?: string;
+  /** Open on this view and filter the session list, e.g. from an alert. */
+  view?: 'sessions' | 'lockWaits';
+  filter?: string;
+  requestKey?: string;
 }
 
 export const buildSessionWorkbenchTab = (
@@ -19,5 +23,8 @@ export const buildSessionWorkbenchTab = (
     type: 'session-workbench',
     connectionId,
     ...(dbName ? { dbName } : {}),
+    ...(input.view ? { sessionWorkbenchView: input.view } : {}),
+    ...(input.filter ? { sessionWorkbenchFilter: input.filter } : {}),
+    ...(input.requestKey ? { sessionWorkbenchRequestKey: input.requestKey } : {}),
   };
 };

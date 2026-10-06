@@ -39,7 +39,9 @@ func TestBuildSessionActionStatement(t *testing.T) {
 		{name: "postgres cancel", engine: "postgres", request: actionRequest(connection.SessionActionCancelQuery, "42", ""), wantSQL: "SELECT pg_cancel_backend(42) AS action_succeeded", query: true},
 		{name: "postgres terminate", engine: "postgres", request: actionRequest(connection.SessionActionTerminateSession, "42", ""), wantSQL: "SELECT pg_terminate_backend(42) AS action_succeeded", query: true},
 		{name: "oracle terminate", engine: "oracle", request: connection.SessionActionRequest{Action: connection.SessionActionTerminateSession, SessionID: "5", SerialNumber: "7", InstanceID: "2"}, wantSQL: "ALTER SYSTEM KILL SESSION '5,7,@2' IMMEDIATE"},
-		{name: "oceanbase oracle terminate", engine: "oceanbase-oracle", request: connection.SessionActionRequest{Action: connection.SessionActionTerminateSession, SessionID: "8", SerialNumber: "11", InstanceID: "2"}, wantSQL: "ALTER SYSTEM KILL SESSION '8,11,@2' IMMEDIATE"},
+		{name: "oceanbase oracle terminate", engine: "oceanbase-oracle", request: actionRequest(connection.SessionActionTerminateSession, "3221487726", ""), wantSQL: "KILL CONNECTION 3221487726"},
+		{name: "oceanbase oracle cancel", engine: "oceanbase-oracle", request: actionRequest(connection.SessionActionCancelQuery, "3221656012", ""), wantSQL: "KILL QUERY 3221656012"},
+		{name: "oceanbase mysql cancel", engine: "oceanbase-mysql", request: actionRequest(connection.SessionActionCancelQuery, "3221487622", ""), wantSQL: "KILL QUERY 3221487622"},
 		{name: "sqlserver terminate", engine: "sqlserver", request: actionRequest(connection.SessionActionTerminateSession, "51", ""), wantSQL: "KILL 51"},
 		{name: "dameng terminate", engine: "dameng", request: actionRequest(connection.SessionActionTerminateSession, "91", ""), wantSQL: "CALL SP_CLOSE_SESSION(91)"},
 		{name: "clickhouse quote", engine: "clickhouse", request: actionRequest(connection.SessionActionCancelQuery, "", "query'7"), wantSQL: "KILL QUERY WHERE query_id = 'query''7' SYNC"},
@@ -103,7 +105,6 @@ func TestBuildSessionActionStatementHonorsSingleActionAdapters(t *testing.T) {
 		request connection.SessionActionRequest
 	}{
 		{name: "oracle cancel", engine: "oracle", request: actionRequest(connection.SessionActionCancelQuery, "5", "")},
-		{name: "oceanbase oracle cancel", engine: "oceanbase-oracle", request: actionRequest(connection.SessionActionCancelQuery, "5", "")},
 		{name: "sqlserver cancel", engine: "sqlserver", request: actionRequest(connection.SessionActionCancelQuery, "5", "")},
 		{name: "dameng cancel", engine: "dameng", request: actionRequest(connection.SessionActionCancelQuery, "5", "")},
 		{name: "clickhouse terminate", engine: "clickhouse", request: actionRequest(connection.SessionActionTerminateSession, "", "query-1")},

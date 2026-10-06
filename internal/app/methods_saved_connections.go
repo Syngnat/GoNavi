@@ -94,6 +94,18 @@ func (a *App) DuplicateConnection(id string) (connection.SavedConnectionView, er
 }
 
 func (a *App) ImportLegacyConnections(items []connection.LegacySavedConnection) ([]connection.SavedConnectionView, error) {
+	views, err := a.importSavedConnectionsAtomically(legacySavedConnectionInputs(items))
+	if err != nil {
+		return nil, err
+	}
+	a.markCloudBackupDirty()
+	return sanitizeSavedConnectionViews(views), nil
+}
+
+// legacySavedConnectionInputs converts legacy JSON entries into import inputs.
+// A legacy entry is authoritative for its secrets, so every secret it omits is
+// cleared explicitly instead of being inherited from a saved connection.
+func legacySavedConnectionInputs(items []connection.LegacySavedConnection) []connection.SavedConnectionInput {
 	inputs := make([]connection.SavedConnectionInput, 0, len(items))
 	for _, item := range items {
 		input := connection.SavedConnectionInput(item)
@@ -114,12 +126,7 @@ func (a *App) ImportLegacyConnections(items []connection.LegacySavedConnection) 
 		input.ClearSensitiveParams = strings.TrimSpace(sensitiveParams) == ""
 		inputs = append(inputs, input)
 	}
-	views, err := a.importSavedConnectionsAtomically(inputs)
-	if err != nil {
-		return nil, err
-	}
-	a.markCloudBackupDirty()
-	return sanitizeSavedConnectionViews(views), nil
+	return inputs
 }
 
 func (a *App) SaveGlobalProxy(input connection.SaveGlobalProxyInput) (connection.GlobalProxyView, error) {

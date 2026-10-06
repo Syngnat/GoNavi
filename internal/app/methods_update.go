@@ -178,6 +178,9 @@ type updatePathCandidate struct {
 type windowsUpdateProcess struct {
 	PID        uint32
 	Executable string
+	// Interactive 为 true 表示该实例有界面窗口（另一个打开着的 GoNavi）；false 是无头的后台进程
+	// （运行时清理进程、MCP 服务），没有未保存内容，更新时不需要用户确认即可关闭。
+	Interactive bool
 }
 
 type githubRelease struct {

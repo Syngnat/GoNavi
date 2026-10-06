@@ -139,6 +139,10 @@ export interface TabData {
   sqlFileExecutionFileSizeMB?: string;
   sqlAnalysisView?: "diagnose" | "slow-query";
   sqlAnalysisRequestKey?: string;
+  /** Deep link into the session workbench (from an alert): view, session filter, and a key to re-apply them. */
+  sessionWorkbenchView?: "sessions" | "lockWaits";
+  sessionWorkbenchFilter?: string;
+  sessionWorkbenchRequestKey?: string;
   sqlAuditView?: "audit" | "query-history";
   sqlAuditTransactionId?: string;
   sqlAuditRequestKey?: string;

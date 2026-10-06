@@ -28,6 +28,9 @@ type builtinAIPromptProvider struct {
 	// lookup completes the turn's target and returns what the model reads about the database (the
 	// real connection, database and table names; see builtin_ai_connections.go); nil for none.
 	lookup func(ctx context.Context, target builtinAITarget, question string) (builtinAITarget, []string)
+	// columns returns the columns of the tables the turn's SQL names (see builtin_ai_columns.go);
+	// nil for none.
+	columns func(ctx context.Context, target builtinAITarget, text string) []string
 	// resultHeading says, in the person's language, how many rows a query returned and how many
 	// the preview shows (see builtin_ai_results.go); nil for no preview.
 	resultHeading func(shown, total int) string
@@ -47,7 +50,14 @@ func (p builtinAIPromptProvider) present(ctx context.Context, req ai.ChatRequest
 	if p.lookup != nil {
 		turn.target, lines = p.lookup(ctx, turn.target, latestUserText(req.Messages))
 	}
-	req.Messages, req.Tools = presentBuiltinAIContextWithLines(req.Messages, lines), builtinAITools(req.Tools)
+	question := builtinAIQuestionOf(req.Messages)
+	var columns []string
+	if p.columns != nil {
+		columns = p.columns(ctx, turn.target, question.text)
+	}
+	known := builtinAIKnown{version: question.version != "", tables: len(columns) > 0}
+	req.Messages = presentBuiltinAIContextWithLines(req.Messages, append(lines, columns...))
+	req.Tools = builtinAITurnTools(builtinAITools(req.Tools), known)
 	return req, turn
 }
 

@@ -431,7 +431,6 @@ func (c *connectionExcelRowConsumer) finish() (*ConnectionExcelParseResult, erro
 	if len(c.result.Inputs) == 0 {
 		return nil, fmt.Errorf("excel import contains no connection rows")
 	}
-	c.result.Inputs = dedupeImportedSavedConnectionInputs(c.result.Inputs)
 	return c.result, nil
 }
 
@@ -475,13 +474,13 @@ func (a *App) importConnectionsExcelFile(filePath string) (ConnectionPackageImpo
 	if err != nil {
 		return ConnectionPackageImportResult{}, err
 	}
-	views, err := a.importSavedConnectionsAtomically(parsed.Inputs)
+	// 重复导入同一份表格不得再建一批连接：已存在的连接与表内重复行在此跳过。
+	report, err := a.importSavedConnectionsSkippingDuplicates(parsed.Inputs)
 	if err != nil {
 		return ConnectionPackageImportResult{}, err
 	}
-
-	nameToID := make(map[string]string, len(views))
-	for _, view := range views {
+	nameToID := make(map[string]string, len(report.Views))
+	for _, view := range report.Views {
 		nameToID[view.Name] = view.ID
 	}
 	assignments := make([]ConnectionExcelGroupAssignment, 0, len(parsed.Groups))
@@ -491,7 +490,7 @@ func (a *App) importConnectionsExcelFile(filePath string) (ConnectionPackageImpo
 		}
 		assignments = append(assignments, group)
 	}
-	result := connectionPackageImportResultFromViews(views, nil)
+	result := connectionPackageImportResultFromReport(report, nil)
 	result.ExcelGroups = assignments
 	return result, nil
 }

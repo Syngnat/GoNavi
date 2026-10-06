@@ -13,6 +13,8 @@ export interface SessionCapability {
   cancelTarget?: SessionActionTarget | string;
   terminateTarget?: SessionActionTarget | string;
   terminateRequiresInstanceAndSerial?: boolean;
+  /** Both actions address the session as 'sid,serial#' (e.g. YashanDB). */
+  requiresSerial?: boolean;
   reasonCode?: SessionReasonCode;
 }
 
@@ -112,6 +114,7 @@ export const normalizeSessionCapability = (value: unknown): SessionCapability =>
     cancelTarget: text(source.cancelTarget) || undefined,
     terminateTarget: text(source.terminateTarget) || undefined,
     terminateRequiresInstanceAndSerial: booleanValue(source.terminateRequiresInstanceAndSerial),
+    requiresSerial: booleanValue(source.requiresSerial),
     reasonCode: text(source.reasonCode) || undefined,
   };
 };
@@ -217,6 +220,7 @@ export const canRunSessionAction = (
   if (action === 'terminateSession' && capability.terminateRequiresInstanceAndSerial) {
     return Boolean(text(session.instanceId) && text(session.serialNumber));
   }
+  if (capability.requiresSerial) return Boolean(text(session.serialNumber));
   return true;
 };
 
@@ -343,6 +347,10 @@ export const sessionActionDisplayId = (
   session: DatabaseSession,
 ): string => {
   const target = resolveSessionActionTarget(capability, action, session);
+  if (capability.requiresSerial && !(action === 'terminateSession' && capability.terminateRequiresInstanceAndSerial)) {
+    const serialNumber = text(session.serialNumber);
+    return target && serialNumber ? `${target},${serialNumber}` : '';
+  }
   if (action !== 'terminateSession' || !capability.terminateRequiresInstanceAndSerial) {
     return target;
   }

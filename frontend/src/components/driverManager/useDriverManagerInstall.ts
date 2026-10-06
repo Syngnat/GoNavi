@@ -237,7 +237,11 @@ export const useDriverManagerInstall = ({
       okText: t('driver.modal.confirm.reinstallInUse.ok'),
       okButtonProps: { danger: true },
       cancelText: t('common.action.cancel'),
-      onOk: action,
+      // 不把 action 的 Promise 交给 antd：否则弹窗会一直转圈到安装结束（批量重装要数分钟），
+      // 还会挡住真正的进度条。确认后立即关闭，进度由行内/批量进度展示。
+      onOk: () => {
+        void action();
+      },
     });
   }, []);
 

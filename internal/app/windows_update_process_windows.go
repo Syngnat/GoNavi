@@ -29,8 +29,6 @@ const (
 	windowsProcessInspectAttempts = 4
 )
 
-var windowsPostMessage = windows.NewLazySystemDLL("user32.dll").NewProc("PostMessageW")
-
 var (
 	windowsProcessImageKernel32         = windows.NewLazySystemDLL("kernel32.dll")
 	windowsProcessGetImageFileName      = windowsProcessImageKernel32.NewProc("K32GetProcessImageFileNameW")
@@ -112,6 +110,7 @@ func findOtherWindowsUpdateInstances(targetPaths []string, currentPID int) ([]wi
 			return nil, fmt.Errorf("read running processes: %w", err)
 		}
 	}
+	markWindowsUpdateInteractiveInstances(result)
 	return result, nil
 }
 
@@ -161,27 +160,55 @@ func closeWindowsUpdateInstances(processes []windowsUpdateProcess) error {
 	for _, process := range opened {
 		openedByPID[process.process.PID] = process.process
 	}
-	requestWindowsProcessesClose(openedByPID)
+	interactive := requestWindowsProcessesClose(openedByPID)
+
+	// Only an instance with an application window can act on WM_CLOSE. All
+	// of them share one graceful deadline instead of one wait each, and
+	// headless helpers (MCP servers, the runtime reaper) skip the wait: they
+	// never see the message, so waiting only delayed the update by 1.5s per
+	// process.
 	var closeErrors []error
+	gracefulDeadline := time.Now().Add(windowsGracefulProcessCloseWait)
+	remaining := make([]openedWindowsUpdateProcess, 0, len(opened))
 	for _, process := range opened {
-		if err := closeWindowsUpdateProcess(process); err != nil {
+		var wait time.Duration
+		if interactive[process.process.PID] {
+			wait = time.Until(gracefulDeadline)
+		}
+		exited, err := waitWindowsUpdateProcessExit(process, wait)
+		if err != nil {
 			closeErrors = append(closeErrors, err)
+			continue
+		}
+		if !exited {
+			remaining = append(remaining, process)
+		}
+	}
+
+	terminated := make([]openedWindowsUpdateProcess, 0, len(remaining))
+	for _, process := range remaining {
+		if err := windows.TerminateProcess(process.handle, 0); err != nil {
+			// The process may have exited on its own right after the wait.
+			if exited, _ := waitWindowsUpdateProcessExit(process, 0); exited {
+				continue
+			}
+			closeErrors = append(closeErrors, fmt.Errorf("terminate GoNavi process %d (%s): %w", process.process.PID, process.process.Executable, err))
+			continue
+		}
+		terminated = append(terminated, process)
+	}
+	forcedDeadline := time.Now().Add(windowsForcedProcessCloseTimeout)
+	for _, process := range terminated {
+		exited, err := waitWindowsUpdateProcessExit(process, time.Until(forcedDeadline))
+		if err != nil {
+			closeErrors = append(closeErrors, err)
+			continue
+		}
+		if !exited {
+			closeErrors = append(closeErrors, fmt.Errorf("GoNavi process %d did not exit after termination", process.process.PID))
 		}
 	}
 	return errors.Join(closeErrors...)
-}
-
-func requestWindowsProcessesClose(processes map[uint32]windowsUpdateProcess) {
-	callback := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		var pid uint32
-		if _, err := windows.GetWindowThreadProcessId(windows.HWND(hwnd), &pid); err == nil {
-			if _, ok := processes[pid]; ok {
-				windowsPostMessage.Call(hwnd, windowsCloseMessage, 0, 0)
-			}
-		}
-		return 1
-	})
-	_ = windows.EnumWindows(callback, nil)
 }
 
 type openedWindowsUpdateProcess struct {
@@ -234,32 +261,24 @@ func openWindowsUpdateProcesses(processes map[uint32]windowsUpdateProcess) ([]op
 	return opened, nil
 }
 
-func closeWindowsUpdateProcess(opened openedWindowsUpdateProcess) error {
-	process := opened.process
-	handle := opened.handle
-
-	event, err := windows.WaitForSingleObject(handle, uint32(windowsGracefulProcessCloseWait.Milliseconds()))
+// waitWindowsUpdateProcessExit waits up to timeout for the process to exit; a
+// non-positive timeout only polls its current state.
+func waitWindowsUpdateProcessExit(opened openedWindowsUpdateProcess, timeout time.Duration) (bool, error) {
+	if timeout < 0 {
+		timeout = 0
+	}
+	event, err := windows.WaitForSingleObject(opened.handle, uint32(timeout.Milliseconds()))
 	if err != nil {
-		return fmt.Errorf("wait for GoNavi process %d to close: %w", process.PID, err)
+		return false, fmt.Errorf("wait for GoNavi process %d to close: %w", opened.process.PID, err)
 	}
-	if event == windows.WAIT_OBJECT_0 {
-		return nil
+	switch event {
+	case windows.WAIT_OBJECT_0:
+		return true, nil
+	case uint32(windows.WAIT_TIMEOUT):
+		return false, nil
+	default:
+		return false, fmt.Errorf("wait for GoNavi process %d returned status %#x", opened.process.PID, event)
 	}
-	if event != uint32(windows.WAIT_TIMEOUT) {
-		return fmt.Errorf("wait for GoNavi process %d returned status %#x", process.PID, event)
-	}
-
-	if err := windows.TerminateProcess(handle, 0); err != nil {
-		return fmt.Errorf("terminate GoNavi process %d (%s): %w", process.PID, process.Executable, err)
-	}
-	event, err = windows.WaitForSingleObject(handle, uint32(windowsForcedProcessCloseTimeout.Milliseconds()))
-	if err != nil {
-		return fmt.Errorf("wait for terminated GoNavi process %d: %w", process.PID, err)
-	}
-	if event != windows.WAIT_OBJECT_0 {
-		return fmt.Errorf("GoNavi process %d did not exit after termination", process.PID)
-	}
-	return nil
 }
 
 func queryWindowsProcessExecutable(pid uint32) (string, error) {

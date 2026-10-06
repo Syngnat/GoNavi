@@ -64,7 +64,7 @@ export const isQueryEditorMetadataAbortError = (error: unknown): boolean => Bool
     || (error as { code?: unknown }).code === 'WEB_RPC_ABORTED'),
 );
 
-const fingerprintMetadataConfig = (value: unknown): string => {
+export const fingerprintQueryEditorMetadataConfig = (value: unknown): string => {
   const seen = new WeakSet<object>();
   let hash = 2166136261;
   let secondaryHash = 0x9e3779b9;
@@ -432,7 +432,7 @@ export const reconcileQueryEditorMetadataConnections = (connections: MetadataCon
     invalidated.add(connectionId);
   });
   next.forEach((config, connectionId) => {
-    const fingerprint = fingerprintMetadataConfig(config);
+    const fingerprint = fingerprintQueryEditorMetadataConfig(config);
     const current = metadataConnections.get(connectionId);
     if (!current) {
       metadataConnections.set(connectionId, { config, fingerprint, present: true, revision: 1 });

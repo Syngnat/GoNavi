@@ -1,43 +1,50 @@
-import { Alert, Empty, Spin, message } from 'antd';
-import { useMemo, useState } from 'react';
+import { Segmented, message } from 'antd';
+import { useMemo, useRef, useState } from 'react';
 import type { TabData } from '../../types';
 import { useI18n } from '../../i18n/provider';
 import { resolveConnectionEnvironmentType } from '../../utils/connectionEnvironment';
+import SessionAlertHistoryPanel from '../sessionAlerts/SessionAlertHistoryPanel';
+import SessionAlertSettingsButton from '../sessionAlerts/SessionAlertSettingsButton';
+import LockWaitPanel from './LockWaitPanel';
 import SessionActionChooser from './SessionActionChooser';
 import SessionConfirmModal from './SessionConfirmModal';
 import SessionHeader from './SessionHeader';
-import SessionSummary from './SessionSummary';
-import SessionTable from './SessionTable';
+import SessionListBody from './SessionListBody';
 import SessionToolbar from './SessionToolbar';
 import { displaySessionState } from './sessionStateLabel';
 import { sessionDatabaseOptions } from './sessionDatabaseFilter';
-import { filterSessions, sessionStateTone } from './sessionWorkbenchModel';
+import {
+  filterSessions,
+  sessionStateTone,
+  type SessionActionRequest,
+  type SessionQueryResult,
+} from './sessionWorkbenchModel';
+import { useLockWaits } from './useLockWaits';
+import { useSessionWorkbenchDeepLink, type SessionWorkbenchView } from './useSessionWorkbenchDeepLink';
 import { useSessionWorkbench } from './useSessionWorkbench';
 import { useSessionWorkbenchDialogs } from './useSessionWorkbenchDialogs';
 import './SessionWorkbench.css';
 
 export interface SessionWorkbenchProps {
-  tab: Pick<TabData, 'connectionId' | 'dbName'>;
+  tab: Pick<TabData, 'connectionId' | 'dbName' | 'sessionWorkbenchView' | 'sessionWorkbenchFilter' | 'sessionWorkbenchRequestKey'>;
   isActive?: boolean;
 }
 
-const errorText = (value: string, translate: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string): string => {
-  if (value === 'no_connection') return translate('session_workbench.error.no_connection');
-  if (value === 'list_failed') return translate('session_workbench.error.list_failed', { detail: '' });
-  if (value === 'session_workbench.error.rpc_unavailable') {
-    return translate(value);
-  }
-  return value;
-};
-
-export default function SessionWorkbench({ tab }: SessionWorkbenchProps) {
+export default function SessionWorkbench({ tab, isActive }: SessionWorkbenchProps) {
   const { t } = useI18n();
   const [messageApi, messageContextHolder] = message.useMessage();
+  const [view, setView] = useState<SessionWorkbenchView>('sessions');
   const workbench = useSessionWorkbench({
     initialConnectionId: tab.connectionId,
     initialDbName: tab.dbName,
   });
-  const [runningOnly, setRunningOnly] = useState(false);
+  useSessionWorkbenchDeepLink({ tab, workbench, setView });
+  const lockWaits = useLockWaits({
+    connection: workbench.selectedConnection,
+    databaseName: workbench.databaseName,
+    enabled: view === 'lockWaits',
+    active: isActive !== false,
+  });
   const databaseOptions = useMemo(
     () => sessionDatabaseOptions(
       workbench.payload?.sessions || [],
@@ -63,76 +70,101 @@ export default function SessionWorkbench({ tab }: SessionWorkbenchProps) {
   };
   const selectedConnectionName = workbench.selectedConnection?.name || '';
   const isProduction = resolveConnectionEnvironmentType(workbench.selectedConnection) === 'production';
+
+  // Ending a blocker releases the sessions queued behind it, so an action
+  // taken from the lock view re-reads the chains as well as the session list.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const refreshLockWaitsRef = useRef(lockWaits.refresh);
+  refreshLockWaitsRef.current = lockWaits.refresh;
+  const { executeAction } = workbench;
+  const actionRunner = useMemo(() => ({
+    executeAction: async (request: SessionActionRequest): Promise<SessionQueryResult> => {
+      const result = await executeAction(request);
+      if (result.success === true && !result.stale && viewRef.current === 'lockWaits') {
+        void refreshLockWaitsRef.current();
+      }
+      return result;
+    },
+  }), [executeAction]);
   const dialogs = useSessionWorkbenchDialogs({
     capability,
-    workbench,
+    workbench: actionRunner,
     contextKey: `${workbench.selectedConnectionId}\u0000${workbench.databaseName}\u0000${workbench.scopeRevision}`,
     t,
     messageApi,
   });
 
+  const showingLockWaits = view === 'lockWaits';
+  const showingAlertHistory = view === 'alertHistory';
+  const waitingCount = lockWaits.payload?.waits.length
+    ? new Set(lockWaits.payload.waits.map((wait) => `${wait.waitingInstanceId ?? ''}:${wait.waitingSessionId}`)).size
+    : 0;
+
   return (
     <div className="gn-session-workbench">
       {messageContextHolder}
-      <SessionHeader engine={workbench.payload?.engine} />
+      <SessionHeader
+        engine={(showingLockWaits ? lockWaits.payload?.engine : undefined) || workbench.payload?.engine}
+        extra={(
+          <>
+            <SessionAlertSettingsButton connection={workbench.selectedConnection} />
+            <Segmented<SessionWorkbenchView>
+              className="gn-session-workbench-view-switch"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'sessions', label: t('session_workbench.view.sessions') },
+                {
+                  value: 'lockWaits',
+                  label: waitingCount > 0
+                    ? `${t('session_workbench.view.lock_waits')} · ${waitingCount}`
+                    : t('session_workbench.view.lock_waits'),
+                },
+                { value: 'alertHistory', label: t('session_alerts.history.view') },
+              ]}
+            />
+          </>
+        )}
+      />
       <SessionToolbar
         connections={workbench.connections}
         selectedConnectionId={workbench.selectedConnectionId}
         databaseOptions={databaseOptions}
         databaseName={workbench.databaseName}
         filter={workbench.filter}
-        runningOnly={runningOnly}
-        loading={workbench.loading}
+        runningOnly={workbench.runningOnly}
+        showSessionFilters={!showingLockWaits && !showingAlertHistory}
+        loading={showingLockWaits ? lockWaits.loading : workbench.loading}
         databaseLoading={workbench.databasesLoading}
         onConnectionChange={workbench.setSelectedConnectionId}
         onDatabaseChange={workbench.selectDatabase}
         onFilterChange={workbench.setFilter}
-        onRunningOnlyChange={setRunningOnly}
-        onRefresh={() => { void workbench.refresh(); }}
+        onRunningOnlyChange={workbench.setRunningOnly}
+        onRefresh={() => { void (showingLockWaits ? lockWaits.refresh() : workbench.refresh()); }}
       />
       <div className="gn-session-workbench-body">
-        {workbench.loading && !workbench.payload ? (
-          <div className="gn-session-workbench-loading"><Spin tip={t('session_workbench.loading')} /></div>
-        ) : workbench.error ? (
-          <Alert
-            type="error"
-            showIcon
-            message={errorText(workbench.error, t)}
-            action={workbench.selectedConnection ? (
-              <button type="button" onClick={() => { void workbench.refresh(); }}>
-                {t('session_workbench.refresh')}
-              </button>
-            ) : undefined}
+        {showingAlertHistory ? (
+          <SessionAlertHistoryPanel connection={workbench.selectedConnection} />
+        ) : showingLockWaits ? (
+          <LockWaitPanel
+            hasConnection={Boolean(workbench.selectedConnection)}
+            payload={lockWaits.payload}
+            loading={lockWaits.loading}
+            error={lockWaits.error}
+            sessionCapability={capability}
+            autoRefresh={lockWaits.autoRefresh}
+            onAutoRefreshChange={lockWaits.setAutoRefresh}
+            onAction={dialogs.handleRowAction}
+            onRetry={() => { void lockWaits.refresh(); }}
           />
-        ) : !workbench.selectedConnection ? (
-          <Empty description={t('session_workbench.empty.no_connection')} />
-        ) : !workbench.payload?.capability.supported ? (
-          <Empty description={t(
-            workbench.payload?.capability.reasonCode === 'not_applicable'
-              ? 'session_workbench.empty.not_applicable'
-              : 'session_workbench.empty.unsupported',
-          )} />
-        ) : filteredSessions.length === 0 ? (
-          <Empty description={workbench.payload.sessions.length === 0 ? (
-            // PostgreSQL-lineage servers only report the connected database's
-            // sessions, so name that database: an empty list then reads as
-            // "nothing in this database" instead of "the server is idle".
-            workbench.payload.scopedDatabase
-              ? t('session_workbench.empty.no_sessions_in_database', {
-                database: workbench.payload.scopedDatabase,
-              })
-              : t('session_workbench.empty.no_sessions')
-          ) : t('session_workbench.empty.no_match')} />
         ) : (
-          <>
-            <SessionSummary sessions={filteredSessions} />
-            <SessionTable
-              sessions={filteredSessions}
-              capability={capability}
-              loading={workbench.loading}
-              onAction={dialogs.handleRowAction}
-            />
-          </>
+          <SessionListBody
+            workbench={workbench}
+            sessions={filteredSessions}
+            capability={capability}
+            onAction={dialogs.handleRowAction}
+          />
         )}
       </div>
       <SessionActionChooser

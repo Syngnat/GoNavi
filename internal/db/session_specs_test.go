@@ -47,8 +47,8 @@ func TestSessionCapabilityFor(t *testing.T) {
 		{name: "sqlite not applicable", config: connection.ConnectionConfig{Type: "sqlite"}, engine: "sqlite", reason: sessionReasonNotApplicable},
 		{name: "redis not applicable", config: connection.ConnectionConfig{Type: "redis"}, engine: "redis", reason: sessionReasonNotApplicable},
 		{name: "custom clickhouse", config: connection.ConnectionConfig{Type: "custom", Driver: "clickhouse"}, engine: "clickhouse", supported: true, cancel: true},
-		{name: "custom oceanbase oracle", config: connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", OceanBaseProtocol: "oracle"}, engine: "oceanbase-oracle", supported: true, terminate: true},
-		{name: "custom oceanbase oracle from params", config: connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", ConnectionParams: "protocol=oracle"}, engine: "oceanbase-oracle", supported: true, terminate: true},
+		{name: "custom oceanbase oracle", config: connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", OceanBaseProtocol: "oracle"}, engine: "oceanbase-oracle", supported: true, cancel: true, terminate: true},
+		{name: "custom oceanbase oracle from params", config: connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", ConnectionParams: "protocol=oracle"}, engine: "oceanbase-oracle", supported: true, cancel: true, terminate: true},
 	}
 
 	for _, test := range tests {
@@ -112,9 +112,9 @@ func TestSessionCapabilityForOceanBaseProtocols(t *testing.T) {
 		terminate bool
 	}{
 		{name: "explicit mysql", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "mysql"}, engine: "oceanbase-mysql", cancel: true, terminate: true},
-		{name: "explicit oracle", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "oracle"}, engine: "oceanbase-oracle", terminate: true},
-		{name: "connection params", config: connection.ConnectionConfig{Type: "oceanbase", ConnectionParams: "protocol=oracle"}, engine: "oceanbase-oracle", terminate: true},
-		{name: "uri", config: connection.ConnectionConfig{Type: "oceanbase", URI: "oceanbase://localhost/test?compatMode=oracle"}, engine: "oceanbase-oracle", terminate: true},
+		{name: "explicit oracle", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "oracle"}, engine: "oceanbase-oracle", cancel: true, terminate: true},
+		{name: "connection params", config: connection.ConnectionConfig{Type: "oceanbase", ConnectionParams: "protocol=oracle"}, engine: "oceanbase-oracle", cancel: true, terminate: true},
+		{name: "uri", config: connection.ConnectionConfig{Type: "oceanbase", URI: "oceanbase://localhost/test?compatMode=oracle"}, engine: "oceanbase-oracle", cancel: true, terminate: true},
 		{name: "default", config: connection.ConnectionConfig{Type: "oceanbase"}, engine: "oceanbase-mysql", cancel: true, terminate: true},
 	}
 
@@ -129,8 +129,10 @@ func TestSessionCapabilityForOceanBaseProtocols(t *testing.T) {
 			if !capability.Supported || capability.CanCancelQuery != test.cancel || capability.CanTerminateSession != test.terminate {
 				t.Fatalf("capability = %+v", capability)
 			}
-			if test.engine == "oceanbase-oracle" && (capability.CanCancelQuery || !capability.TerminateRequiresInstanceAndSerial) {
-				t.Fatalf("OceanBase Oracle capability = %+v", capability)
+			// Both tenant modes kill by client session ID alone; OceanBase has
+			// no RAC instance or serial# to pass along.
+			if capability.TerminateRequiresInstanceAndSerial {
+				t.Fatalf("OceanBase capability must not require instance and serial: %+v", capability)
 			}
 		})
 	}
@@ -151,7 +153,7 @@ func TestSessionCapabilityActionTargetsMatchAdapterContract(t *testing.T) {
 		{name: "postgres", config: connection.ConnectionConfig{Type: "postgres"}, cancelTarget: connection.SessionActionTargetSessionID, terminateTarget: connection.SessionActionTargetSessionID},
 		{name: "oracle", config: connection.ConnectionConfig{Type: "oracle"}, terminateTarget: connection.SessionActionTargetSessionID},
 		{name: "oceanbase mysql", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "mysql"}, cancelTarget: connection.SessionActionTargetSessionID, terminateTarget: connection.SessionActionTargetSessionID},
-		{name: "oceanbase oracle", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "oracle"}, terminateTarget: connection.SessionActionTargetSessionID},
+		{name: "oceanbase oracle", config: connection.ConnectionConfig{Type: "oceanbase", OceanBaseProtocol: "oracle"}, cancelTarget: connection.SessionActionTargetSessionID, terminateTarget: connection.SessionActionTargetSessionID},
 		{name: "sqlserver", config: connection.ConnectionConfig{Type: "sqlserver"}, terminateTarget: connection.SessionActionTargetSessionID},
 		{name: "dameng", config: connection.ConnectionConfig{Type: "dameng"}, terminateTarget: connection.SessionActionTargetSessionID},
 		{name: "clickhouse", config: connection.ConnectionConfig{Type: "clickhouse"}, cancelTarget: connection.SessionActionTargetQueryID},

@@ -47,12 +47,31 @@ func (o *databaseSessionOperator) ListSessions(ctx context.Context) (connection.
 	if o.database == nil {
 		return payload, errorsForMissingSessionDatabase()
 	}
-	rows, _, err := querySessionContext(ctx, o.database, o.spec.listQuery)
+	rows, err := o.querySessionRows(ctx)
 	if err != nil {
 		return payload, fmt.Errorf("list database sessions: %w", err)
 	}
 	payload.Sessions = normalizeSessionRows(o.spec, rows, o.config.Database)
 	return payload, nil
+}
+
+// querySessionRows runs the primary list query, then each version fallback.
+// The primary error is the one reported when everything fails, because it
+// comes from the view current servers are expected to have.
+func (o *databaseSessionOperator) querySessionRows(ctx context.Context) ([]map[string]interface{}, error) {
+	rows, _, primaryErr := querySessionContext(ctx, o.database, o.spec.listQuery)
+	if primaryErr == nil {
+		return rows, nil
+	}
+	for _, query := range o.spec.fallbackListQueries {
+		if ctx.Err() != nil {
+			break
+		}
+		if rows, _, err := querySessionContext(ctx, o.database, query); err == nil {
+			return rows, nil
+		}
+	}
+	return nil, primaryErr
 }
 
 func (o *databaseSessionOperator) ExecuteSessionAction(

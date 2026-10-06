@@ -11,8 +11,7 @@ import {
   GnTableIcon,
 } from './icons/gnIcons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
-
-type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLog';
+import type { GridViewMode } from './dataGrid/core/dataGridTypes';
 
 export type DataGridSecondaryActionsTranslate = (key: string, params?: I18nParams) => string;
 
@@ -62,7 +61,7 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
           <div className="gn-v2-data-grid-view-tabs">
             {viewTabItems.map((item) => {
               const isActive = viewMode === item.key
-                || (item.key === 'table' && (viewMode === 'json' || viewMode === 'text'));
+                || (item.key === 'table' && (viewMode === 'json' || viewMode === 'text' || viewMode === 'chart'));
 
               return (
                 <Tooltip key={item.key} title={item.label}>

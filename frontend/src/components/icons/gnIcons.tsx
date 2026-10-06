@@ -357,6 +357,11 @@ export const GnTextViewIcon = createGnIcon('text-view', (
   <path d="M4.5 6.5h15M4.5 11h15M4.5 15.5h15M4.5 20h8.6" />
 ));
 
+/** 结果视图 · 图表。 */
+export const GnChartIcon = createGnIcon('chart', (
+  <path d="M4.5 4.5v15h15M8.5 15.5v-4M12.5 15.5V8M16.5 15.5v-6" />
+));
+
 /* ───────── AI 聊天 ───────── */
 
 export const GnPlusIcon = createGnIcon('plus', <path d="M12 5v14M5 12h14" />);

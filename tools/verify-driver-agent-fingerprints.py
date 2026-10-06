@@ -28,12 +28,14 @@ mongodb v1 变体（mongodb-driver-agent-v1-*）不在 revision map 覆盖范围
 """
 
 import argparse
+import functools
 import json
 import re
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -61,9 +63,34 @@ def normalize_driver(name):
     return DRIVER_ALIASES.get(name, name)
 
 
+@functools.lru_cache(maxsize=1)
+def registry_driver_platforms():
+    """Platforms each driver declared in internal/datasource/specs ships on.
+
+    The revision map lists every driver for every platform, but a registry
+    driver that declares agent platforms (YashanDB, GBase 8s) is only built and
+    published for those. Drivers missing here ship on every release platform.
+    """
+    script = Path(__file__).resolve().with_name("datasource-registry.py")
+    output = subprocess.run(
+        [sys.executable, str(script), "json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout
+    return {
+        normalize_driver(entry["driver"]): frozenset(entry.get("platforms") or ())
+        for entry in json.loads(output)
+    }
+
+
 def is_driver_supported_on_platform(driver, platform):
     """Return whether the platform is expected to ship this driver agent."""
-    return not (driver == "duckdb" and platform == "windows/arm64")
+    if driver == "duckdb" and platform == "windows/arm64":
+        return False
+    declared = registry_driver_platforms().get(normalize_driver(driver))
+    return not declared or platform in declared
 
 
 def parse_revision_maps(pairs):
@@ -157,7 +184,35 @@ def probe_agent_payload(payload: bytes, timeout_seconds: int = 30, suffix: str =
         raise RuntimeError("metadata 响应为空")
 
 
-def verify_binaries(assets_dir, revision_maps, dynamic_probe_platforms=(), skip_platforms=(), prober=None):
+# UPX 加壳的 linux agent 在 runner 上偶发启动失败（自解压桩退出码 127、无任何输出），同一个文件重跑即通过。
+# 运行时探测因此最多尝试 PROBE_ATTEMPTS 次；只重试“探测跑不起来”，探测成功但指纹不一致不重试。
+PROBE_ATTEMPTS = 3
+PROBE_RETRY_DELAY_SECONDS = 1.0
+
+
+def probe_with_retry(prober, payload, attempts=PROBE_ATTEMPTS, delay_seconds=PROBE_RETRY_DELAY_SECONDS, sleep=time.sleep):
+    """调用 prober，探测抛错时重试；全部失败时抛出最后一次的错误并注明尝试次数。"""
+    attempts = max(1, int(attempts))
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return prober(payload)
+        except Exception as exc:  # noqa: BLE001 - 探测失败原因多样，统一按可重试处理
+            last_error = exc
+            if attempt < attempts:
+                sleep(delay_seconds * attempt)
+    raise RuntimeError(f"{last_error}（已尝试 {attempts} 次）") from last_error
+
+
+def verify_binaries(
+    assets_dir,
+    revision_maps,
+    dynamic_probe_platforms=(),
+    skip_platforms=(),
+    prober=None,
+    probe_attempts=PROBE_ATTEMPTS,
+    probe_retry_sleep=time.sleep,
+):
     prober = prober or probe_agent_payload
     dynamic_probe_platforms = set(dynamic_probe_platforms)
     skip_platforms = set(skip_platforms)
@@ -197,7 +252,7 @@ def verify_binaries(assets_dir, revision_maps, dynamic_probe_platforms=(), skip_
                 continue
             if platform in dynamic_probe_platforms:
                 try:
-                    actual = prober(payload)
+                    actual = probe_with_retry(prober, payload, attempts=probe_attempts, sleep=probe_retry_sleep)
                 except Exception as exc:  # noqa: BLE001 - 探测失败必须显式暴露
                     failures.append(f"{label}: 运行时探测失败: {exc}")
                     continue

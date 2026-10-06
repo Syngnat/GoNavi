@@ -513,6 +513,14 @@ func buildMySQLTableNode(t *mysqlTableNode) connection.ExplainNode {
 	if t.Alias != "" && t.Alias != t.TableName {
 		node.Extra = map[string]any{"alias": t.Alias}
 	}
+	// rows_examined_per_scan is per lookup: the inner side of a nested loop
+	// reads ~1 row per outer row. The rows the step hands up is per join.
+	if produced := parseExplainInt64(string(t.RowsProducedPerJoin)); produced > 0 {
+		if node.Extra == nil {
+			node.Extra = map[string]any{}
+		}
+		node.Extra["rowsProduced"] = produced
+	}
 	if t.AttachedCondition != "" {
 		if node.Extra == nil {
 			node.Extra = map[string]any{}

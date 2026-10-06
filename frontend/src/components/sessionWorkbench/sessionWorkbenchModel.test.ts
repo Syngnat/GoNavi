@@ -6,6 +6,7 @@ import {
   formatSessionDuration,
   isRedisConnection,
   isServerInternalSession,
+  normalizeSessionCapability,
   normalizeSessionPayload,
   resolveSessionActionTarget,
   sessionStateTone,
@@ -113,6 +114,24 @@ describe('sessionWorkbenchModel', () => {
       instanceId: '1',
       serialNumber: '7',
     })).toBe('42,7,@1');
+  });
+
+  it('addresses single-instance serial engines as sid,serial for both actions', () => {
+    const yashanCapability: SessionCapability = {
+      supported: true,
+      canCancelQuery: true,
+      canTerminateSession: true,
+      cancelTarget: 'sessionId',
+      terminateTarget: 'sessionId',
+      requiresSerial: true,
+    };
+    expect(availableSessionActions(yashanCapability, { ...session, queryId: undefined, serialNumber: undefined })).toEqual([]);
+    const target = { ...session, queryId: undefined, serialNumber: '61' };
+    expect(availableSessionActions(yashanCapability, target)).toEqual(['cancelQuery', 'terminateSession']);
+    expect(sessionActionDisplayId(yashanCapability, 'cancelQuery', target)).toBe('42,61');
+    expect(buildSessionActionRequest(yashanCapability, 'terminateSession', target))
+      .toMatchObject({ action: 'terminateSession', sessionId: '42', serialNumber: '61' });
+    expect(normalizeSessionCapability({ supported: true, requiresSerial: true }).requiresSerial).toBe(true);
   });
 
   it('offers no action on server-internal daemon threads', () => {

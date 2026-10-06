@@ -77,6 +77,11 @@ func parseOracleExplain(sourceSQL, raw string, format connection.ExplainFormat) 
 	colCost := findOracleColumnIndex(headerCols, "Cost")
 	colTime := findOracleColumnIndex(headerCols, "Time")
 	colPredicate := findOracleColumnIndex(headerCols, "Predicate")
+	actualColumns, measured := findOracleActualColumns(headerCols)
+	if measured && findOracleColumnIndex(headerCols, "Time") == actualColumns.aTime {
+		// Without an estimated "Time" column the fuzzy match lands on A-Time.
+		colTime = -1
+	}
 	if colID < 0 || colOp < 0 {
 		return result, fmt.Errorf("DBMS_XPLAN 表格缺少 Id 或 Operation 列")
 	}
@@ -112,6 +117,9 @@ func parseOracleExplain(sourceSQL, raw string, format connection.ExplainFormat) 
 			EstRows:    rowsEst,
 			Cost:       cost,
 			DurationMs: timeMs,
+		}
+		if measured {
+			applyOracleActuals(&node, cols, actualColumns)
 		}
 		// TABLE ACCESS FULL 是全表扫描
 		if isOracleFullScan(opText) {
@@ -158,6 +166,10 @@ func parseOracleExplain(sourceSQL, raw string, format connection.ExplainFormat) 
 	result.RawFormat = connection.ExplainFormatTable
 	result.RawPayload = raw
 	finalizeExplainStats(&result)
+	if measured {
+		// A-Time includes the steps below; the statement took as long as Id 0.
+		result.Stats.TotalDurationMs = explainMeasuredWallMs(result.Nodes)
+	}
 	return result, nil
 }
 
@@ -179,7 +191,9 @@ func extractOraclePlanTable(raw string) string {
 	lines := strings.Split(raw, "\n")
 	startIdx := -1
 	for i, line := range lines {
-		if isOracleTableSeparator(line) {
+		// DISPLAY_CURSOR 在表格前多一段 "SQL_ID ..." 标题，它下面也有一条短横线；
+		// 只认紧跟着 "| Id ..." 表头的那条分隔线。
+		if isOracleTableSeparator(line) && i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "|") {
 			startIdx = i
 			break
 		}
@@ -423,8 +437,18 @@ func extractOraclePredicates(raw string) map[int]string {
 		if !inSection {
 			continue
 		}
-		// 进入段落后的空行或下一个段落标题 → 结束
-		if trimmed == "" || isOracleNextSectionHeader(lower) {
+		// 标题下是一条短横线和一个空行，之后才是谓词；读到谓词后的空行或下一个段落标题 → 结束
+		if trimmed == "" || isOracleTableSeparator(trimmed) {
+			if currentID < 0 && len(result) == 0 {
+				continue
+			}
+			if trimmed == "" {
+				flush()
+				break
+			}
+			continue
+		}
+		if isOracleNextSectionHeader(lower) {
 			flush()
 			break
 		}

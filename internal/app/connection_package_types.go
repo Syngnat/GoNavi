@@ -237,6 +237,8 @@ type ConnectionPackageImportResult struct {
 	// ExcelGroups 仅 Excel 批量导入返回：按连接名回指 Excel 行声明的分组路径
 	// （支持 "父分组/子分组"），分组树的查/建由前端侧边栏布局完成。
 	ExcelGroups []ConnectionExcelGroupAssignment `json:"excelGroups,omitempty"`
+	// SkippedCount 为本次导入中未写入的条目数：已存在相同连接，或与文件内靠前的条目重复。
+	SkippedCount int `json:"skippedCount,omitempty"`
 }
 
 func defaultConnectionPackageKDFSpec() connectionPackageKDFSpec {

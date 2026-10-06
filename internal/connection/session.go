@@ -28,7 +28,10 @@ type SessionCapability struct {
 	CancelTarget                       SessionActionTarget `json:"cancelTarget,omitempty"`
 	TerminateTarget                    SessionActionTarget `json:"terminateTarget,omitempty"`
 	TerminateRequiresInstanceAndSerial bool                `json:"terminateRequiresInstanceAndSerial,omitempty"`
-	ReasonCode                         string              `json:"reasonCode,omitempty"`
+	// RequiresSerial means both actions address the session as 'sid,serial#'
+	// (single-instance Oracle-like engines such as YashanDB).
+	RequiresSerial bool   `json:"requiresSerial,omitempty"`
+	ReasonCode     string `json:"reasonCode,omitempty"`
 }
 
 // DatabaseSession is the normalized, cross-dialect projection rendered by the

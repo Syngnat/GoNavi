@@ -5,6 +5,7 @@ import { setCurrentLanguage } from '../i18n';
 import type { SavedQuery } from '../types';
 import { clearQueryEditorResultSession } from '../utils/queryEditorResultSessionCache';
 import { clearQueryTabDraft, clearSQLFileTabDraft } from '../utils/sqlFileTabDrafts';
+import { clearQueryEditorSessionMetadata } from './queryEditor/metadata/queryEditorSessionMetadataStore';
 import {
   storeState,
   storeSubscribers,
@@ -19,6 +20,7 @@ import {
 import { mountedRenderers, createDefaultConnections } from './queryEditorResultsAndDropTestHelpers';
 
 export const setUpQueryEditorResultsAndDropTest = () => {
+    clearQueryEditorSessionMetadata();
     const completionState = (globalThis as any).__gonaviSqlCompletionState;
     if (completionState) {
       completionState.registered = false;

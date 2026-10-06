@@ -94,6 +94,12 @@ func (c *fakeLookupCatalog) Execute(_ context.Context, request runharness.ToolEx
 			return runharness.ToolExecutionResult{Status: "completed", Value: map[string]any{"tables": []string{"sys_hm.check_param", "sysmac.sysmac_label"}}}, nil
 		}
 		return runharness.ToolExecutionResult{Status: "completed", Value: map[string]any{"tables": kingbaseLabTables}}, nil
+	case "get_columns":
+		return runharness.ToolExecutionResult{Status: "completed", Value: map[string]any{"tableName": args["tableName"], "columns": []map[string]any{
+			{"name": "id", "type": "bigint", "nullable": "NO", "key": "PRI"},
+			{"name": "customer_id", "type": "bigint", "nullable": "NO", "key": "MUL"},
+			{"name": "created_at", "type": "timestamp", "nullable": "YES", "key": ""},
+		}}}, nil
 	}
 	return runharness.ToolExecutionResult{Status: "failed"}, runharness.ErrToolNotFound
 }

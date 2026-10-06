@@ -238,6 +238,10 @@ export function DBGetServerVersionContext(arg1, arg2) {
   return window['go']['app']['App']['DBGetServerVersionContext'](arg1, arg2);
 }
 
+export function DBGetSessionMonitorCapabilities(arg1) {
+  return window['go']['app']['App']['DBGetSessionMonitorCapabilities'](arg1);
+}
+
 export function DBGetTables(arg1, arg2) {
   return window['go']['app']['App']['DBGetTables'](arg1, arg2);
 }
@@ -264,6 +268,14 @@ export function DBGetViews(arg1, arg2) {
 
 export function DBGetViewsContext(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBGetViewsContext'](arg1, arg2, arg3);
+}
+
+export function DBListLockWaits(arg1, arg2) {
+  return window['go']['app']['App']['DBListLockWaits'](arg1, arg2);
+}
+
+export function DBListLongTransactions(arg1, arg2) {
+  return window['go']['app']['App']['DBListLongTransactions'](arg1, arg2);
 }
 
 export function DBListSessionDatabases(arg1, arg2) {
@@ -548,6 +560,10 @@ export function DeleteSavedQueryGroup(arg1) {
 
 export function DiagnoseQuery(arg1, arg2, arg3) {
   return window['go']['app']['App']['DiagnoseQuery'](arg1, arg2, arg3);
+}
+
+export function DiagnoseQueryWithOptions(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DiagnoseQueryWithOptions'](arg1, arg2, arg3, arg4);
 }
 
 export function DismissSecurityUpdateReminder() {

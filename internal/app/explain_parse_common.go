@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
@@ -128,10 +130,16 @@ func lookupTSVColumn(header []string, names ...string) int {
 }
 
 // parseExplainInt64 容错地把字符串解析为 int64（空/非法返回 0）。
+// 小数截断取整；科学计数法（MySQL 树形计划的 rows=9.87e+6）按数值四舍五入。
 func parseExplainInt64(s string) int64 {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "NULL" || s == "<nil>" || s == "null" {
 		return 0
+	}
+	if strings.ContainsAny(s, "eE") {
+		if value, err := strconv.ParseFloat(s, 64); err == nil && !math.IsInf(value, 0) && !math.IsNaN(value) {
+			return int64(math.Round(value))
+		}
 	}
 	var n int64
 	for _, ch := range s {

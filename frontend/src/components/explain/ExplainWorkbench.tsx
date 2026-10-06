@@ -1,40 +1,55 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApartmentOutlined, CodeOutlined } from '@ant-design/icons'
-import { Alert, Empty, Segmented, Spin, Typography } from 'antd'
-import { DiagnoseQuery } from '../../../wailsjs/go/app/App'
+import { Alert, Empty, Spin } from 'antd'
+import { DiagnoseQuery, DiagnoseQueryWithOptions } from '../../../wailsjs/go/app/App'
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig'
 import { useI18n } from '../../i18n/provider'
 import type { ConnectionConfig } from '../../types'
 import type { DiagnoseReport, ExplainNode, IndexSuggestion } from '../../utils/explainTypes'
-import ExplainGraph from './ExplainGraph'
-import ExplainSidebar from './ExplainSidebar'
+import ExplainReportBody from './ExplainReportBody'
+import type { ExplainBaseline } from './ExplainCompareView'
 import './ExplainReport.css'
 
 // SQL 诊断报告：左侧 react-flow 执行计划图（点击节点联动），右侧统计 / 节点详情 / 索引建议；
 // 「原文」页签用于对照数据库返回的原始 EXPLAIN 输出。
 // 颜色全部取应用主题变量（--gn-*），不再用 antd token 覆盖，自定义主题下才能整页一致。
 
-const { Text } = Typography
 
 interface ExplainReportViewProps {
   config: ConnectionConfig
   dbName: string
   sql: string
   runKey?: string | number | null
+  /** The run requested by runKey measures the query for real (EXPLAIN ANALYZE). */
+  analyze?: boolean
+  /** Ask to measure the current SQL; the caller confirms and bumps runKey with analyze set. */
+  onAnalyze?: () => void
+  /** Before/after comparison, kept by the caller so it outlives this view. */
+  baseline?: ExplainBaseline | null
+  onPinBaseline?: (report: DiagnoseReport) => void
+  onClearBaseline?: () => void
 }
 
-export function ExplainReportView({ config, dbName, sql, runKey }: ExplainReportViewProps) {
+export function ExplainReportView({
+  config,
+  dbName,
+  sql,
+  runKey,
+  analyze = false,
+  onAnalyze,
+  baseline,
+  onPinBaseline,
+  onClearBaseline,
+}: ExplainReportViewProps) {
   const { t } = useI18n()
   const [loading, setLoading] = useState(false)
   const [report, setReport] = useState<DiagnoseReport | null>(null)
   const [reportRevision, setReportRevision] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<'plan' | 'raw'>('plan')
   const hasRequestedRun = runKey !== null && runKey !== undefined && runKey !== ''
   const requestSequenceRef = useRef(0)
-  const requestInputRef = useRef({ config, dbName, sql, t })
-  requestInputRef.current = { config, dbName, sql, t }
+  const requestInputRef = useRef({ config, dbName, sql, t, analyze })
+  requestInputRef.current = { config, dbName, sql, t, analyze }
 
   const runDiagnose = useCallback(async () => {
     const currentInput = requestInputRef.current
@@ -47,11 +62,10 @@ export function ExplainReportView({ config, dbName, sql, runKey }: ExplainReport
     setError(null)
     setSelectedNodeId(null)
     try {
-      const result = await DiagnoseQuery(
-        buildRpcConnectionConfig(currentInput.config),
-        currentInput.dbName,
-        currentInput.sql,
-      )
+      const rpcConfig = buildRpcConnectionConfig(currentInput.config)
+      const result = currentInput.analyze
+        ? await DiagnoseQueryWithOptions(rpcConfig, currentInput.dbName, currentInput.sql, { analyze: true })
+        : await DiagnoseQuery(rpcConfig, currentInput.dbName, currentInput.sql)
       if (requestSequence !== requestSequenceRef.current) return
       if (!result.success) {
         setError(result.message || currentInput.t('sql_analysis.explain.error.run_failed'))
@@ -77,10 +91,6 @@ export function ExplainReportView({ config, dbName, sql, runKey }: ExplainReport
     requestSequenceRef.current += 1
   }, [])
 
-  useEffect(() => {
-    if (report) setActiveView('plan')
-  }, [report])
-
   const selectedNode = useMemo<ExplainNode | undefined>(() => {
     if (!report || !selectedNodeId) return undefined
     return report.plan.nodes.find((node) => node.id === selectedNodeId)
@@ -94,7 +104,7 @@ export function ExplainReportView({ config, dbName, sql, runKey }: ExplainReport
     <div className="gn-explain-report-view">
       {loading && !report ? (
         <div className="gn-explain-report-loading">
-          <Spin tip={t('sql_analysis.explain.loading')} />
+          <Spin tip={t(analyze ? 'sql_analysis.analyze.loading' : 'sql_analysis.explain.loading')} />
         </div>
       ) : null}
       {/* 失败后的重试入口是上方 SQL 栏的「重新诊断」，这里不再放第二个同义按钮。 */}
@@ -111,68 +121,20 @@ export function ExplainReportView({ config, dbName, sql, runKey }: ExplainReport
         <Empty className="gn-explain-report-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('sql_analysis.explain.empty')} />
       ) : null}
       {!error && report ? (
-        <Spin spinning={loading} tip={t('sql_analysis.explain.loading')} wrapperClassName="gn-explain-report-spinner">
-          <div className="gn-explain-report-shell">
-            <div className="gn-explain-report-switcher-row">
-              <Segmented
-                value={activeView}
-                onChange={(value) => setActiveView(value as 'plan' | 'raw')}
-                className="gn-explain-report-switcher"
-                options={[
-                  {
-                    value: 'plan',
-                    label: (
-                      <span className="gn-explain-report-switcher-label">
-                        <ApartmentOutlined />
-                        <span>{t('sql_analysis.explain.view.plan')}</span>
-                      </span>
-                    ),
-                  },
-                  {
-                    value: 'raw',
-                    label: (
-                      <span className="gn-explain-report-switcher-label">
-                        <CodeOutlined />
-                        <span>{t('sql_analysis.explain.view.raw')}</span>
-                      </span>
-                    ),
-                  },
-                ]}
-              />
-              <Text type="secondary" className="gn-explain-report-switcher-meta">
-                {t('sql_analysis.explain.meta.node_count', { count: report.plan.nodes.length })}
-                <span className="gn-explain-report-switcher-meta-separator">/</span>
-                {report.plan.rawFormat}
-              </Text>
-            </div>
-
-            <div className="gn-explain-report-content">
-              {activeView === 'plan' ? (
-                <div className="gn-explain-plan-view">
-                  <div className="gn-explain-plan-graph">
-                    <ExplainGraph
-                      key={reportRevision}
-                      nodes={report.plan.nodes}
-                      edges={report.plan.edges ?? []}
-                      selectedNodeId={selectedNodeId ?? undefined}
-                      onSelectNode={setSelectedNodeId}
-                    />
-                  </div>
-                  <div className="gn-explain-plan-sidebar">
-                    <ExplainSidebar
-                      stats={report.plan.stats}
-                      warnings={report.plan.warnings}
-                      suggestions={report.suggestions ?? []}
-                      selectedNode={selectedNode}
-                      onSelectSuggestion={handleSelectSuggestion}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <pre className="gn-explain-raw">{report.plan.rawPayload || t('sql_analysis.explain.raw.empty')}</pre>
-              )}
-            </div>
-          </div>
+        <Spin spinning={loading} tip={t(analyze ? 'sql_analysis.analyze.loading' : 'sql_analysis.explain.loading')} wrapperClassName="gn-explain-report-spinner">
+          <ExplainReportBody
+            report={report}
+            reportRevision={reportRevision}
+            selectedNodeId={selectedNodeId}
+            selectedNode={selectedNode}
+            onSelectNode={setSelectedNodeId}
+            onSelectSuggestion={handleSelectSuggestion}
+            onAnalyze={onAnalyze}
+            analyzing={loading && analyze}
+            baseline={baseline}
+            onPinBaseline={onPinBaseline}
+            onClearBaseline={onClearBaseline}
+          />
         </Spin>
       ) : null}
     </div>

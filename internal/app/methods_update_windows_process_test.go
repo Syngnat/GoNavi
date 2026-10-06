@@ -411,7 +411,12 @@ func TestInstallUpdateAndRestartRequiresCloseConfirmationOnWindows(t *testing.T)
 			t.Fatal("other instances must be discovered after acquiring update maintenance")
 		}
 		findCalls++
-		return []windowsUpdateProcess{{PID: 4321, Executable: filepath.Join(dir, "GoNavi.exe")}}, nil
+		// 一个打开着的 GoNavi 窗口，外加两个无头后台进程（运行时清理进程、MCP 服务）。
+		return []windowsUpdateProcess{
+			{PID: 4321, Executable: filepath.Join(dir, "GoNavi.exe"), Interactive: true},
+			{PID: 4322, Executable: filepath.Join(dir, "GoNavi.exe")},
+			{PID: 4323, Executable: filepath.Join(dir, "GoNavi.exe")},
+		}, nil
 	}
 	launched := false
 	updateLaunchInstallScript = func(*stagedUpdate) error {
@@ -430,6 +435,7 @@ func TestInstallUpdateAndRestartRequiresCloseConfirmationOnWindows(t *testing.T)
 	if !ok || data["requiresCloseConfirmation"] != true {
 		t.Fatalf("close confirmation data = %#v, want requiresCloseConfirmation=true", result.Data)
 	}
+	// 只统计带界面窗口的实例，无头后台进程不计入。
 	if data["instanceCount"] != 1 {
 		t.Fatalf("instanceCount = %#v, want 1", data["instanceCount"])
 	}

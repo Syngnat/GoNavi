@@ -54,6 +54,7 @@ import { loadOracleDatabaseLinks } from './sidebarOracleDatabaseLinks';
 import type { SidebarTreeLoadStateApi } from './useSidebarTreeLoadState';
 import type { UseSidebarTreeLoadersOptions } from './useSidebarTreeLoaders';
 import { createSidebarDatabaseChildrenBuilder } from './sidebarDatabaseChildren';
+import { invalidateQueryEditorSessionMetadata } from '../queryEditor/metadata/queryEditorSessionMetadataStore';
 
 export interface UseSidebarTableLoaderInput {
   loadingNodesRef: UseSidebarTreeLoadersOptions['loadingNodesRef'];
@@ -566,6 +567,10 @@ export const useSidebarTableLoader = ({
         const conn = node.dataRef;
         const loadKey = `tables-${conn.id}-${conn.dbName}`;
         const connectionEpoch = getConnectionLoadEpoch(conn.id);
+        if (options.ensureFresh) {
+            // 强制刷新说明结构可能变了（手动刷新、建表、删表、改名）：新开的查询页不能再用缓存的对象列表。
+            invalidateQueryEditorSessionMetadata(conn.id, conn.dbName);
+        }
         return scheduleSidebarLoad(
             tableLoadsRef.current,
             loadKey,

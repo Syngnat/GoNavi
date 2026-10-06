@@ -224,6 +224,81 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
             self.assertEqual(1, len(failures))
             self.assertIn("agent 无法启动", failures[0])
 
+    def test_dynamic_probe_retries_transient_probe_failures(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "Linux" / "sphinx-driver-agent-linux-amd64", STALE_REVISION)
+
+            calls = []
+            sleeps = []
+
+            def flaky_prober(payload: bytes) -> str:
+                calls.append(payload)
+                if len(calls) == 1:
+                    raise RuntimeError("agent 退出码 127: ")
+                return SPHINX_REVISION
+
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/amd64": {"sphinx": SPHINX_REVISION}},
+                dynamic_probe_platforms=("linux/amd64",),
+                prober=flaky_prober,
+                probe_retry_sleep=sleeps.append,
+            )
+            self.assertEqual(2, len(calls))
+            self.assertEqual(1, len(sleeps))
+            self.assertEqual(1, checked)
+            self.assertEqual([], failures)
+
+    def test_dynamic_probe_reports_attempts_when_every_probe_fails(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "Linux" / "sphinx-driver-agent-linux-amd64", STALE_REVISION)
+
+            calls = []
+
+            def broken_prober(payload: bytes) -> str:
+                calls.append(payload)
+                raise RuntimeError("agent 退出码 127: ")
+
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/amd64": {"sphinx": SPHINX_REVISION}},
+                dynamic_probe_platforms=("linux/amd64",),
+                prober=broken_prober,
+                probe_retry_sleep=lambda seconds: None,
+            )
+            self.assertEqual(module.PROBE_ATTEMPTS, len(calls))
+            self.assertEqual(0, checked)
+            self.assertEqual(1, len(failures))
+            self.assertIn("退出码 127", failures[0])
+            self.assertIn(f"已尝试 {module.PROBE_ATTEMPTS} 次", failures[0])
+
+    def test_dynamic_probe_does_not_retry_a_revision_mismatch(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "Linux" / "sphinx-driver-agent-linux-amd64", STALE_REVISION)
+
+            calls = []
+
+            def stale_prober(payload: bytes) -> str:
+                calls.append(payload)
+                return STALE_REVISION
+
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/amd64": {"sphinx": SPHINX_REVISION}},
+                dynamic_probe_platforms=("linux/amd64",),
+                prober=stale_prober,
+                probe_retry_sleep=lambda seconds: None,
+            )
+            self.assertEqual(1, len(calls))
+            self.assertEqual(1, len(failures))
+            self.assertIn("指纹不一致", failures[0])
+
     def test_skip_platform_is_reported_but_not_failed(self):
         module = load_module()
         with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
@@ -395,6 +470,41 @@ class VerifyDriverAgentFingerprintsPublishedTest(unittest.TestCase):
 
             self.assertEqual(0, checked)
             self.assertEqual([], failures)
+
+    def test_skips_registry_drivers_on_platforms_they_do_not_declare(self):
+        module = load_module()
+        module.registry_driver_platforms = lambda: {
+            "yashandb": frozenset({"linux/amd64", "windows/amd64"}),
+        }
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text(
+                json.dumps(self.build_manifest({})),
+                encoding="utf-8",
+            )
+
+            checked, failures = module.verify_published(
+                manifest,
+                {
+                    "darwin/arm64": {"yashandb": SPHINX_REVISION},
+                    "windows/arm64": {"yashandb": SPHINX_REVISION},
+                    "windows/amd64": {"yashandb": SPHINX_REVISION},
+                },
+            )
+
+            self.assertEqual(0, checked)
+            self.assertEqual(1, len(failures))
+            self.assertIn("windows/amd64 yashandb", failures[0])
+
+    def test_reads_declared_platforms_from_the_data_source_registry(self):
+        module = load_module()
+        platforms = module.registry_driver_platforms()
+
+        self.assertIn("linux/amd64", platforms["gbase8s"])
+        self.assertNotIn("darwin/arm64", platforms["gbase8s"])
+        self.assertFalse(module.is_driver_supported_on_platform("yashandb", "darwin/amd64"))
+        self.assertTrue(module.is_driver_supported_on_platform("yashandb", "linux/arm64"))
+        self.assertTrue(module.is_driver_supported_on_platform("mysql", "darwin/arm64"))
 
     def test_cli_reports_mismatch_with_nonzero_exit(self):
         with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:

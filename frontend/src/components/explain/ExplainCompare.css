@@ -1,0 +1,116 @@
+.gn-explain-compare {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.gn-explain-compare__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.gn-explain-compare__actions {
+  display: inline-flex;
+  margin-left: auto;
+  gap: 8px;
+}
+
+.gn-explain-compare__pinned {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  color: var(--gn-accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-panel));
+}
+
+.gn-explain-compare__note.ant-typography {
+  font-size: 12px;
+}
+
+.gn-explain-compare__sql {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  color: var(--gn-fg-3);
+  font-size: 12px;
+}
+
+.gn-explain-compare__sql code {
+  overflow: hidden;
+  color: var(--gn-fg-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-explain-compare__summary {
+  width: 100%;
+  max-width: 640px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.gn-explain-compare__summary th,
+.gn-explain-compare__summary td {
+  padding: 5px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--gn-br-1);
+}
+
+.gn-explain-compare__summary th:first-child,
+.gn-explain-compare__summary td:first-child {
+  text-align: left;
+}
+
+.gn-explain-compare__summary th {
+  color: var(--gn-fg-3);
+  font-weight: 500;
+}
+
+.gn-explain-compare__delta.is-better,
+.gn-explain-compare__change.is-faster {
+  color: var(--gn-accent);
+}
+
+.gn-explain-compare__delta.is-worse,
+.gn-explain-compare__change.is-slower {
+  color: var(--gn-danger);
+}
+
+.gn-explain-compare__delta.is-same,
+.gn-explain-compare__change.is-same,
+.gn-explain-compare__change.is-removed {
+  color: var(--gn-fg-4);
+}
+
+.gn-explain-compare__change.is-accessChanged,
+.gn-explain-compare__change.is-added {
+  color: var(--gn-warn);
+}
+
+.gn-explain-compare__change {
+  font-weight: 600;
+}
+
+.gn-explain-compare__step {
+  display: inline-flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.gn-explain-compare__was.ant-typography {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

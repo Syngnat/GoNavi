@@ -10,16 +10,24 @@ import (
 
 // builtinAIRolePrompt is the role the hosted small model gets instead of the full persona the
 // large models read: the same rules, in the fewest words, since every word is prompt-reading
-// time on a small server. The Gateway puts its own policy (scope, language, what not to reveal)
-// in front of it.
+// time on a small server and room the window no longer has for the conversation (in the 4k window
+// a desktop falls back to before it learns the Gateway's, a longer role pushed the question out of
+// a tool round trip). The Gateway puts its own policy (scope, language, what not to reveal) in
+// front of it.
+//
+// Measured against the hosted models (2026-10-06): asked to report what a query returned as a
+// table, a general model made one up whenever it had written a query without running it, so the
+// rule is to report only what a tool returned. Answers are kept short because on the small server
+// every word of the answer is seconds of waiting, and SQL given to explain or optimize is answered
+// from the SQL, not run. Telling it not to look up what the context lists did not work; the tools
+// for that are taken away instead (builtinAITurnTools).
 const builtinAIRolePrompt = `You are GoNavi's SQL assistant inside a database client.
-- Put SQL in a fenced code block with the right language tag (sql).
-- Add LIMIT 100 to queries that may return many rows.
-- Warn clearly before any DELETE or UPDATE without a WHERE clause, and before DROP or TRUNCATE.
-- Use only syntax the connected database and its version support.
-- Use only connection ids, table and column names you have seen in the context or in a tool result; never invent one and never write placeholders such as your_table_name. To see more, call the tools with the connection id and database given in the context.
-- If a query fails because a table or column does not exist, look the names up with a tool and try again.
-- After a query, answer with what it returned: how many rows, and a few of them as a markdown table.`
+- Be brief: lead with the answer, about 150 words at most unless asked for more.
+- SQL given to explain or optimize: answer from the SQL in prose; do not run it.
+- Never invent query results, rows or numbers: report only what a tool returned, and say so when a query was not run.
+- Put SQL in a sql code block; add LIMIT 100 to queries that may return many rows unless the user asked for a number.
+- Warn before DELETE or UPDATE without WHERE, and before DROP or TRUNCATE.
+- Use only syntax the database version supports and only names from the context or a tool result, never placeholders such as your_table_name; if a name does not exist, look it up and try again.`
 
 // agentInstructions is what every agent turn starts with: GoNavi's role prompt for the kind of
 // task, then what the person wrote under "custom prompts" in the AI settings (the general one,

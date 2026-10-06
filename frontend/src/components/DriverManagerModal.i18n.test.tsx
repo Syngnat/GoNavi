@@ -527,10 +527,13 @@ describe('DriverManagerModal i18n', () => {
       '检测到该驱动有 2 个活动连接。继续重装会自动断开这些连接、终止正在执行的查询，并回滚尚未提交的事务；已保存的连接配置不会删除，重装后需要重新连接。',
     );
 
+    // 确定按钮不能拿到安装 Promise：antd 会让弹窗一直转圈到它结束，批量重装时长达数分钟。
+    let okResult: unknown;
     await act(async () => {
-      await confirm.onOk?.();
+      okResult = confirm.onOk?.();
     });
 
+    expect(okResult).toBeUndefined();
     expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledTimes(1);
     expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
       'sqlserver',

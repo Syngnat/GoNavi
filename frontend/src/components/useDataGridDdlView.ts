@@ -3,11 +3,10 @@ import { DBShowCreateTable } from '../../wailsjs/go/app/App';
 import { t as catalogTranslate } from '../i18n/catalog';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { formatDdlForDisplay } from '../utils/ddlFormat';
-
-type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLog';
+import type { GridViewMode } from './dataGrid/core/dataGridTypes';
 type DdlViewLayoutMode = 'bottom' | 'side';
 type TranslateParams = Record<string, string | number | boolean | null | undefined>;
-const GRID_VIEW_MODES: GridViewMode[] = ['table', 'json', 'text', 'fields', 'ddl', 'er', 'sqlLog'];
+const GRID_VIEW_MODES: GridViewMode[] = ['table', 'json', 'text', 'chart', 'fields', 'ddl', 'er', 'sqlLog'];
 const DDL_VIEW_LAYOUT_STORAGE_KEY = 'gonavi.dataGrid.ddlViewLayout';
 let sharedDdlViewOpen = false;
 let sharedDdlViewLayout: DdlViewLayoutMode | null = null;
@@ -303,7 +302,7 @@ export const useDataGridDdlView = ({
       return;
     }
     setSharedDdlViewOpen(false);
-    if (nextMode === 'json' && cellEditMode) {
+    if ((nextMode === 'json' || nextMode === 'chart') && cellEditMode) {
       closeCellEditModeRef.current();
     }
 

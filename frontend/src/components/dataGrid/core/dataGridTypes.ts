@@ -88,7 +88,7 @@ export type GridFilterCondition = FilterCondition & {
     value2?: string;
 };
 
-export type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLog';
+export type GridViewMode = 'table' | 'json' | 'text' | 'chart' | 'fields' | 'ddl' | 'er' | 'sqlLog';
 export type DdlViewLayoutMode = 'bottom' | 'side';
 export type DataGridExportScope = 'selected' | 'page' | 'all' | 'filteredAll';
 export type VirtualEditingCellState = {

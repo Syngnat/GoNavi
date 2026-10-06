@@ -712,7 +712,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(storeState.setActiveContext).not.toHaveBeenCalled();
-    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1); // click-time column prefetch for the tab
     expect(backendApp.DBTableExists).toHaveBeenCalledWith(expect.anything(), 'analytics', 'events');
     expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
     expect(storeState.addTab).toHaveBeenCalledWith({
@@ -812,7 +812,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(storeState.setActiveContext).not.toHaveBeenCalled();
-    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1); // click-time column prefetch for the tab
     expect(backendApp.DBTableExists).toHaveBeenCalledWith(
       expect.anything(),
       'mkefu_location_dev_local',
@@ -937,7 +937,7 @@ describe('QueryEditor external SQL save', () => {
       }
     });
 
-    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1); // click-time column prefetch for the tab
     expect(backendApp.DBTableExists).toHaveBeenCalledWith(expect.anything(), 'mkefu_ai_dev', 'customr');
     expect(backendApp.DBGetTables).toHaveBeenCalledTimes(1);
     expect(storeState.addTab).not.toHaveBeenCalled();

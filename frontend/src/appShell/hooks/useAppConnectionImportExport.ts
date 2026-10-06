@@ -8,7 +8,7 @@ import {
   normalizeConnectionPackagePassword,
   resolveConnectionPackageExportResult,
 } from '../../utils/connectionExport';
-import { normalizeConnectionPackageImportPayload } from '../connectionPackageImport';
+import { normalizeConnectionPackageImportPayload, summarizeConnectionImport } from '../connectionPackageImport';
 import { resolveConnectionImportPlacement } from '../../components/settings/ConnectionImportSettingsPanel';
 import { mergeRedisDbAliases } from '../../utils/redisDbAlias';
 import type { ToolCenterGroupKey } from '../settingsCenterPanes';
@@ -122,7 +122,7 @@ export const useAppConnectionImportExport = ({
               redisDbAliases: mergeRedisDbAliases(currentAliases, imported.redisDbAliases),
           });
       }
-      return imported.connections;
+      return imported;
   }, [connectionImportTargetTagId, moveConnectionsToTag, refreshConnectionsAfterImport, setConnectionDisplaySortMode, t]);
 
   const importConnectionPayloadFromFile = async (raw: string, sourceGroup?: ToolCenterGroupKey) => {
@@ -156,16 +156,12 @@ export const useAppConnectionImportExport = ({
               error: '',
               confirmLoading: true,
           }));
-          const importedViews = await importConnectionsPayload(raw, '');
-          if ((importKind === 'mysql-workbench-xml' || importKind === 'navicat-ncx') && importedViews.some(v => !v.hasPrimaryPassword)) {
-              const warning = t('app.connection_package.message.imported_with_missing_passwords', { count: importedViews.length });
-              setConnectionImportNotice({ type: 'warning', message: warning });
-              void message.warning(warning);
-          } else {
-              const success = t('app.connection_package.message.imported_connections', { count: importedViews.length });
-              setConnectionImportNotice({ type: 'success', message: success });
-              void message.success(success);
-          }
+          const imported = await importConnectionsPayload(raw, '');
+          const missingPasswords = (importKind === 'mysql-workbench-xml' || importKind === 'navicat-ncx')
+              && imported.connections.some(v => !v.hasPrimaryPassword);
+          const summary = summarizeConnectionImport(t, imported, { missingPasswords });
+          setConnectionImportNotice(summary);
+          void message[summary.type](summary.message);
           setConnectionPackageDialog((current) => ({
               ...current,
               open: false,
@@ -363,7 +359,8 @@ export const useAppConnectionImportExport = ({
 
   const finishExcelImport = async (result: any, sourceGroup?: ToolCenterGroupKey) => {
       const imported = normalizeConnectionPackageImportPayload(result?.data);
-      if (!imported || imported.connections.length === 0) {
+      // 全部条目都已存在时后端返回空连接列表 + 跳过数，这不是失败。
+      if (!imported || (imported.connections.length === 0 && imported.skippedCount === 0)) {
           throw new Error(t('app.connection_package.error.import_no_connections'));
       }
       const targetTagId = String(connectionImportTargetTagId || '').trim();
@@ -388,11 +385,9 @@ export const useAppConnectionImportExport = ({
           setActiveSettingsCenterGroupKey(sourceGroup);
           setActiveSettingsCenterPane({ key: 'import', group: sourceGroup });
       }
-      const summary = movedByExcel > 0
-          ? t('app.connection_package.excel.groups_applied', { count: imported.connections.length, groupCount: movedByExcel })
-          : t('app.connection_package.message.imported_connections', { count: imported.connections.length });
-      setConnectionImportNotice({ type: 'success', message: summary });
-      void message.success(summary);
+      const summary = summarizeConnectionImport(t, imported, { groupedCount: movedByExcel });
+      setConnectionImportNotice(summary);
+      void message[summary.type](summary.message);
   };
 
   const handleConfirmConnectionPackageDialog = async () => {
@@ -499,10 +494,10 @@ export const useAppConnectionImportExport = ({
               throw new Error(t('app.connection_package.error.missing_import_payload'));
           }
 
-          const importedViews = await importConnectionsPayload(pendingConnectionImportPayload, password);
-          const success = t('app.connection_package.message.imported_connections', { count: importedViews.length });
+          const imported = await importConnectionsPayload(pendingConnectionImportPayload, password);
+          const summary = summarizeConnectionImport(t, imported);
           setPendingConnectionImportPayload(null);
-          setConnectionImportNotice({ type: 'success', message: success });
+          setConnectionImportNotice(summary);
           setConnectionPackageDialog((current) => ({
               ...current,
               open: false,
@@ -510,7 +505,7 @@ export const useAppConnectionImportExport = ({
               error: '',
               confirmLoading: false,
           }));
-          void message.success(success);
+          void message[summary.type](summary.message);
       } catch (e: any) {
           setConnectionPackageDialog((current) => ({
               ...current,

@@ -1,0 +1,256 @@
+/* 执行计划可读性：热度条、热点路径、热点条带、步骤列表与节点说明。 */
+
+.gn-explain-node .react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.gn-explain-node__kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+
+.gn-explain-node__share {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--gn-fg-3);
+}
+
+.gn-explain-node__share-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--gn-bg-hover);
+}
+
+.gn-explain-node__share-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--gn-fg-4);
+}
+
+.gn-explain-node--heat-warm .gn-explain-node__share-fill,
+.gn-explain-step__share--warm .gn-explain-node__share-fill {
+  background: var(--gn-warn);
+}
+
+.gn-explain-node--heat-hot .gn-explain-node__share-fill,
+.gn-explain-step__share--hot .gn-explain-node__share-fill {
+  background: var(--gn-danger);
+}
+
+.gn-explain-node--heat-hot {
+  background: color-mix(in srgb, var(--gn-danger) 7%, var(--gn-bg-panel));
+}
+
+.gn-explain-node--heat-hot .gn-explain-node__share strong {
+  color: var(--gn-danger);
+}
+
+/* The chain from the costliest step to the result: where the time goes. */
+.gn-explain-node--hot-path:not(.gn-explain-node--selected) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-danger) 28%, transparent);
+}
+
+.gn-explain-graph .gn-explain-edge .react-flow__edge-text {
+  font-size: 10px;
+  fill: var(--gn-fg-3);
+}
+
+.gn-explain-graph .gn-explain-edge--hot .react-flow__edge-text {
+  fill: var(--gn-danger);
+}
+
+.gn-explain-graph .react-flow__edge-textbg {
+  fill: var(--gn-bg-panel);
+}
+
+.gn-explain-minimap.react-flow__minimap {
+  border: 1px solid var(--gn-br-2);
+  border-radius: 8px;
+  background: var(--gn-bg-panel);
+}
+
+.gn-explain-hotspots {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-explain-hotspots__title {
+  color: var(--gn-fg-3);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  border-bottom: 1px dotted var(--gn-fg-4);
+}
+
+.gn-explain-hotspot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid var(--gn-br-2);
+  border-radius: 999px;
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gn-explain-hotspot:hover,
+.gn-explain-hotspot.is-selected {
+  border-color: var(--gn-accent);
+}
+
+.gn-explain-hotspot:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 2px;
+}
+
+.gn-explain-hotspot__rank {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--gn-bg-hover);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gn-explain-hotspot--hot .gn-explain-hotspot__rank {
+  background: var(--gn-danger);
+  color: var(--gn-on-danger, #fff);
+}
+
+.gn-explain-hotspot--warm .gn-explain-hotspot__rank {
+  background: var(--gn-warn);
+  color: var(--gn-on-warn, #fff);
+}
+
+.gn-explain-hotspot__label,
+.gn-explain-hotspot__table {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-explain-hotspot__table {
+  color: var(--gn-fg-3);
+  font-size: 11px;
+}
+
+.gn-explain-steps.ant-table-wrapper,
+.gn-explain-steps .ant-table {
+  height: 100%;
+  background: transparent;
+}
+
+.gn-explain-steps .gn-explain-step {
+  cursor: pointer;
+}
+
+.gn-explain-steps .gn-explain-step.is-selected > td {
+  background: var(--gn-bg-selected) !important;
+}
+
+.gn-explain-step__op {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gn-explain-step__object {
+  color: var(--gn-fg-3);
+  font-size: 12px;
+}
+
+.gn-explain-step__share {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.gn-explain-insight {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--gn-bg-panel-2);
+  color: var(--gn-fg-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.gn-explain-insight strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--gn-fg-1);
+}
+
+/* Measured plans: the badge and the button beside the view switcher. */
+.gn-explain-analyze {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.gn-explain-analyze__badge {
+  padding: 1px 8px;
+  color: var(--gn-accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-panel));
+}
+
+.gn-explain-analyze__summary.ant-typography {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-explain-node__never {
+  color: var(--gn-fg-4);
+  font-style: italic;
+}
+
+.gn-explain-node__actual.is-misestimated,
+.gn-explain-node__actual.is-misestimated strong {
+  color: var(--gn-warn);
+}
+
+.gn-explain-analyze-confirm p {
+  margin: 0 0 8px;
+}
+
+.gn-explain-analyze-confirm__production {
+  color: var(--gn-danger);
+  font-weight: 600;
+}

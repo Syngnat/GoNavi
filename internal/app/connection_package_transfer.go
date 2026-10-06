@@ -360,6 +360,16 @@ func (a *App) importSavedConnectionsAtomically(inputs []connection.SavedConnecti
 // saved-connection shared storage lock. Cloud restore uses this form so its
 // pre-restore snapshot, import, and any rollback remain one atomic operation.
 func (a *App) importSavedConnectionsUnlocked(repo *savedConnectionRepository, inputs []connection.SavedConnectionInput) ([]connection.SavedConnectionView, error) {
+	finalInputs, err := prepareImportedSavedConnectionInputs(inputs)
+	if err != nil {
+		return nil, err
+	}
+	return a.savePreparedConnectionImportUnlocked(repo, finalInputs)
+}
+
+// prepareImportedSavedConnectionInputs assigns IDs and collapses entries that
+// share an ID, keeping the last one.
+func prepareImportedSavedConnectionInputs(inputs []connection.SavedConnectionInput) ([]connection.SavedConnectionInput, error) {
 	preparedInputs := make([]connection.SavedConnectionInput, 0, len(inputs))
 	for _, input := range inputs {
 		prepared, err := prepareSavedConnectionInput(normalizeImportedSavedConnectionInput(input))
@@ -368,7 +378,12 @@ func (a *App) importSavedConnectionsUnlocked(repo *savedConnectionRepository, in
 		}
 		preparedInputs = append(preparedInputs, prepared)
 	}
-	finalInputs := dedupeImportedSavedConnectionInputs(preparedInputs)
+	return dedupeImportedSavedConnectionInputs(preparedInputs), nil
+}
+
+// savePreparedConnectionImportUnlocked writes already prepared inputs and
+// restores the pre-import state if any of them fails.
+func (a *App) savePreparedConnectionImportUnlocked(repo *savedConnectionRepository, finalInputs []connection.SavedConnectionInput) ([]connection.SavedConnectionView, error) {
 	result := make([]connection.SavedConnectionView, 0, len(finalInputs))
 	rollbackSnapshot, err := captureConnectionImportRollbackSnapshot(a, finalInputs)
 	if err != nil {
@@ -387,12 +402,12 @@ func (a *App) importSavedConnectionsUnlocked(repo *savedConnectionRepository, in
 	return dedupeImportedSavedConnectionViews(result), nil
 }
 
-func (a *App) importConnectionPackagePayload(payload connectionPackagePayload) ([]connection.SavedConnectionView, error) {
+func (a *App) importConnectionPackagePayload(payload connectionPackagePayload) (savedConnectionImportReport, error) {
 	inputs := make([]connection.SavedConnectionInput, 0, len(payload.Connections))
 	for _, item := range payload.Connections {
 		inputs = append(inputs, newSavedConnectionInputFromPackageItem(item))
 	}
-	return a.importSavedConnectionsAtomically(inputs)
+	return a.importSavedConnectionsSkippingDuplicates(inputs)
 }
 
 func (a *App) importConnectionPackagePayloadUnlocked(repo *savedConnectionRepository, payload connectionPackagePayload) ([]connection.SavedConnectionView, error) {
@@ -436,11 +451,11 @@ func (a *App) ImportConnectionsPayload(raw string, password string) (ConnectionP
 		if err != nil {
 			return empty, localizeError(err)
 		}
-		views, err := a.importConnectionPackagePayload(payload)
+		report, err := a.importConnectionPackagePayload(payload)
 		if err != nil {
 			return empty, localizeError(err)
 		}
-		return connectionPackageImportResultFromViews(views, collectRedisDbAliasesFromPackagePayload(payload)), nil
+		return connectionPackageImportResultFromReport(report, collectRedisDbAliasesFromPackagePayload(payload)), nil
 	}
 
 	if isConnectionPackageV2Protected(trimmed) {
@@ -452,11 +467,11 @@ func (a *App) ImportConnectionsPayload(raw string, password string) (ConnectionP
 		if err != nil {
 			return empty, localizeError(err)
 		}
-		views, err := a.importConnectionPackagePayload(payload)
+		report, err := a.importConnectionPackagePayload(payload)
 		if err != nil {
 			return empty, localizeError(err)
 		}
-		return connectionPackageImportResultFromViews(views, collectRedisDbAliasesFromPackagePayload(payload)), nil
+		return connectionPackageImportResultFromReport(report, collectRedisDbAliasesFromPackagePayload(payload)), nil
 	}
 
 	if isConnectionPackageEnvelope(trimmed) {
@@ -468,11 +483,11 @@ func (a *App) ImportConnectionsPayload(raw string, password string) (ConnectionP
 		if err != nil {
 			return empty, localizeError(err)
 		}
-		views, err := a.importConnectionPackagePayload(payload)
+		report, err := a.importConnectionPackagePayload(payload)
 		if err != nil {
 			return empty, localizeError(err)
 		}
-		return connectionPackageImportResultFromViews(views, collectRedisDbAliasesFromPackagePayload(payload)), nil
+		return connectionPackageImportResultFromReport(report, collectRedisDbAliasesFromPackagePayload(payload)), nil
 	}
 
 	if isMySQLWorkbenchXML(trimmed) {
@@ -483,11 +498,11 @@ func (a *App) ImportConnectionsPayload(raw string, password string) (ConnectionP
 		if len(inputs) == 0 {
 			return empty, mysqlWorkbenchError("file.backend.error.mysql_workbench_no_connections", nil)
 		}
-		views, err := a.importSavedConnectionsAtomically(inputs)
+		report, err := a.importSavedConnectionsSkippingDuplicates(inputs)
 		if err != nil {
 			return empty, err
 		}
-		return connectionPackageImportResultFromViews(views, nil), nil
+		return connectionPackageImportResultFromReport(report, nil), nil
 	}
 
 	if isNavicatNCX(trimmed) {
@@ -498,22 +513,22 @@ func (a *App) ImportConnectionsPayload(raw string, password string) (ConnectionP
 		if len(inputs) == 0 {
 			return empty, navicatError(a.appText, "file.backend.error.navicat_ncx_no_connections", nil)
 		}
-		views, err := a.importSavedConnectionsAtomically(inputs)
+		report, err := a.importSavedConnectionsSkippingDuplicates(inputs)
 		if err != nil {
 			return empty, err
 		}
-		return connectionPackageImportResultFromViews(views, nil), nil
+		return connectionPackageImportResultFromReport(report, nil), nil
 	}
 
 	var legacy []connection.LegacySavedConnection
 	if err := json.Unmarshal([]byte(trimmed), &legacy); err != nil {
 		return empty, localizeError(errConnectionPackageUnsupported)
 	}
-	views, err := a.ImportLegacyConnections(legacy)
+	report, err := a.importSavedConnectionsSkippingDuplicates(legacySavedConnectionInputs(legacy))
 	if err != nil {
 		return empty, err
 	}
-	return connectionPackageImportResultFromViews(views, nil), nil
+	return connectionPackageImportResultFromReport(report, nil), nil
 }
 
 type connectionPackageImportRollbackSnapshot struct {
