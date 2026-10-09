@@ -108,20 +108,6 @@ func (s *SqlServerDB) GetTables(dbName string) ([]string, error) {
 	return tables, nil
 }
 
-// formatSQLServerTableMetadataName keeps metadata round-trippable when a
-// schema or table contains a dot (or a bracket). Plain names retain the
-// historical schema.table representation used by the sidebar.
-func formatSQLServerTableMetadataName(schema, table string) string {
-	if schema == "" {
-		return table
-	}
-	if strings.ContainsAny(schema, ".[]") || strings.ContainsAny(table, ".[]") ||
-		strings.TrimSpace(schema) != schema || strings.TrimSpace(table) != table {
-		return fmt.Sprintf("[%s].[%s]", quoteBracket(schema), quoteBracket(table))
-	}
-	return schema + "." + table
-}
-
 func (s *SqlServerDB) GetCreateStatement(dbName, tableName string) (string, error) {
 	return "", localizedDatabaseRuntimeError("db.backend.error.sqlserver_create_statement_unsupported", nil)
 }
