@@ -208,7 +208,7 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 			releaseForwarder()
 			continue
 		}
-		configureSQLConnectionPool(db, "oceanbase")
+		configureSQLConnectionPool(db, "oceanbase", candidateConfig)
 
 		timeout := getConnectTimeout(candidateConfig)
 		ctx, cancel := utils.ContextWithTimeout(timeout)
@@ -354,7 +354,7 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败：%v", address, err))
 			continue
 		}
-		configureSQLConnectionPool(db, "oceanbase")
+		configureSQLConnectionPool(db, "oceanbase", candidateConfig)
 
 		timeout := getConnectTimeout(candidateConfig)
 		ctx, cancel := utils.ContextWithTimeout(timeout)

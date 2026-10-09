@@ -213,7 +213,7 @@ func (s *SqlServerDB) Connect(config connection.ConnectionConfig) (err error) {
 	if err != nil {
 		return wrapDatabaseConnectionOpenError(err)
 	}
-	configureSQLConnectionPool(db, "sqlserver")
+	configureSQLConnectionPool(db, "sqlserver", config)
 	s.conn = db
 	s.pingTimeout = getConnectTimeout(config)
 

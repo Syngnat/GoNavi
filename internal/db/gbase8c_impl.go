@@ -85,7 +85,7 @@ func (g *GBase8cDB) Connect(config connection.ConnectionConfig) (err error) {
 	if err := g.resolve("gbase8c", config, version); err != nil {
 		return err
 	}
-	if err := g.applySearchPath(dsn); err != nil {
+	if err := g.applySearchPath(config, dsn); err != nil {
 		logger.Warnf("GBase 8c 配置 search_path 失败，沿用服务端默认值：%v", err)
 	}
 	return nil
@@ -108,7 +108,7 @@ func (g *GBase8cDB) openPool(config connection.ConnectionConfig) (string, error)
 				failures = append(failures, fmt.Sprintf("%s: %v", database, err))
 				continue
 			}
-			configureSQLConnectionPool(pool, "gbase8c")
+			configureSQLConnectionPool(pool, "gbase8c", candidate)
 			g.conn = pool
 			if err := g.Ping(); err != nil {
 				failures = append(failures, fmt.Sprintf("%s [sslmode=%s]: %v", database, resolvePostgresSSLMode(candidate), err))
@@ -168,7 +168,7 @@ func (g *GBase8cDB) queryVersion() string {
 // applySearchPath 把用户 schema 追加在服务端默认的 "$user", public 之后写进 DSN，让连接池里每条连接都能直接引用
 // 各 schema 下的表；内部 schema（dbe_perf、blockchain、Oracle 兼容扩展带入的 dbms_* 等）不加入，避免
 // current_schema 落到内部 schema 上。用户在连接参数里写了 search_path 时不改动。
-func (g *GBase8cDB) applySearchPath(dsn string) error {
+func (g *GBase8cDB) applySearchPath(config connection.ConnectionConfig, dsn string) error {
 	if postgresDSNHasExplicitSearchPath(dsn) {
 		return nil
 	}
@@ -193,8 +193,8 @@ func (g *GBase8cDB) applySearchPath(dsn string) error {
 	if err != nil {
 		return err
 	}
-	configureSQLConnectionPool(pool, "gbase8c")
-	pool.SetConnMaxLifetime(5 * time.Minute)
+	configureSQLConnectionPool(pool, "gbase8c", config)
+	applySQLSearchPathPoolLifetimeCap(pool, config)
 	previous := g.conn
 	g.conn = pool
 	if err := g.Ping(); err != nil {

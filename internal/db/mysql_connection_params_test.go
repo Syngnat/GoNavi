@@ -52,7 +52,7 @@ func TestConfigureSQLConnectionPoolCapsOpenConnections(t *testing.T) {
 	}
 	defer dbConn.Close()
 
-	configureSQLConnectionPool(dbConn, "mysql")
+	configureSQLConnectionPool(dbConn, "mysql", connection.ConnectionConfig{})
 
 	stats := dbConn.Stats()
 	if stats.MaxOpenConnections != defaultSQLMaxOpenConns {

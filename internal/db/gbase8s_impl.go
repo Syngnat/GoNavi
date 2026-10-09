@@ -140,7 +140,7 @@ func (g *GBase8sDB) open(api *odbcAPI, config connection.ConnectionConfig, param
 
 func (g *GBase8sDB) tryOpen(api *odbcAPI, config connection.ConnectionConfig, params url.Values, server, dbLocale, database string) (*sql.DB, error) {
 	pool := sql.OpenDB(&odbcConnector{api: api, connStr: gbase8sConnString(config, params, server, dbLocale, database)})
-	configureSQLConnectionPool(pool, "gbase8s")
+	configureSQLConnectionPool(pool, "gbase8s", config)
 	ctx, cancel := utils.ContextWithTimeout(g.pingTimeout)
 	defer cancel()
 	if err := pool.PingContext(ctx); err != nil {

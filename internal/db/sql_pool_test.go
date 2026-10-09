@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 const (
@@ -135,21 +137,21 @@ func resetPoolRecordingDriverCounters() {
 	poolRecordingCloseCount.Store(0)
 }
 
-func openConfiguredPoolForTest(t *testing.T, dbType string) *sql.DB {
+func openConfiguredPoolForTest(t *testing.T, dbType string, config connection.ConnectionConfig) *sql.DB {
 	t.Helper()
 	resetPoolRecordingDriverCounters()
 	dbConn, err := sql.Open(poolRecordingDriverName, t.Name())
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
 	}
-	configureSQLConnectionPool(dbConn, dbType)
+	configureSQLConnectionPool(dbConn, dbType, config)
 	t.Cleanup(func() {
 		_ = dbConn.Close()
 	})
 	return dbConn
 }
 
-func openBlockingPoolForTest(t *testing.T, dbType string, requestCount int) (*sql.DB, *poolBlockingState) {
+func openBlockingPoolForTest(t *testing.T, dbType string, config connection.ConnectionConfig, requestCount int) (*sql.DB, *poolBlockingState) {
 	t.Helper()
 	stateKey := t.Name()
 	state := newPoolBlockingState(requestCount)
@@ -161,7 +163,7 @@ func openBlockingPoolForTest(t *testing.T, dbType string, requestCount int) (*sq
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
 	}
-	configureSQLConnectionPool(dbConn, dbType)
+	configureSQLConnectionPool(dbConn, dbType, config)
 	t.Cleanup(func() {
 		state.releaseAll()
 		_ = dbConn.Close()
@@ -198,7 +200,7 @@ func TestConfigureLocalSQLConnectionPoolBoundsConcurrentRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dbConn, state := openBlockingPoolForTest(t, tt.dbType, requestCount)
+			dbConn, state := openBlockingPoolForTest(t, tt.dbType, connection.ConnectionConfig{}, requestCount)
 			if got := dbConn.Stats().MaxOpenConnections; got != tt.maxOpen {
 				t.Fatalf("expected max open connections %d, got %d", tt.maxOpen, got)
 			}
@@ -262,7 +264,7 @@ func TestConfigureLocalSQLConnectionPoolBoundsConcurrentRequests(t *testing.T) {
 }
 
 func TestConfigureSQLConnectionPoolKeepsOneIdleSQLServerConnection(t *testing.T) {
-	dbConn := openConfiguredPoolForTest(t, "sqlserver")
+	dbConn := openConfiguredPoolForTest(t, "sqlserver", connection.ConnectionConfig{})
 
 	if err := dbConn.PingContext(context.Background()); err != nil {
 		t.Fatalf("first ping failed: %v", err)
@@ -280,7 +282,7 @@ func TestConfigureSQLConnectionPoolKeepsOneIdleSQLServerConnection(t *testing.T)
 }
 
 func TestConfigureSQLConnectionPoolKeepsOneIdleKingbaseConnection(t *testing.T) {
-	dbConn := openConfiguredPoolForTest(t, "kingbase")
+	dbConn := openConfiguredPoolForTest(t, "kingbase", connection.ConnectionConfig{})
 
 	if err := dbConn.PingContext(context.Background()); err != nil {
 		t.Fatalf("first ping failed: %v", err)
@@ -311,7 +313,7 @@ func TestSQLServerConnectionPoolIdleWindowOutlastsDefaultPingBoundary(t *testing
 }
 
 func TestConfigureSQLConnectionPoolDefaultDoesNotKeepIdleConnections(t *testing.T) {
-	dbConn := openConfiguredPoolForTest(t, "mysql")
+	dbConn := openConfiguredPoolForTest(t, "mysql", connection.ConnectionConfig{})
 
 	if err := dbConn.PingContext(context.Background()); err != nil {
 		t.Fatalf("first ping failed: %v", err)
@@ -325,5 +327,91 @@ func TestConfigureSQLConnectionPoolDefaultDoesNotKeepIdleConnections(t *testing.
 	}
 	if got := poolRecordingCloseCount.Load(); got != 2 {
 		t.Fatalf("expected default pool to close each returned connection, closed %d connections", got)
+	}
+}
+
+func TestResolveSQLPoolKeepAliveRetention(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    connection.ConnectionConfig
+		want      sqlPoolKeepAliveRetention
+		wantApply bool
+	}{
+		{
+			name:      "保活关闭不调整",
+			config:    connection.ConnectionConfig{KeepAliveEnabled: false, KeepAliveIntervalMinutes: 2},
+			wantApply: false,
+		},
+		{
+			name:      "保活开启间隔零值回落默认",
+			config:    connection.ConnectionConfig{KeepAliveEnabled: true},
+			want:      sqlPoolKeepAliveRetention{maxIdle: defaultSQLMaxIdleConns, idleTime: 240*time.Minute + sqlPoolKeepAliveIdleMargin, lifetime: 0},
+			wantApply: true,
+		},
+		{
+			name:      "保活开启间隔夹紧上限",
+			config:    connection.ConnectionConfig{KeepAliveEnabled: true, KeepAliveIntervalMinutes: 5000},
+			want:      sqlPoolKeepAliveRetention{maxIdle: defaultSQLMaxIdleConns, idleTime: 1440*time.Minute + sqlPoolKeepAliveIdleMargin, lifetime: 0},
+			wantApply: true,
+		},
+		{
+			name:      "保活开启正常间隔",
+			config:    connection.ConnectionConfig{KeepAliveEnabled: true, KeepAliveIntervalMinutes: 2},
+			want:      sqlPoolKeepAliveRetention{maxIdle: defaultSQLMaxIdleConns, idleTime: 2*time.Minute + sqlPoolKeepAliveIdleMargin, lifetime: 0},
+			wantApply: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := resolveSQLPoolKeepAliveRetention(tt.config)
+			if ok != tt.wantApply {
+				t.Fatalf("resolveSQLPoolKeepAliveRetention apply = %t, want %t", ok, tt.wantApply)
+			}
+			if !tt.wantApply {
+				return
+			}
+			if got != tt.want {
+				t.Fatalf("resolveSQLPoolKeepAliveRetention = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigureSQLConnectionPoolKeepAliveRetainsIdleConnection(t *testing.T) {
+	config := connection.ConnectionConfig{KeepAliveEnabled: true, KeepAliveIntervalMinutes: 2}
+	dbConn := openConfiguredPoolForTest(t, "mysql", config)
+
+	if err := dbConn.PingContext(context.Background()); err != nil {
+		t.Fatalf("first ping failed: %v", err)
+	}
+	if err := dbConn.PingContext(context.Background()); err != nil {
+		t.Fatalf("second ping failed: %v", err)
+	}
+
+	if got := poolRecordingOpenCount.Load(); got != 1 {
+		t.Fatalf("expected keep-alive pool to reuse one idle connection, opened %d connections", got)
+	}
+	if got := poolRecordingCloseCount.Load(); got != 0 {
+		t.Fatalf("expected keep-alive idle connection to remain cached before DB close, closed %d connections", got)
+	}
+}
+
+func TestConfigureSQLConnectionPoolKeepAliveAppliesToKeepIdleProfile(t *testing.T) {
+	config := connection.ConnectionConfig{KeepAliveEnabled: true, KeepAliveIntervalMinutes: 2}
+	dbConn := openConfiguredPoolForTest(t, "sqlserver", config)
+
+	if err := dbConn.PingContext(context.Background()); err != nil {
+		t.Fatalf("first ping failed: %v", err)
+	}
+	if err := dbConn.PingContext(context.Background()); err != nil {
+		t.Fatalf("second ping failed: %v", err)
+	}
+
+	if got := poolRecordingOpenCount.Load(); got != 1 {
+		t.Fatalf("expected keep-alive SQL Server pool to reuse one idle connection, opened %d connections", got)
+	}
+	if got := poolRecordingCloseCount.Load(); got != 0 {
+		t.Fatalf("expected keep-alive SQL Server idle connection to remain cached before DB close, closed %d connections", got)
 	}
 }

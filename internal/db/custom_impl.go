@@ -34,7 +34,7 @@ func (c *CustomDB) Connect(config connection.ConnectionConfig) error {
 	if err != nil {
 		return formatCustomDriverOpenError(driver, err)
 	}
-	configureSQLConnectionPool(db, driver)
+	configureSQLConnectionPool(db, driver, config)
 	c.conn = db
 	c.driver = driver
 	c.pingTimeout = getConnectTimeout(config)

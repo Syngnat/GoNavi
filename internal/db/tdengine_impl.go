@@ -188,7 +188,7 @@ func openAndValidateTDengineConnection(config connection.ConnectionConfig, drive
 	if err != nil {
 		return nil, err
 	}
-	configureSQLConnectionPool(db, "tdengine")
+	configureSQLConnectionPool(db, "tdengine", config)
 
 	ctx, cancel := utils.ContextWithTimeout(getConnectTimeout(config))
 	defer cancel()

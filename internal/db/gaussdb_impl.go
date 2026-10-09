@@ -184,7 +184,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
 			}
-			configureSQLConnectionPool(dbConn, "gaussdb")
+			configureSQLConnectionPool(dbConn, "gaussdb", attemptConfig)
 			g.conn = dbConn
 
 			if err := g.Ping(); err != nil {
@@ -201,7 +201,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 				logger.Infof("GaussDB 自动选择连接数据库：%s", dbName)
 			}
 
-			if err := g.ensureSearchPath(dsn); err != nil {
+			if err := g.ensureSearchPath(config, dsn); err != nil {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
 				if g.conn != nil {
 					_ = g.conn.Close()
@@ -220,7 +220,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
-func (g *GaussDB) ensureSearchPath(baseDSN string) error {
+func (g *GaussDB) ensureSearchPath(config connection.ConnectionConfig, baseDSN string) error {
 	if g.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
@@ -250,8 +250,8 @@ func (g *GaussDB) ensureSearchPath(baseDSN string) error {
 	if err != nil {
 		return fmt.Errorf("打开带 search_path 的连接失败: %w", err)
 	}
-	configureSQLConnectionPool(newDB, "gaussdb")
-	newDB.SetConnMaxLifetime(5 * time.Minute)
+	configureSQLConnectionPool(newDB, "gaussdb", config)
+	applySQLSearchPathPoolLifetimeCap(newDB, config)
 	oldConn := g.conn
 	g.conn = newDB
 	if err := g.Ping(); err != nil {

@@ -155,7 +155,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
 			}
-			configureSQLConnectionPool(dbConn, "postgres")
+			configureSQLConnectionPool(dbConn, "postgres", attemptConfig)
 			p.conn = dbConn
 
 			// Force verification
@@ -174,7 +174,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 			}
 
 			// search_path 必须在连接建立时写入 DSN，避免连接池中的连接配置不一致。
-			if err := p.ensureSearchPath(dsn); err != nil {
+			if err := p.ensureSearchPath(config, dsn); err != nil {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
 				if p.conn != nil {
 					_ = p.conn.Close()
@@ -596,7 +596,7 @@ func postgresDSNWithSearchPath(baseDSN string, searchPath string) (string, error
 // ensureSearchPath 查询当前数据库中所有用户 schema，通过重建连接池将 search_path 写入 DSN。
 // 将 search_path 写入 DSN (lib/pq 支持任意 PostgreSQL runtime parameter)，
 // 使连接池中每个连接建立时自动携带 search_path，与金仓行为一致。
-func (p *PostgresDB) ensureSearchPath(baseDSN string) error {
+func (p *PostgresDB) ensureSearchPath(config connection.ConnectionConfig, baseDSN string) error {
 	if p.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
@@ -626,8 +626,8 @@ func (p *PostgresDB) ensureSearchPath(baseDSN string) error {
 	if err != nil {
 		return fmt.Errorf("打开带 search_path 的连接失败: %w", err)
 	}
-	configureSQLConnectionPool(newDB, "postgres")
-	newDB.SetConnMaxLifetime(5 * time.Minute)
+	configureSQLConnectionPool(newDB, "postgres", config)
+	applySQLSearchPathPoolLifetimeCap(newDB, config)
 	oldConn := p.conn
 	p.conn = newDB
 	if err := p.Ping(); err != nil {

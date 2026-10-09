@@ -235,7 +235,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
 			}
-			configureSQLConnectionPool(db, "kingbase")
+			configureSQLConnectionPool(db, "kingbase", attempt)
 			k.conn = db
 			k.pingTimeout = getConnectTimeout(attempt)
 			if err := k.Ping(); err != nil {
@@ -251,7 +251,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 				logger.Infof("人大金仓自动选择连接数据库：%s", dbName)
 			}
 
-			if err := k.ensureSearchPath(dsn, kingbaseConfigHasExplicitSearchPath(attempt)); err != nil {
+			if err := k.ensureSearchPath(attempt, dsn, kingbaseConfigHasExplicitSearchPath(attempt)); err != nil {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
 				if k.conn != nil {
 					_ = k.conn.Close()
@@ -266,7 +266,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
-func (k *KingbaseDB) ensureSearchPath(baseDSN string, hasExplicitSearchPath bool) error {
+func (k *KingbaseDB) ensureSearchPath(config connection.ConnectionConfig, baseDSN string, hasExplicitSearchPath bool) error {
 	if k.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
@@ -286,8 +286,8 @@ func (k *KingbaseDB) ensureSearchPath(baseDSN string, hasExplicitSearchPath bool
 	if err != nil {
 		return fmt.Errorf("打开带 search_path 的连接失败: %w", err)
 	}
-	configureSQLConnectionPool(newDB, "kingbase")
-	newDB.SetConnMaxLifetime(5 * time.Minute)
+	configureSQLConnectionPool(newDB, "kingbase", config)
+	applySQLSearchPathPoolLifetimeCap(newDB, config)
 	oldConn := k.conn
 	k.conn = newDB
 	if err := k.Ping(); err != nil {
