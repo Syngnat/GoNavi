@@ -13,6 +13,7 @@ export type PendingSqlEditorTransaction = {
   statementCount?: number;
   dbType?: string;
   dbName?: string;
+  schemaName?: string;
   statements?: string[];
   executionDurationMs?: number;
   /**

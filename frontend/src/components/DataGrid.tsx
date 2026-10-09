@@ -380,7 +380,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       handleCopySelectedCellsToClipboard, handleCopyUpdate, handleExportSelected,
       handleV2CellContextMenuAction, handleOpenExportDialog,
   } = useDataGridCommit({
-      connectionId, tableName, dbName, onReload, clearAutoCommitTimer, connections, addedRows,
+      connectionId, tableName, dbName, schemaName, onReload, clearAutoCommitTimer, connections, addedRows,
       setAddedRows, modifiedRows, setModifiedRows, deletedRowKeys, setDeletedRowKeys, baseData,
       effectiveEditLocator, visibleColumnNames, rowKeyStr, normalizeCommitCellValue,
       shouldCommitColumn, rowLocatorMessages, translateDataGrid, dbType, autoCommitFailedTokenRef,

@@ -44,6 +44,34 @@ describe('DataGrid DDL interactions', () => {
 
   afterEach(tearDownDataGridDdlTest);
 
+  it.each(['insert', 'delete'])('refreshes sidebar row counts only after a table %s is committed', async (operation) => {
+    backendApp.ApplyChanges.mockResolvedValue({ success: true, data: { inserts: [], updates: [], deletes: [] } });
+    const onReload = vi.fn(async () => {
+      expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'gonavi:sidebar-database-refresh',
+        detail: { connectionId: 'conn-1', dbName: 'main', rowCountTables: ['`users`'] },
+      }));
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataGrid data={[{ __gonavi_row_key__: 'row-1', id: 1 }]}
+        columnNames={['id']} loading={false} tableName="users" dbName="main"
+        connectionId="conn-1" pkColumns={['id']} onReload={onReload} />);
+    });
+    await waitForEffects();
+    await act(async () => {
+      if (operation === 'insert') renderer.root.findByType(DataGridToolbarFrame).props.onAddRow();
+      else testRenderState.latestTableProps.rowSelection.onChange(['row-1']);
+    });
+    if (operation === 'delete') {
+      await act(async () => renderer.root.findByType(DataGridToolbarFrame).props.onDeleteSelected());
+    }
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
+    await act(async () => { await renderer.root.findByType(DataGridToolbarFrame).props.onCommit(); });
+    expect(onReload).toHaveBeenCalledOnce();
+    renderer.unmount();
+  });
+
   it('reloads authoritative rows and drops pending edits when ApplyChanges reports an unknown outcome', async () => {
     storeState.dataEditTransactionOptions = {
       commitMode: 'manual',
@@ -160,12 +188,29 @@ describe('DataGrid DDL interactions', () => {
     expect(messageApi.error).toHaveBeenCalledWith(t('data_grid.message.commit_failed', { detail: 'constraint rejected' }));
     expect(messageApi.warning).not.toHaveBeenCalled();
     expect(renderer!.root.findByType(DataGridToolbarFrame).props.hasChanges).toBe(true);
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
 
     await act(async () => {
       await renderer!.root.findByType(DataGridToolbarFrame).props.onCommit();
     });
     expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(2);
     renderer!.unmount();
+  });
+
+  it('does not refresh sidebar row counts when pending table changes are discarded', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataGrid data={[{ __gonavi_row_key__: 'row-1', id: 1 }]}
+        columnNames={['id']} loading={false} tableName="users" dbName="main"
+        connectionId="conn-1" pkColumns={['id']} />);
+    });
+    await waitForEffects();
+    await act(async () => renderer.root.findByType(DataGridToolbarFrame).props.onAddRow());
+    await act(async () => renderer.root.findByType(DataGridToolbarFrame).props.onResetPendingChanges());
+    expect(renderer.root.findByType(DataGridToolbarFrame).props.hasChanges).toBe(false);
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
+    expect(backendApp.ApplyChanges).not.toHaveBeenCalled();
+    renderer.unmount();
   });
 
   it('does not auto replay after an unknown auto-commit outcome', async () => {

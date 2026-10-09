@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import { confirmProductionRisk, requiresProductionRiskConfirmation } from '../utils/productionRiskConfirm';
 import type { PendingSqlEditorTransaction } from './QueryEditorTransactionToolbar';
 import { buildSqlEditorTransactionLog } from './sqlEditorTransactionLog';
+import { dispatchSidebarSqlDataRefresh } from './queryEditor/queryEditorSidebarRefresh';
 
 type FinishSqlEditorTransactionAction = 'commit' | 'rollback';
 type FinishSqlEditorTransactionSource = 'manual' | 'auto';
@@ -230,6 +231,11 @@ export const useSqlEditorTransactionController = ({
           finishDurationMs: Date.now() - finishStartedAt,
         });
         if (action === 'commit') {
+          dispatchSidebarSqlDataRefresh({
+            connectionId: transaction.connectionId || '',
+            dbName: transaction.dbName,
+            schemaName: transaction.schemaName,
+          }, transaction.statements || [], transaction.dbType || '');
           message.success(source === 'auto'
             ? translateMessage('data_grid.message.auto_commit_success')
             : translateMessage('data_grid.message.transaction_committed'));

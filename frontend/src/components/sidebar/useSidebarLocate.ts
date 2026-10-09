@@ -298,7 +298,10 @@ export const useSidebarLocate = ({
           );
           if (dbNode) {
               const schemaNode = request.schemaName ? findTreeNodeByKeyRef.current(treeDataRef.current, sidebarSchemaNodeKey(String(dbNode.key), request.schemaName)) : null;
-              void loadTables(schemaNode?.dataRef?.schemaLazy ? schemaNode : dbNode, { ensureFresh: true });
+              void loadTables(
+                  schemaNode?.dataRef?.schemaLazy ? schemaNode : dbNode,
+                  { ensureFresh: true, rowCountTables: request.rowCountTables, schemaName: request.schemaName },
+              );
           }
       };
       window.addEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, handleSidebarDatabaseRefresh as EventListener);

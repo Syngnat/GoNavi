@@ -119,6 +119,7 @@ describe('DataGrid DDL interactions', () => {
     });
 
     expect(backendApp.ApplyChanges).not.toHaveBeenCalled();
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
 
     await act(async () => {
       vi.advanceTimersByTime(2999);
@@ -158,6 +159,10 @@ describe('DataGrid DDL interactions', () => {
       status: 'success',
     }));
     expect(messageApi.success).toHaveBeenCalledWith('自动提交成功');
+    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'gonavi:sidebar-database-refresh',
+      detail: { connectionId: 'conn-1', dbName: 'main', rowCountTables: ['`users`'] },
+    }));
     renderer!.unmount();
   });
 

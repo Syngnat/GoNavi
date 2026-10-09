@@ -111,6 +111,26 @@ describe('useSqlEditorTransactionController', () => {
     act(() => {
       renderer?.unmount();
     });
+    vi.unstubAllGlobals();
+  });
+
+  it('refreshes sidebar row counts only after the managed transaction commits', async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { dispatchEvent });
+    renderController();
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction({
+        statements: ['DELETE FROM users WHERE id = 1'],
+      }));
+    });
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    await act(async () => {
+      await controller?.finishPendingSqlTransaction('commit', 'manual');
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'gonavi:sidebar-database-refresh',
+      detail: expect.objectContaining({ connectionId: 'conn-1', dbName: 'main' }),
+    }));
   });
 
   it('ignores duplicate finish requests for the same pending transaction', async () => {
@@ -131,6 +151,18 @@ describe('useSqlEditorTransactionController', () => {
     expect(backendApp.DBRollbackTransactionWithTrigger).not.toHaveBeenCalled();
     expect(messageApi.success).toHaveBeenCalledWith('事务已提交');
     expect(storeState.addSqlLog).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['rollback', 'failed-commit'])('does not refresh row counts after %s', async (outcome) => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { dispatchEvent });
+    renderController();
+    if (outcome === 'failed-commit') backendApp.DBCommitTransactionWithTrigger.mockResolvedValueOnce({ success: false });
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction());
+      await controller?.finishPendingSqlTransaction(outcome === 'rollback' ? 'rollback' : 'commit');
+    });
+    expect(dispatchEvent).not.toHaveBeenCalled();
   });
 
   it('writes the complete managed transaction to the SQL log after commit', async () => {
