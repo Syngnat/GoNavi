@@ -288,6 +288,10 @@ export const bindQueryEditorEditorEvents = ({
                 : '';
             const nextKey = [
                 String(currentConnectionIdRef.current || '').trim(),
+                // 与 useQueryEditorMetadataLoading 的 metadataFetchKey 保持同构（含显示范围段），
+                // 否则 lastSqlReferencedMetadataKeyRef 存的是含范围段的 key，此处永远判为「引用集合变了」，
+                // 会跳过下面 sameReferenceKey 分支的装饰重扫，输入的新表名不再标色。
+                JSON.stringify(referencedConnection?.schemaVisibilityByDatabase || {}),
                 ...referencedDbs.map((dbName) => (
                     buildQueryEditorMetadataIdentityKey(metadataDialect, dbName)
                 )).sort(),
