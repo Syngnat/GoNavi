@@ -271,7 +271,7 @@ func TestSQLServerRowsAffectedDoesNotHideDMLRowsAffectedErrors(t *testing.T) {
 }
 
 func TestSQLServerSessionExecerDiscardEvictsPhysicalConnection(t *testing.T) {
-	dbConn := openConfiguredPoolForTest(t, "sqlserver")
+	dbConn := openConfiguredPoolForTest(t, "sqlserver", connection.ConnectionConfig{})
 
 	conn, err := dbConn.Conn(context.Background())
 	if err != nil {

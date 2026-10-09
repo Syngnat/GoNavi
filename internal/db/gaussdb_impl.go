@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
