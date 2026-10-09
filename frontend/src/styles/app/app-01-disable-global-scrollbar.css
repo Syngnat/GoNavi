@@ -322,6 +322,21 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     min-width: 0;
 }
 
+/* Monaco HoverService 的按钮级 tooltip（如查找控件的「关闭」）对纯文本内容默认
+   hideOnHover，鼠标追踪只盯触发按钮：tooltip 一旦因定位偏差盖住光标（macOS WKWebView
+   实测如此），按钮被判失去悬停 → tooltip 销毁 → 光标重新悬停按钮 → tooltip 再弹出，
+   形成往复闪烁。命中测试穿透 tooltip 后按钮始终保持悬停态，循环从机制上断开，点击
+   也能穿透到按钮。仅匹配带 workbench-hover 类的 tooltip；编辑器内容 hover
+   （.monaco-resizable-hover 内的 .monaco-hover，可滚动/复制）不带该类，不受影响。
+   Alt 锁定后容器带 .locked，恢复可交互以便选中复制文本。 */
+.monaco-hover.workbench-hover {
+    pointer-events: none;
+}
+
+.workbench-hover-container.locked > .monaco-hover.workbench-hover {
+    pointer-events: auto;
+}
+
 .gn-query-monaco-stage .monaco-editor .suggest-details-container {
     min-height: 260px;
 }
