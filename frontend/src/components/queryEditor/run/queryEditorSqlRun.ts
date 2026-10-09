@@ -37,7 +37,8 @@ import { resolveReportedQueryDurationMs } from '../queryEditorExecutionTimer';
 import {
     collectOracleCompileTargets, loadOracleCompileErrors, formatOracleCompileErrors,
 } from '../../sidebar/oracleObjectCompilation';
-import { dispatchSidebarDatabaseRefresh } from '../../../utils/sidebarDatabaseRefresh';
+import { findPotentiallyMutatingConnectionStatements } from '../../../utils/connectionReadOnly';
+import { dispatchSidebarSqlDataRefresh } from '../queryEditorSidebarRefresh';
 import { handleQueryEditorRunFailure } from './queryEditorRunFailure';
 import { collectQueryEditorRunResultSets } from './queryEditorRunResultSets';
 import {
@@ -93,6 +94,7 @@ export interface RunQueryEditorSqlStatementsInput {
     setExecutionTimingActive: React.Dispatch<React.SetStateAction<boolean>>;
     executeSqlEditorMultiQuery: (config: Record<string, any>, dbName: string, sql: string, queryId: string, sourceStatements: string[], dbType?: string, connectionParamsOverride?: string, executionConnectionId?: string, paramBindings?: QueryParamBindingInput[]) => Promise<connection.QueryResult>;
     executionConnectionParams: string | undefined;
+    executionSchemaName?: string;
     finishQueryEditorSqlClock: (result: { durationMs?: unknown; } | null | undefined, startedAt: number) => number;
     queryEditorUnmountedRef: React.MutableRefObject<boolean>;
     addSqlLog: (log: SqlLog) => void;
@@ -124,7 +126,7 @@ export const runQueryEditorSqlStatements = async ({
     setParamsDialogState, runState, setQueryId, setExecutionTimingActive,
     executeSqlEditorMultiQuery, executionConnectionParams, finishQueryEditorSqlClock,
     queryEditorUnmountedRef, addSqlLog, currentQueryIdRef, clearQueryId,
-    updateResultPanelVisibility, setExecutionError, mutatingStatements,
+    updateResultPanelVisibility, setExecutionError, mutatingStatements, executionSchemaName,
     activatePendingSqlTransaction, sqlEditorCommitMode, sqlEditorAutoCommitDelayMs,
     appendPendingSqlTransactionExecution, hasConcreteQueryResultSetData,
     isAffectedRowsResultSetData, mergeResultSets, setResultSets, activateExecutedResult, runSeq,
@@ -481,14 +483,24 @@ export const runQueryEditorSqlStatements = async ({
         : sourceStatements.slice(0, res.success
             ? confirmedStatementCount
             : Math.min(sourceStatements.length, confirmedStatementCount + 1));
-    if (schemaInvalidationStatements.some((statement) => (
+    const schemaChanged = schemaInvalidationStatements.some((statement) => (
         isSqlEditorSchemaChangingStatement(statement, normalizedDbType)
-    ))) {
+    ));
+    if (schemaChanged) {
         invalidateQueryEditorHoverDdlCacheForConnection(conn.id);
-        dispatchSidebarDatabaseRefresh({
+    }
+    // 托管事务的写入尚未对侧栏独立连接可见，提交成功后由事务控制器刷新。
+    const committedStatements = hasSqlExecutionOutcomeUnknown(res)
+        ? sourceStatements
+        : sourceStatements.slice(0, confirmedStatementCount);
+    const dataChanged = !res.transactionPending && (!useManagedTransaction || res.success)
+        && findPotentiallyMutatingConnectionStatements(config, committedStatements.join(';\n')).length > 0;
+    if (schemaChanged || dataChanged) {
+        dispatchSidebarSqlDataRefresh({
             connectionId: conn.id,
             dbName: executionDbName,
-        });
+            schemaName: executionSchemaName,
+        }, committedStatements, normalizedDbType);
     }
 
     if (!res.success) {
@@ -520,6 +532,7 @@ export const runQueryEditorSqlStatements = async ({
                 statementCount: managedTransactionStatementCount,
                 dbType: normalizedDbType,
                 dbName: executionDbName,
+                schemaName: executionSchemaName,
                 statements: sourceStatements,
                 executionDurationMs: duration,
                 connectionId: currentConnectionId,

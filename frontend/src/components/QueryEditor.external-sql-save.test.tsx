@@ -45,12 +45,43 @@ describe('QueryEditor external SQL save', () => {
 
   afterEach(tearDownQueryEditorExternalSqlSaveTest);
 
+  it('refreshes sidebar row counts after an autocommitted truncate', async () => {
+    backendApp.DBQueryMulti.mockResolvedValueOnce({ success: true, data: [] });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'TRUNCATE TABLE users' })} />);
+    });
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+    });
+    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'gonavi:sidebar-database-refresh',
+      detail: expect.objectContaining({ connectionId: 'conn-1', dbName: 'main' }),
+    }));
+  });
+
   it('shows the default SQL template for a fresh blank query tab', async () => {
     await act(async () => {
       create(<QueryEditor tab={createTab({ query: '' })} />);
     });
 
     expect(editorState.value).toBe('SELECT * FROM ');
+  });
+
+  it.each([
+    ['SELECT 1', { success: true, data: [] }],
+    ['TRUNCATE TABLE users', { success: false, executedCount: 0, data: [] }],
+    ['DELETE FROM users', { success: true, transactionPending: true, transactionId: 'tx-delete', data: [] }],
+  ])('does not refresh row counts prematurely for %s', async (sql, response) => {
+    backendApp.DBQueryMulti.mockResolvedValueOnce(response);
+    backendApp.DBQueryMultiTransactional.mockResolvedValueOnce(response);
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: sql })} />);
+    });
+    await act(async () => { await findButton(renderer, '运行').props.onClick(); });
+    const refreshes = vi.mocked(window.dispatchEvent).mock.calls.filter(([event]) => event.type === 'gonavi:sidebar-database-refresh');
+    expect(refreshes).toHaveLength(0);
   });
 
   it('uses the customized new query template for a fresh blank query tab', async () => {
