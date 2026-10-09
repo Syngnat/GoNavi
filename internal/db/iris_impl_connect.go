@@ -121,7 +121,7 @@ func (i *IrisDB) Connect(config connection.ConnectionConfig) (err error) {
 	if err != nil {
 		return wrapDatabaseConnectionOpenError(err)
 	}
-	configureSQLConnectionPool(db, i.productType())
+	configureSQLConnectionPool(db, i.productType(), runConfig)
 	i.conn = db
 	i.pingTimeout = getConnectTimeout(runConfig)
 	if err := i.Ping(); err != nil {

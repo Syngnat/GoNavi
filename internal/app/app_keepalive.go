@@ -14,13 +14,10 @@ import (
 )
 
 const (
-	defaultConnectionKeepAliveIntervalMinutes = 240
-	minConnectionKeepAliveIntervalMinutes     = 1
-	maxConnectionKeepAliveIntervalMinutes     = 1440
-	connectionKeepAliveScanInterval           = 30 * time.Second
-	connectionKeepAliveQueryTimeout           = 30 * time.Second
-	connectionKeepAliveStopTimeout            = 5 * time.Second
-	maxConnectionKeepAliveSQLLength           = 4096
+	connectionKeepAliveScanInterval = 30 * time.Second
+	connectionKeepAliveQueryTimeout = 30 * time.Second
+	connectionKeepAliveStopTimeout  = 5 * time.Second
+	maxConnectionKeepAliveSQLLength = 4096
 )
 
 var (
@@ -104,18 +101,7 @@ func resolveConnectionKeepAliveSettings(config connection.ConnectionConfig) (boo
 	if !config.KeepAliveEnabled || isFileDatabaseType(config.Type) {
 		return false, 0
 	}
-
-	minutes := config.KeepAliveIntervalMinutes
-	switch {
-	case minutes <= 0:
-		minutes = defaultConnectionKeepAliveIntervalMinutes
-	case minutes < minConnectionKeepAliveIntervalMinutes:
-		minutes = minConnectionKeepAliveIntervalMinutes
-	case minutes > maxConnectionKeepAliveIntervalMinutes:
-		minutes = maxConnectionKeepAliveIntervalMinutes
-	}
-
-	return true, time.Duration(minutes) * time.Minute
+	return true, connection.ResolveKeepAliveInterval(config.KeepAliveIntervalMinutes)
 }
 
 func (a *App) startConnectionKeepAliveLoop() {

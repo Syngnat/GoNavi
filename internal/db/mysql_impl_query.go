@@ -42,7 +42,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 				continue
 			}
 			db := sql.OpenDB(connector)
-			configureSQLConnectionPool(db, candidateConfig.Type)
+			configureSQLConnectionPool(db, candidateConfig.Type, candidateConfig)
 			timeout := getConnectTimeout(candidateConfig)
 			ctx, cancel := utils.ContextWithTimeout(timeout)
 			pingErr := db.PingContext(ctx)
@@ -83,7 +83,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 				}
 				continue
 			}
-			configureSQLConnectionPool(db, candidateConfig.Type)
+			configureSQLConnectionPool(db, candidateConfig.Type, candidateConfig)
 
 			timeout := getConnectTimeout(candidateConfig)
 			ctx, cancel := utils.ContextWithTimeout(timeout)

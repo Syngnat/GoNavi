@@ -105,7 +105,7 @@ func TestOpenTrinoSQLConnectionConfiguresPool(t *testing.T) {
 		sql.Register(driverName, trinoCloseTestDriver{})
 	})
 
-	conn, err := openTrinoSQLConnection(driverName, "")
+	conn, err := openTrinoSQLConnection(driverName, "", connection.ConnectionConfig{})
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
