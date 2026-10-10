@@ -280,7 +280,11 @@ export const useAISettingsState = ({ section, onSectionChange, active, darkMode,
           if (typeof Service?.AIGetProviders !== 'function' || typeof Service?.AIGetActiveProvider !== 'function') {
               throw new Error(t('ai_settings.message.bridge_unavailable'));
           }
-          const [list, current] = await Promise.all([Service.AIGetProviders(), Service.AIGetActiveProvider()]);
+          // 两次绑定不要并行。Windows WebView2 上重叠的 WailsInvoke 可能丢掉其中一次回调，
+          // Promise.all 就会一直等。Web 端同样按顺序读，避免和语言同步抢同一条连接。
+          const list = await Service.AIGetProviders();
+          if (!mountedRef.current || sequence !== providerLoadSequenceRef.current) return;
+          const current = await Service.AIGetActiveProvider();
           if (!mountedRef.current || sequence !== providerLoadSequenceRef.current) return;
           if (!Array.isArray(list) || typeof current !== 'string') throw new Error(t('ai_settings.message.load_provider_failed'));
           setProviders(list);

@@ -161,10 +161,15 @@ func runtimeBridgeScript() string {
     return invokeWithOptions(namespace, receiver, method, args, {});
   };
 
+  var isPromiseAdapter = function (property) {
+    return property === 'then' || property === 'catch' || property === 'finally';
+  };
   var buildServiceProxy = function (namespace, receiver) {
     return new Proxy({}, {
       get: function (_target, property) {
-        if (typeof property !== 'string') {
+        // Promise 会把 then 当成 thenable。若这里也返回 RPC，async 函数
+        // return 这个服务对象后会永远等不到回调。
+        if (typeof property !== 'string' || isPromiseAdapter(property)) {
           return undefined;
         }
         return function () {

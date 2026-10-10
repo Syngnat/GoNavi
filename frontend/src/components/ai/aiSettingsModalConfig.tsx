@@ -241,17 +241,39 @@ const waitFor = (delayMs: number) => new Promise<void>((resolve) => {
 
 const readAIService = () => (window as any).go?.aiservice?.Service;
 
+const promiseAdapterNames = new Set(['then', 'catch', 'finally']);
+
+/**
+ * Promise 会把带 then 的对象当成 thenable，并一直等到 then 回调 resolve。
+ * Web / 独立窗口的服务代理把每个属性都做成 RPC，其中也包括 then。
+ * 从 async 函数里直接返回这个对象时，加载永远不会结束。
+ */
+export const withoutPromiseAdapters = <T extends object>(value: T): T => {
+  if (!value || typeof (value as { then?: unknown }).then !== 'function') {
+    return value;
+  }
+  return new Proxy(value, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && promiseAdapterNames.has(property)) {
+        return undefined;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+};
+
 export const waitForAIService = async (attempts = 6, delayMs = 80) => {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const service = readAIService();
     if (service) {
-      return service;
+      return withoutPromiseAdapters(service);
     }
     if (attempt < attempts - 1) {
       await waitFor(delayMs);
     }
   }
-  return readAIService();
+  const service = readAIService();
+  return service ? withoutPromiseAdapters(service) : service;
 };
 
 export const EMPTY_SKILL = (): AISkillConfig => ({

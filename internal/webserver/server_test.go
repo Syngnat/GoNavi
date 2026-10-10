@@ -359,6 +359,7 @@ func TestRuntimeBridgeExposesStableAbortContract(t *testing.T) {
 	for _, expected := range []string{
 		"window.__GONAVI_WEB_RPC__", "invokeWithOptions", "WEB_RPC_ABORTED",
 		"not_started", "possibly_dispatched", "signal: signal",
+		"property === 'then'",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("runtime bridge is missing %q", expected)

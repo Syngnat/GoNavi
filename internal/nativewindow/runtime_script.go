@@ -25,10 +25,15 @@ func detachedRuntimeBridgeScript() string {
   var invoke = function (namespace, receiver, method, args) {
     return bridge.Invoke(namespace, receiver, method, Array.isArray(args) ? args : []);
   };
+  var isPromiseAdapter = function (property) {
+    return property === 'then' || property === 'catch' || property === 'finally';
+  };
   var buildServiceProxy = function (namespace, receiver) {
     return new Proxy({}, {
       get: function (_target, property) {
-        if (typeof property !== 'string') return undefined;
+        // 与 Web 桥一致：不能让 then/catch/finally 变成 RPC，否则服务对象
+        // 会被 Promise 当成 thenable，设置页加载会一直转圈。
+        if (typeof property !== 'string' || isPromiseAdapter(property)) return undefined;
         return function () {
           return invoke(namespace, receiver, property, Array.prototype.slice.call(arguments));
         };
