@@ -385,13 +385,20 @@ export const buildSchemasMetadataQuerySpecs = (
   }
 
   if (dialect === "iris") {
+    // IRIS/Caché 的 INFORMATION_SCHEMA.SCHEMATA 把 %Atelier、%CSP、%DeepSee_SQL
+    // 等几十条系统 schema 也一起返回；原实现 SELECT * 全拉回再让 isIRISSystemSchemaName
+    // 在客户端过滤，受限账号 + 流式驱动下会直接挂死（issue #1430/#1427）。
+    // 服务端先用 SUBSTRING(...,1,1) <> '%' 把 % 开头的行滤掉再返回。
+    //
+    // 不能用 LIKE '\%'：Caché 2018.1 对以 % 开头的 LIKE 模式会挂起（哪怕加 ESCAPE），
+    // SUBSTRING 这种函数形式能立即返回（实测 1s vs >30s 超时）。
     return normalizeMetadataQuerySpecs([
       {
-        sql: `SELECT schema_name FROM information_schema.schemata ORDER BY schema_name`,
+        sql: `SELECT schema_name FROM information_schema.schemata WHERE SUBSTRING(schema_name,1,1) <> '%' AND schema_name <> 'INFORMATION_SCHEMA' ORDER BY schema_name`,
         schemaColumn: 'schema_name',
       },
       {
-        sql: `SELECT DISTINCT TABLE_SCHEMA AS schema_name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA IS NOT NULL AND TABLE_SCHEMA <> '' ORDER BY TABLE_SCHEMA`,
+        sql: `SELECT DISTINCT TABLE_SCHEMA AS schema_name FROM INFORMATION_SCHEMA.TABLES WHERE SUBSTRING(TABLE_SCHEMA,1,1) <> '%' AND TABLE_SCHEMA <> 'INFORMATION_SCHEMA' ORDER BY TABLE_SCHEMA`,
         schemaColumn: 'TABLE_SCHEMA',
       },
     ]);
