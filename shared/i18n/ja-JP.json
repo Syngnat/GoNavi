@@ -8493,7 +8493,7 @@
   "redis_viewer.view.text": "生テキスト",
   "redis_viewer.view.title": "表示モード",
   "saved_query.default_name": "クエリ {{index}}",
-  "saved_query.error.missing_context": "保存済みクエリに SQL、接続、またはデータベースのコンテキストがありません",
+  "saved_query.error.missing_context": "保存済みクエリに接続またはデータベースのコンテキストがありません",
   "security_update.action.open_ai_settings": "AI 設定",
   "security_update.action.open_connection": "接続を開く",
   "security_update.action.open_proxy_settings": "プロキシ設定",

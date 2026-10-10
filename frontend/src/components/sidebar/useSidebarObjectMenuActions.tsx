@@ -8,6 +8,7 @@ import {
 } from './sidebarRootHelpers';
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useSidebarV2ActionHandlers } from './useSidebarV2ActionHandlers';
+import { useSidebarTablePinSync } from './useSidebarTablePinSync';
 import { useSidebarSearchModel } from './useSidebarSearchModel';
 import { useCommandSearchDestinations } from './useCommandSearchDestinations';
 import {
@@ -389,6 +390,7 @@ export const useSidebarObjectMenuActions = ({
       buildConnectionRootRedisCommandTabTitle,
       buildConnectionRootRedisMonitorTabTitle,
   });
+  useSidebarTablePinSync({ treeDataRef, replaceTreeNodeChildren });
   useEffect(() => {
       const handleDeleteConnection = (event: Event) => {
           const connectionId = String(

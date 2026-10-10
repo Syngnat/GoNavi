@@ -8493,7 +8493,7 @@
   "redis_viewer.view.text": "Raw text",
   "redis_viewer.view.title": "View mode",
   "saved_query.default_name": "Query {{index}}",
-  "saved_query.error.missing_context": "Saved query is missing SQL, connection, or database context",
+  "saved_query.error.missing_context": "Saved query is missing connection or database context",
   "security_update.action.open_ai_settings": "AI Settings",
   "security_update.action.open_connection": "Open Connection",
   "security_update.action.open_proxy_settings": "Proxy Settings",

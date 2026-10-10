@@ -8493,7 +8493,7 @@
   "redis_viewer.view.text": "原始文字",
   "redis_viewer.view.title": "檢視模式",
   "saved_query.default_name": "查詢-{{index}}",
-  "saved_query.error.missing_context": "儲存查詢缺少 SQL、連線或資料庫上下文",
+  "saved_query.error.missing_context": "儲存查詢缺少連線或資料庫上下文",
   "security_update.action.open_ai_settings": "AI 設定",
   "security_update.action.open_connection": "開啟連線",
   "security_update.action.open_proxy_settings": "代理設定",

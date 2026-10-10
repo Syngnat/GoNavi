@@ -19,7 +19,7 @@ func (r *savedQueryRepository) Save(input connection.SavedQuery) (connection.Sav
 
 	query, ok := sanitizeSavedQuery(input, 0, true)
 	if !ok {
-		return connection.SavedQuery{}, fmt.Errorf("saved query requires sql, connectionId and dbName")
+		return connection.SavedQuery{}, fmt.Errorf("saved query requires connectionId and dbName")
 	}
 
 	file, err := r.loadFile()

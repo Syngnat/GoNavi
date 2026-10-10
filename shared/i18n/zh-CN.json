@@ -8493,7 +8493,7 @@
   "redis_viewer.view.text": "原始文本",
   "redis_viewer.view.title": "查看模式",
   "saved_query.default_name": "查询-{{index}}",
-  "saved_query.error.missing_context": "保存查询缺少 SQL、连接或数据库上下文",
+  "saved_query.error.missing_context": "保存查询缺少连接或数据库上下文",
   "security_update.action.open_ai_settings": "AI 设置",
   "security_update.action.open_connection": "打开连接",
   "security_update.action.open_proxy_settings": "代理设置",

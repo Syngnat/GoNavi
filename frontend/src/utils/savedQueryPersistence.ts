@@ -73,7 +73,9 @@ const sanitizeSavedQuery = (value: unknown, index: number): SavedQuery | null =>
   const sql = typeof raw.sql === 'string' ? raw.sql : toTrimmedString(raw.sql);
   const connectionId = toTrimmedString(raw.connectionId);
   const dbName = toTrimmedString(raw.dbName);
-  if (!sql.trim() || !connectionId || !dbName) {
+  // SQL 允许为空：清空编辑器是合法编辑状态，空内容按 0 字节 .sql 落盘。
+  // 绑定上下文仍必填，否则条目无法在侧边栏恢复定位。
+  if (!connectionId || !dbName) {
     return null;
   }
   const query: SavedQuery = {
