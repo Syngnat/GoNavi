@@ -8,6 +8,8 @@ import {
   hasDataGridFindRenderVersionChanged,
   matchesDataGridColumnQuickFind,
   normalizeDataGridFindQuery,
+  rankDataGridColumnQuickFindMatchTier,
+  resolveDataGridColumnQuickFindMatchTier,
   resolveDataGridColumnQuickFindTarget,
   resolveDataGridFindNavigationIndex,
   summarizeDataGridFindMatches,
@@ -129,6 +131,53 @@ describe('dataGridFind', () => {
     expect(matchesDataGridColumnQuickFind('USER_NAME', 'missing')).toBe(false);
     expect(resolveDataGridColumnQuickFindTarget(columnNames, 'user_name')).toBe('USER_NAME');
     expect(resolveDataGridColumnQuickFindTarget(columnNames, 'created')).toBe('CREATED_AT');
+  });
+
+  it('matches quick-find columns by comment when the name does not hit', () => {
+    const comments: Record<string, string> = {
+      user_id: '用户唯一标识',
+      created_at: '创建时间',
+    };
+    const getColumnComment = (columnName: string) => comments[columnName] || '';
+
+    expect(matchesDataGridColumnQuickFind('user_id', 'user', getColumnComment)).toBe(true);
+    expect(matchesDataGridColumnQuickFind('user_id', '唯一标识', getColumnComment)).toBe(true);
+    expect(matchesDataGridColumnQuickFind('user_id', '备注', getColumnComment)).toBe(false);
+    expect(matchesDataGridColumnQuickFind('user_id', '唯一标识')).toBe(false);
+    expect(matchesDataGridColumnQuickFind('user_id', '唯一标识', () => '  ')).toBe(false);
+  });
+
+  it('resolves quick-find targets with comment tiers behind name tiers', () => {
+    const columnNames = ['user_id', 'user_name', 'created_at'];
+    const comments: Record<string, string> = {
+      user_id: '用户名',
+      user_name: '用户显示名',
+      created_at: '创建时间',
+    };
+    const getColumnComment = (columnName: string) => comments[columnName] || '';
+
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, '用户名', getColumnComment)).toBe('user_id');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, 'user', getColumnComment)).toBe('user_id');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, '显示名', getColumnComment)).toBe('user_name');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, '用户', getColumnComment)).toBe('user_id');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, 'missing', getColumnComment)).toBe('');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, '用户名')).toBe('');
+  });
+
+  it('prefers an exact comment match over a substring name match and keeps name exact first', () => {
+    const columnNames = ['user_name', 'nickname'];
+    const getColumnComment = (columnName: string) => (columnName === 'nickname' ? 'user_name 的展示别名' : '登录账号');
+
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, 'user_name', getColumnComment)).toBe('user_name');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, 'user_name 的', getColumnComment)).toBe('nickname');
+  });
+
+  it('ranks quick-find tiers in priority order for dropdown ordering', () => {
+    expect(rankDataGridColumnQuickFindMatchTier('name-exact')).toBeLessThan(rankDataGridColumnQuickFindMatchTier('comment-exact'));
+    expect(rankDataGridColumnQuickFindMatchTier('comment-exact')).toBeLessThan(rankDataGridColumnQuickFindMatchTier('name-substring'));
+    expect(rankDataGridColumnQuickFindMatchTier('name-substring')).toBeLessThan(rankDataGridColumnQuickFindMatchTier('comment-substring'));
+    expect(resolveDataGridColumnQuickFindMatchTier('USER_ID', '用户', (name) => (name === 'USER_ID' ? '用户唯一标识' : ''))).toBe('comment-substring');
+    expect(resolveDataGridColumnQuickFindMatchTier('user_id', '  ')).toBeUndefined();
   });
 
   it('tracks render version changes without exposing metadata as row data', () => {

@@ -179,30 +179,76 @@ export const resolveDataGridFindNavigationIndex = (
   return currentIndex < 0 || currentIndex >= matchCount - 1 ? 0 : currentIndex + 1;
 };
 
+export type DataGridColumnCommentLookup = (columnName: string) => string;
+
+export type DataGridColumnQuickFindMatchTier =
+  | 'name-exact'
+  | 'comment-exact'
+  | 'name-substring'
+  | 'comment-substring';
+
+const DATA_GRID_COLUMN_QUICK_FIND_TIER_RANK: Record<DataGridColumnQuickFindMatchTier, number> = {
+  'name-exact': 0,
+  'comment-exact': 1,
+  'name-substring': 2,
+  'comment-substring': 3,
+};
+
+const normalizeDataGridQuickFindLower = (value: unknown): string => (
+  normalizeDataGridFindQuery(value).toLocaleLowerCase()
+);
+
+// 命中层级即跳列优先级：列名精确 > 注释精确 > 列名子串 > 注释子串。
+// 未提供注释查找时退化为原有的两级列名匹配，保持既有行为不变。
+export const resolveDataGridColumnQuickFindMatchTier = (
+  columnName: string,
+  query: string,
+  getColumnComment?: DataGridColumnCommentLookup,
+): DataGridColumnQuickFindMatchTier | undefined => {
+  const normalizedQuery = normalizeDataGridQuickFindLower(query);
+  if (!normalizedQuery) return undefined;
+
+  const lowerName = normalizeDataGridQuickFindLower(columnName);
+  if (lowerName === normalizedQuery) return 'name-exact';
+  const lowerComment = getColumnComment
+    ? normalizeDataGridQuickFindLower(getColumnComment(columnName))
+    : '';
+  if (lowerComment && lowerComment === normalizedQuery) return 'comment-exact';
+  if (lowerName.includes(normalizedQuery)) return 'name-substring';
+  if (lowerComment && lowerComment.includes(normalizedQuery)) return 'comment-substring';
+  return undefined;
+};
+
+export const rankDataGridColumnQuickFindMatchTier = (
+  tier: DataGridColumnQuickFindMatchTier,
+): number => DATA_GRID_COLUMN_QUICK_FIND_TIER_RANK[tier];
+
 export const matchesDataGridColumnQuickFind = (
   columnName: string,
   query: string,
-): boolean => {
-  const normalizedQuery = normalizeDataGridFindQuery(query).toLocaleLowerCase();
-  if (!normalizedQuery) return false;
-
-  return normalizeDataGridFindQuery(columnName).toLocaleLowerCase().includes(normalizedQuery);
-};
+  getColumnComment?: DataGridColumnCommentLookup,
+): boolean => (
+  resolveDataGridColumnQuickFindMatchTier(columnName, query, getColumnComment) !== undefined
+);
 
 export const resolveDataGridColumnQuickFindTarget = (
   columnNames: string[],
   query: string,
+  getColumnComment?: DataGridColumnCommentLookup,
 ): string => {
   const normalizedQuery = normalizeDataGridFindQuery(query);
   if (!normalizedQuery) return '';
 
-  const lowerQuery = normalizedQuery.toLocaleLowerCase();
-  const exactMatch = columnNames.find((columnName) => (
-    normalizeDataGridFindQuery(columnName).toLocaleLowerCase() === lowerQuery
-  ));
-  if (exactMatch) return exactMatch;
-
-  return columnNames.find((columnName) => (
-    matchesDataGridColumnQuickFind(columnName, normalizedQuery)
-  )) || '';
+  let target = '';
+  let targetRank = Number.POSITIVE_INFINITY;
+  columnNames.forEach((columnName) => {
+    const tier = resolveDataGridColumnQuickFindMatchTier(columnName, normalizedQuery, getColumnComment);
+    if (!tier) return;
+    const rank = DATA_GRID_COLUMN_QUICK_FIND_TIER_RANK[tier];
+    if (rank < targetRank) {
+      targetRank = rank;
+      target = columnName;
+    }
+  });
+  return target;
 };

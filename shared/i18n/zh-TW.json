@@ -4937,7 +4937,7 @@
   "data_grid.column.type_tooltip": "型別：{{type}}",
   "data_grid.column.unique_key_tooltip": "唯一索引",
   "data_grid.column_quick_find.placeholder": "跳到欄位列...",
-  "data_grid.column_quick_find.tooltip": "輸入欄位名稱，按 Enter 或點定位按鈕即可跳到對應欄",
+  "data_grid.column_quick_find.tooltip": "輸入欄位名稱或註解，按 Enter 或點定位按鈕即可跳到對應欄",
   "data_grid.column_settings.column_visibility": "欄位顯示",
   "data_grid.column_settings.display_settings": "顯示設定",
   "data_grid.column_settings.field_info": "欄位資訊",

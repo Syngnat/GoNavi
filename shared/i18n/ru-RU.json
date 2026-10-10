@@ -4937,7 +4937,7 @@
   "data_grid.column.type_tooltip": "Тип: {{type}}",
   "data_grid.column.unique_key_tooltip": "Уникальный индекс",
   "data_grid.column_quick_find.placeholder": "Перейти к столбцу...",
-  "data_grid.column_quick_find.tooltip": "Введите имя столбца, затем нажмите Enter или кнопку перехода, чтобы перейти к этому столбцу",
+  "data_grid.column_quick_find.tooltip": "Введите имя столбца или его комментарий, затем нажмите Enter или кнопку перехода, чтобы перейти к этому столбцу",
   "data_grid.column_settings.column_visibility": "Видимость столбцов",
   "data_grid.column_settings.display_settings": "Настройки отображения",
   "data_grid.column_settings.field_info": "Информация о поле",

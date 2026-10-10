@@ -4937,7 +4937,7 @@
   "data_grid.column.type_tooltip": "型: {{type}}",
   "data_grid.column.unique_key_tooltip": "ユニークインデックス",
   "data_grid.column_quick_find.placeholder": "列へジャンプ...",
-  "data_grid.column_quick_find.tooltip": "列名を入力して Enter キーを押すか、移動ボタンで該当列へジャンプします",
+  "data_grid.column_quick_find.tooltip": "列名またはコメントを入力して Enter キーを押すか、移動ボタンで該当列へジャンプします",
   "data_grid.column_settings.column_visibility": "列の表示",
   "data_grid.column_settings.display_settings": "表示設定",
   "data_grid.column_settings.field_info": "フィールド情報",

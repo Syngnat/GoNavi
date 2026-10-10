@@ -4937,7 +4937,7 @@
   "data_grid.column.type_tooltip": "类型：{{type}}",
   "data_grid.column.unique_key_tooltip": "唯一索引",
   "data_grid.column_quick_find.placeholder": "跳到字段列...",
-  "data_grid.column_quick_find.tooltip": "输入字段名，回车或点定位按钮即可跳到对应列",
+  "data_grid.column_quick_find.tooltip": "输入字段名或注释，回车或点定位按钮即可跳到对应列",
   "data_grid.column_settings.column_visibility": "列显示",
   "data_grid.column_settings.display_settings": "显示设置",
   "data_grid.column_settings.field_info": "字段信息",

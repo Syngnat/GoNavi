@@ -4937,7 +4937,7 @@
   "data_grid.column.type_tooltip": "Typ: {{type}}",
   "data_grid.column.unique_key_tooltip": "Eindeutiger Index",
   "data_grid.column_quick_find.placeholder": "Zur Spalte springen...",
-  "data_grid.column_quick_find.tooltip": "Spaltennamen eingeben, dann Enter drücken oder die Suchschaltfläche nutzen, um zur Spalte zu springen",
+  "data_grid.column_quick_find.tooltip": "Spaltennamen oder Kommentar eingeben, dann Enter drücken oder die Suchschaltfläche nutzen, um zur Spalte zu springen",
   "data_grid.column_settings.column_visibility": "Spaltensichtbarkeit",
   "data_grid.column_settings.display_settings": "Anzeigeeinstellungen",
   "data_grid.column_settings.field_info": "Feldinformationen",

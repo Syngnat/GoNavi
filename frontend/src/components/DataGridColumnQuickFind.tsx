@@ -5,10 +5,16 @@ import { t as defaultTranslate, type I18nParams } from '../i18n';
 
 export type DataGridColumnQuickFindTranslate = (key: string, params?: I18nParams) => string;
 
+export interface DataGridColumnQuickFindOption {
+  value: string;
+  label?: React.ReactNode;
+  comment?: string;
+}
+
 export interface DataGridColumnQuickFindProps {
   inputProps?: Record<string, unknown>;
   value: string;
-  options: Array<{ value: string; label?: React.ReactNode }>;
+  options: DataGridColumnQuickFindOption[];
   translate?: DataGridColumnQuickFindTranslate;
   onChange: (value: string) => void;
   onSubmit: (value?: string) => void;
@@ -22,6 +28,22 @@ const DataGridColumnQuickFind: React.FC<DataGridColumnQuickFindProps> = ({
   onChange,
   onSubmit,
 }) => {
+  const autoCompleteOptions = React.useMemo(() => options.map((option) => {
+    const comment = String(option.comment || '').trim();
+    if (!comment) {
+      return { value: option.value, label: option.label ?? option.value };
+    }
+    return {
+      value: option.value,
+      label: (
+        <div className="gn-v2-data-grid-column-quick-find-option">
+          <span className="gn-v2-data-grid-column-quick-find-option-name">{option.label ?? option.value}</span>
+          <span className="gn-v2-data-grid-column-quick-find-option-comment">{comment}</span>
+        </div>
+      ),
+    };
+  }), [options]);
+
   return (
     <Tooltip title={translate('data_grid.column_quick_find.tooltip')}>
       <div
@@ -34,7 +56,7 @@ const DataGridColumnQuickFind: React.FC<DataGridColumnQuickFindProps> = ({
           <div className="gn-v2-data-grid-column-quick-find-field">
             <AutoComplete
               className="gn-v2-data-grid-column-quick-find-autocomplete"
-              options={options}
+              options={autoCompleteOptions}
               value={value}
               onChange={onChange}
               onSelect={(nextValue) => {
@@ -42,7 +64,7 @@ const DataGridColumnQuickFind: React.FC<DataGridColumnQuickFindProps> = ({
                 onSubmit(nextValue);
               }}
               filterOption={false}
-              popupMatchSelectWidth={280}
+              popupMatchSelectWidth={360}
             >
               <Input
                 {...inputProps}

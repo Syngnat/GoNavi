@@ -4937,7 +4937,7 @@
   "data_grid.column.type_tooltip": "Type: {{type}}",
   "data_grid.column.unique_key_tooltip": "Unique index",
   "data_grid.column_quick_find.placeholder": "Jump to column...",
-  "data_grid.column_quick_find.tooltip": "Type a column name, then press Enter or the locate button to jump to that column",
+  "data_grid.column_quick_find.tooltip": "Type a column name or comment, then press Enter or the locate button to jump to that column",
   "data_grid.column_settings.column_visibility": "Column visibility",
   "data_grid.column_settings.display_settings": "Display settings",
   "data_grid.column_settings.field_info": "Field info",
