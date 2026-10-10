@@ -243,24 +243,6 @@ export const useSidebarLocate = ({
   }, []);
 
   useEffect(() => {
-      const handleSidebarTablePinChanged = (event: Event) => {
-          const detail = (event as CustomEvent).detail || {};
-          const connectionId = String(detail.connectionId || '').trim();
-          const dbName = String(detail.dbName || '').trim();
-          if (!connectionId || !dbName) return;
-          const dbNode = findTreeNodeByKeyRef.current(treeDataRef.current, `${connectionId}-${dbName}`);
-          if (dbNode) {
-              const schemaNode = detail.schemaName ? findTreeNodeByKeyRef.current(treeDataRef.current, sidebarSchemaNodeKey(String(dbNode.key), String(detail.schemaName))) : null;
-              void loadTables(schemaNode?.dataRef?.schemaLazy ? schemaNode : dbNode, { ensureFresh: true });
-          }
-      };
-      window.addEventListener('gonavi:sidebar-table-pin-changed', handleSidebarTablePinChanged as EventListener);
-      return () => {
-          window.removeEventListener('gonavi:sidebar-table-pin-changed', handleSidebarTablePinChanged as EventListener);
-      };
-  }, []);
-
-  useEffect(() => {
       const handleSidebarTableCreated = (event: Event) => {
           const detail = (event as CustomEvent).detail || {};
           const connectionId = String(detail.connectionId || '').trim();

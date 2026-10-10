@@ -19,6 +19,7 @@ import {
 } from '../../utils/objectQueryTemplates';
 import { DBReleaseConnection } from '../../../wailsjs/go/app/App';
 import { updateSidebarDatabasePinKeys } from '../../store';
+import { syncLoadedSidebarTablePins } from './sidebarTablePinRefresh';
 import type { SidebarTableSortPreference } from '../../utils/sidebarTreeOrder';
 import { getDbIcon } from '../DatabaseIcons';
 import { getMetadataDialect } from './sidebarMetadataLoaders';
@@ -155,7 +156,6 @@ export const useSidebarV2ActionHandlers = ({
   replaceTreeNodeChildren,
   loadDatabases,
   loadTables,
-  getDatabaseNodeRef,
   extractObjectName,
   openDesign,
   openNewTableDesign,
@@ -315,7 +315,12 @@ export const useSidebarV2ActionHandlers = ({
     );
     const shouldPin = pinned ?? !currentlyPinned;
     setSidebarTablePinned(conn.id, dbName, tableName, conn.schemaName || '', shouldPin);
-    void loadTables(getDatabaseNodeRef(conn, dbName), { ensureFresh: true });
+    // Schema-lazy engines drop expanded schema keys when the whole database reloads.
+    syncLoadedSidebarTablePins(
+      treeDataRef.current,
+      { connectionId: String(conn.id), dbName },
+      replaceTreeNodeChildren,
+    );
     message.success(shouldPin ? t('sidebar.message.table_pinned') : t('sidebar.message.table_unpinned'));
   };
 
