@@ -107,3 +107,26 @@ jobs:
 
       - name: Test optional driver-agent cleanup
         run: go test ./internal/db -run '^TestOptionalDriverAgentUnresponsiveProcessIsReapedAfterTimeout$' -count=1
+
+  # 门禁：上面 3 个检查（完整后端、macOS、Windows）全部成功才通过。
+  # 矩阵任一失败时 platform-sensitive 的 result 为 failure。
+  gate:
+    name: CI Gate
+    needs: [full, platform-sensitive]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all three CI jobs
+        env:
+          FULL_RESULT: ${{ needs.full.result }}
+          PLATFORM_RESULT: ${{ needs.platform-sensitive.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Full backend suite: ${FULL_RESULT}"
+          echo "Platform-sensitive tests (macos-latest, windows-latest): ${PLATFORM_RESULT}"
+          if [[ "${FULL_RESULT}" != "success" || "${PLATFORM_RESULT}" != "success" ]]; then
+            echo "CI 门禁未通过：Full backend suite、Platform-sensitive tests (macos-latest)、Platform-sensitive tests (windows-latest) 必须全部成功。"
+            exit 1
+          fi
+          echo "CI 门禁通过。"

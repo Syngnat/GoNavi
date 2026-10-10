@@ -1,0 +1,67 @@
+# 在 pull request 上回复评审。
+#
+# 工作流文件和评审程序都来自 PR 的基线提交，只通过 GitHub API 读取 diff，
+# 不检出、不执行 PR 分支里的代码。
+#
+# 规约检查和 CI 门禁不需要模型。语义评审走 OpenAI 兼容接口，和
+# coco-framework-agent 一样只配置地址、模型和密钥。免费额度任选其一：
+# - GROQ_API_KEY：https://console.groq.com/keys ，模型 llama-3.3-70b-versatile
+# - GEMINI_API_KEY：https://aistudio.google.com/apikey ，模型 gemini-2.5-flash
+# - OPENROUTER_API_KEY：https://openrouter.ai/settings/keys ，模型 meta-llama/llama-3.3-70b-instruct:free
+# 填了多个时按 Groq、Gemini、OpenRouter 的顺序，前一个失败再试下一个。
+# 若要指定别的接口，改用 PR_REVIEW_API_KEY，以及可选的
+# PR_REVIEW_API_BASE、PR_REVIEW_MODEL。
+name: PR Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_run:
+    # Backend Tests 结束后更新同一条评论里的 CI 门禁状态。
+    workflows: ["Backend Tests"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review and reply
+    # 只回复，不作为第四个门禁。合并是否放行看 CI Gate。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Review pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PR_REVIEW_API_KEY: ${{ secrets.PR_REVIEW_API_KEY }}
+          PR_REVIEW_API_BASE: ${{ vars.PR_REVIEW_API_BASE }}
+          PR_REVIEW_MODEL: ${{ vars.PR_REVIEW_MODEL }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+        run: |
+          args=(-repo "${{ github.repository }}" -sha "${HEAD_SHA}")
+          if [[ -n "${PR_NUMBER}" ]]; then
+            args+=(-pr "${PR_NUMBER}")
+          fi
+          go run ./tools/pr-review "${args[@]}"
