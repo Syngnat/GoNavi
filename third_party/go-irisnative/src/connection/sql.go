@@ -138,21 +138,28 @@ type Value interface{}
 
 // type ResultSetRow struct{}
 
-func (rs *ResultSet) fetchMoreData() bool {
+// fetchMoreData 失败时不再 panic：把错误透传给 Next，让上层（database/sql 的
+// rows.Next → scanRows）能把"读超时/网络错"作为正常 error 返回，而不是整个
+// 进程崩溃。原实现 panic(err) 会让 GoNavi 在 IRIS 慢视图/受限账号上直接闪退
+// （issue #1430/#1427 修复中暴露）。
+func (rs *ResultSet) fetchMoreData() (bool, error) {
 	msg := NewMessage(FETCH_DATA)
 	msg.header.SetStatementId(rs.stmtId)
 	_, err := rs.c.conn.Write(msg.Dump(rs.c.count()))
 	if err != nil {
-		panic(err)
+		return false, err
 	}
-	msg, err = ReadMessage(rs.c.conn)
+	// 用带超时的读取兜底：服务端不再回包（受限账号查 %SYS 视图、流式结果集
+	// 提前结束但服务端不发完成标志）时，让上层能在有限时间内拿到错误而不是
+	// 永久转圈。
+	msg, err = ReadMessageWithTimeout(rs.c.conn, rs.c.queryTimeout)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
 	rs.data = msg.data
 	rs.offset = 0
-	return len(msg.data) > 0
+	return len(msg.data) > 0, nil
 }
 
 func fromODBC(coltype SQLTYPE, li list.ListItem) (result interface{}, err error) {
@@ -235,8 +242,21 @@ func (rs *ResultSet) Next() ([]Value, error) {
 	if rs == nil || (rs.sqlCode != 0 && rs.sqlCode != 100) {
 		return nil, io.EOF
 	}
-	if rs.offset >= uint(len(rs.data)) && (rs.sqlCode == 100 || !rs.fetchMoreData()) {
-		return nil, io.EOF
+	if rs.offset >= uint(len(rs.data)) {
+		// sqlCode=100 在这套协议里既出现在「短结果集一帧发完」的尾部，也被
+		// 服务端用来标记「这条 statement 不再产生更多数据」。原始实现把
+		// sqlCode==100 直接当作 EOF，我们保持这个语义——否则 IRIS 2026.1 上
+		// 的多帧响应会卡进 fetchMoreData 永不返回（issue #1430/#1427）。
+		if rs.sqlCode == 100 {
+			return nil, io.EOF
+		}
+		more, err := rs.fetchMoreData()
+		if err != nil {
+			return nil, err
+		}
+		if !more {
+			return nil, io.EOF
+		}
 	}
 	row := make([]Value, rs.count)
 	data := rs.data
@@ -431,7 +451,7 @@ func (c *Connection) DirectQuery(sqlText string, args ...interface{}) (*ResultSe
 	if err != nil {
 		return nil, err
 	}
-	msg, err = ReadMessage(c.conn)
+	msg, err = ReadMessageWithTimeout(c.conn, c.queryTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +474,7 @@ func (c *Connection) DirectQuery(sqlText string, args ...interface{}) (*ResultSe
 		stmtId:  statementId,
 	}
 
-	msg, err = ReadMessage(c.conn)
+	msg, err = ReadMessageWithTimeout(c.conn, c.queryTimeout)
 	rs.sqlCode = int16(msg.GetStatus())
 	if err != nil {
 		return nil, err

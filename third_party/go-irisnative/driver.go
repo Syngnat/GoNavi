@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 	"unicode"
 
 	_ "io"
@@ -14,7 +15,6 @@ import (
 	_ "reflect"
 	_ "strconv"
 	_ "strings"
-	_ "time"
 	_ "unsafe"
 
 	"github.com/caretdev/go-irisnative/src/connection"
@@ -71,6 +71,16 @@ func (c *Connector) open(ctx context.Context) (cn *conn, err error) {
 	cn.c, err = connection.Connect(addr, namespace, login, password)
 	if err != nil {
 		return nil, err
+	}
+	// 可选 DSN 参数 query_timeout：单次读响应的最大等待时间。
+	// 驱动不响应 context，对受限账号的 %SYS 视图或大量系统投影表
+	// （INFORMATION_SCHEMA.TABLES/COLUMNS）会出现服务端长时间不回包
+	// 的情况；该参数给 ReadMessage 兜底，让上层在有限时间内拿到错误。
+	// 解析失败静默忽略，保持原行为（GoNavi issue #1430/#1427）。
+	if raw := o["query_timeout"]; raw != "" {
+		if d, perr := time.ParseDuration(raw); perr == nil && d > 0 {
+			cn.c.SetQueryTimeout(d)
+		}
 	}
 	return cn, nil
 }

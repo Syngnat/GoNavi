@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 )
 
 const VERSION_PROTOCOL uint16 = 69
@@ -23,6 +24,11 @@ type Connection struct {
 	// statement feature 前缀与它同属一个协议代次，解析时一并跳过。
 	featureOptionSupported bool
 	tx                     bool
+	// queryTimeout 是单次「等待服务端响应」的读超时。0 表示不限制。
+	// 该超时用来给 DirectQuery/fetchMoreData 的 ReadMessage 兜底，避免服务端
+	// 对受限账号/慢视图不回包时上层永久转圈（GoNavi issue #1430/#1427）。
+	// 只控制单次 Read，不是整条 SQL 的端到端超时；端到端由调用方 ctx 负责。
+	queryTimeout time.Duration
 }
 
 var (
@@ -69,6 +75,17 @@ func (c *Connection) Disconnect() {
 	_, _ = c.conn.Write(msg.Dump(c.count()))
 	_ = c.conn.Close()
 	c.conn = nil
+}
+
+// SetQueryTimeout 设置单次网络读的超时。<=0 表示不限制（保留旧行为）。
+// 该函数不是并发安全的：只在连接建立后、发起任何查询前调用。
+func (c *Connection) SetQueryTimeout(timeout time.Duration) {
+	c.queryTimeout = timeout
+}
+
+// QueryTimeout 返回当前生效的查询超时（0 = 不限制）。
+func (c *Connection) QueryTimeout() time.Duration {
+	return c.queryTimeout
 }
 
 func (c *Connection) count() uint32 {
