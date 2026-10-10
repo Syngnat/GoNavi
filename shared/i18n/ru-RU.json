@@ -5157,6 +5157,8 @@
   "data_grid.message.locate_record_to_edit": "Сначала найдите запись для редактирования",
   "data_grid.message.locator_column_value_empty": "Значение столбца локатора {{column}} пустое, поэтому изменения нельзя безопасно отправить.",
   "data_grid.message.no_changes_to_commit": "Нет изменений для фиксации",
+  "data_grid.message.navicat_http_tunnel_save_unsupported": "Скриптовые HTTP-туннели Navicat не сохраняют транзакции между запросами. Таблица доступна только для чтения и не может атомарно сохранить изменения. Используйте прямое подключение, SSH или прокси HTTP CONNECT.",
+  "data_grid.toolbar.navicat_http_tunnel_read_only": "HTTP-туннель: только чтение",
   "data_grid.message.query_change_with_pending_edits": "Есть незафиксированные изменения. Зафиксируйте или откатите их перед фильтрацией, сортировкой, переходом на другую страницу или обновлением.",
   "data_grid.message.no_copyable_cells": "Копируемые ячейки не распознаны",
   "data_grid.message.no_copyable_columns": "Копируемые столбцы не распознаны",

@@ -387,7 +387,7 @@ const {
           panelPaddingX={panelPaddingX} toolbarBottomPadding={toolbarBottomPadding}
           filterTopPadding={filterTopPadding} showFilter={showFilter}
           appliedFilterConditions={appliedFilterConditions} filterPanelRef={filterPanelRef}
-          onReload={onReload} onToggleFilter={onToggleFilter} canModifyData={canModifyData}
+          onReload={onReload} onToggleFilter={onToggleFilter} canModifyData={canModifyData} currentConnConfig={currentConnConfig}
           selectedRowKeys={selectedRowKeys} deleteTargetRowCount={deleteTargetRowCount}
           allSelectedAreDeleted={allSelectedAreDeleted} cellEditMode={cellEditMode}
           selectedCells={selectedCells} selectedCellRowCount={selectedCellRowCount}

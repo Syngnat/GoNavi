@@ -5157,6 +5157,8 @@
   "data_grid.message.locate_record_to_edit": "Zuerst den zu bearbeitenden Datensatz suchen",
   "data_grid.message.locator_column_value_empty": "Die Locator-Spalte {{column}} ist leer, deshalb können Änderungen nicht sicher gesendet werden.",
   "data_grid.message.no_changes_to_commit": "Keine Änderungen zum Übernehmen",
+  "data_grid.message.navicat_http_tunnel_save_unsupported": "Navicat-HTTP-Skripttunnel können Transaktionen nicht über mehrere Anfragen hinweg aufrechterhalten. Das Datenraster ist schreibgeschützt und kann Änderungen nicht atomar übernehmen. Verwenden Sie eine direkte Verbindung, SSH oder einen HTTP-CONNECT-Proxy.",
+  "data_grid.toolbar.navicat_http_tunnel_read_only": "HTTP-Skripttunnel: schreibgeschützt",
   "data_grid.message.query_change_with_pending_edits": "Es gibt nicht übernommene Änderungen. Übernehmen Sie diese oder setzen Sie sie zurück, bevor Sie filtern, sortieren, die Seite wechseln oder aktualisieren.",
   "data_grid.message.no_copyable_cells": "Keine kopierbaren Zellen erkannt",
   "data_grid.message.no_copyable_columns": "Keine kopierbaren Spalten erkannt",

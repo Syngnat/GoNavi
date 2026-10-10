@@ -5157,6 +5157,8 @@
   "data_grid.message.locate_record_to_edit": "Locate the record to edit first",
   "data_grid.message.locator_column_value_empty": "Locator column {{column}} is empty, so changes cannot be submitted safely.",
   "data_grid.message.no_changes_to_commit": "No changes to commit",
+  "data_grid.message.navicat_http_tunnel_save_unsupported": "Navicat HTTP script tunnels cannot keep transactions across requests. The data grid is read-only and cannot save changes atomically. Use a direct connection, SSH, or an HTTP CONNECT proxy.",
+  "data_grid.toolbar.navicat_http_tunnel_read_only": "Read-only HTTP script tunnel",
   "data_grid.message.query_change_with_pending_edits": "There are uncommitted changes. Commit or roll them back before filtering, sorting, changing pages, or refreshing.",
   "data_grid.message.no_copyable_cells": "No copyable cells were recognized",
   "data_grid.message.no_copyable_columns": "No copyable columns were recognized",

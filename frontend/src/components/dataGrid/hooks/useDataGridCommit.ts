@@ -1,6 +1,5 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef } from 'react';
 import { message } from 'antd';
-import { flushSync } from 'react-dom';
 import {
     buildDataGridCommitChangeSet,
     resolveContextMenuFieldName,
@@ -14,8 +13,6 @@ import { confirmProductionRisk } from '../../../utils/productionRiskConfirm';
 import { ApplyChanges } from '../../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
 import { buildDataGridTransactionLog } from '../../dataGridTransactionLog';
-import { isShortcutMatch } from '../../../utils/shortcuts';
-import { registerWorkbenchTabCloseGuard } from '../../../utils/workbenchTabCloseProtection';
 import {
     type DataGridClipboardPayload,
     writeClipboardPayload,
@@ -58,6 +55,8 @@ import type { DataGridRowEditorsApi } from './useDataGridRowEditors';
 import type { DataGridProps } from '../../DataGridCore';
 import { dispatchSidebarDatabaseRefresh, dispatchSidebarTableDataRefresh } from '../../../utils/sidebarDatabaseRefresh';
 import { resolveSqlDialect } from '../../../utils/sqlDialect';
+import { ensureDataGridSaveSupported } from '../dataGridSaveGuard';
+import { useDataGridSaveLifecycle } from './useDataGridSaveLifecycle';
 
 export interface UseDataGridCommitInput {
     connectionId: DataGridProps['connectionId'];
@@ -192,7 +191,7 @@ export const useDataGridCommit = ({
         clearAutoCommitTimer();
         if (!connectionId || !tableName) return false;
         const conn = connections.find(c => c.id === connectionId);
-        if (!conn) return false;
+        if (!conn || !ensureDataGridSaveSupported(conn.config, translateDataGrid)) return false;
         const changeSetResult = buildDataGridCommitChangeSet({
             addedRows,
             modifiedRows,
@@ -348,115 +347,15 @@ export const useDataGridCommit = ({
         onReload,
         translateDataGrid,
     ]);
-    const handleCommitRef = useRef(handleCommit);
-    handleCommitRef.current = handleCommit;
-
-    useEffect(() => {
-      if (!isActive || !isTableSurfaceActive || !canModifyData || !hasChanges) return undefined;
-
-      const handleDataGridSaveShortcut = (event: KeyboardEvent) => {
-        const saveShortcut = activeShortcutPlatform === 'mac' ? 'Meta+S' : 'Ctrl+S';
-        if (!isShortcutMatch(event, saveShortcut)) return;
-
-        const root = rootRef.current;
-        const eventTarget = event.target;
-        const activeElement = document.activeElement;
-        const eventTargetNode = typeof Node !== 'undefined' && eventTarget instanceof Node
-          ? eventTarget
-          : null;
-        const activeElementNode = typeof Node !== 'undefined' && activeElement instanceof Node
-          ? activeElement
-          : null;
-        const eventTargetElement = eventTarget && typeof (eventTarget as Element).closest === 'function'
-          ? eventTarget as Element
-          : null;
-        const activeElementTarget = activeElement && typeof (activeElement as Element).closest === 'function'
-          ? activeElement as Element
-          : null;
-        const isEventTargetInGrid = root
-          ? !!eventTargetNode && root.contains(eventTargetNode)
-          : !!eventTargetElement?.closest('.data-grid-root');
-        const isActiveElementInGrid = root
-          ? !!activeElementNode && root.contains(activeElementNode)
-          : !!activeElementTarget?.closest('.data-grid-root');
-        if (!isEventTargetInGrid && !isActiveElementInGrid) return;
-
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        void handleCommitRef.current('manual');
-      };
-
-      window.addEventListener('keydown', handleDataGridSaveShortcut, true);
-      return () => {
-        window.removeEventListener('keydown', handleDataGridSaveShortcut, true);
-      };
-    }, [activeShortcutPlatform, canModifyData, hasChanges, isActive, isTableSurfaceActive]);
-
-    useEffect(() => {
-        if (!workbenchTabId) return undefined;
-        return registerWorkbenchTabCloseGuard(workbenchTabId, {
-            isDirty: () => pendingChangesRef.current || dataPanelDirtyRef.current,
-            save: async () => {
-                if (dataPanelDirtyRef.current) {
-                    const applied = flushSync(() => handleDataPanelSave());
-                    if (!applied || dataPanelDirtyRef.current) return false;
-                }
-                return handleCommitRef.current('manual');
-            },
-            discard: () => {
-                pendingChangesRef.current = false;
-                clearAutoCommitTimer();
-                setAddedRows([]);
-                setModifiedRows({});
-                setDeletedRowKeys(new Set());
-                setModifiedColumns({});
-                setDataPanelValue(dataPanelOriginalRef.current);
-                dataPanelDirtyRef.current = false;
-            },
-        });
-    }, [clearAutoCommitTimer, handleDataPanelSave, hasChanges, setDataPanelValue, workbenchTabId]);
-
-    useEffect(() => {
-        if (!canModifyData || dataEditCommitMode !== 'auto' || !hasChanges) {
-            clearAutoCommitTimer();
-            return;
-        }
-        if (autoCommitFailedTokenRef.current === autoCommitChangeTokenRef.current) {
-            clearAutoCommitTimer();
-            return;
-        }
-
-        const delayMs = dataEditAutoCommitDelayMs;
-        const dueAt = Date.now() + delayMs;
-        const updateRemaining = () => {
-            setAutoCommitRemainingSeconds(Math.max(1, Math.ceil((dueAt - Date.now()) / 1000)));
-        };
-        clearAutoCommitTimer();
-        updateRemaining();
-        autoCommitCountdownRef.current = setInterval(updateRemaining, 250);
-        autoCommitTimerRef.current = setTimeout(() => {
-            autoCommitTimerRef.current = null;
-            if (autoCommitCountdownRef.current) {
-                clearInterval(autoCommitCountdownRef.current);
-                autoCommitCountdownRef.current = null;
-            }
-            setAutoCommitRemainingSeconds(null);
-            void handleCommit('auto');
-        }, delayMs);
-
-        return clearAutoCommitTimer;
-    }, [
-        canModifyData,
-        dataEditCommitMode,
-        dataEditAutoCommitDelayMs,
-        hasChanges,
-        pendingChangeCount,
-        handleCommit,
-        clearAutoCommitTimer,
-    ]);
-
-    useEffect(() => clearAutoCommitTimer, [clearAutoCommitTimer]);
+    useDataGridSaveLifecycle({
+        isActive, isTableSurfaceActive, canModifyData, hasChanges, activeShortcutPlatform,
+        rootRef, workbenchTabId, currentConnConfig, dataPanelDirtyRef, handleDataPanelSave,
+        setDataPanelValue, dataPanelOriginalRef, clearAutoCommitTimer, setAddedRows,
+        setModifiedRows, setDeletedRowKeys, setModifiedColumns, translateDataGrid,
+        dataEditCommitMode, dataEditAutoCommitDelayMs, autoCommitFailedTokenRef,
+        autoCommitChangeTokenRef, setAutoCommitRemainingSeconds, autoCommitCountdownRef,
+        autoCommitTimerRef, pendingChangeCount, pendingChangesRef, handleCommit,
+    });
 
     const copyToClipboard = useCallback((value: string | DataGridClipboardPayload) => {
         const payload = typeof value === 'string' ? { plainText: value } : value;
