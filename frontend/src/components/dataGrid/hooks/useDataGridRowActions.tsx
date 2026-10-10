@@ -20,8 +20,10 @@ import type { DataGridCellEditorStateApi } from './useDataGridCellEditorState';
 import type { DataGridInlineEditorApi } from './useDataGridInlineEditor';
 import type { DataGridColumnTitlesApi } from './useDataGridColumnTitles';
 import type { DataGridProps } from '../../DataGridCore';
+import { useDataGridAddRow } from './useDataGridAddRow';
 
 export interface UseDataGridRowActionsInput {
+    canModifyData: DataGridCoreStateApi['canModifyData'];
     pagination: DataGridProps['pagination'];
     translateDataGrid: DataGridCoreStateApi['translateDataGrid'];
     rowNumberColumnWidth: DataGridColumnsApi['rowNumberColumnWidth'];
@@ -68,7 +70,7 @@ export interface UseDataGridRowActionsInput {
 }
 
 export const useDataGridRowActions = ({
-    pagination, translateDataGrid, rowNumberColumnWidth, handleResizeStart, handleResizeAutoFit,
+    pagination, canModifyData, translateDataGrid, rowNumberColumnWidth, handleResizeStart, handleResizeAutoFit,
     handleRowNumberClick, handleRowNumberDoubleClick, resolvedShowRowNumberColumn, mergedColumns,
     pinnedLeftColumnNames, selectionColumnWidth, tableViewportWidth, densityParams,
     visibleColumnNames, pendingScrollToBottomRef, setAddedRows, mergedDisplayData,
@@ -204,13 +206,9 @@ export const useDataGridRowActions = ({
         tableViewportWidth,
     ]);
 
-    const handleAddRow = () => {
-        const newKey = `new-${Date.now()}`;
-        const newRow: any = { [GONAVI_ROW_KEY]: newKey };
-        visibleColumnNames.forEach(col => newRow[col] = '');
-        pendingScrollToBottomRef.current = true;
-        setAddedRows(prev => [...prev, newRow]);
-    };
+    const handleAddRow = useDataGridAddRow({
+        canModifyData, visibleColumnNames, pendingScrollToBottomRef, setAddedRows,
+    });
 
     const copyRowsForPaste = useCallback((keys: React.Key[]) => {
         if (keys.length === 0) {
@@ -238,6 +236,7 @@ export const useDataGridRowActions = ({
     }, [copyRowsForPaste, selectedRowKeys]);
 
     const handlePasteCopiedRowsAsNew = useCallback(() => {
+        if (!canModifyData) return;
         if (copiedRowsForPaste.length === 0) {
             void message.info(translateDataGrid('data_grid.message.copy_rows_first'));
             return;
@@ -261,9 +260,10 @@ export const useDataGridRowActions = ({
         setAddedRows(prev => [...prev, ...nextRows]);
         setSelectedRowKeys(nextRows.map(row => row[GONAVI_ROW_KEY]));
         void message.success(translateDataGrid('data_grid.message.pasted_rows_as_new', { count: nextRows.length }));
-    }, [copiedRowsForPaste, displayOutputColumnNames, effectiveEditLocator, translateDataGrid]);
+    }, [canModifyData, copiedRowsForPaste, displayOutputColumnNames, effectiveEditLocator, translateDataGrid]);
 
     const handleDeleteSelected = () => {
+        if (!canModifyData) return;
         const addedKeysToRemove: string[] = [];
         const baseKeysToDelete: string[] = [];
         for (const keyStr of deleteTargetRowKeys) {

@@ -1,0 +1,16 @@
+.data-grid-save-restriction {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.data-grid-save-restriction > [aria-disabled] {
+  display: inline-flex;
+}
+
+.data-grid-save-restriction-label {
+  color: var(--gn-fg-4, inherit);
+  font-size: 12px;
+  white-space: nowrap;
+}

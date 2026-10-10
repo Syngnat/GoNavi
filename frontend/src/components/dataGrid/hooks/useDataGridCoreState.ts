@@ -43,6 +43,7 @@ import Modal from '../../common/ResizableDraggableModal';
 import { useExportProgressDialog } from '../../ExportProgressModal';
 import type { DataGridProps } from '../../DataGridCore';
 import { registryAllowsImport } from '../../../utils/dataSourceRegistry';
+import { getDataGridSaveCapability } from '../dataGridSaveCapability';
 
 export interface UseDataGridCoreStateInput {
     connectionParamsOverride: DataGridProps['connectionParamsOverride'];
@@ -172,7 +173,8 @@ export const useDataGridCoreState = ({
         const normalized = String(columnName || '').trim();
         return normalized !== GONAVI_ROW_KEY && isWritableResultColumn(normalized, effectiveEditLocator);
     }, [effectiveEditLocator]);
-    const canModifyData = !readOnly && !!tableName && !!effectiveEditLocator && !effectiveEditLocator.readOnly && effectiveEditLocator.strategy !== 'none';
+    const currentConnConfig = connections.find(c => c.id === connectionId)?.config;
+    const canModifyData = getDataGridSaveCapability(currentConnConfig).supported && !readOnly && !!tableName && !!effectiveEditLocator && !effectiveEditLocator.readOnly && effectiveEditLocator.strategy !== 'none';
     const showColumnComment = queryOptions?.showColumnComment ?? true;
     const showColumnType = queryOptions?.showColumnType ?? true;
     // 默认全部左对齐；开启后仅数值/日期时间列的数据格右对齐，表头始终左对齐。
@@ -306,7 +308,6 @@ export const useDataGridCoreState = ({
     }, [connectionId, dbName, enableColumnOrderMemory, localHiddenColumns, setTableColumnOrder, tableName]);
 
     const selectionColumnWidth = 46;
-    const currentConnConfig = connections.find(c => c.id === connectionId)?.config;
     const dataSourceCaps = getDataSourceCapabilities(currentConnConfig);
     const prefersManualTotalCount = dataSourceCaps.preferManualTotalCount;
     const supportsApproximateTableCount = dataSourceCaps.supportsApproximateTableCount;

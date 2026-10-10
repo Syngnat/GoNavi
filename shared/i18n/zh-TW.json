@@ -5157,6 +5157,8 @@
   "data_grid.message.locate_record_to_edit": "請先定位要編輯的記錄",
   "data_grid.message.locator_column_value_empty": "定位欄位 {{column}} 的值為空，無法安全提交修改。",
   "data_grid.message.no_changes_to_commit": "沒有需要提交的修改",
+  "data_grid.message.navicat_http_tunnel_save_unsupported": "Navicat HTTP 指令碼通道無法跨請求保留交易，資料網格為唯讀，無法保證修改的原子提交。請使用直接連線、SSH 或 HTTP CONNECT 代理。",
+  "data_grid.toolbar.navicat_http_tunnel_read_only": "HTTP 指令碼通道唯讀",
   "data_grid.message.query_change_with_pending_edits": "有尚未提交的修改，請先提交或回復後再篩選、排序、切換頁面或重新整理。",
   "data_grid.message.no_copyable_cells": "未識別到可複製的儲存格",
   "data_grid.message.no_copyable_columns": "未識別到可複製的欄位",

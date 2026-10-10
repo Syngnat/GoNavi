@@ -360,7 +360,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       tableColumns, handleAddRow, copyRowsForPaste, handlePasteCopiedRowsAsNew,
       handleDeleteSelected, handleUndoDeleteSelected, handlePreviewChanges,
   } = useDataGridRowActions({
-      pagination, translateDataGrid, rowNumberColumnWidth, handleResizeStart, handleResizeAutoFit,
+      pagination, canModifyData, translateDataGrid, rowNumberColumnWidth, handleResizeStart, handleResizeAutoFit,
       handleRowNumberClick, handleRowNumberDoubleClick, resolvedShowRowNumberColumn, mergedColumns,
       pinnedLeftColumnNames, selectionColumnWidth, tableViewportWidth, densityParams,
       visibleColumnNames, pendingScrollToBottomRef, setAddedRows, mergedDisplayData,

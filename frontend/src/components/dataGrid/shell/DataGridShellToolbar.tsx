@@ -2,6 +2,9 @@ import DataGridToolbarFrame from '../../DataGridToolbarFrame';
 import { FILTER_FIELD_SELECT_STYLE, FILTER_FIELD_POPUP_WIDTH } from '../../DataGridCore';
 import type { DataGridShellRenderersApi } from './useDataGridShellRenderers';
 import type { DataGridShellProps } from '../../DataGridShell';
+import type { ConnectionConfig } from '../../../types';
+import { buildDataGridSaveRestrictionActions } from './DataGridSaveRestriction';
+import { buildDataGridQuickWhereHandlers } from './dataGridQuickWhereHandlers';
 
 export interface DataGridShellToolbarProps {
   tableName: DataGridShellProps['tableName'];
@@ -23,6 +26,7 @@ export interface DataGridShellToolbarProps {
   onReload: DataGridShellProps['onReload'];
   onToggleFilter: DataGridShellProps['onToggleFilter'];
   canModifyData: DataGridShellProps['canModifyData'];
+  currentConnConfig?: ConnectionConfig;
   selectedRowKeys: DataGridShellProps['selectedRowKeys'];
   deleteTargetRowCount: DataGridShellProps['deleteTargetRowCount'];
   allSelectedAreDeleted: DataGridShellProps['allSelectedAreDeleted'];
@@ -103,7 +107,7 @@ export interface DataGridShellToolbarProps {
 export const DataGridShellToolbar = ({
   tableName, dbName, translateDataGrid, loading, darkMode, bgFilter, panelFrameColor, panelRadius,
   panelOuterGap, panelPaddingY, panelPaddingX, toolbarBottomPadding, filterTopPadding, showFilter,
-  appliedFilterConditions, filterPanelRef, onReload, onToggleFilter, canModifyData, selectedRowKeys,
+  appliedFilterConditions, filterPanelRef, onReload, onToggleFilter, canModifyData, currentConnConfig, selectedRowKeys,
   deleteTargetRowCount, allSelectedAreDeleted, cellEditMode, selectedCells, selectedCellRowCount,
   fillTemplateTargetRowCount, copiedCellPatch, hasChanges, pendingChangeCount, dataEditCommitMode,
   dataEditAutoCommitDelayMs, localizedDataEditAutoCommitDelayOptions, autoCommitRemainingSeconds,
@@ -166,7 +170,11 @@ export const DataGridShellToolbar = ({
       paginationTotalCountLoading={pagination?.totalCountLoading}
       totalCountUnavailableLabel={pagination?.totalCountUnavailableLabel}
       totalCountUnavailableReason={pagination?.totalCountUnavailableReason}
-      toolbarExtraActions={toolbarExtraActions}
+      toolbarExtraActions={buildDataGridSaveRestrictionActions({
+        connectionConfig: currentConnConfig, tableName, translate: translateDataGrid,
+        hasChanges, pendingChangeCount, onPreviewChanges: handlePreviewChanges,
+        onResetPendingChanges: handleResetPendingChanges, extraActions: toolbarExtraActions,
+      })}
       filterConditions={filterConditions}
       sortInfo={sortInfo}
       displayColumnNames={displayColumnNames}
@@ -204,32 +212,10 @@ export const DataGridShellToolbar = ({
       onToggleTotalCount={handleToggleTotalCount}
       onQuickWhereDraftChange={setQuickWhereDraft}
       onQuickWhereSuggestionsOpenChange={setQuickWhereSuggestionsOpen}
-      onQuickWhereKeyDown={(event) => {
-          const isClipboardShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && ['c', 'v', 'x'].includes(String(event.key || '').toLowerCase());
-          if (isClipboardShortcut) {
-              event.stopPropagation();
-              return;
-          }
-          if (!shouldApplyQuickWhereOnEnter({
-              key: event.key,
-              shiftKey: event.shiftKey,
-              isComposing: Boolean((event.nativeEvent as any)?.isComposing),
-              suggestionsOpen: quickWhereSuggestionsOpen,
-              suggestionCount: quickWhereSuggestionOptions.length,
-              activeSuggestionId: event.currentTarget.getAttribute('aria-activedescendant'),
-          })) {
-              return;
-          }
-          event.preventDefault();
-          applyQuickWhereCondition();
-      }}
-      onQuickWhereSelect={(value, option) => {
-          setQuickWhereDraft(resolveWhereConditionSelectedValue({
-              selectedValue: value,
-              currentInput: quickWhereDraft,
-              insertText: (option as any)?.insertText,
-          }));
-      }}
+      {...buildDataGridQuickWhereHandlers({
+        shouldApplyQuickWhereOnEnter, quickWhereSuggestionsOpen, quickWhereSuggestionOptions,
+        applyQuickWhereCondition, resolveWhereConditionSelectedValue, quickWhereDraft, setQuickWhereDraft,
+      })}
       onQuickWhereCopy={stopQuickWhereClipboardPropagation}
       onQuickWhereCut={stopQuickWhereClipboardPropagation}
       onQuickWherePaste={handleQuickWherePaste}
