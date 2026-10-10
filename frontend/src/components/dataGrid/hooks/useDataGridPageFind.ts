@@ -15,9 +15,11 @@ import {
     type DataGridFindMatch,
     type DataGridFindNavigationDirection,
     resolveDataGridFindNavigationIndex,
-    matchesDataGridColumnQuickFind,
+    rankDataGridColumnQuickFindMatchTier,
+    resolveDataGridColumnQuickFindMatchTier,
     resolveDataGridColumnQuickFindTarget,
 } from '../../../utils/dataGridFind';
+import { createColumnCommentLookup } from '../../dataGridColumnMeta';
 import { makeCellKey, GONAVI_ROW_KEY } from '../../DataGridCore';
 import type { DataGridCellEditorStateApi } from './useDataGridCellEditorState';
 import type { DataGridHorizontalVirtualScrollApi } from './useDataGridHorizontalVirtualScroll';
@@ -69,6 +71,8 @@ export interface UseDataGridPageFindInput {
     pageFindMatches: DataGridRowEditorsApi['pageFindMatches'];
     normalizedColumnQuickFindText: DataGridCoreStateApi['normalizedColumnQuickFindText'];
     displayColumnNames: DataGridCoreStateApi['displayColumnNames'];
+    columnMetaMap?: Record<string, any>;
+    columnMetaMapByLowerName?: Record<string, any>;
     setHighlightedColumnName: DataGridCoreStateApi['setHighlightedColumnName'];
     columnQuickFindHighlightTimerRef: DataGridCoreStateApi['columnQuickFindHighlightTimerRef'];
     externalScrollbarDraggingRef: DataGridCellEditorStateApi['externalScrollbarDraggingRef'];
@@ -92,6 +96,7 @@ export const useDataGridPageFind = ({
     currentSelectionRef, selectionStartRef, mergedDisplayData, rowKeyStr, dataPanelOpenRef,
     updateFocusedCell, containerRef, updateCellSelection, activePageFindMatchIndex,
     setActivePageFindMatchIndex, pageFindMatches, normalizedColumnQuickFindText, displayColumnNames,
+    columnMetaMap, columnMetaMapByLowerName,
     setHighlightedColumnName, columnQuickFindHighlightTimerRef, externalScrollbarDraggingRef,
     horizontalScrollVisible, tableScrollTargetsRef, pendingTableTargetSyncSourceRef,
     tableTargetSyncRafRef,
@@ -402,21 +407,44 @@ export const useDataGridPageFind = ({
         if (match) focusPageFindMatch(match);
     }, [activePageFindMatchIndex, pageFindMatches, focusPageFindMatch]);
 
+    // lookup 跟随元数据身份：列元数据异步到达（或跨表切换）时下一次渲染
+    // 自然重建，候选列表与选项随之刷新，回车解析与下拉展示保持同源。
+    const getColumnComment = useMemo(
+        () => createColumnCommentLookup(columnMetaMap, columnMetaMapByLowerName),
+        [columnMetaMap, columnMetaMapByLowerName],
+    );
+
+    // 候选排序与回车解析共用同一套 tier rank（列名精确 > 注释精确 > 列名子串 >
+    // 注释子串），同 tier 内保持列序，保证下拉第一项就是回车目标。
     const visibleColumnQuickFindMatches = useMemo(() => {
         if (!normalizedColumnQuickFindText) return [];
-        return displayColumnNames.filter((columnName) => (
-            matchesDataGridColumnQuickFind(columnName, normalizedColumnQuickFindText)
-        ));
-    }, [displayColumnNames, normalizedColumnQuickFindText]);
+        const matched: Array<{ columnName: string; rank: number; index: number }> = [];
+        displayColumnNames.forEach((columnName, index) => {
+            const tier = resolveDataGridColumnQuickFindMatchTier(
+                columnName,
+                normalizedColumnQuickFindText,
+                getColumnComment,
+            );
+            if (tier) {
+                matched.push({ columnName, rank: rankDataGridColumnQuickFindMatchTier(tier), index });
+            }
+        });
+        matched.sort((a, b) => a.rank - b.rank || a.index - b.index);
+        return matched.map((item) => item.columnName);
+    }, [displayColumnNames, normalizedColumnQuickFindText, getColumnComment]);
 
     const columnQuickFindOptions = useMemo(
-        () => visibleColumnQuickFindMatches.slice(0, 12).map((columnName) => ({ value: columnName, label: columnName })),
-        [visibleColumnQuickFindMatches],
+        () => visibleColumnQuickFindMatches.slice(0, 12).map((columnName) => ({
+            value: columnName,
+            label: columnName,
+            comment: getColumnComment(columnName),
+        })),
+        [visibleColumnQuickFindMatches, getColumnComment],
     );
 
     const resolveColumnQuickFindTarget = useCallback((query: string): string => (
-        resolveDataGridColumnQuickFindTarget(displayColumnNames, query)
-    ), [displayColumnNames]);
+        resolveDataGridColumnQuickFindTarget(displayColumnNames, query, getColumnComment)
+    ), [displayColumnNames, getColumnComment]);
 
     const highlightColumnQuickFindTarget = useCallback((columnName: string) => {
         setHighlightedColumnName(columnName);

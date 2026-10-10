@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildColumnMetaMap, hasUsableColumnMeta, shouldOmitBlankDataGridInsertValue } from './dataGridColumnMeta';
+import { buildColumnMetaMap, createColumnCommentLookup, hasUsableColumnMeta, shouldOmitBlankDataGridInsertValue } from './dataGridColumnMeta';
 
 describe('dataGridColumnMeta', () => {
   it('keeps column key metadata when building the header meta map', () => {
@@ -37,5 +37,29 @@ describe('dataGridColumnMeta', () => {
     expect(shouldOmitBlankDataGridInsertValue('', 'update', {
       extra: 'auto_increment',
     })).toBe(false);
+  });
+
+  it('resolves column comments from exact and lowercase meta keys', () => {
+    const metaMap = buildColumnMetaMap([
+      { name: 'USER_ID', type: 'number', nullable: 'YES', key: '', extra: '', comment: '用户唯一标识' },
+    ]);
+    const lowerMap = buildColumnMetaMap([
+      { name: 'user_id', type: 'number', nullable: 'YES', key: '', extra: '', comment: '用户唯一标识' },
+      { name: 'created_at', type: 'timestamp', nullable: 'YES', key: '', extra: '', comment: ' 创建时间 ' },
+    ]);
+    const getColumnComment = createColumnCommentLookup(metaMap, lowerMap);
+
+    expect(getColumnComment('USER_ID')).toBe('用户唯一标识');
+    expect(getColumnComment('user_id')).toBe('用户唯一标识');
+    expect(getColumnComment('created_at')).toBe('创建时间');
+    expect(getColumnComment('missing')).toBe('');
+    expect(getColumnComment('  ')).toBe('');
+  });
+
+  it('returns empty comments when the grid has no usable column meta', () => {
+    const getColumnComment = createColumnCommentLookup(undefined, undefined);
+
+    expect(getColumnComment('user_id')).toBe('');
+    expect(createColumnCommentLookup({}, {})('user_id')).toBe('');
   });
 });

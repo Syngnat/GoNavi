@@ -521,6 +521,32 @@ body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find .gn-v2-data-grid-c
   display: none !important;
 }
 
+/* 跳列下拉选项：列名在前，列注释弱化排后（下拉渲染在 body portal，用 body 限定命中） */
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find-option-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-column-quick-find-option-comment {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gn-fg-4, #999);
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
 body[data-ui-version="v2"] .gn-v2-data-grid-page-find {
   gap: 2px !important;
 }

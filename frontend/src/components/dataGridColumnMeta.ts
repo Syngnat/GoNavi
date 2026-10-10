@@ -46,6 +46,18 @@ export const hasUsableColumnMeta = (metaMap: Record<string, ColumnMeta>): boolea
   })
 );
 
+// 跳列按注释匹配用的统一查找入口：先按原始列名，再回退小写键（Oracle 等大写元数据）。
+// 查不到或网格没有表元数据（任意 SQL、只读视图）时返回空串，跳列自然退化为仅列名匹配。
+export const createColumnCommentLookup = (
+  metaMap: Record<string, ColumnMeta> | undefined,
+  metaMapByLowerName: Record<string, ColumnMeta> | undefined,
+) => (columnName: string): string => {
+  const normalizedName = String(columnName || '').trim();
+  if (!normalizedName) return '';
+  const meta = metaMap?.[normalizedName] || metaMapByLowerName?.[normalizedName.toLowerCase()];
+  return String(meta?.comment || '').trim();
+};
+
 export const shouldOmitBlankDataGridInsertValue = (
   value: unknown,
   mode: 'insert' | 'update',

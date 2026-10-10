@@ -460,6 +460,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       updateFocusedCell, containerRef, updateCellSelection, activePageFindMatchIndex,
       setActivePageFindMatchIndex, pageFindMatches, normalizedColumnQuickFindText,
       displayColumnNames, setHighlightedColumnName, columnQuickFindHighlightTimerRef,
+      columnMetaMap, columnMetaMapByLowerName,
       externalScrollbarDraggingRef, horizontalScrollVisible, tableScrollTargetsRef,
       pendingTableTargetSyncSourceRef, tableTargetSyncRafRef,
   });
