@@ -163,7 +163,7 @@ export const useTableDesignerTriggerList = ({
 
         // schema 列表与查询页共用同一份会话缓存：已经加载过就直接用，不再转圈也不再发请求；
         // 过期的先用着，后台刷新。
-        const schemaSessionKey = buildQueryEditorSessionMetadataKey(tab.connectionId, conn.config, dbName);
+        const schemaSessionKey = buildQueryEditorSessionMetadataKey(tab.connectionId, { ...conn.config, schemaVisibilityByDatabase: conn.schemaVisibilityByDatabase }, dbName);
         const cachedSchemaContext = queryEditorSchemaContextSession.read(schemaSessionKey);
         if (cachedSchemaContext) {
             applySchemaContext(cachedSchemaContext.value);

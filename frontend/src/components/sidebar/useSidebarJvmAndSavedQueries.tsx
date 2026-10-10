@@ -17,6 +17,8 @@ import type { SidebarTreeViewStateApi } from './useSidebarTreeViewState';
 import type { SidebarTreeDataApi } from './useSidebarTreeData';
 
 export interface UseSidebarJvmAndSavedQueriesInput {
+  treeDataRef: SidebarTreeViewStateApi['treeDataRef'];
+  setExpandedKeys: SidebarTreeViewStateApi['setExpandedKeys'];
   loadingNodesRef: SidebarSearchStateApi['loadingNodesRef'];
   addTab: SidebarStoreStateApi['addTab'];
   connections: SidebarStoreStateApi['connections'];
@@ -43,6 +45,7 @@ export interface UseSidebarJvmAndSavedQueriesInput {
 }
 
 export const useSidebarJvmAndSavedQueries = ({
+  treeDataRef, setExpandedKeys,
   loadingNodesRef, addTab, connections, reloadSavedQueryGroups, setSavedQueryGroupTargetId,
   setSavedQueryGroupInitialParentId, setIsSavedQueryGroupModalOpen, saveSavedQueryGroup,
   savedQueryGroups, savedQueryGroupTargetId, savedQueries, tableSortPreference, tableAccessCount,
@@ -226,6 +229,8 @@ export const useSidebarJvmAndSavedQueries = ({
       loadNacosServiceGroups,
       invalidateConnectionLoads,
   } = useSidebarTreeLoaders({
+      getTree: () => treeDataRef.current,
+      setExpandedKeys,
       savedQueries,
       tableSortPreference,
       tableAccessCount,

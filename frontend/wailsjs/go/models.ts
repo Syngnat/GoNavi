@@ -1348,6 +1348,7 @@ export namespace app {
 	export class ExportFileOptions {
 	    format: string;
 	    columns?: string[];
+	    columnComments?: Record<string, string>;
 	    xlsxMaxRowsPerSheet?: number;
 	    jobId?: string;
 	    totalRowsHint?: number;
@@ -1368,6 +1369,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.format = source["format"];
 	        this.columns = source["columns"];
+	        this.columnComments = source["columnComments"];
 	        this.xlsxMaxRowsPerSheet = source["xlsxMaxRowsPerSheet"];
 	        this.jobId = source["jobId"];
 	        this.totalRowsHint = source["totalRowsHint"];

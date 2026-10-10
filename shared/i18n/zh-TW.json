@@ -4744,6 +4744,7 @@
   "data_export.dialog.action.start": "開始匯出",
   "data_export.dialog.field.columns": "匯出欄位",
   "data_export.dialog.field.columns_help": "選擇要寫入匯出檔案的欄位",
+  "data_export.dialog.field.comment_headers": "表頭使用欄位註解",
   "data_export.dialog.field.columns_placeholder": "搜尋並選擇匯出欄位",
   "data_export.dialog.field.columns_selected": "已選擇 {{selected}} / {{total}} 個欄位",
   "data_export.dialog.field.format": "匯出格式",

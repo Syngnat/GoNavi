@@ -260,6 +260,7 @@ export const useDataGridV2CellActions = ({
               scopeOptions,
               availableColumns: displayOutputColumnNames,
               allowInsertSql: canExportInsertSQL,
+              allowColumnCommentHeaders: true,
               initialValues: {
                   ...commonInitialValues,
                   scope: (resultExportAllSql || resultSql) ? 'all' : (selectedCount > 0 ? 'selected' : 'page'),

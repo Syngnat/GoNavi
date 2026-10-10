@@ -61,19 +61,19 @@ func newExportFileWriter(f io.Writer, options ExportFileOptions) (exportFileWrit
 	options = normalizeExportFileOptions("", options)
 	switch options.Format {
 	case "csv":
-		return newCSVExportFileWriter(f)
+		return newCSVExportFileWriter(f, options.ColumnComments)
 	case "json":
 		return newJSONExportFileWriter(f)
 	case "md":
-		return &markdownExportFileWriter{file: f}, nil
+		return &markdownExportFileWriter{file: f, columnComments: options.ColumnComments}, nil
 	case "html":
-		return newHTMLExportFileWriter(f), nil
+		return newHTMLExportFileWriter(f, options.ColumnComments), nil
 	case "xlsx":
 		file, ok := f.(xlsxExportOutputFile)
 		if !ok {
 			return nil, fmt.Errorf("xlsx export requires a seekable file")
 		}
-		writeOptions := xlsxExportWriteOptions{}
+		writeOptions := xlsxExportWriteOptions{columnComments: options.ColumnComments}
 		if managed, ok := f.(*webTransferFile); ok {
 			writeOptions.tempDir = filepath.Dir(managed.file.Name())
 			writeOptions.budget = managed.budget

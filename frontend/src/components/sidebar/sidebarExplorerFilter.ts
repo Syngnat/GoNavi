@@ -188,6 +188,7 @@ export const filterV2ExplorerTreeByKind = (
         return node;
       }
       if (groupKey === 'schema') {
+        if (node.dataRef?.schemaLazy && !node.dataRef?.schemaLoaded) return node;
         const schemaChildren = (node.children || []).map(visit).filter(Boolean) as SidebarTreeNode[];
         return schemaChildren.length > 0 ? { ...node, children: schemaChildren, isLeaf: false } : null;
       }
@@ -197,6 +198,7 @@ export const filterV2ExplorerTreeByKind = (
       return node;
     }
     if (node.type === 'database') {
+      if (!node.children) return node;
       const filteredChildren = (node.children || []).map(visit).filter(Boolean) as SidebarTreeNode[];
       return filteredChildren.length > 0 ? { ...node, children: filteredChildren, isLeaf: false } : null;
     }

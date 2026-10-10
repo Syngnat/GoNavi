@@ -4744,6 +4744,7 @@
   "data_export.dialog.action.start": "Начать экспорт",
   "data_export.dialog.field.columns": "Столбцы экспорта",
   "data_export.dialog.field.columns_help": "Выберите поля для включения в файл экспорта",
+  "data_export.dialog.field.comment_headers": "Использовать комментарии столбцов как заголовки",
   "data_export.dialog.field.columns_placeholder": "Найдите и выберите столбцы экспорта",
   "data_export.dialog.field.columns_selected": "Выбрано столбцов: {{selected}} из {{total}}",
   "data_export.dialog.field.format": "Формат экспорта",

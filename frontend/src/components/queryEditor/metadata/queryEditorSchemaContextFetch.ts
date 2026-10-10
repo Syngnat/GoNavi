@@ -31,7 +31,7 @@ export const fetchQueryEditorSchemaContext = async (
         return extractQueryEditorCurrentSchema(result.data);
     }).catch(() => '');
 
-    const [result, defaultSchema] = await Promise.all([loadSchemas(conn, dbName), loadCurrentSchema]);
+    const [result, defaultSchema] = await Promise.all([loadSchemas(conn, dbName, DBQuery, true), loadCurrentSchema]);
     const schemaNames = Array.isArray(result.schemas) ? result.schemas : [];
     return {
         value: { schemaNames, defaultSchema },

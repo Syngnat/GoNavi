@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,6 +100,17 @@ func metadataColumnCacheKind(schemaName, tableName string) string {
 // 两条物理连接，共用一份结构缓存才不会出现「同一张表两条通道各存一份、失效漏清一条」。
 func (a *App) buildMetadataCacheKey(config connection.ConnectionConfig, dbName, kind string) string {
 	return getCacheKey(config) + "\x00" + dbName + "\x00" + kind
+}
+
+// buildScopedMetadataCacheKey 隔离不同模式范围，并保留按连接和库失效全部目录缓存的前缀。
+func (a *App) buildScopedMetadataCacheKey(config connection.ConnectionConfig, dbName, kind string, scope *connection.MetadataDiscoveryScope) string {
+	key := a.buildMetadataCacheKey(config, dbName, kind)
+	if scope == nil || scope.Schemas == nil {
+		return key
+	}
+	// 结构只含字符串、布尔和字符串切片，JSON 编码不存在不支持的值。
+	encoded, _ := json.Marshal(scope.Schemas)
+	return key + "\x00" + string(encoded)
 }
 
 // metadataStore 返回本 App 的缓存存储体，必要时惰性创建。

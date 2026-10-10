@@ -1,4 +1,5 @@
 import { connection } from '../../wailsjs/go/models';
+import type { MetadataDiscoveryScope } from './metadataDiscoveryScope';
 import {
   deriveLegacyConnectionReadOnlyFlag,
   resolveConnectionProtectionConfig,
@@ -8,7 +9,7 @@ import {
   resolveOceanBaseProtocolFromConfig,
 } from './oceanBaseProtocol';
 
-export type RpcConnectionConfig = connection.ConnectionConfig & { id?: string };
+export type RpcConnectionConfig = connection.ConnectionConfig & { id?: string; metadataScope?: MetadataDiscoveryScope };
 type ConnectionConfigInput = {
   id?: string;
   ssh?: Record<string, any>;
@@ -170,5 +171,6 @@ export function buildRpcConnectionConfig(
       ((rpcMerged.httpTunnel ?? {}) as HttpTunnelConfigInput).encodeBase64 !== false;
   }
   rpcConfig.id = baseId;
+  rpcConfig.metadataScope = rpcMerged.metadataScope;
   return rpcConfig;
 }

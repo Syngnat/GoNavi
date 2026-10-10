@@ -4744,6 +4744,7 @@
   "data_export.dialog.action.start": "开始导出",
   "data_export.dialog.field.columns": "导出列",
   "data_export.dialog.field.columns_help": "选择要写入导出文件的字段",
+  "data_export.dialog.field.comment_headers": "表头使用字段注释",
   "data_export.dialog.field.columns_placeholder": "搜索并选择导出字段",
   "data_export.dialog.field.columns_selected": "已选择 {{selected}} / {{total}} 个字段",
   "data_export.dialog.field.format": "导出格式",

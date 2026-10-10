@@ -14,6 +14,7 @@ import { useSidebarTreeLoadState } from './useSidebarTreeLoadState';
 import { useSidebarDatabaseLoader } from './useSidebarDatabaseLoader';
 import { useSidebarJvmResourceLoader } from './useSidebarJvmResourceLoader';
 import { useSidebarTableLoader } from './useSidebarTableLoader';
+import { useSidebarSchemaLoader } from './useSidebarSchemaLoader';
 import { useSidebarNacosLoaders } from './useSidebarNacosLoaders';
 export {
   formatSidebarDriverAgentUpdateWarning,
@@ -23,6 +24,8 @@ export {
 export type { SidebarTreeLoadOptions } from './sidebarTreeLoaderHelpers';
 
 export type UseSidebarTreeLoadersOptions = {
+  getTree?: () => TreeNode[];
+  setExpandedKeys?: React.Dispatch<React.SetStateAction<React.Key[]>>;
   savedQueries: SavedQuery[];
   tableSortPreference: Record<string, any>;
   tableAccessCount: Record<string, any>;
@@ -40,6 +43,7 @@ export type UseSidebarTreeLoadersOptions = {
 };
 
 export const useSidebarTreeLoaders = ({
+  getTree, setExpandedKeys,
   savedQueries,
   tableSortPreference,
   tableAccessCount,
@@ -74,12 +78,19 @@ export const useSidebarTreeLoaders = ({
     isCurrentLoadGeneration,
   });
 
-	  const { loadTables } = useSidebarTableLoader({
+	  const { loadTables: loadLegacyTables } = useSidebarTableLoader({
 	    loadingNodesRef, setConnectionStates, setLoadedKeys, savedQueries,
 	    resolveSavedQueryDisplayName, replaceTreeNodeChildren, onDatabaseTreeLoaded,
 	    tableSortPreference, tableAccessCount, pinnedSidebarTables, getConnectionLoadEpoch,
 	    isCurrentConnectionLoadEpoch, beginLoadGeneration, isCurrentLoadGeneration, tableLoadsRef,
 	  });
+
+  const { loadTables } = useSidebarSchemaLoader({
+    loadingNodesRef, setConnectionStates, setLoadedKeys, savedQueries, resolveSavedQueryDisplayName,
+    replaceTreeNodeChildren, onDatabaseTreeLoaded, tableSortPreference, tableAccessCount, pinnedSidebarTables,
+    getConnectionLoadEpoch, isCurrentConnectionLoadEpoch, beginLoadGeneration, isCurrentLoadGeneration,
+    tableLoadsRef, getTree, setExpandedKeys, loadLegacyTables,
+  });
 
   const { loadNacosConfigGroups, loadNacosServiceGroups } = useSidebarNacosLoaders({
     loadingNodesRef, setLoadedKeys, replaceTreeNodeChildren, pinnedSidebarDatabases,

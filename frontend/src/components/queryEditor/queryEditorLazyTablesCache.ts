@@ -1,6 +1,8 @@
 import { ColumnDefinition } from '../../types';
 import { buildMetadataIdentityKey } from '../../utils/metadataIdentity';
 import { resolveSqlDialect } from '../../utils/sqlDialect';
+import { buildMetadataDiscoveryScope } from '../../utils/metadataDiscoveryScope';
+import { fingerprintQueryEditorMetadataConfig } from './queryEditorMetadataRequests';
 import {
     buildQueryEditorMetadataCacheScope,
     queryEditorColumnsCache as boundedColumnsCache,
@@ -52,9 +54,11 @@ export const buildSharedLazyTablesCacheKey = (
     connectionId: string,
     dbName: string,
     metadataDialect = '',
-): string => (
-    `${String(connectionId || '').trim()}|${buildMetadataIdentityKey(metadataDialect, dbName)}`
-);
+): string => {
+    const conn = sharedConnections.find((connection) => connection.id === connectionId);
+    const scope = conn ? buildMetadataDiscoveryScope(conn, dbName) : undefined;
+    return `${String(connectionId || '').trim()}|${buildMetadataIdentityKey(metadataDialect, dbName)}${scope ? `|${fingerprintQueryEditorMetadataConfig(scope)}` : ''}`;
+};
 
 const isSharedLazyTablesCacheKeyForRequest = (
     key: string,

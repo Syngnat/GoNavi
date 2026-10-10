@@ -12,6 +12,14 @@ const scopeOptions: DataExportScopeOption[] = [
 ];
 
 describe('DataExportDialog column selection', () => {
+  it('preserves the optional comment-header selection without enabling it by default', () => {
+    expect(normalizeDataExportDialogValues(scopeOptions).useColumnComments).not.toBe(true);
+    const initialValues = { format: 'xlsx' as const, useColumnComments: true };
+    expect(normalizeDataExportDialogValues(scopeOptions, initialValues)).toMatchObject({
+      useColumnComments: true,
+    });
+  });
+
   it('selects every available column by default in source order', () => {
     expect(resolveDataExportColumns(undefined, ['id', 'name', 'created_at'])).toEqual([
       'id',

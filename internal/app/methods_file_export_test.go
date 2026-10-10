@@ -22,6 +22,61 @@ func TestFormatExportCellText_FloatNoScientificNotation(t *testing.T) {
 	}
 }
 
+func TestWriteRowsToFile_CommentHeadersKeepOriginalDataKeys(t *testing.T) {
+	data := []map[string]interface{}{{"id": 1, "name": "alice", "note": "keep"}, {"id": 2, "name": "bob", "note": "also keep"}}
+	for _, format := range []string{"csv", "md", "html", "xlsx", "json", "sql"} {
+		t.Run(format, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "comment-headers-*."+format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			var options ExportFileOptions
+			if err := json.Unmarshal([]byte(`{"columnComments":{"id":"Identifier","name":"Name | <label>","note":" "},"xlsxMaxRowsPerSheet":1,"insertSQLDialect":"mysql","insertSQLTargetTable":"users"}`), &options); err != nil {
+				t.Fatal(err)
+			}
+			options.Format = format
+			if err := writeRowsToFile(f, data, []string{"id", "name", "note"}, options); err != nil {
+				t.Fatal(err)
+			}
+			if format == "xlsx" {
+				book, err := excelize.OpenFile(f.Name())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer book.Close()
+				for index, sheet := range book.GetSheetList() {
+					rows, err := book.GetRows(sheet)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(rows) != 2 || strings.Join(rows[0], ",") != "Identifier,Name | <label>,note" || rows[1][1] != data[index]["name"] {
+						t.Fatalf("headers or values changed: %v", rows)
+					}
+				}
+				return
+			}
+			payload, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(payload)
+			wants := map[string][]string{
+				"csv":  {"Identifier,Name | <label>,note\n", "1,alice,keep\n"},
+				"md":   {"| Identifier | Name \\| <label> | note |", "| 1 | alice | keep |"},
+				"html": {"<th>Identifier</th><th>Name | &lt;label&gt;</th><th>note</th>", "<td>1</td><td>alice</td><td>keep</td>"},
+				"json": {`"id": 1`, `"name": "alice"`},
+				"sql":  {"`id`, `name`, `note`", "'alice'"},
+			}
+			for _, want := range wants[format] {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s missing %q: %s", format, want, text)
+				}
+			}
+		})
+	}
+}
+
 func TestBuildExportTableSelectQuery_QuotesRequestedColumnsInOrder(t *testing.T) {
 	got := buildExportTableSelectQuery(
 		"mysql",

@@ -89,7 +89,7 @@ func (y *YashanDB) Connect(config connection.ConnectionConfig) (err error) {
 		currentSchema: strings.TrimSpace(runConfig.Database),
 	}
 	pool := sql.OpenDB(connector)
-	configureSQLConnectionPool(pool, "oracle")
+	configureSQLConnectionPool(pool, "oracle", runConfig)
 	y.conn = pool
 	y.scanDialect = yashanDBScanDialect
 	y.defaultSchema = strings.TrimSpace(runConfig.Database)

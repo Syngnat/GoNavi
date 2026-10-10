@@ -316,7 +316,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
     loadJVMResources, loadTables, loadNacosConfigGroups, loadNacosServiceGroups,
     invalidateConnectionLoads,
   } = useSidebarJvmAndSavedQueries({
-    loadingNodesRef, addTab, connections, reloadSavedQueryGroups, setSavedQueryGroupTargetId,
+    treeDataRef, setExpandedKeys, loadingNodesRef, addTab, connections, reloadSavedQueryGroups, setSavedQueryGroupTargetId,
     setSavedQueryGroupInitialParentId, setIsSavedQueryGroupModalOpen, saveSavedQueryGroup,
     savedQueryGroups, savedQueryGroupTargetId, savedQueries, tableSortPreference, tableAccessCount,
     pinnedSidebarTables, pinnedSidebarDatabases, setConnectionStates, setLoadedKeys,

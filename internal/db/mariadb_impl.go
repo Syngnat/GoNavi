@@ -53,7 +53,7 @@ func (m *MariaDB) Connect(config connection.ConnectionConfig) error {
 	if err != nil {
 		return wrapDatabaseConnectionOpenError(err)
 	}
-	configureSQLConnectionPool(db, "mariadb")
+	configureSQLConnectionPool(db, "mariadb", config)
 	m.conn = db
 	m.pingTimeout = getConnectTimeout(config)
 

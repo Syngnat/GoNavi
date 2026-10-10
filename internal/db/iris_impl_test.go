@@ -233,7 +233,7 @@ func TestIrisGetTablesReadsCompactInfoSchemaColumnNames(t *testing.T) {
 
 	dbConn, state := openOracleRecordingDB(t)
 	state.mu.Lock()
-	state.queryResults[`SELECT * FROM INFORMATION_SCHEMA.TABLES`] = oracleRecordingQueryResult{
+	state.queryResults[`SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE SUBSTRING(TABLE_SCHEMA,1,1) <> '%' AND TABLE_SCHEMA <> 'INFORMATION_SCHEMA'`] = oracleRecordingQueryResult{
 		columns: []string{"TABLECATALOG", "TABLESCHEMA", "TABLENAME", "TABLETYPE"},
 		rows: [][]driver.Value{
 			{"USER", "Sample", "Person", "TABLE"},
@@ -531,7 +531,7 @@ func TestIrisGetDatabasesEnumeratesNamespacesWhenConfiguredBlank(t *testing.T) {
 
 	dbConn, state := openOracleRecordingDB(t)
 	state.mu.Lock()
-	state.queryResults[`SELECT * FROM %SYS.Namespace_List()`] = oracleRecordingQueryResult{
+	state.queryResults[`SELECT Nsp FROM %SYS.Namespace_List()`] = oracleRecordingQueryResult{
 		columns: []string{"Nsp", "Status", "Remote"},
 		rows: [][]driver.Value{
 			{"%SYS", "1", ""},
@@ -598,7 +598,7 @@ func TestCacheGetDatabasesEnumeratesNamespaces(t *testing.T) {
 
 	dbConn, state := openOracleRecordingDB(t)
 	state.mu.Lock()
-	state.queryResults[`SELECT * FROM %SYS.Namespace_List()`] = oracleRecordingQueryResult{
+	state.queryResults[`SELECT Nsp FROM %SYS.Namespace_List()`] = oracleRecordingQueryResult{
 		columns: []string{"Nsp", "Status", "Remote"},
 		rows: [][]driver.Value{
 			{"%SYS", "1", ""},

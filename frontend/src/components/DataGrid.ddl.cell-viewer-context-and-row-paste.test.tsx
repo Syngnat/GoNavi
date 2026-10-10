@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import { Checkbox } from 'antd';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
@@ -6,6 +7,7 @@ import { t } from '../i18n';
 import { backendApp, testRenderState, messageApi } from './dataGridDdlTestState';
 import { textContent, findButton, waitForEffects, createRenderedCellTarget } from './dataGridDdlTestHelpers';
 import { setUpDataGridDdlTest, tearDownDataGridDdlTest } from './dataGridDdlTestHooks';
+import { buildColumnMetaMap } from './dataGridColumnMeta';
 
 vi.mock('../store', async () => (await import('./dataGridDdlTestState')).mockModule1());
 
@@ -35,6 +37,78 @@ describe('DataGrid DDL interactions', () => {
   beforeEach(setUpDataGridDdlTest);
 
   afterEach(tearDownDataGridDdlTest);
+
+  it.each(['selected', 'page', 'all'])('exports %s query results with optional comment headers', async (scope) => {
+    backendApp.ExportDataWithOptions.mockResolvedValue({ success: true });
+    backendApp.ExportQueryWithOptions.mockResolvedValue({ success: true });
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataGrid
+        data={[{ __gonavi_row_key__: 'row-1', id: 1, NAME: 'alice', note: 'value' }]}
+        columnNames={['id', 'NAME', 'note']} loading={false} tableName="users"
+        exportScope="queryResult" resultSql="SELECT id, name AS NAME, note FROM users"
+        dbName="main" connectionId="conn-1"
+        initialColumnMetaMap={buildColumnMetaMap([
+           { name: 'id', type: 'int', nullable: 'NO', key: 'PRI', extra: '', comment: 'Identifier' },
+           { name: 'name', type: 'varchar', nullable: 'YES', key: '', extra: '', comment: 'Display name' },
+           { name: 'note', type: 'varchar', nullable: 'YES', key: '', extra: '', comment: '' },
+        ])}
+      />);
+    });
+    await waitForEffects();
+    if (scope === 'selected') {
+      await act(async () => { testRenderState.latestTableProps.rowSelection.onChange(['row-1']); });
+    }
+    await act(async () => { findButton(renderer!, t('data_grid.toolbar.export')).props.onClick(); });
+    await waitForEffects();
+    const commentHeaders = renderer!.root.findAllByType(Checkbox)
+      .find((node) => node.props.children === t('data_export.dialog.field.comment_headers'))!;
+    expect(commentHeaders.props.checked).toBe(false);
+    await act(async () => commentHeaders.props.onChange({ target: { checked: true } }));
+    await act(async () => renderer!.root.findByProps({ 'data-select-option': 'json' }).props.onClick());
+    expect(renderer!.root.findAllByType(Checkbox)
+      .filter((node) => node.props.children === t('data_export.dialog.field.comment_headers'))).toHaveLength(0);
+    await act(async () => renderer!.root.findByProps({ 'data-select-option': 'csv' }).props.onClick());
+    await act(async () => renderer!.root.findByProps({ 'data-select-option': scope }).props.onClick());
+    await act(async () => findButton(renderer!, t('data_export.dialog.action.start')).props.onClick());
+    await waitForEffects();
+    const expectedOptions = expect.objectContaining({
+      format: 'csv', columns: ['id', 'NAME', 'note'],
+      columnComments: { id: 'Identifier', NAME: 'Display name' },
+    });
+    if (scope === 'all') {
+      expect(backendApp.ExportQueryWithOptions).toHaveBeenCalledWith(
+        expect.anything(), 'main', 'SELECT id, name AS NAME, note FROM users', 'users', expectedOptions,
+      );
+    } else {
+      expect(backendApp.ExportDataWithOptions).toHaveBeenCalledWith(
+        [{ id: 1, NAME: 'alice', note: 'value' }], ['id', 'NAME', 'note'], 'users', expectedOptions,
+      );
+    }
+    renderer!.unmount();
+  });
+
+  it.each(['json', 'sql'])('does not rename %s fields after comment headers were enabled', async (format) => {
+    backendApp.ExportDataWithOptions.mockResolvedValue({ success: true });
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataGrid data={[{ id: 1 }]} columnNames={['id']} loading={false}
+        exportScope="queryResult" connectionId="conn-1" dbName="main"
+         initialColumnMetaMap={buildColumnMetaMap([{ name: 'id', type: 'int', nullable: 'NO', key: 'PRI', extra: '', comment: 'Identifier' }])} />);
+    });
+    await waitForEffects();
+    await act(async () => { findButton(renderer!, t('data_grid.toolbar.export')).props.onClick(); });
+    await waitForEffects();
+    const checkbox = renderer!.root.findAllByType(Checkbox)
+      .find((node) => node.props.children === t('data_export.dialog.field.comment_headers'))!;
+    await act(async () => checkbox.props.onChange({ target: { checked: true } }));
+    await act(async () => renderer!.root.findByProps({ 'data-select-option': format }).props.onClick());
+    await act(async () => findButton(renderer!, t('data_export.dialog.action.start')).props.onClick());
+    await waitForEffects();
+    expect(backendApp.ExportDataWithOptions).toHaveBeenCalled();
+    expect(backendApp.ExportDataWithOptions.mock.calls[0][3].columnComments).toBeUndefined();
+    renderer!.unmount();
+  });
 
   it('hides the cell viewer immediately when the data-source context changes', async () => {
 

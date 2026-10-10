@@ -237,10 +237,11 @@ export const hasSidebarLazyChildren = (children: unknown): boolean => {
 };
 
 export const shouldLoadSidebarNodeOnExpand = (
-  node: Pick<SidebarTreeNode, 'type' | 'children' | 'isLeaf'> | null | undefined,
+  node: Pick<SidebarTreeNode, 'type' | 'children' | 'isLeaf' | 'dataRef'> | null | undefined,
 ): boolean => {
   if (!node || node.isLeaf === true || hasSidebarLazyChildren(node.children)) return false;
   return node.type === 'connection'
+    || (node.type === 'object-group' && node.dataRef?.groupKey === 'schema' && node.dataRef?.schemaLazy === true)
     || node.type === 'database'
     || node.type === 'message-namespace'
     || node.type === 'external-sql-root'

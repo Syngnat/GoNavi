@@ -271,7 +271,7 @@ func TestSQLServerRowsAffectedDoesNotHideDMLRowsAffectedErrors(t *testing.T) {
 }
 
 func TestSQLServerSessionExecerDiscardEvictsPhysicalConnection(t *testing.T) {
-	dbConn := openConfiguredPoolForTest(t, "sqlserver")
+	dbConn := openConfiguredPoolForTest(t, "sqlserver", connection.ConnectionConfig{})
 
 	conn, err := dbConn.Conn(context.Background())
 	if err != nil {
@@ -475,28 +475,6 @@ func TestSplitSQLServerTableNamePreservesDelimitedDots(t *testing.T) {
 			schema, table := splitSQLServerTableName(test.input)
 			if schema != test.wantSchema || table != test.wantTable {
 				t.Fatalf("splitSQLServerTableName(%q)=(%q,%q), want (%q,%q)", test.input, schema, table, test.wantSchema, test.wantTable)
-			}
-		})
-	}
-}
-
-func TestFormatSQLServerTableMetadataNameQuotesAmbiguousParts(t *testing.T) {
-	tests := []struct {
-		name   string
-		schema string
-		table  string
-		want   string
-	}{
-		{name: "plain", schema: "audit", table: "users", want: "audit.users"},
-		{name: "dotted table", schema: "audit", table: "order.items", want: "[audit].[order.items]"},
-		{name: "escaped bracket", schema: "audit]ops", table: "order]items", want: "[audit]]ops].[order]]items]"},
-		{name: "whitespace table", schema: "audit", table: " id ", want: "[audit].[ id ]"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := formatSQLServerTableMetadataName(test.schema, test.table); got != test.want {
-				t.Fatalf("formatSQLServerTableMetadataName(%q,%q)=%q, want %q", test.schema, test.table, got, test.want)
 			}
 		})
 	}

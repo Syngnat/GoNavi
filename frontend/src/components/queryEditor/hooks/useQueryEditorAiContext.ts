@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { buildMetadataDiscoveryScope } from '../../../utils/metadataDiscoveryScope';
 import { message } from 'antd';
 import {
     type QueryEditorAiEditorSnapshot,
@@ -310,11 +311,13 @@ export const useQueryEditorAiContext = ({
             };
             const isCurrentMetadataRequest = () => (
                 isQueryEditorMetadataRequestCurrent(metadataSnapshot)
+                && buildSharedLazyTablesCacheKey(connectionId, dbName, metadataDialect) === lazyTablesCacheKey
             );
             let warmupSucceeded = true;
 
             const config = {
                 ...conn.config,
+                metadataScope: buildMetadataDiscoveryScope(conn, dbName),
                 port: Number(conn.config.port),
                 password: conn.config.password || '',
                 database: conn.config.database || '',

@@ -56,23 +56,26 @@ type xlsxExportOutputFile interface {
 }
 
 type xlsxExportWriteOptions struct {
-	tempDir string
-	budget  *webTransferBudget
+	tempDir        string
+	budget         *webTransferBudget
+	columnComments map[string]string
 }
 
 type xlsxExportFileWriter struct {
-	file       xlsxExportOutputFile
-	tempDir    string
-	budget     *webTransferBudget
-	columns    []string
-	columnRefs []string
-	rowBuf     []string
-	sheets     []*xlsxExportTempSheet
-	current    *xlsxExportTempSheet
-	nextRow    int
-	sheetNo    int
-	rowCount   int
-	maxRows    int
+	file           xlsxExportOutputFile
+	tempDir        string
+	budget         *webTransferBudget
+	columns        []string
+	headers        []string
+	columnComments map[string]string
+	columnRefs     []string
+	rowBuf         []string
+	sheets         []*xlsxExportTempSheet
+	current        *xlsxExportTempSheet
+	nextRow        int
+	sheetNo        int
+	rowCount       int
+	maxRows        int
 }
 
 func newXLSXExportFileWriter(f xlsxExportOutputFile, maxRowsPerSheet int, writeOptions ...xlsxExportWriteOptions) (*xlsxExportFileWriter, error) {
@@ -84,15 +87,17 @@ func newXLSXExportFileWriter(f xlsxExportOutputFile, maxRowsPerSheet int, writeO
 		options = writeOptions[0]
 	}
 	return &xlsxExportFileWriter{
-		file:    f,
-		tempDir: options.tempDir,
-		budget:  options.budget,
-		maxRows: normalizeXLSXRowsPerSheet(maxRowsPerSheet),
+		file:           f,
+		tempDir:        options.tempDir,
+		budget:         options.budget,
+		maxRows:        normalizeXLSXRowsPerSheet(maxRowsPerSheet),
+		columnComments: options.columnComments,
 	}, nil
 }
 
 func (w *xlsxExportFileWriter) SetColumns(columns []string) error {
 	w.columns = append([]string(nil), columns...)
+	w.headers = resolveExportColumnHeaders(columns, w.columnComments)
 	w.columnRefs = make([]string, len(columns))
 	w.rowBuf = make([]string, len(columns))
 	for i := range columns {
@@ -142,7 +147,7 @@ func (w *xlsxExportFileWriter) rotateSheet() error {
 	w.sheets = append(w.sheets, sheet)
 	w.rowCount = 0
 	w.nextRow = 2
-	return w.writeStringRow(1, w.columns)
+	return w.writeStringRow(1, w.headers)
 }
 
 func (w *xlsxExportFileWriter) ConsumeRow(row map[string]interface{}) error {

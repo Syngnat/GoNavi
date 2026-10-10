@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedConnection } from '../../types';
+import { sidebarSchemaNodeKey } from './sidebarSchemaLoading';
 import {
   SIDEBAR_DATABASE_TREE_FIRST_COMMIT_GRACE_MS,
   useSidebarTreeLoaders,
@@ -59,7 +60,7 @@ const flatten = (nodes: any[]): any[] => {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
 
-describe('useSidebarTreeLoaders progressive database commit', () => {
+describe('useSidebarTreeLoaders progressive schema commit', () => {
   let renderer: ReactTestRenderer | null = null;
   const connection = {
     id: 'conn-kb',
@@ -112,7 +113,7 @@ describe('useSidebarTreeLoaders progressive database commit', () => {
     let releaseSlow: () => void = () => undefined;
     const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve; });
     mocks.dbQuery.mockImplementation(async (_config, _dbName, sql: string) => {
-      if (/pg_namespace|schema_name FROM/i.test(sql) && !/pg_views|proname|sequence_name|trigger_name/i.test(sql)) {
+      if (/FROM pg_namespace|schema_name FROM/i.test(sql) && !/pg_views|proname|sequence_name|trigger_name/i.test(sql)) {
         return { success: true, data: [{ schema_name: 'dbms_job' }] };
       }
       if (/pg_views/i.test(sql)) {
@@ -129,7 +130,7 @@ describe('useSidebarTreeLoaders progressive database commit', () => {
     let loadDone = false;
     let loadPromise: Promise<void> | undefined;
     await act(async () => {
-      loadPromise = getLoaders().loadTables({ key: 'conn-kb-lab', dataRef: connection }).then(() => { loadDone = true; });
+      loadPromise = getLoaders().loadTables({ key: sidebarSchemaNodeKey('conn-kb-lab', 'dbms_job'), dataRef: { ...connection, groupKey: 'schema', schemaName: 'dbms_job', schemaLazy: true } }).then(() => { loadDone = true; });
       await sleep(SIDEBAR_DATABASE_TREE_FIRST_COMMIT_GRACE_MS + 60);
     });
 
@@ -155,18 +156,18 @@ describe('useSidebarTreeLoaders progressive database commit', () => {
       .forEach((node) => { expect(provisionalKeys.has(String(node.key))).toBe(true); });
   });
 
-  it('keeps a single commit when every object kind answers within the grace period', async () => {
+  it('publishes tables then objects without a grace delay when all requests answer quickly', async () => {
     mocks.dbQuery.mockImplementation(async (_config, _dbName, sql: string) => {
       if (/pg_views/i.test(sql)) return { success: true, data: [{ schema_name: 'dbms_job', view_name: 'v_customers' }] };
-      if (/pg_namespace|schema_name FROM/i.test(sql)) return { success: true, data: [{ schema_name: 'dbms_job' }] };
+      if (/FROM pg_namespace|schema_name FROM/i.test(sql)) return { success: true, data: [{ schema_name: 'dbms_job' }] };
       return { success: true, data: [] };
     });
     const getLoaders = mountLoaders();
     await act(async () => {
-      await getLoaders().loadTables({ key: 'conn-kb-lab', dataRef: connection });
+      await getLoaders().loadTables({ key: sidebarSchemaNodeKey('conn-kb-lab', 'dbms_job'), dataRef: { ...connection, groupKey: 'schema', schemaName: 'dbms_job', schemaLazy: true } });
     });
-    expect(mocks.replaceTreeNodeChildren).toHaveBeenCalledTimes(1);
-    const nodes = flatten(mocks.replaceTreeNodeChildren.mock.calls[0][1]);
+    expect(mocks.replaceTreeNodeChildren).toHaveBeenCalledTimes(2);
+    const nodes = flatten(mocks.replaceTreeNodeChildren.mock.calls[1][1]);
     expect(nodes.some((node) => node.type === 'view')).toBe(true);
   });
 });

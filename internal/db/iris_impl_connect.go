@@ -75,6 +75,15 @@ func (i *IrisDB) getDSN(config connection.ConnectionConfig) string {
 		"intersystems-cache",
 		"intersystemscache",
 	)
+	// 给驱动层注入单次网络读超时。caretdev/go-irisnative 不响应 context 取消，
+	// 对受限账号的 %SYS 视图查询、以及 INFORMATION_SCHEMA 大结果集的尾部
+	// fetchMoreData 都可能让服务端长时间不回包；不在驱动层兜底就会让侧栏
+	// 「库列表/表列表」永久转圈（issue #1430/#1427）。
+	// 这里的值是「单次 Read」的上限，不是整条 SQL 的端到端超时；比客户端
+	// 元数据 ctx 略长，避免与上层 deadline 抢跑。
+	if !q.Has("query_timeout") {
+		q.Set("query_timeout", irisDriverQueryReadTimeout.String())
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -121,7 +130,7 @@ func (i *IrisDB) Connect(config connection.ConnectionConfig) (err error) {
 	if err != nil {
 		return wrapDatabaseConnectionOpenError(err)
 	}
-	configureSQLConnectionPool(db, i.productType())
+	configureSQLConnectionPool(db, i.productType(), runConfig)
 	i.conn = db
 	i.pingTimeout = getConnectTimeout(runConfig)
 	if err := i.Ping(); err != nil {

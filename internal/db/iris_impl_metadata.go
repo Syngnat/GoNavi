@@ -43,12 +43,17 @@ func (i *IrisDB) GetDatabases() ([]string, error) {
 	return []string{namespace}, nil
 }
 
-// listNamespaces 用 %SYS.Namespace_List() 枚举服务端真实存在的命名空间。该视图需要
-// %SYS 命名空间的读权限，普通账号会收到权限错误（SQLCODE -99），由调用方兜底。
+// listNamespaces 用 %SYS.Namespace_List() 枚举服务端真实存在的命名空间。
+//
+// 这条 SQL 对受限账号可能永久不返回：受限账号（非 %SYS 权限）在普通命名空间下访问
+// %SYS.Namespace_List() 时服务端既不回包也不报错。底层驱动在每次网络读上挂了
+// irisDriverQueryReadTimeout（issue #1430/#1427），到期后这里会拿到读超时错误，
+// 调用方据此回退到连接命名空间而不是无限等待。
+//
 // 注意列名是 Nsp/Status/Remote 而不是 Name，按 Name 查会报 SQLCODE -29。
 // 与 schema 层一致，滤掉 % 开头的系统命名空间（%SYS），避免显示用户点不开的项。
 func (i *IrisDB) listNamespaces() ([]string, error) {
-	data, _, err := i.Query(`SELECT * FROM %SYS.Namespace_List()`)
+	data, _, err := i.Query(`SELECT Nsp FROM %SYS.Namespace_List()`)
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +75,18 @@ func (i *IrisDB) listNamespaces() ([]string, error) {
 	return namespaces, nil
 }
 
+// GetTables 列当前命名空间的用户表。
+//
+// 服务端先过滤再返回：不再 SELECT * 拉全量再客户端过滤。原因是 IRIS/Caché 把大量
+// 系统投影（%SQL_Diag.* / %Studio.* / %UnitTest_* / %SYS_Monitor_* / %WebStress_*）
+// 也暴露成 INFORMATION_SCHEMA.TABLES 的行，行数远超真实用户表；驱动又是流式
+// fetchMoreData，行数一多长链路下往返非常慢，侧栏直接转圈（issue #1430/#1427）。
+//
+// 用 SUBSTRING(TABLE_SCHEMA,1,1) <> '%' 而不是 LIKE '\%'：Caché 2018.1 对模式以 %
+// 开头的 LIKE 会卡死（哪怕加 ESCAPE），SUBSTRING/LEFT 这种函数形式能立即返回（实测
+// 1s vs >30s 超时）。
 func (i *IrisDB) GetTables(dbName string) ([]string, error) {
-	data, _, err := i.Query(`SELECT * FROM INFORMATION_SCHEMA.TABLES`)
+	data, _, err := i.Query(`SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE SUBSTRING(TABLE_SCHEMA,1,1) <> '%' AND TABLE_SCHEMA <> 'INFORMATION_SCHEMA'`)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +183,11 @@ func (i *IrisDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefini
 	return columns, nil
 }
 
+// GetAllColumns 列当前命名空间所有用户表的列。
+// 与 GetTables 同理：用 SUBSTRING 而不是 LIKE '\%'（Caché 2018.1 上对以 % 开头的
+// LIKE 模式会挂起，SUBSTRING 等价写法立即返回）。 issue #1430。
 func (i *IrisDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
-	data, _, err := i.Query(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS`)
+	data, _, err := i.Query(`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, DESCRIPTION FROM INFORMATION_SCHEMA.COLUMNS WHERE SUBSTRING(TABLE_SCHEMA,1,1) <> '%' AND TABLE_SCHEMA <> 'INFORMATION_SCHEMA'`)
 	if err != nil {
 		return nil, err
 	}

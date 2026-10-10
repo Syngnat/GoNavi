@@ -34,6 +34,33 @@ beforeEach(() => {
 });
 
 describe("sidebar table metadata", () => {
+  it('loads every candidate in visibility settings but scopes the explorer schema list', async () => {
+    const conn = { config: { type: 'postgres' }, schemaVisibilityByDatabase: { app: { mode: 'include', schemas: ['public'] } } } as any;
+    mockedDBQuery.mockResolvedValue({ success: true, data: [] } as any);
+    await loadSchemas(conn, 'app');
+    expect(mockedDBQuery.mock.calls[0][2]).not.toContain("nspname IN ('public')");
+    await loadSchemas(conn, 'app', mockedDBQuery, true);
+    expect(mockedDBQuery.mock.calls[1][2]).toContain("nspname IN ('public')");
+  });
+
+  it("restricts object queries and expensive table statistics to visible schemas", async () => {
+    const conn = {
+      config: { type: 'postgres' },
+      schemaVisibilityByDatabase: { app: { mode: 'include', schemas: ['Public', "tenant'o"] } },
+    } as any;
+    mockedDBQuery.mockResolvedValue({ success: true, data: [] } as any);
+    await loadViews(conn, 'app');
+    await loadFunctions(conn, 'app');
+    await loadDatabaseTriggers(conn, 'app');
+    await loadSequences(conn, 'app');
+    const sqls = mockedDBQuery.mock.calls.map((call) => call[2]);
+    sqls.push(buildSidebarTableStatusSQL(conn, 'app'));
+    expect(sqls.length).toBeGreaterThanOrEqual(5);
+    for (const sql of sqls) {
+      expect(sql).toContain("IN ('Public', 'tenant''o')");
+    }
+  });
+
   it("keeps the table name when SQLite table rows include an exact row count", () => {
     expect(getSidebarTableName({ Rows: "2", Table: "orders" })).toBe("orders");
   });

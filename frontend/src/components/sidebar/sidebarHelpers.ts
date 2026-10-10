@@ -524,10 +524,11 @@ export const parseV2CommandSearchQuery = (value: unknown): V2CommandSearchQuery 
  * 仅可懒加载的目录类型且无已加载 children 时返回 true。
  */
 export const shouldLoadSidebarNodeOnExpand = (
-  node: Pick<SidebarNodeLike, 'type' | 'children' | 'isLeaf'> | null | undefined,
+  node: Pick<SidebarNodeLike, 'type' | 'children' | 'isLeaf' | 'dataRef'> | null | undefined,
 ): boolean => {
   if (!node || node.isLeaf === true || hasSidebarLazyChildren(node.children)) return false;
   return node.type === 'connection'
+      || (node.type === 'object-group' && node.dataRef?.groupKey === 'schema' && node.dataRef?.schemaLazy === true)
       || node.type === 'database'
       || node.type === 'message-namespace'
       || node.type === 'external-sql-root'

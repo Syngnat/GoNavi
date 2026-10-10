@@ -1,5 +1,6 @@
 import { DBQuery } from '../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
+import { scopeMetadataQuery } from '../../utils/metadataDiscoveryScope';
 import { resolveSqlDialect, quoteSqlIdentifierPart } from '../../utils/sqlDialect';
 import { buildMySQLCompatibleViewMetadataSqls } from '../../utils/sidebarMetadata';
 import { ORACLE_ROUTINE_OBJECT_TYPES, ORACLE_ROUTINE_TYPE_COLUMN } from '../../utils/oracleRoutineObjects';
@@ -18,6 +19,7 @@ import type { CompletionColumnMeta, CompletionTableMeta } from './queryEditorCom
 
 export type MetadataQuerySpec = {
     sql: string;
+    schemaColumn?: string;
     inferredType?: 'FUNCTION' | 'PROCEDURE';
 };
 
@@ -241,7 +243,7 @@ export const normalizeMetadataQuerySpecs = (specs: MetadataQuerySpec[]): Metadat
         const key = `${spec.inferredType || ''}@@${sql}`;
         if (seen.has(key)) return;
         seen.add(key);
-        normalized.push({ sql, inferredType: spec.inferredType });
+        normalized.push({ ...spec, sql });
     });
     return normalized;
 };
@@ -287,9 +289,9 @@ export const buildCompletionViewsMetadataQuerySpecs = (
         case 'vastbase':
         case 'opengauss':
         case 'gaussdb':
-            return [{ sql: `SELECT schemaname AS schema_name, viewname AS view_name FROM pg_catalog.pg_views WHERE schemaname != 'information_schema' AND schemaname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY schemaname, viewname` }];
+            return [{ schemaColumn: 'schemaname', sql: `SELECT schemaname AS schema_name, viewname AS view_name FROM pg_catalog.pg_views WHERE schemaname != 'information_schema' AND schemaname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY schemaname, viewname` }];
         case 'sqlserver':
-            return [{ sql: `SELECT s.name AS schema_name, v.name AS view_name FROM sys.views v JOIN sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name` }];
+            return [{ schemaColumn: 's.name', sql: `SELECT s.name AS schema_name, v.name AS view_name FROM sys.views v JOIN sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name` }];
         case 'oracle': {
             const includeCurrentOwnerFallback = options?.includeCurrentOwnerFallback !== false;
             if (!includeCurrentOwnerFallback && safeDbName) {
@@ -369,9 +371,9 @@ export const buildCompletionTriggersMetadataQuerySpecs = (dialect: string, dbNam
         case 'vastbase':
         case 'opengauss':
         case 'gaussdb':
-            return [{ sql: `SELECT DISTINCT event_object_schema AS schema_name, event_object_table AS table_name, trigger_name FROM information_schema.triggers WHERE trigger_schema NOT IN ('pg_catalog', 'information_schema') AND trigger_schema NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY event_object_schema, event_object_table, trigger_name` }];
+            return [{ schemaColumn: 'event_object_schema', sql: `SELECT DISTINCT event_object_schema AS schema_name, event_object_table AS table_name, trigger_name FROM information_schema.triggers WHERE trigger_schema NOT IN ('pg_catalog', 'information_schema') AND trigger_schema NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY event_object_schema, event_object_table, trigger_name` }];
         case 'sqlserver':
-            return [{ sql: `SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name FROM sys.triggers tr JOIN sys.tables t ON tr.parent_id = t.object_id JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE tr.parent_class = 1 ORDER BY s.name, t.name, tr.name` }];
+            return [{ schemaColumn: 's.name', sql: `SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name FROM sys.triggers tr JOIN sys.tables t ON tr.parent_id = t.object_id JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE tr.parent_class = 1 ORDER BY s.name, t.name, tr.name` }];
         case 'oracle':
             if (!safeDbName) {
                 return [{ sql: 'SELECT TRIGGER_NAME AS trigger_name, TABLE_NAME AS table_name FROM USER_TRIGGERS ORDER BY TABLE_NAME, TRIGGER_NAME' }];
@@ -416,17 +418,20 @@ export const buildCompletionFunctionsMetadataQuerySpecs = (
         case 'gaussdb':
             return normalizeMetadataQuerySpecs([
                 {
+                    schemaColumn: 'n.nspname',
                     sql: `SELECT n.nspname AS schema_name, p.proname AS routine_name, CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS routine_type FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY n.nspname, routine_type, p.proname`,
                 },
                 {
+                    schemaColumn: 'r.routine_schema',
                     sql: `SELECT r.routine_schema AS schema_name, r.routine_name AS routine_name, COALESCE(NULLIF(UPPER(r.routine_type), ''), 'FUNCTION') AS routine_type FROM information_schema.routines r WHERE r.routine_schema NOT IN ('pg_catalog', 'information_schema') AND r.routine_schema NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY r.routine_schema, routine_type, r.routine_name`,
                 },
                 {
+                    schemaColumn: 'n.nspname',
                     sql: `SELECT n.nspname AS schema_name, p.proname AS routine_name, 'FUNCTION' AS routine_type FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY n.nspname, p.proname`,
                 },
             ]);
         case 'sqlserver':
-            return [{ sql: `SELECT s.name AS schema_name, o.name AS routine_name, CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS routine_type FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type IN ('P','FN','IF','TF') ORDER BY o.type, s.name, o.name` }];
+            return [{ schemaColumn: 's.name', sql: `SELECT s.name AS schema_name, o.name AS routine_name, CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS routine_type FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type IN ('P','FN','IF','TF') ORDER BY o.type, s.name, o.name` }];
         case 'oracle':
             if (options?.includeCurrentOwnerFallback === false && safeDbName) {
                 return [{
@@ -505,7 +510,7 @@ export const queryCompletionMetadataRowsBySpecs = async (
     const results: MetadataQueryResult[] = [];
     for (const spec of normalizedSpecs) {
         try {
-            const result = await DBQuery(rpcConfig, dbName, spec.sql);
+            const result = await DBQuery(rpcConfig, dbName, scopeMetadataQuery(spec.sql, spec.schemaColumn, config.metadataScope?.schemas, resolveSqlDialect(config.type, config.driver)));
             if (result.success && Array.isArray(result.data)) {
                 results.push({
                     rows: result.data as Record<string, any>[],

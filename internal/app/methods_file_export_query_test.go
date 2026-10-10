@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -31,6 +33,43 @@ func TestQueryDataForExport_UsesMinimumTimeout(t *testing.T) {
 	upperBound := minExportQueryTimeout + 5*time.Second
 	if fake.lastContextTimeout < lowerBound || fake.lastContextTimeout > upperBound {
 		t.Fatalf("导出最小超时异常，want≈%s got=%s", minExportQueryTimeout, fake.lastContextTimeout)
+	}
+}
+
+func TestExportQueryResultToFile_CommentHeadersPreserveStreamProjection(t *testing.T) {
+	for _, valueStream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("valueStream=%t", valueStream), func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "comment-stream-*.csv")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			var options ExportFileOptions
+			if err := json.Unmarshal([]byte(`{"format":"csv","columns":["name","id"],"columnComments":{"id":"Same header","name":"Same header"}}`), &options); err != nil {
+				t.Fatal(err)
+			}
+			var fake db.Database = &fakeStreamExportDB{
+				streamCols: []string{"id", "name", "note"},
+				streamData: []map[string]interface{}{{"id": 1, "name": "alice", "note": "internal"}},
+			}
+			if valueStream {
+				fake = &fakeValueStreamExportDB{
+					streamCols:   []string{"id", "name", "note"},
+					streamValues: [][]interface{}{{1, "alice", "internal"}},
+				}
+			}
+			_, columns, err := exportQueryResultToFile(f, fake, connection.ConnectionConfig{Type: "mysql"}, "SELECT * FROM users", options, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(columns, ",") != "name,id" || strings.TrimPrefix(string(payload), "\uFEFF") != "Same header,Same header\nalice,1\n" {
+				t.Fatalf("stream headers changed values or column identity: %v %q", columns, payload)
+			}
+		})
 	}
 }
 

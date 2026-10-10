@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DBQuery } from '../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
+import { scopeMetadataQuery } from '../../utils/metadataDiscoveryScope';
 import { buildMetadataIdentityKey } from '../../utils/metadataIdentity';
 import { extractTableNameFromMetadataRow } from '../../utils/tableMetadataRows';
 import {
@@ -118,7 +119,7 @@ export const fetchCompletionTableCommentMap = async (
     metadataDialect: string,
 ): Promise<Map<string, string>> => {
     const tableComments = new Map<string, string>();
-    const tableCommentSQL = buildCompletionTableCommentSQL(metadataDialect, dbName);
+    const tableCommentSQL = scopeMetadataQuery(buildCompletionTableCommentSQL(metadataDialect, dbName), metadataDialect === 'sqlserver' ? 's.name' : ['postgres', 'kingbase', 'highgo', 'vastbase', 'opengauss', 'gaussdb'].includes(metadataDialect) ? 'n.nspname' : undefined, config.metadataScope?.schemas, metadataDialect);
     if (!tableCommentSQL) return tableComments;
 
     try {

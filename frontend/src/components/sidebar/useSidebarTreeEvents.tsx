@@ -98,7 +98,7 @@ export const useSidebarTreeEvents = ({
         await loadDatabases({ key, dataRef });
     } else if (type === 'jvm-mode' || type === 'jvm-resource') {
         await loadJVMResources({ key, dataRef });
-    } else if (type === 'database' || type === 'message-namespace') {
+    } else if (type === 'database' || type === 'message-namespace' || (type === 'object-group' && dataRef?.groupKey === 'schema' && dataRef?.schemaLazy)) {
         await loadTables({ key, dataRef });
     } else if (type === 'nacos-config-entry') {
         await loadNacosConfigGroups({ key, dataRef });

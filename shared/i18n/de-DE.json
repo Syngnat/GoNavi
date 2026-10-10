@@ -4744,6 +4744,7 @@
   "data_export.dialog.action.start": "Export starten",
   "data_export.dialog.field.columns": "Exportspalten",
   "data_export.dialog.field.columns_help": "Wählen Sie die Felder für die Exportdatei aus",
+  "data_export.dialog.field.comment_headers": "Spaltenkommentare als Überschriften verwenden",
   "data_export.dialog.field.columns_placeholder": "Exportspalten suchen und auswählen",
   "data_export.dialog.field.columns_selected": "{{selected}} von {{total}} Spalten ausgewählt",
   "data_export.dialog.field.format": "Exportformat",

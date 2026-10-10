@@ -92,7 +92,7 @@ func (g *GBase8aDB) openPool(config connection.ConnectionConfig) error {
 				details = append(details, fmt.Sprintf("%s: %v", address, err))
 				continue
 			}
-			configureSQLConnectionPool(pool, candidate.Type)
+			configureSQLConnectionPool(pool, candidate.Type, candidate)
 			timeout := getConnectTimeout(candidate)
 			ctx, cancel := utils.ContextWithTimeout(timeout)
 			err = pool.PingContext(ctx)

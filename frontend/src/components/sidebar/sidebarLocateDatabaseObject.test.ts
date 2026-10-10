@@ -91,6 +91,31 @@ const buildLocateRequest = (): SidebarLocateDatabaseObjectRequest => {
 };
 
 describe('sidebarLocateDatabaseObject', () => {
+  it('loads the target schema before locating a table in an unexpanded schema', async () => {
+    const tree = buildCollapsedHostTree();
+    attachDatabase(tree);
+    const request = { ...buildLocateRequest(), tableName: 'public.lab_customers', schemaName: 'public' };
+    const target = resolveSidebarLocateTarget(request, { groupBySchema: true });
+    const dbNode = findNodeByKey(tree, target.databaseKey)!;
+    const calls: string[] = [];
+    const outcome = await runSidebarLocateDatabaseObject({
+      request, target, objectLabel: 'table', getTree: () => tree, findNode: (key) => findNodeByKey(tree, key),
+      mergeExpandedTreeKeys: vi.fn(), revealNode: vi.fn(), loadDatabases: vi.fn(), isLoadPending: () => false,
+      loadTables: async (node) => {
+        calls.push(String(node.key));
+        if (node.key === target.databaseKey) {
+          dbNode.children = [{ key: target.schemaKey!, type: 'object-group', dataRef: { groupKey: 'schema', schemaName: 'public', schemaLazy: true } }];
+        } else if (node.key === target.schemaKey) {
+          node.children = [{ key: target.objectGroupKey, type: 'object-group', dataRef: { groupKey: 'tables' }, children: [{
+            key: target.targetKey, type: 'table', dataRef: { id: request.connectionId, dbName: request.dbName, schemaName: 'public', tableName: request.tableName },
+          }] }];
+        }
+      },
+      poll: { attempts: 2, sleep: async () => undefined },
+    });
+    expect(outcome.status).toBe('located');
+    expect(calls).toEqual([target.databaseKey, target.schemaKey]);
+  });
   it('expands grouped hosts including the connection itself', () => {
     const tree = buildCollapsedHostTree();
     expect(collectSidebarLocateExpandKeys(tree, 'conn-kb')).toEqual([

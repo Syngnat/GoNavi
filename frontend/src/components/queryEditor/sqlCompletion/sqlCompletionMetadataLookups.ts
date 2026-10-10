@@ -25,6 +25,7 @@ import {
 } from '../queryEditorCompletionTables';
 import { DBGetTables, DBGetColumns } from '../../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
+import { buildMetadataDiscoveryScope } from '../../../utils/metadataDiscoveryScope';
 import { buildMetadataIdentityKey } from '../../../utils/metadataIdentity';
 import type { ColumnDefinition } from '../../../types';
 import {
@@ -78,8 +79,9 @@ export const createSqlCompletionMetadataLookups = ({
                 return sharedLazyTablesInFlight[inFlightKey];
             }
 
-            const config = buildConnConfig();
-            if (!config) return [] as CompletionTableMeta[];
+            const baseConfig = buildConnConfig();
+            if (!baseConfig) return [] as CompletionTableMeta[];
+            const config = { ...baseConfig, metadataScope: buildMetadataDiscoveryScope(conn, dbName) };
 
             const request = Promise.all([
                 fetchCompletionTableCommentMap(config, dbName, metadataDialect),
@@ -88,6 +90,7 @@ export const createSqlCompletionMetadataLookups = ({
                 .then(([tableComments, res]) => {
                     if (
                         !isSharedQueryEditorMetadataRequestCurrent(metadataSnapshot, metadataContextKey)
+                        || buildSharedLazyTablesCacheKey(connId, dbName, metadataDialect) !== cacheKey
                         || getSharedLazyTablesRevision(cacheKey) !== cacheRevision
                     ) {
                         return [];

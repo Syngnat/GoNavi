@@ -5,6 +5,30 @@ import (
 	"testing"
 )
 
+func TestFormatSQLServerTableMetadataNameQuotesAmbiguousParts(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema string
+		table  string
+		want   string
+	}{
+		{name: "plain", schema: "audit", table: "users", want: "audit.users"},
+		{name: "no schema", table: "users", want: "users"},
+		{name: "dotted table", schema: "audit", table: "order.items", want: "[audit].[order.items]"},
+		{name: "escaped bracket", schema: "audit]ops", table: "order]items", want: "[audit]]ops].[order]]items]"},
+		{name: "whitespace table", schema: "audit", table: " id ", want: "[audit].[ id ]"},
+		{name: "whitespace schema", schema: " audit ", table: "users", want: "[ audit ].[users]"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := formatSQLServerTableMetadataName(test.schema, test.table); got != test.want {
+				t.Fatalf("formatSQLServerTableMetadataName(%q,%q)=%q, want %q", test.schema, test.table, got, test.want)
+			}
+		})
+	}
+}
+
 func TestSQLServerCatalogQueriesStayOnCurrentDatabase(t *testing.T) {
 	t.Parallel()
 

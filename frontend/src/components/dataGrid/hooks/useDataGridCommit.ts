@@ -56,11 +56,14 @@ import type { DataGridInlineEditorApi } from './useDataGridInlineEditor';
 import type { DataGridRowActionsApi } from './useDataGridRowActions';
 import type { DataGridRowEditorsApi } from './useDataGridRowEditors';
 import type { DataGridProps } from '../../DataGridCore';
+import { dispatchSidebarDatabaseRefresh, dispatchSidebarTableDataRefresh } from '../../../utils/sidebarDatabaseRefresh';
+import { resolveSqlDialect } from '../../../utils/sqlDialect';
 
 export interface UseDataGridCommitInput {
     connectionId: DataGridProps['connectionId'];
     tableName: DataGridProps['tableName'];
     dbName: DataGridProps['dbName'];
+    schemaName: DataGridProps['schemaName'];
     onReload: DataGridProps['onReload'];
     clearAutoCommitTimer: DataGridCellEditingApi['clearAutoCommitTimer'];
     connections: DataGridCoreStateApi['connections'];
@@ -160,7 +163,7 @@ export interface UseDataGridCommitInput {
 }
 
 export const useDataGridCommit = ({
-    connectionId, tableName, dbName, onReload, clearAutoCommitTimer, connections, addedRows,
+    connectionId, tableName, dbName, schemaName, onReload, clearAutoCommitTimer, connections, addedRows,
     setAddedRows, modifiedRows, setModifiedRows, deletedRowKeys, setDeletedRowKeys, baseData,
     effectiveEditLocator, visibleColumnNames, rowKeyStr, normalizeCommitCellValue,
     shouldCommitColumn, rowLocatorMessages, translateDataGrid, dbType, autoCommitFailedTokenRef,
@@ -245,6 +248,15 @@ export const useDataGridCommit = ({
         } as any);
         const duration = Date.now() - startTime;
         const outcomeUnknown = res?.outcomeUnknown === true;
+        if (res.success || outcomeUnknown) {
+            const refreshTarget = { connectionId, dbName, schemaName };
+            if (supportsSqlQueryExport) {
+                dispatchSidebarTableDataRefresh(refreshTarget, tableName,
+                    resolveSqlDialect(config.type, config.driver, config));
+            } else {
+                dispatchSidebarDatabaseRefresh(refreshTarget);
+            }
+        }
         const logMessage = outcomeUnknown
             ? `${res.message} (${translateDataGrid('data_grid.message.transaction_outcome_unknown')})`
             : res.message;
@@ -318,6 +330,7 @@ export const useDataGridCommit = ({
         clearAutoCommitTimer,
         connectionId,
         tableName,
+        schemaName,
         connections,
         addedRows,
         modifiedRows,
@@ -330,6 +343,7 @@ export const useDataGridCommit = ({
         shouldCommitColumn,
         dbName,
         dbType,
+        supportsSqlQueryExport,
         addSqlLog,
         onReload,
         translateDataGrid,

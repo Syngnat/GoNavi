@@ -1,5 +1,6 @@
 import type { Key } from 'react';
 import type { SidebarTreeNode } from '../sidebarV2Utils';
+import { sidebarSchemaLoadKey } from './sidebarSchemaLoading';
 
 /**
  * rc-tree 传给 switcherIcon / titleRender 的是它自己的包装节点：业务字段
@@ -26,6 +27,9 @@ export const resolveSidebarSwitcherLoadKey = (node: SidebarTreeSwitcherNodeLike 
   const dataRef = treeNode?.dataRef;
   if (!treeNode) {
     return null;
+  }
+  if (treeNode.type === 'object-group' && dataRef?.groupKey === 'schema' && dataRef?.schemaLazy) {
+    return sidebarSchemaLoadKey(dataRef.id, dataRef.dbName, dataRef.schemaName);
   }
 
   if (treeNode.type === 'connection') {

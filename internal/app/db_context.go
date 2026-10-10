@@ -10,6 +10,8 @@ import (
 )
 
 func normalizeRunConfig(config connection.ConnectionConfig, dbName string) connection.ConnectionConfig {
+	// Catalog visibility is a request filter, never part of a cached connection or driver configuration.
+	config.MetadataScope = nil
 	runConfig := config
 	name := strings.TrimSpace(dbName)
 	if name == "" {

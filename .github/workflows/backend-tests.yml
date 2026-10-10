@@ -68,6 +68,10 @@ jobs:
       - name: Run message queue driver tests
         run: go test -tags gonavi_kafka_driver,gonavi_rocketmq_driver,gonavi_pulsar_driver ./internal/db/ -count=1 -timeout=30m
 
+      # The default suite excludes native SQL Server files used by driver-agent builds.
+      - name: Run SQL Server driver tests
+        run: go test -tags gonavi_sqlserver_driver ./internal/db/ -count=1 -timeout=30m
+
   platform-sensitive:
     name: Platform-sensitive tests (${{ matrix.os }})
     strategy:

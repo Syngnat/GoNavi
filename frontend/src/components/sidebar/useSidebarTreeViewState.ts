@@ -254,7 +254,7 @@ export const useSidebarTreeViewState = ({
       expandedKeys.forEach(key => {
           const node = findTreeNodeByKey(treeData, key);
           if (node && (node.type === 'database' || node.type === 'message-namespace')) {
-              loadTables(node, { ensureFresh: true });
+              loadTables(node, { ensureFresh: true, savedQueriesOnly: true });
           }
       });
   }, [autoFetchVisible, savedQueries]);

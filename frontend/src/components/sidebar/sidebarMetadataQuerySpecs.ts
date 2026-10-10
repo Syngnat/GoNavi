@@ -1,4 +1,5 @@
 import { DBQuery } from "../../../wailsjs/go/app/App";
+import { buildMetadataDiscoveryScope, scopeMetadataQuery } from '../../utils/metadataDiscoveryScope';
 import { buildRpcConnectionConfig } from "../../utils/connectionRpcConfig";
 import { buildMySQLCompatibleViewMetadataSqls } from "../../utils/sidebarMetadata";
 import { listRegistryMetadataQueries } from "../../utils/dataSourceRegistry";
@@ -10,6 +11,7 @@ import {
   normalizeMetadataQuerySpecs,
   type MetadataQueryResult,
   buildSidebarRuntimeConfig,
+  getMetadataDialect,
 } from "./sidebarMetadataBasics";
 
 // PostgreSQL 家族的系统 schema；CockroachDB / KWDB 另有 crdb_internal / kwdb_internal（内置函数与虚拟表），
@@ -47,12 +49,14 @@ export const buildViewsMetadataQuerySpecs = (
       return [
         {
           sql: `SELECT schemaname AS schema_name, viewname AS view_name FROM pg_catalog.pg_views WHERE schemaname != 'information_schema' AND schemaname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY schemaname, viewname`,
+          schemaColumn: 'schemaname',
         },
       ];
     case "sqlserver": {
       return [
         {
           sql: `SELECT s.name AS schema_name, v.name AS view_name FROM sys.views v JOIN sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name`,
+          schemaColumn: 's.name',
         },
       ];
     }
@@ -87,6 +91,7 @@ export const buildViewsMetadataQuerySpecs = (
       return [
         {
           sql: `SELECT table_schema AS schema_name, table_name AS view_name FROM information_schema.views WHERE table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY table_schema, table_name`,
+          schemaColumn: 'table_schema',
         },
       ];
     default:
@@ -98,6 +103,7 @@ export const buildViewsMetadataQuerySpecs = (
 export const buildNonExtensionViewsMetadataQuerySpecs = (): MetadataQuerySpec[] => [
   {
     sql: `SELECT n.nspname AS schema_name, c.relname AS view_name FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'v' AND n.nspname NOT IN (${PG_SYSTEM_SCHEMAS}) AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') ORDER BY n.nspname, c.relname`,
+    schemaColumn: 'n.nspname',
   },
 ];
 
@@ -131,12 +137,14 @@ export const buildTriggersMetadataQuerySpecs = (
       return [
         {
           sql: `SELECT DISTINCT event_object_schema AS schema_name, event_object_table AS table_name, trigger_name FROM information_schema.triggers WHERE trigger_schema NOT IN ('pg_catalog', 'information_schema') AND trigger_schema NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY event_object_schema, event_object_table, trigger_name`,
+          schemaColumn: 'event_object_schema',
         },
       ];
     case "sqlserver": {
       return [
         {
           sql: `SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name FROM sys.triggers tr JOIN sys.tables t ON tr.parent_id = t.object_id JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE tr.parent_class = 1 ORDER BY s.name, t.name, tr.name`,
+          schemaColumn: 's.name',
         },
       ];
     }
@@ -219,20 +227,24 @@ export const buildFunctionsMetadataQuerySpecs = (
         {
           // PostgreSQL 11+ / 部分 PG-like：通过 prokind 区分 FUNCTION/PROCEDURE
           sql: `SELECT n.nspname AS schema_name, p.proname AS routine_name, CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS routine_type FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname NOT IN (${PG_SYSTEM_SCHEMAS}) AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|'${procFilter} ORDER BY n.nspname, routine_type, p.proname`,
+          schemaColumn: 'n.nspname',
         },
         {
           // PostgreSQL 10 / 不支持 prokind 的兼容路径
           sql: `SELECT r.routine_schema AS schema_name, r.routine_name AS routine_name, COALESCE(NULLIF(UPPER(r.routine_type), ''), 'FUNCTION') AS routine_type FROM information_schema.routines r WHERE r.routine_schema NOT IN (${PG_SYSTEM_SCHEMAS}) AND r.routine_schema NOT LIKE 'pg|_%' ESCAPE '|'${routineFilter} ORDER BY r.routine_schema, routine_type, r.routine_name`,
+          schemaColumn: 'r.routine_schema',
         },
         {
           // 最后兜底：仅函数列表，确保 prokind/routines 视图异常时仍可展示
           sql: `SELECT n.nspname AS schema_name, p.proname AS routine_name, 'FUNCTION' AS routine_type FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname NOT IN (${PG_SYSTEM_SCHEMAS}) AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|'${procFilter} ORDER BY n.nspname, p.proname`,
+          schemaColumn: 'n.nspname',
         },
       ]);
     case "sqlserver": {
       return [
         {
           sql: `SELECT s.name AS schema_name, o.name AS routine_name, CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS routine_type FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type IN ('P','FN','IF','TF') ORDER BY o.type, s.name, o.name`,
+          schemaColumn: 's.name',
         },
       ];
     }
@@ -262,6 +274,7 @@ export const buildFunctionsMetadataQuerySpecs = (
       return [
         {
           sql: `SELECT schema_name, function_name AS routine_name, 'FUNCTION' AS routine_type FROM duckdb_functions() WHERE internal = false AND lower(function_type) = 'macro' AND COALESCE(macro_definition, '') <> '' ORDER BY schema_name, function_name`,
+          schemaColumn: 'schema_name',
           inferredType: "FUNCTION",
         },
       ];
@@ -278,6 +291,7 @@ export const buildSequencesMetadataQuerySpecs = (
     return [
       {
         sql: `SELECT sequence_schema AS schema_name, sequence_name FROM information_schema.sequences WHERE sequence_schema NOT IN ('pg_catalog', 'information_schema') AND sequence_schema NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY sequence_schema, sequence_name`,
+        schemaColumn: 'sequence_schema',
       },
     ];
   }
@@ -356,6 +370,7 @@ export const buildSchemasMetadataQuerySpecs = (
     return [
       {
         sql: `SELECT nspname AS schema_name FROM pg_namespace WHERE nspname NOT IN (${PG_SYSTEM_SCHEMAS}) AND nspname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY nspname`,
+        schemaColumn: 'nspname',
       },
     ];
   }
@@ -364,6 +379,7 @@ export const buildSchemasMetadataQuerySpecs = (
     return [
       {
         sql: `SELECT name AS schema_name FROM sys.schemas WHERE name NOT IN ('sys', 'INFORMATION_SCHEMA') ORDER BY CASE WHEN name = 'dbo' THEN 0 ELSE 1 END, name`,
+        schemaColumn: 'name',
       },
     ];
   }
@@ -372,9 +388,11 @@ export const buildSchemasMetadataQuerySpecs = (
     return normalizeMetadataQuerySpecs([
       {
         sql: `SELECT schema_name FROM information_schema.schemata ORDER BY schema_name`,
+        schemaColumn: 'schema_name',
       },
       {
         sql: `SELECT DISTINCT TABLE_SCHEMA AS schema_name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA IS NOT NULL AND TABLE_SCHEMA <> '' ORDER BY TABLE_SCHEMA`,
+        schemaColumn: 'TABLE_SCHEMA',
       },
     ]);
   }
@@ -383,6 +401,7 @@ export const buildSchemasMetadataQuerySpecs = (
     return [
       {
         sql: `SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog') ORDER BY CASE WHEN schema_name = 'main' THEN 0 ELSE 1 END, schema_name`,
+        schemaColumn: 'schema_name',
       },
     ];
   }
@@ -395,12 +414,15 @@ export const queryMetadataRowsBySpecs = async (
   dbName: string,
   specs: MetadataQuerySpec[],
   query = DBQuery,
+  respectVisibility = true,
 ): Promise<{ results: MetadataQueryResult[]; hasSuccessfulQuery: boolean; failureMessage?: string }> => {
   const normalizedSpecs = normalizeMetadataQuerySpecs(specs);
   if (normalizedSpecs.length === 0) {
     return { results: [], hasSuccessfulQuery: false };
   }
   const config = buildSidebarRuntimeConfig(conn, dbName);
+  const scope = respectVisibility ? buildMetadataDiscoveryScope(conn, dbName)?.schemas : undefined;
+  const dialect = getMetadataDialect(conn);
   const results: MetadataQueryResult[] = [];
   let hasSuccessfulQuery = false;
   let failureMessage = "";
@@ -414,7 +436,7 @@ export const queryMetadataRowsBySpecs = async (
       const result = await query(
         buildRpcConnectionConfig(config) as any,
         dbName,
-        spec.sql,
+        scopeMetadataQuery(spec.sql, spec.schemaColumn, scope, dialect),
       );
       if (!result.success || !Array.isArray(result.data)) {
         if (!failureMessage) {

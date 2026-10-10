@@ -110,7 +110,7 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
 			continue
 		}
-		configureSQLConnectionPool(db, "highgo")
+		configureSQLConnectionPool(db, "highgo", attempt)
 		h.conn = db
 		h.pingTimeout = getConnectTimeout(attempt)
 		if err := h.Ping(); err != nil {

@@ -6,7 +6,18 @@ import { message } from 'antd';
 import type { SavedConnection } from '../../types';
 import { buildSidebarDatabasePinKey } from '../../store';
 import { t } from '../../i18n';
-import { useSidebarTreeLoaders } from './useSidebarTreeLoaders';
+import { useSidebarTreeLoaders as useCurrentSidebarTreeLoaders, type UseSidebarTreeLoadersOptions } from './useSidebarTreeLoaders';
+import { useSidebarTableLoader } from './useSidebarTableLoader';
+import { useSidebarTreeLoadState } from './useSidebarTreeLoadState';
+
+// These complete-catalog fixtures retain coverage of the shared builder and legacy sources.
+// The schema entry point and its progressive refills are exercised in useSidebarSchemaLoader.test.tsx.
+const useSidebarTreeLoaders = (options: UseSidebarTreeLoadersOptions) => {
+  const loaders = useCurrentSidebarTreeLoaders(options);
+  const loadState = useSidebarTreeLoadState({ loadingNodesRef: options.loadingNodesRef });
+  const { loadTables } = useSidebarTableLoader({ ...options, ...loadState, onDatabaseTreeLoaded: options.onDatabaseTreeLoaded });
+  return { ...loaders, loadTables };
+};
 
 const mocks = vi.hoisted(() => ({
   dbGetDatabases: vi.fn(),
@@ -1104,6 +1115,43 @@ describe('useSidebarTreeLoaders PostgreSQL partitions', () => {
     expect(mocks.replaceTreeNodeChildren).toHaveBeenCalledTimes(2);
     const refreshedChildren = mocks.replaceTreeNodeChildren.mock.calls[1][1];
     expect(findTableNode(refreshedChildren).dataRef).toMatchObject({ rowCount: 9, tableSize: 2048 });
+  });
+
+  it('updates the MySQL tree count even when catalog statistics remain stale after a write', async () => {
+    const connection = {
+      id: 'conn-mysql', name: 'MySQL', dbName: 'app',
+      config: { type: 'mysql', host: '127.0.0.1', port: 3306, user: 'root', database: 'app' },
+    } as SavedConnection & { dbName: string };
+    mocks.storeState.connections = [connection];
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: 'orders' }, { Table: 'users' }] });
+    mocks.dbQuery.mockImplementation(async (_config, _db, sql: string) => {
+      if (sql === 'SELECT COUNT(*) AS table_rows FROM `orders`') return { success: true, data: [{ table_rows: 9 }] };
+      if (sql.includes('FROM information_schema.tables')) return {
+        success: true, data: [{ table_name: 'orders', table_rows: 5 }, { table_name: 'users', table_rows: 12 }],
+      };
+      return { success: true, data: [] };
+    });
+    let loaders: ReturnType<typeof useSidebarTreeLoaders> | undefined;
+    const Harness = () => {
+      loaders = useSidebarTreeLoaders({
+        savedQueries: [], tableSortPreference: {}, tableAccessCount: {}, pinnedSidebarTables: [], pinnedSidebarDatabases: [],
+        loadingNodesRef: { current: new Set<string>() }, setConnectionStates: vi.fn(), setLoadedKeys: vi.fn(),
+        replaceTreeNodeChildren: mocks.replaceTreeNodeChildren,
+        buildRuntimeConfig: (conn) => conn.config, buildJVMRuntimeConfig: (conn) => conn.config,
+        buildJVMDiagnosticTreeNodes: () => [], resolveSavedQueryDisplayName: (name) => String(name || ''),
+      });
+      return null;
+    };
+    act(() => { renderer = create(<Harness />); });
+    const node = { key: 'conn-mysql-app', dataRef: connection };
+    await act(async () => { await loaders!.loadTables(node); });
+    let children = flattenTreeNodes(mocks.replaceTreeNodeChildren.mock.lastCall?.[1]);
+    expect(children.find((entry) => entry.type === 'table' && entry.dataRef.tableName === 'orders').dataRef.rowCount).toBe(5);
+    await act(async () => { await loaders!.loadTables(node, { ensureFresh: true, rowCountTables: ['`orders`'] }); });
+    children = flattenTreeNodes(mocks.replaceTreeNodeChildren.mock.lastCall?.[1]);
+    expect(children.find((entry) => entry.type === 'table' && entry.dataRef.tableName === 'orders').dataRef.rowCount).toBe(9);
+    expect(children.find((entry) => entry.type === 'table' && entry.dataRef.tableName === 'users').dataRef.rowCount).toBe(12);
+    expect(mocks.dbQuery.mock.calls.filter((call) => call[2].includes('COUNT(*)'))).toHaveLength(1);
   });
 
   it('warns and exposes a retry action when extension metadata is incomplete', async () => {

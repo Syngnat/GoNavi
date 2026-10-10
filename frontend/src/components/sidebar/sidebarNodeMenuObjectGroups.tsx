@@ -194,6 +194,10 @@ export const buildTablesGroupMenuItems = ({ node, context }: BuildTablesGroupMen
           label: t('sidebar.menu.refresh'),
           icon: <ReloadOutlined />,
           onClick: () => {
+              if (groupData.schemaLazy && groupData.schemaName) {
+                  void loadTables({ key: String(node.key).replace(/-tables$/, ''), type: 'object-group', dataRef: { ...groupData, groupKey: 'schema' } }, { ensureFresh: true });
+                  return;
+              }
               const dbNode = {
                   key: `${groupData.id}-${groupData.dbName}`,
                   dataRef: groupData,
@@ -251,7 +255,7 @@ export const buildSchemaGroupMenuItems = ({ node, context }: BuildSchemaGroupMen
           label: t('sidebar.menu.refresh'),
           icon: <ReloadOutlined />,
           onClick: () => void loadTables(
-              getDatabaseNodeRef(node.dataRef, node.dataRef.dbName),
+              node.dataRef.schemaLazy ? node : getDatabaseNodeRef(node.dataRef, node.dataRef.dbName),
               { ensureFresh: true },
           )
       },

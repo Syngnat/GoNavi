@@ -294,7 +294,7 @@ export const loadDatabaseEvents = async (
   return { events, supported: hasSuccessfulQuery, failureMessage };
 };
 
-export const loadSchemas = async (conn: any, dbName: string, query = DBQuery): Promise<{ schemas: string[] } & MetadataLoadState> => {
+export const loadSchemas = async (conn: any, dbName: string, query = DBQuery, respectVisibility = false): Promise<{ schemas: string[] } & MetadataLoadState> => {
   const savedConnection = conn as SavedConnection;
   const dialect = getMetadataDialect(savedConnection);
   const querySpecs = buildSchemasMetadataQuerySpecs(dialect, dbName);
@@ -305,6 +305,7 @@ export const loadSchemas = async (conn: any, dbName: string, query = DBQuery): P
     dbName,
     querySpecs,
     query,
+    respectVisibility,
   );
   const seen = new Set<string>();
   const schemas: string[] = [];

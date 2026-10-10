@@ -1,6 +1,6 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, InputNumber, Select, message } from 'antd';
+import { Button, Checkbox, Form, InputNumber, Select, message } from 'antd';
 import { ExportOutlined } from '@ant-design/icons';
 import { t } from '../i18n';
 
@@ -10,6 +10,8 @@ export type DataExportScope = 'selected' | 'page' | 'all' | 'filteredAll';
 export type DataExportFileOptions = {
   format: DataExportFormat;
   columns?: string[];
+  useColumnComments?: boolean;
+  columnComments?: Record<string, string>;
   xlsxMaxRowsPerSheet?: number;
   insertSQLDialect?: string;
   insertSQLTargetTable?: string;
@@ -35,6 +37,7 @@ export type ShowDataExportDialogOptions = {
   availableColumns?: string[];
   initialValues?: Partial<DataExportDialogValues>;
   allowInsertSql?: boolean;
+  allowColumnCommentHeaders?: boolean;
   okText?: string;
 };
 
@@ -107,6 +110,7 @@ export const normalizeDataExportDialogValues = (
     scope,
     xlsxMaxRowsPerSheet,
     ...(columns === undefined ? {} : { columns }),
+    ...(initialValues?.useColumnComments === true ? { useColumnComments: true } : {}),
   };
 };
 
@@ -245,8 +249,9 @@ const DataExportDialogContent: React.FC<{
   availableColumns?: string[];
   initialValues?: Partial<DataExportDialogValues>;
   allowInsertSql?: boolean;
+  allowColumnCommentHeaders?: boolean;
   onChange: (values: DataExportDialogValues) => void;
-}> = ({ scopeOptions, availableColumns, initialValues, allowInsertSql = false, onChange }) => {
+}> = ({ scopeOptions, availableColumns, initialValues, allowInsertSql = false, allowColumnCommentHeaders = false, onChange }) => {
   const [values, setValues] = useState<DataExportDialogValues>(() => normalizeDataExportDialogValues(
     scopeOptions,
     initialValues,
@@ -307,6 +312,17 @@ const DataExportDialogContent: React.FC<{
                 columns: resolveDataExportColumns(columns, availableColumns) || [],
               }))}
             />
+          </Form.Item>
+        )}
+
+        {allowColumnCommentHeaders && ['xlsx', 'csv', 'md', 'html'].includes(values.format) && (
+          <Form.Item style={{ marginBottom: 16 }}>
+            <Checkbox
+              checked={values.useColumnComments === true}
+              onChange={(event) => setValues((prev) => ({ ...prev, useColumnComments: event.target.checked }))}
+            >
+              {t('data_export.dialog.field.comment_headers')}
+            </Checkbox>
           </Form.Item>
         )}
 
@@ -374,6 +390,7 @@ export async function showDataExportDialog(
           availableColumns={options.availableColumns}
           initialValues={initialValues}
           allowInsertSql={allowInsertSql}
+          allowColumnCommentHeaders={options.allowColumnCommentHeaders}
           onChange={(values) => {
             latestValues = values;
           }}

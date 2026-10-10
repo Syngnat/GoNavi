@@ -143,22 +143,23 @@ func (c *countingExportConsumer) ConsumeRowValues(values []interface{}) error {
 }
 
 type csvExportFileWriter struct {
-	writer  *csv.Writer
-	columns []string
-	record  []string
+	writer         *csv.Writer
+	columns        []string
+	record         []string
+	columnComments map[string]string
 }
 
-func newCSVExportFileWriter(f io.Writer) (*csvExportFileWriter, error) {
+func newCSVExportFileWriter(f io.Writer, columnComments map[string]string) (*csvExportFileWriter, error) {
 	if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
 		return nil, err
 	}
-	return &csvExportFileWriter{writer: csv.NewWriter(f)}, nil
+	return &csvExportFileWriter{writer: csv.NewWriter(f), columnComments: columnComments}, nil
 }
 
 func (w *csvExportFileWriter) SetColumns(columns []string) error {
 	w.columns = append([]string(nil), columns...)
 	w.record = make([]string, len(columns))
-	return w.writer.Write(columns)
+	return w.writer.Write(resolveExportColumnHeaders(columns, w.columnComments))
 }
 
 func (w *csvExportFileWriter) ConsumeRow(row map[string]interface{}) error {
@@ -234,15 +235,20 @@ func (w *jsonExportFileWriter) Close() error {
 }
 
 type markdownExportFileWriter struct {
-	file    io.Writer
-	columns []string
-	record  []string
+	file           io.Writer
+	columns        []string
+	record         []string
+	columnComments map[string]string
 }
 
 func (w *markdownExportFileWriter) SetColumns(columns []string) error {
 	w.columns = append([]string(nil), columns...)
 	w.record = make([]string, len(columns))
-	if _, err := fmt.Fprintf(w.file, "| %s |\n", strings.Join(columns, " | ")); err != nil {
+	headers := resolveExportColumnHeaders(columns, w.columnComments)
+	for index, header := range headers {
+		headers[index] = formatExportRecordValue(header, true)
+	}
+	if _, err := fmt.Fprintf(w.file, "| %s |\n", strings.Join(headers, " | ")); err != nil {
 		return err
 	}
 	seps := make([]string, len(columns))
@@ -268,13 +274,14 @@ func (w *markdownExportFileWriter) Close() error {
 }
 
 type htmlExportFileWriter struct {
-	writer   *bufio.Writer
-	columns  []string
-	rowCount int64
+	writer         *bufio.Writer
+	columns        []string
+	rowCount       int64
+	columnComments map[string]string
 }
 
-func newHTMLExportFileWriter(f io.Writer) *htmlExportFileWriter {
-	return &htmlExportFileWriter{writer: bufio.NewWriterSize(f, 1024*256)}
+func newHTMLExportFileWriter(f io.Writer, columnComments map[string]string) *htmlExportFileWriter {
+	return &htmlExportFileWriter{writer: bufio.NewWriterSize(f, 1024*256), columnComments: columnComments}
 }
 
 func (w *htmlExportFileWriter) SetColumns(columns []string) error {
@@ -405,7 +412,7 @@ func (w *htmlExportFileWriter) SetColumns(columns []string) error {
 		return err
 	}
 
-	for _, col := range columns {
+	for _, col := range resolveExportColumnHeaders(columns, w.columnComments) {
 		if _, err := fmt.Fprintf(w.writer, "<th>%s</th>", html.EscapeString(col)); err != nil {
 			return err
 		}

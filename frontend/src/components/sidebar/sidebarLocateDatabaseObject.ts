@@ -6,6 +6,7 @@ import {
   type SidebarLocateTarget,
   type SidebarLocateTreeNodeLike,
 } from '../../utils/sidebarLocate';
+import { sidebarSchemaLoadKey } from './sidebarSchemaLoading';
 
 export const SIDEBAR_LOCATE_LOAD_WAIT_INTERVAL_MS = 50;
 export const SIDEBAR_LOCATE_LOAD_WAIT_ATTEMPTS = 160;
@@ -189,11 +190,24 @@ export const runSidebarLocateDatabaseObject = async (
   revealSidebarLocateStage(getTree(), target.databaseKey, 'database', mergeExpandedTreeKeys);
   revealNode(target.databaseKey, dbNode, 'database');
 
+  if (target.schemaKey && !findNode(target.schemaKey)) {
+    await ensureSidebarLocatePresent({
+      isPresent: () => Boolean(findNode(target.schemaKey!)),
+      loadKey: `tables-${request.connectionId}-${request.dbName}`,
+      isLoadPending, startLoad: () => loadTables(dbNode), ...poll,
+    });
+  }
+  const schemaNode = target.schemaKey ? findNode(target.schemaKey) : null;
+  const schemaLoadNode = schemaNode?.dataRef?.schemaLazy ? schemaNode : null;
+  if (schemaLoadNode && target.schemaKey) {
+    revealSidebarLocateStage(getTree(), target.schemaKey, 'database', mergeExpandedTreeKeys);
+  }
+
   const objectStatus = await ensureSidebarLocatePresent({
     isPresent: () => Boolean(findSidebarNodePathForLocate(getTree(), target)),
-    loadKey: `tables-${request.connectionId}-${request.dbName}`,
+    loadKey: schemaLoadNode ? sidebarSchemaLoadKey(request.connectionId, request.dbName, String(schemaLoadNode.dataRef?.schemaName || '')) : `tables-${request.connectionId}-${request.dbName}`,
     isLoadPending,
-    startLoad: () => loadTables(dbNode),
+    startLoad: () => loadTables(schemaLoadNode || dbNode),
     ...poll,
   });
   if (objectStatus === 'timeout') {

@@ -218,7 +218,14 @@ export const useDataGridTableMetrics = ({
 
     const buildBackendExportOptions = useCallback((options: DataExportFileOptions): DataExportFileOptions => {
         if (options.format !== 'sql') {
-            return options;
+            if (!options.useColumnComments || !['xlsx', 'csv', 'md', 'html'].includes(options.format)) return options;
+            const columnComments: Record<string, string> = {};
+            (resolveDataExportColumns(options.columns, displayOutputColumnNames) || []).forEach((column) => {
+                const meta = columnMetaMap[column] || columnMetaMapByLowerName[column.toLowerCase()];
+                const comment = String(meta?.comment || '').trim();
+                if (comment) columnComments[column] = comment;
+            });
+            return { ...options, columnComments };
         }
         return {
             ...options,
@@ -228,7 +235,7 @@ export const useDataGridTableMetrics = ({
             insertSQLTargetColumns: hasResolvedInsertSQLTarget ? insertSQLTargetColumns : {},
             insertSQLAllowEmptyTargetTable: !hasResolvedInsertSQLTarget,
         };
-    }, [dbType, hasResolvedInsertSQLTarget, insertSQLColumnTypes, insertSQLTargetColumns, tableName]);
+    }, [columnMetaMap, columnMetaMapByLowerName, displayOutputColumnNames, dbType, hasResolvedInsertSQLTarget, insertSQLColumnTypes, insertSQLTargetColumns, tableName]);
 
     // Helper to export specific data
     const exportData = async (rows: any[], options: DataExportFileOptions) => {

@@ -309,7 +309,7 @@ export const useQueryEditorRun = ({
                   recordExecutionOrigin, executableSQL, runOptions, paramsDialogState, paramsState,
                   setLoading, lastParamsRunScopeRef, runScope, setParamsDialogState, runState,
                   setQueryId, setExecutionTimingActive, executeSqlEditorMultiQuery,
-                  executionConnectionParams, finishQueryEditorSqlClock, queryEditorUnmountedRef,
+                  executionConnectionParams, executionSchemaName, finishQueryEditorSqlClock, queryEditorUnmountedRef,
                   addSqlLog, currentQueryIdRef, clearQueryId, updateResultPanelVisibility,
                   setExecutionError, mutatingStatements, activatePendingSqlTransaction,
                   sqlEditorCommitMode, sqlEditorAutoCommitDelayMs,

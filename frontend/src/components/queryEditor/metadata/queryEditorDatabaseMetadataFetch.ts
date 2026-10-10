@@ -1,5 +1,7 @@
 import { DBGetAllColumns, DBGetTables } from '../../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
+import type { SavedConnection } from '../../../types';
+import { buildMetadataDiscoveryScope } from '../../../utils/metadataDiscoveryScope';
 import {
     getCaseInsensitiveValue,
     queryCompletionMetadataRowsBySpecs,
@@ -38,6 +40,7 @@ import type {
 } from './queryEditorSessionMetadataStore';
 
 export interface QueryEditorMetadataFetchContext {
+    connection?: SavedConnection;
     /** Connection config normalised the way the RPC layer expects it. */
     config: Record<string, any>;
     metadataDialect: string;
@@ -125,6 +128,7 @@ export const fetchQueryEditorDatabaseMetadata = async (
     report: (partial: QueryEditorDatabaseMetadata) => void,
     shouldStop: () => boolean,
 ): Promise<QueryEditorSessionLoadResult<QueryEditorDatabaseMetadata> | null> => {
+    if (context.connection) context = { ...context, config: { ...context.config, metadataScope: buildMetadataDiscoveryScope(context.connection, dbName) } };
     const { config, metadataDialect } = context;
     const rpcConfig = buildRpcConnectionConfig(config) as any;
     const isMetadataRowForDatabase = createMetadataRowOwnerFilter(context);

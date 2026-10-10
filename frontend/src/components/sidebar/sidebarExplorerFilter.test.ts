@@ -25,6 +25,13 @@ const nacosTree = () => [
 const nodeKeys = (nodes: any[]): string[] => nodes.map((node) => node.key);
 
 describe('sidebarExplorerFilter / Nacos 过滤', () => {
+  it('keeps unloaded schema nodes expandable under relational object filters', () => {
+    const tree = [{ key: 'db', type: 'database', children: [{ key: 'schema', type: 'object-group', isLeaf: false, dataRef: { groupKey: 'schema', schemaLazy: true } }] }];
+    for (const filter of ['tables', 'views', 'routines'] as const) {
+      expect(filterV2ExplorerTreeByKind(tree as any, filter)[0]?.children?.[0].key).toBe('schema');
+      expect(filterV2ExplorerTreeByKind([{ key: 'unloaded-db', title: 'app', type: 'database' }], filter)[0]?.key).toBe('unloaded-db');
+    }
+  });
   it('「服务发现」只留服务分支，「配置」只留配置分支', () => {
     const services = filterV2ExplorerTreeByKind(nacosTree() as any, 'nacos-services');
     expect(nodeKeys(services)).toEqual(['nacos-1-ns-public']);

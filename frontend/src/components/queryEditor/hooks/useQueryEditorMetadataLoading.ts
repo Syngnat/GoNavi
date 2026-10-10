@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useActivationGatedEffect } from './useActivationGatedEffect';
+import { useStore } from '../../../store';
 import {
     getTabQueryValue,
     normalizeMetadataDialect,
@@ -269,7 +270,7 @@ export const useQueryEditorMetadataLoading = ({
 
         // 同一连接、同一库的 schema 列表在各查询页之间复用：有缓存时直接生效、不转圈，
         // 过期的缓存先用着并在后台刷新。
-        const schemaSessionKey = buildQueryEditorSessionMetadataKey(currentConnectionId, conn.config, dbName);
+        const schemaSessionKey = buildQueryEditorSessionMetadataKey(currentConnectionId, { ...conn.config, schemaVisibilityByDatabase: conn.schemaVisibilityByDatabase }, dbName);
         const cachedSchemaContext = queryEditorSchemaContextSession.read(schemaSessionKey);
         if (cachedSchemaContext) {
             applySchemaContext(cachedSchemaContext.value);
@@ -300,6 +301,7 @@ export const useQueryEditorMetadataLoading = ({
                 // 后台刷新不跟某一次 effect 绑定：只要本页还停在同一个连接和库上就应用新列表。
                 if (
                     schemaContextKeyRef.current === contextKey
+                    && JSON.stringify(useStore.getState().connections.find((item) => item.id === currentConnectionId)?.schemaVisibilityByDatabase || {}) === JSON.stringify(conn.schemaVisibilityByDatabase || {})
                     && isQueryEditorMetadataRequestCurrent({
                         generation: metadataGenerationRef.current,
                         connectionId: currentConnectionId,
@@ -468,6 +470,7 @@ export const useQueryEditorMetadataLoading = ({
             }
             const metadataFetchKey = [
                 currentConnectionId,
+                JSON.stringify(conn.schemaVisibilityByDatabase || {}),
                 ...metadataDbNames.map((dbName) => (
                     buildQueryEditorMetadataIdentityKey(metadataDialect, dbName)
                 )).sort(),
@@ -490,10 +493,10 @@ export const useQueryEditorMetadataLoading = ({
             // key 相同但表为空（中途 cancel / 异常）：允许重拉
             activeFetchKey = metadataFetchKey;
 
-            const fetchContext: QueryEditorMetadataFetchContext = { config, metadataDialect, oracleMetadataOwner };
+            const fetchContext: QueryEditorMetadataFetchContext = { config, metadataDialect, oracleMetadataOwner, connection: conn };
             const buildSessionKey = (dbName: string) => buildQueryEditorSessionMetadataKey(
                 currentConnectionId,
-                conn.config,
+                { ...conn.config, schemaVisibilityByDatabase: conn.schemaVisibilityByDatabase },
                 buildQueryEditorMetadataIdentityKey(metadataDialect, dbName),
                 oracleMetadataOwner,
             );

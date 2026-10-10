@@ -6,6 +6,18 @@ import (
 	"strings"
 )
 
+// formatSQLServerTableMetadataName keeps native and scoped catalog names round-trippable.
+func formatSQLServerTableMetadataName(schema, table string) string {
+	if schema == "" {
+		return table
+	}
+	if strings.ContainsAny(schema, ".[]") || strings.ContainsAny(table, ".[]") ||
+		strings.TrimSpace(schema) != schema || strings.TrimSpace(table) != table {
+		return "[" + strings.ReplaceAll(schema, "]", "]]") + "].[" + strings.ReplaceAll(table, "]", "]]") + "]"
+	}
+	return schema + "." + table
+}
+
 const (
 	// Azure SQL Database / Synapse serverless / Fabric reject or hang on
 	// three-part catalog names such as [db].sys.tables even for the current
@@ -17,6 +29,17 @@ const (
 	sqlServerEngineEditionAzureSynapseServerless = 11
 	sqlServerEngineEditionMicrosoftFabric        = 12
 )
+
+func sqlServerAllColumnsQuery() string {
+	return `SELECT s.name AS schema_name, t.name AS table_name, c.name AS column_name, tp.name AS data_type, CONVERT(nvarchar(4000), ep.value) AS comment
+FROM sys.columns c
+JOIN sys.tables t ON c.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+JOIN sys.types tp ON c.user_type_id = tp.user_type_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = c.object_id AND ep.minor_id = c.column_id AND ep.name = 'MS_Description'
+WHERE t.type = 'U'
+ORDER BY s.name, t.name, c.column_id`
+}
 
 func sqlServerUsesCurrentDatabaseCatalogOnly(edition int) bool {
 	switch edition {

@@ -87,6 +87,8 @@ func (a *App) DBGetDatabases(config connection.ConnectionConfig) connection.Quer
 }
 
 func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+	scope := config.MetadataScope
+	config.MetadataScope = nil
 	runConfig := normalizeMetadataRunConfig(config, dbName)
 	if strings.EqualFold(strings.TrimSpace(runConfig.Type), "redis") {
 		runConfig.Type = "redis"
@@ -147,9 +149,9 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 	// 表清单缓存：只缓存 GetTables 本身，行数与存储大小仍在下面实时查（它们随写入
 	// 变化，缓存会让侧栏数字长期不更新）。fetch 闭包返回副本，避免驱动复用切片时
 	// 改写到缓存里的同一块内存。
-	tablesMetaKey := a.buildMetadataCacheKey(runConfig, dbName, metadataCacheKindTables)
+	tablesMetaKey := a.buildScopedMetadataCacheKey(runConfig, dbName, metadataCacheKindTables, scope)
 	rawTables, err := a.metadataCacheFetch(tablesMetaKey, func() (interface{}, error) {
-		fetched, fetchErr := dbInst.GetTables(dbName)
+		fetched, fetchErr := db.DiscoverTables(db.MetadataContext(dbInst), dbInst, runConfig, dbName, scope)
 		if fetchErr != nil {
 			// 错误与表列表可能同时返回（Pulsar 主题发现不完整）：原样透传，
 			// tableMetadataErrorResult 需要用它渲染降级提示。
@@ -170,7 +172,7 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 				return connection.QueryResult{Success: false, Message: retryErr.Error()}
 			}
 			dbInst = retryInst
-			tables, err = retryInst.GetTables(dbName)
+			tables, err = db.DiscoverTables(db.MetadataContext(retryInst), retryInst, runConfig, dbName, scope)
 		}
 	}
 	if err != nil {

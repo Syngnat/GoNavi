@@ -389,6 +389,7 @@ func quoteOracleMetadataTableRef(schemaName string, tableName string) string {
 }
 
 func (a *App) DBGetAllColumns(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+	scope := config.MetadataScope
 	runConfig := normalizeMetadataRunConfig(config, dbName)
 
 	// 全库列查询一次扫全部表，是元数据里最重的单次查询，走元数据通道。
@@ -400,9 +401,9 @@ func (a *App) DBGetAllColumns(config connection.ConnectionConfig, dbName string)
 	// 全库列缓存。PartialMetadataError（部分表读失败但其余表可用）必须把已取到的列
 	// 与错误一起透传：调用方要用它渲染降级结果。fetch 返回 error 时 metadataCacheFetch
 	// 只透传值、不写缓存，所以不完整结果不会被固定 45s，下次请求还有机会补齐。
-	allColumnsMetaKey := a.buildMetadataCacheKey(runConfig, dbName, metadataCacheKindAllColumns)
+	allColumnsMetaKey := a.buildScopedMetadataCacheKey(runConfig, dbName, metadataCacheKindAllColumns, scope)
 	rawCols, err := a.metadataCacheFetch(allColumnsMetaKey, func() (interface{}, error) {
-		fetched, fetchErr := dbInst.GetAllColumns(dbName)
+		fetched, fetchErr := db.DiscoverColumns(db.MetadataContext(dbInst), dbInst, runConfig, dbName, scope)
 		if fetchErr != nil {
 			return append([]connection.ColumnDefinitionWithTable(nil), fetched...), fetchErr
 		}

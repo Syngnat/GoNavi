@@ -122,6 +122,7 @@ export const quoteSqlServerIdentifier = (raw: string): string =>
 
 export type MetadataQuerySpec = {
   sql: string;
+  schemaColumn?: string;
   inferredType?: "FUNCTION" | "PROCEDURE";
 };
 
@@ -158,7 +159,7 @@ export const normalizeMetadataQuerySpecs = (
     const key = `${spec.inferredType || ""}@@${sql}`;
     if (seen.has(key)) return;
     seen.add(key);
-    normalized.push({ sql, inferredType: spec.inferredType });
+    normalized.push({ ...spec, sql });
   });
   return normalized;
 };

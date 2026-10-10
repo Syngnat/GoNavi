@@ -13,19 +13,6 @@ import (
 // 在这里直接报错。另外每个库都带一批内部 schema（dbe_perf、blockchain、db4ai……），A 兼容模式的 orafce / whale、
 // B 兼容模式的 dolphin 扩展还会建几十个 schema，并在 public 下放 dual、all_db_links 等对象。
 
-// gbase8cUserNamespacePredicate 判断 schema 是否属于用户：内部 schema 的 oid 都小于 16384（FirstNormalObjectId，
-// public 除外），扩展建的 schema 在 pg_depend 里记为扩展成员。
-func gbase8cUserNamespacePredicate(alias string) string {
-	return fmt.Sprintf(`(%[1]s.oid >= 16384 OR %[1]s.nspname = 'public')
-  AND %[1]s.nspname NOT LIKE 'pg|_%%' ESCAPE '|'
-  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend dn WHERE dn.classid = 'pg_catalog.pg_namespace'::regclass AND dn.objid = %[1]s.oid AND dn.deptype = 'e')`, alias)
-}
-
-// gbase8cNotExtensionRelation 排除扩展带入的表与视图（如 public.dual、public.all_db_links）。
-func gbase8cNotExtensionRelation(alias string) string {
-	return fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend dc WHERE dc.classid = 'pg_catalog.pg_class'::regclass AND dc.objid = %s.oid AND dc.deptype = 'e')`, alias)
-}
-
 var gbase8cUserSchemasQuery = `SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE ` + gbase8cUserNamespacePredicate("n") + ` ORDER BY n.nspname`
 
 // GetTables 返回用户 schema 下的普通表与外表（MOT 内存表是外表），分区表的分区不单独列出。
