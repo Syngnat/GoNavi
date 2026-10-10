@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"github.com/caretdev/go-irisnative/src/list"
 )
@@ -22,6 +23,11 @@ func NewMessage(messageType MessageType) Message {
 	}
 }
 
+// ReadMessage 同步读取一条消息，永远不会超时，对端不响应就永久阻塞。
+// 驱动上层（driver.conn）目前没有任何路径在调用前设置 SetReadDeadline，
+// 这会让 INFORMATION_SCHEMA、%SYS 命名空间查询在受限账号上挂死，
+// 表现为上层「转圈」（GoNavi issue #1430/#1427）。
+// 保留它给握手等必须阻塞的场景；查询路径请改用 ReadMessageWithTimeout。
 func ReadMessage(conn *net.TCPConn) (msg Message, err error) {
 	buffer := make([]byte, 14)
 
@@ -55,6 +61,20 @@ func ReadMessage(conn *net.TCPConn) (msg Message, err error) {
 	msg = Message{msgHeader, data, 0}
 
 	return
+}
+
+// ReadMessageWithTimeout 在每次 Read 之前设置 ReadDeadline，
+// 到期或取消立即返回错误，避免受限账号在 %SYS 等系统视图上永久阻塞。
+// timeout 为 0 表示不设置超时（保持原行为）；调用方需自己保证不长期使用 0。
+func ReadMessageWithTimeout(conn *net.TCPConn, timeout time.Duration) (msg Message, err error) {
+	if timeout > 0 {
+		if err = conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+			return
+		}
+		// 读完后清掉，避免影响同一连接的下一次操作。
+		defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	}
+	return ReadMessage(conn)
 }
 
 func (m *Message) AddRaw(value interface{}) {

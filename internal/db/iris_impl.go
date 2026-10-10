@@ -15,6 +15,16 @@ import (
 const (
 	defaultIRISPort      = 1972
 	defaultIRISNamespace = "USER"
+
+	// irisDriverQueryReadTimeout 是注入到底层 go-irisnative 驱动的「单次网络读」
+	// 超时。该驱动不响应 context 取消，且服务端对受限账号的 %SYS 视图、大量系统
+	// 投影表的流式 fetchMoreData 都可能长时间不回包，没有这层兜底上层
+	// （GetDatabases/GetTables/loadSchemas）会永久转圈（issue #1430/#1427）。
+	//
+	// 取值是「单次 Read」的上限，不是整条 SQL 的端到端超时；INTERNATIONAL_SCHEMA
+	// 在跨网络的长链路上单次 fetchMoreData 可能耗时几十秒，所以这里要够宽，
+	// 仅作为「服务端真的不回包」的兜底，而不是常规慢查询的限速器。
+	irisDriverQueryReadTimeout = 90 * time.Second
 )
 
 type interSystemsProduct string
