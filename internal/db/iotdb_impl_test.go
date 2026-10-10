@@ -416,7 +416,7 @@ func TestIoTDBQueryReturnsRealNullWhenIsNullSucceeds(t *testing.T) {
 }
 
 func TestScanIoTDBDataSetNilDataset(t *testing.T) {
-	rows, columns, err := scanIoTDBDataSet(nil)
+	rows, columns, err := scanIoTDBDataSet(nil, nil)
 	if err != nil {
 		t.Fatalf("nil dataset should not error: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestScanIoTDBDataSetNextError(t *testing.T) {
 		columns: []string{"status"},
 		rows:    []map[string]interface{}{{"status": "ok"}},
 		nextErr: nextErr,
-	})
+	}, nil)
 	if !errors.Is(err, nextErr) {
 		t.Fatalf("expected Next error, got %v", err)
 	}
@@ -444,11 +444,37 @@ func TestScanIoTDBDataSetIsNullErrorFallsBackToGetObject(t *testing.T) {
 		isNullErrs: map[string]error{
 			"status": errors.New("isnull failed"),
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("IsNull error should fall back to GetObject: %v", err)
 	}
 	if len(rows) != 1 || rows[0]["status"] != "ok" {
 		t.Fatalf("unexpected scan result: rows=%#v columns=%#v", rows, columns)
+	}
+}
+
+func TestIoTDBQueryContextHonorsRowBudget(t *testing.T) {
+	query := "SELECT Time, value FROM root.streampipes.tem LIMIT 100"
+	session := &fakeIoTDBSession{queryResults: map[string][]map[string]interface{}{
+		query: {
+			{"Time": int64(1), "value": 10.0},
+			{"Time": int64(2), "value": 11.0},
+			{"Time": int64(3), "value": 12.0},
+		},
+	}}
+	client := &IoTDBDB{session: session}
+	budget := NewRowBudget(1)
+	rows, columns, err := client.QueryContext(ContextWithRowBudget(context.Background(), budget), query)
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["value"] != 10.0 {
+		t.Fatalf("budgeted rows = %#v, want the first row only", rows)
+	}
+	if len(columns) != 2 {
+		t.Fatalf("columns = %#v", columns)
+	}
+	if !budget.Exhausted() {
+		t.Fatal("expected the row budget to stop after the first row")
 	}
 }

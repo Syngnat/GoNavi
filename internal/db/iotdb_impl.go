@@ -230,7 +230,7 @@ func (i *IoTDBDB) QueryContext(ctx context.Context, query string) ([]map[string]
 	if err != nil {
 		return nil, nil, err
 	}
-	return scanIoTDBDataSet(ds)
+	return scanIoTDBDataSet(ds, RowBudgetFromContext(ctx))
 }
 
 func (i *IoTDBDB) Exec(query string) (int64, error) {
@@ -532,7 +532,7 @@ func (i *IoTDBDB) effectiveTimeout() time.Duration {
 	return defaultIoTDBQueryTimeout
 }
 
-func scanIoTDBDataSet(ds iotdbDataSet) ([]map[string]interface{}, []string, error) {
+func scanIoTDBDataSet(ds iotdbDataSet, budget *RowBudget) ([]map[string]interface{}, []string, error) {
 	if ds == nil {
 		return nil, nil, nil
 	}
@@ -547,6 +547,10 @@ func scanIoTDBDataSet(ds iotdbDataSet) ([]map[string]interface{}, []string, erro
 		if !hasNext {
 			break
 		}
+		// 先确认还有下一行再停读，避免结果刚好等于上限时被标成截断。
+		if !budget.CanMaterializeRow(len(rows)) {
+			break
+		}
 		row := make(map[string]interface{}, len(columns))
 		for _, column := range columns {
 			isNull, err := ds.IsNull(column)
@@ -559,6 +563,13 @@ func scanIoTDBDataSet(ds iotdbDataSet) ([]map[string]interface{}, []string, erro
 				return nil, nil, fmt.Errorf("读取 IoTDB 列 %q 失败：%w", column, err)
 			}
 			row[column] = normalizeIoTDBValue(value)
+		}
+		row, fieldTruncated := boundQueryRowFields(row, budget.MaxFieldBytes())
+		if fieldTruncated {
+			budget.MarkFieldTruncated()
+		}
+		if !budget.ConsumeRow(estimateQueryRowBytes(row)) {
+			break
 		}
 		rows = append(rows, row)
 	}

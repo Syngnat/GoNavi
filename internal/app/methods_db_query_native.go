@@ -188,6 +188,14 @@ func shouldPreferPlainReadQueryResult(dbType string) bool {
 		// Trino（以及借用其方言的 Presto）一条语句就是一次 HTTP 查询，驱动没有多结果集接口；
 		// 带结果预算时代理会直接拒绝多结果集调用，只读语句必须走普通查询接口。
 		return true
+	case "iotdb", "apache-iotdb", "apache_iotdb",
+		"clickhouse",
+		"elasticsearch", "elastic",
+		"duckdb",
+		"mongodb":
+		// 这些可选驱动的具体实现只有普通查询接口。查询编辑器会附带结果预算，
+		// 只读语句走 QueryContext，预算才能在扫描时生效。
+		return true
 	default:
 		return registryPrefersPlainReadQuery(dbType)
 	}

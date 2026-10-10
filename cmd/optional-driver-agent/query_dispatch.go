@@ -126,6 +126,15 @@ func queryStatementWithMessagesRequest(
 	return queryWithMessagesRequest(requestCtx, queryRunner, query, timeoutMs, options)
 }
 
+// hasNonContextMultiResult 报告实例是否实现了不接收 context 的多结果集方法。
+func hasNonContextMultiResult(inst any) bool {
+	if _, ok := inst.(agentMultiResultMessageRunner); ok {
+		return true
+	}
+	_, ok := inst.(agentMultiResultRunner)
+	return ok
+}
+
 func queryMultiWithMessagesOptionalTimeout(requestCtx context.Context, inst db.Database, query string, timeoutMs int64) ([]connection.ResultSetData, []string, bool, error) {
 	data, messages, supported, _, err := queryMultiWithMessagesRequest(requestCtx, inst, query, timeoutMs, nil)
 	return data, messages, supported, err
@@ -153,7 +162,11 @@ func queryMultiWithMessagesRequest(
 		return data, nil, true, budget, err
 	}
 	if budget != nil {
-		return nil, nil, false, budget, fmt.Errorf("当前驱动不支持带结果预算的多结果集上下文查询")
+		if hasNonContextMultiResult(inst) {
+			return nil, nil, false, budget, fmt.Errorf("当前驱动不支持带结果预算的多结果集上下文查询")
+		}
+		// 驱动根本没有多结果集接口。按不支持返回，调用方改走带预算的普通查询。
+		return nil, nil, false, nil, nil
 	}
 	if q, ok := inst.(agentMultiResultMessageRunner); ok {
 		data, messages, err := q.QueryMultiWithMessages(query)
@@ -193,7 +206,10 @@ func queryMultiStatementWithMessagesRequest(
 		return data, nil, true, budget, err
 	}
 	if budget != nil {
-		return nil, nil, false, budget, fmt.Errorf("当前事务会话不支持带结果预算的多结果集上下文查询")
+		if hasNonContextMultiResult(inst) {
+			return nil, nil, false, budget, fmt.Errorf("当前事务会话不支持带结果预算的多结果集上下文查询")
+		}
+		return nil, nil, false, nil, nil
 	}
 	if q, ok := inst.(agentMultiResultMessageRunner); ok {
 		data, messages, err := q.QueryMultiWithMessages(query)
