@@ -8492,7 +8492,7 @@
   "redis_viewer.view.text": "Исходный текст",
   "redis_viewer.view.title": "Режим просмотра",
   "saved_query.default_name": "Запрос {{index}}",
-  "saved_query.error.missing_context": "В сохраненном запросе отсутствует SQL, подключение или контекст базы данных",
+  "saved_query.error.missing_context": "В сохраненном запросе отсутствует подключение или контекст базы данных",
   "security_update.action.open_ai_settings": "Настройки AI",
   "security_update.action.open_connection": "Открыть подключение",
   "security_update.action.open_proxy_settings": "Настройки прокси",

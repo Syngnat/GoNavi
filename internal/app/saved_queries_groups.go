@@ -474,7 +474,9 @@ func sanitizeSavedQuery(input connection.SavedQuery, index int, allowGeneratedID
 	sqlText := input.SQL
 	connectionID := strings.TrimSpace(input.ConnectionID)
 	dbName := strings.TrimSpace(input.DBName)
-	if strings.TrimSpace(sqlText) == "" || connectionID == "" || dbName == "" {
+	// SQL 允许为空（清空编辑器后保存是合法状态，落盘为 0 字节 .sql），
+	// 但绑定上下文必填：缺少 connectionId/dbName 的条目无法恢复定位。
+	if connectionID == "" || dbName == "" {
 		return connection.SavedQuery{}, false
 	}
 

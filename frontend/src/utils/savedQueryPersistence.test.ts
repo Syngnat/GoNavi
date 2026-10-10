@@ -169,7 +169,25 @@ describe('saved query persistence', () => {
       connectionId: '',
       dbName: '',
       createdAt: 100,
-    })).rejects.toThrow('Saved query is missing SQL, connection, or database context');
+    })).rejects.toThrow('Saved query is missing connection or database context');
+  });
+
+  it('keeps an emptied query savable when the binding context is intact', async () => {
+    setCurrentLanguage('en-US');
+
+    await expect(saveSavedQueryToBackend(undefined, {
+      id: 'emptied',
+      name: 'Emptied',
+      sql: '',
+      connectionId: 'conn-1',
+      dbName: 'shop',
+      createdAt: 100,
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'emptied',
+      sql: '',
+      connectionId: 'conn-1',
+      dbName: 'shop',
+    }));
   });
 
   it('preserves child-group ordering returned after saving a parent group', async () => {

@@ -8492,7 +8492,7 @@
   "redis_viewer.view.text": "Rohtext",
   "redis_viewer.view.title": "Ansichtsmodus",
   "saved_query.default_name": "Abfrage {{index}}",
-  "saved_query.error.missing_context": "Der gespeicherten Abfrage fehlt SQL-, Verbindungs- oder Datenbankkontext",
+  "saved_query.error.missing_context": "Der gespeicherten Abfrage fehlt der Verbindungs- oder Datenbankkontext",
   "security_update.action.open_ai_settings": "AI-Einstellungen",
   "security_update.action.open_connection": "Verbindung öffnen",
   "security_update.action.open_proxy_settings": "Proxy-Einstellungen",

@@ -515,6 +515,84 @@ func TestSavedQueryRepositorySaveUpdateAndDelete(t *testing.T) {
 	}
 }
 
+func TestSavedQueryRepositoryRoundTripsEmptiedSQL(t *testing.T) {
+	app := newSavedQueryTestApp(t)
+
+	if _, err := app.SaveQuery(connection.SavedQuery{
+		ID:           "emptied",
+		Name:         "Emptied",
+		SQL:          "select 1",
+		ConnectionID: "conn-1",
+		DBName:       "app",
+		CreatedAt:    100,
+	}); err != nil {
+		t.Fatalf("seed SaveQuery returned error: %v", err)
+	}
+
+	// 清空编辑器后保存：条目必须留在原位，落盘为 0 字节 .sql，且重启后仍可读。
+	saved, err := app.SaveQuery(connection.SavedQuery{
+		ID:           "emptied",
+		Name:         "Emptied",
+		SQL:          "",
+		ConnectionID: "conn-1",
+		DBName:       "app",
+		CreatedAt:    100,
+	})
+	if err != nil {
+		t.Fatalf("SaveQuery(emptied) returned error: %v", err)
+	}
+	if saved.SQL != "" {
+		t.Fatalf("saved query sql = %q, want empty", saved.SQL)
+	}
+
+	diskFile, _ := readSavedQueriesDiskFile(t, app)
+	if len(diskFile.Queries) != 1 {
+		t.Fatalf("emptied query was dropped from metadata: %#v", diskFile.Queries)
+	}
+	content, err := os.ReadFile(savedQuerySQLPath(t, app, diskFile.Queries[0].FileName))
+	if err != nil {
+		t.Fatalf("ReadFile emptied saved query sql: %v", err)
+	}
+	if len(content) != 0 {
+		t.Fatalf("emptied saved query sql file = %q, want empty", content)
+	}
+
+	reloaded, err := app.GetSavedQueries()
+	if err != nil {
+		t.Fatalf("GetSavedQueries returned error: %v", err)
+	}
+	if len(reloaded) != 1 || reloaded[0].ID != "emptied" || reloaded[0].SQL != "" {
+		t.Fatalf("emptied query did not survive reload: %#v", reloaded)
+	}
+}
+
+func TestSavedQueryRepositoryRejectsMissingBindingContext(t *testing.T) {
+	app := newSavedQueryTestApp(t)
+
+	for _, testCase := range []struct {
+		name string
+		db   string
+	}{
+		{name: "no-connection", db: "app"},
+		{name: "no-db", db: ""},
+	} {
+		connectionID := "conn-1"
+		if testCase.name == "no-connection" {
+			connectionID = ""
+		}
+		if _, err := app.SaveQuery(connection.SavedQuery{
+			ID:           "invalid-" + testCase.name,
+			Name:         "Invalid",
+			SQL:          "select 1",
+			ConnectionID: connectionID,
+			DBName:       testCase.db,
+			CreatedAt:    100,
+		}); err == nil {
+			t.Fatalf("SaveQuery(%s) should fail without a binding context", testCase.name)
+		}
+	}
+}
+
 func TestImportSavedQueriesUpsertsAndSkipsInvalidItems(t *testing.T) {
 	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
 	app.configDir = t.TempDir()
@@ -550,9 +628,10 @@ func TestImportSavedQueriesUpsertsAndSkipsInvalidItems(t *testing.T) {
 			},
 			{
 				ID:           "invalid",
-				Name:         "Missing SQL",
+				Name:         "Missing binding context",
+				SQL:          "select 4",
 				ConnectionID: "conn-3",
-				DBName:       "app",
+				DBName:       "",
 			},
 		},
 	})
