@@ -157,6 +157,14 @@ func (rs *ResultSet) fetchMoreData() (bool, error) {
 		return false, err
 	}
 
+	// 关键：每一帧 FETCH_DATA 的响应头里都带着「这条 statement 是否还有更多数据」
+	// 的 status。原实现从不更新 rs.sqlCode，导致首帧 sqlCode=0（继续）时永远走
+	// fetchMoreData，即使中间某一帧服务端已经标了 100（完成），客户端还会再发
+	// 一次 FETCH_DATA，服务端对此不再响应——这就是大结果集在最后一帧之后挂死
+	// 的根因（issue #1430/#1427 的 SAMPLES 206 张表实测：第二帧 status=100，
+	// 但 sqlCode 没更新，第三次 fetch 永久阻塞）。
+	rs.sqlCode = int16(msg.GetStatus())
+
 	rs.data = msg.data
 	rs.offset = 0
 	return len(msg.data) > 0, nil
