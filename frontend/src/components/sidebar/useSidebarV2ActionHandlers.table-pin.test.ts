@@ -58,7 +58,9 @@ describe('useSidebarV2ActionHandlers table pin', () => {
         findTreeNodeByKeyRef: { current: () => null },
         refreshV2TableContextMenuStatsRef: { current: () => undefined },
         setSidebarTablePinned: useStore.getState().setSidebarTablePinned,
-        replaceTreeNodeChildren: (key, children) => { replaced.push([String(key), children]); },
+        replaceTreeNodeChildren: (key: string, children: SidebarTreeNode[] | undefined) => {
+          replaced.push([String(key), children]);
+        },
         loadTables,
       } as any);
 
