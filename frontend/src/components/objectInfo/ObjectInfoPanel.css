@@ -1,0 +1,142 @@
+/*
+ * 侧栏底部「信息」页签内容（Navicat 原型 info-dl 风格）：
+ * label 固定 96px + 值，等宽数字；DDL 折叠框。配色全部走既有 token。
+ */
+
+body[data-ui-version='v2'] .gn-object-info {
+  position: relative;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+}
+
+body[data-ui-version='v2'] .gn-object-info-loading-dot {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gn-accent, #15803d);
+  animation: gn-object-info-pulse 1s ease-in-out infinite;
+}
+
+@keyframes gn-object-info-pulse {
+  50% { opacity: 0.35; }
+}
+
+body[data-ui-version='v2'] .gn-object-info-empty {
+  padding: 18px 14px;
+  font-size: 12px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  text-align: center;
+}
+
+body[data-ui-version='v2'] .gn-object-info-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body[data-ui-version='v2'] .gn-object-info-head-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--gn-font-mono, monospace);
+  color: var(--gn-fg-1, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version='v2'] .gn-object-info-reload {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+body[data-ui-version='v2'] .gn-object-info-reload:hover {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+  color: var(--gn-fg-1, inherit);
+}
+
+body[data-ui-version='v2'] .gn-object-info-meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version='v2'] .gn-object-info-unsupported {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+body[data-ui-version='v2'] .gn-object-info-rows {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-ui-version='v2'] .gn-object-info-row {
+  display: flex;
+  gap: 8px;
+  padding: 2.5px 0;
+  line-height: 1.5;
+}
+
+body[data-ui-version='v2'] .gn-object-info-row-label {
+  flex: 0 0 96px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version='v2'] .gn-object-info-row-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--gn-font-mono, monospace);
+  color: var(--gn-fg-1, inherit);
+  word-break: break-all;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl {
+  margin-top: 8px;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--gn-fg-2, inherit);
+  margin-bottom: 4px;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl-body {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+  border-radius: 6px;
+  background: var(--gn-monaco-bg, var(--gn-bg-panel-2, transparent));
+  font-family: var(--gn-font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--gn-fg-2, inherit);
+  white-space: pre;
+}

@@ -93,6 +93,8 @@ export const useAppLayoutEffects = ({
   handleTitleBarWindowToggle, handleManualResetWindowZoom, setCapturingShortcutAction, t,
   updateShortcut,
 }: UseAppLayoutEffectsInput) => {
+  // 界面布局主题（classic / navicat）：单字段订阅，供首帧 body 属性使用。
+  const uiLayoutMode = useStore((state) => state.appearance.uiLayoutMode);
   // Apply the document theme before the first paint. V2 structural styles are
   // scoped by data-ui-version; a passive effect leaves one unstyled titlebar
   // frame where the centered context and its marker collapse into the legacy
@@ -103,6 +105,7 @@ export const useAppLayoutEffects = ({
     document.documentElement.style.colorScheme = darkMode ? 'dark' : 'light';
     document.body.setAttribute('data-theme', darkMode ? 'dark' : 'light');
     document.body.setAttribute('data-ui-version', 'v2');
+    document.body.setAttribute('data-ui-layout', uiLayoutMode === 'navicat' ? 'navicat' : 'classic');
     document.body.setAttribute('data-platform', documentPlatform);
     document.body.style.fontSize = `${effectiveFontSize}px`;
     document.body.style.setProperty('--gn-font-sans', resolvedUiFontFamily);
@@ -135,6 +138,7 @@ export const useAppLayoutEffects = ({
     effectiveUiScale,
     tokenControlHeight,
     tokenControlHeightSM,
+    uiLayoutMode,
   ]);
 
   // 低配档位 / 减少动画：单字段 selector 订阅，避免外观对象其它字段变化时连带重渲染整个根组件。

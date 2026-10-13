@@ -115,6 +115,7 @@ export interface TabData {
   sidebarLocateKey?: string; // Precise sidebar tree key for locating an object node
   savedQueryId?: string; // Saved query identity for quick-save behavior
   objectType?: 'table' | 'view' | 'materialized-view'; // Table-like object type for shared viewers
+  overviewKind?: 'views' | 'routines' | 'events'; // Object list kind for object-overview tabs (tables reuse table-overview)
   exportWorkbenchMode?: 'single' | 'batch-tables' | 'batch-databases' | 'batch-connections' | 'database' | 'schema';
   dataSyncEntryMode?: 'sync' | 'compare' | 'schemaCompare' | 'dataCompare';
   dataSyncFocusTaskId?: string;

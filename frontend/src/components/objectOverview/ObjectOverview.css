@@ -1,0 +1,168 @@
+/*
+ * 「视图 / 函数」对象列表页样式。
+ *
+ * 复用工作台既有 token（--gn-bg-* / --gn-fg-* / --gn-br-*），与
+ * TableOverview 的视觉口径一致：面板底色 + 0.5px 发丝分割线。
+ */
+
+body[data-ui-version='v2'] .gn-object-overview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--gn-bg-panel, transparent);
+}
+
+body[data-ui-version='v2'] .gn-object-overview-loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  flex-shrink: 0;
+  border-bottom: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+}
+
+body[data-ui-version='v2'] .gn-object-overview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--gn-accent-soft, rgba(21, 128, 61, 0.12));
+  color: var(--gn-accent, #15803d);
+  font-size: 14px;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-fg-1, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-summary {
+  font-size: 12px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  white-space: nowrap;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-spacer {
+  flex: 1;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-header .ant-input-affix-wrapper {
+  width: 240px;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-refresh {
+  font-size: 16px;
+  color: var(--gn-fg-2, inherit);
+  cursor: pointer;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 16px;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 920px;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: default;
+  outline: none;
+  color: var(--gn-fg-1, inherit);
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row:hover,
+body[data-ui-version='v2'] .gn-object-overview-row:focus-visible {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row.is-selected {
+  background: var(--gn-bg-selected, rgba(21, 128, 61, 0.1));
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  font-size: 13px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-family: var(--gn-font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row-type {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  background: var(--gn-accent-soft, rgba(21, 128, 61, 0.12));
+  color: var(--gn-accent, #15803d);
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row-type.is-procedure {
+  background: var(--gn-info-soft, rgba(37, 99, 235, 0.12));
+  color: var(--gn-info, #2563eb);
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row-copy {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  opacity: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row:hover .gn-object-overview-row-copy,
+body[data-ui-version='v2'] .gn-object-overview-row-copy:focus-visible {
+  opacity: 1;
+}
+
+body[data-ui-version='v2'] .gn-object-overview-row-copy:hover {
+  color: var(--gn-fg-1, inherit);
+}
+
+body[data-ui-version='v2'] .gn-object-overview-missing-connection {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--gn-warn, #b45309);
+  border-top: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+}

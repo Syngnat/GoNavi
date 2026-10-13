@@ -67,6 +67,8 @@ export type TableDoubleClickAction = "open-data" | "open-design";
 export type QueryTableCtrlClickAction = "open-design" | "locate";
 export type ThemeMode = "light" | "dark";
 export type ThemePreference = ThemeMode | "system";
+/** 界面布局主题：classic = 现有样式；navicat = Navicat 风格布局与配色（独立开关，不影响 classic）。 */
+export type UiLayoutMode = "classic" | "navicat";
 /** AI 聊天默认打开形态：侧栏 / 独立浮动窗 */
 export type AIChatOpenMode = "dock" | "detached";
 
@@ -75,6 +77,8 @@ export interface AppearanceSettings
   enabled: boolean;
   opacity: number;
   blur: number;
+  /** 界面布局主题：Navicat 风格只在 navicat 下生效，classic 保持既有样式。 */
+  uiLayoutMode: UiLayoutMode;
   /**
    * 低配适配模式三态：null = 跟随运行时能力自动检测，true / false = 用户显式固定。
    * 保留 null 才能让「自动」与「用户关掉」区分开，否则自动检测永远失效。
@@ -243,6 +247,17 @@ export interface AppState {
   aiPanelVisible: boolean;
   /** AI 面板停靠宽度：拖拽后记住，重启保持。 */
   aiPanelWidth: number;
+  /** 侧栏底部「对象 / 信息」面板（Navicat 格局）：显隐、高度与活动页签，均持久化。 */
+  infoPanelVisible: boolean;
+  sideInfoPanelHeight: number;
+  sideInfoPanelActiveTab: 'objects' | 'info';
+  setInfoPanelVisible: (visible: boolean) => void;
+  /** Navicat 布局：侧栏「外部 SQL 文件」根节点按需显示（会话级，不持久化）。 */
+  sidebarExternalSqlVisible: boolean;
+  toggleSidebarExternalSqlVisible: () => void;
+  toggleInfoPanel: () => void;
+  setSideInfoPanelHeight: (height: number) => void;
+  setSideInfoPanelActiveTab: (tab: 'objects' | 'info') => void;
   /** 打开 AI 时的默认形态：侧栏 dock 或独立窗口 detached（持久化） */
   aiChatOpenMode: AIChatOpenMode;
   aiChatHistory: Record<string, AIChatMessage[]>; // sessionId -> messages

@@ -14,6 +14,10 @@ import { DEFAULT_QUERY_EDITOR_EDITOR_HEIGHT_RATIO } from "../utils/queryEditorSp
 import { cloneShortcutOptions, DEFAULT_SHORTCUT_OPTIONS } from "../utils/shortcuts";
 import { DEFAULT_SQL_SNIPPETS } from "../utils/sqlSnippetDefaults";
 import { DEFAULT_AI_PANEL_WIDTH } from "../utils/aiPanelLayout";
+import {
+  DEFAULT_SIDE_INFO_PANEL_HEIGHT,
+  type SideInfoPanelTab,
+} from "../utils/infoPanelLayout";
 import type { AIChatOpenMode } from "./storeStateTypes";
 import type { AppState } from "./storeStateTypes";
 import type { StoreGet, StoreSet } from "./storeSliceTypes";
@@ -31,6 +35,10 @@ export type InitialStateSliceState = Pick<AppState,
   | 'aiChatDetachedBoundsMemory'
   | 'activeTabId'
   | 'activeContext'
+  | 'infoPanelVisible'
+  | 'sideInfoPanelHeight'
+  | 'sideInfoPanelActiveTab'
+  | 'sidebarExternalSqlVisible'
   | 'savedQueries'
   | 'savedQueryGroups'
   | 'externalSQLDirectories'
@@ -155,6 +163,10 @@ export const createInitialStateSlice = (_set: StoreSet, _get: StoreGet): Initial
   windowState: "normal" as const,
   sidebarWidth: 330,
   aiPanelWidth: DEFAULT_AI_PANEL_WIDTH,
+  infoPanelVisible: true,
+  sideInfoPanelHeight: DEFAULT_SIDE_INFO_PANEL_HEIGHT,
+  sideInfoPanelActiveTab: "objects" as SideInfoPanelTab,
+  sidebarExternalSqlVisible: false,
 
   // AI 运行状态
   aiPanelVisible: false,

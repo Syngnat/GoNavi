@@ -26,6 +26,8 @@ export interface TitleBarActionRowProps {
   onToggleAI: () => void;
   /** 跟在 AI 之后的槽位（macOS 的驱动管理 / 关于），非 macOS 不传。 */
   trailingSlot?: React.ReactNode;
+  /** 工具条形态下的「对象类」按钮组（表 / 视图 / 函数 │ 查询 / 备份），标题栏内联形态不渲染。 */
+  objectActions?: React.ReactNode;
 }
 
 /**
@@ -49,6 +51,7 @@ export default function TitleBarActionRow({
   aiActive,
   onToggleAI,
   trailingSlot,
+  objectActions,
 }: TitleBarActionRowProps) {
   const { t } = useI18n();
   const inline = placement === 'titlebar';
@@ -70,6 +73,7 @@ export default function TitleBarActionRow({
         onConnectionGroupManagement={onManageConnectionGroups}
         shortLabels={shortLabels}
       />
+      {!inline && objectActions}
       <div id={TITLEBAR_QUICK_ACTIONS_SLOT_ID} className="gonavi-titlebar-quick-actions-slot" />
       <TitleBarToolBarAiAction
         label={t('app.titlebar.toolbar.ai')}

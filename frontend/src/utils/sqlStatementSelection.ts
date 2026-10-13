@@ -1,5 +1,3 @@
-import { findMysqlDelimiterStatementRanges, textHasMysqlDelimiterDirective } from './sqlMysqlDelimiter';
-
 export interface SqlStatementRange {
   start: number;
   end: number;
@@ -414,9 +412,6 @@ const trimStatementRange = (sql: string, start: number, end: number, dbType = ''
 
 export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRange[] => {
   const text = String(sql || '').replace(/\r\n/g, '\n');
-  if (textHasMysqlDelimiterDirective(dbType, text)) {
-    return findMysqlDelimiterStatementRanges(text, (start, end) => trimStatementRange(text, start, end, dbType));
-  }
   const ranges: SqlStatementRange[] = [];
   const bracketIdentifiers = supportsSqlBracketIdentifier(dbType);
   const escapedBracketIdentifiers = supportsSqlEscapedBracketIdentifier(dbType);

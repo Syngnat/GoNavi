@@ -178,7 +178,9 @@ export const useAppShellState = ({
       sidebarContentRef,
       sidebarExplorerToggleRef,
   } = useAppSidebarCollapse(shouldDockCollapsedSidebarActionsInTitlebar);
-  const titleBarActionsInline = appearance.titlebarActionsPlacement === 'titlebar'; // 功能入口行：默认工具条，可切到 GoNavi 右侧
+  // Navicat 布局强制独立工具条；classic 尊重用户摆放设置（默认标题栏内联）。
+  const titleBarActionsInline = appearance.uiLayoutMode !== 'navicat'
+      && appearance.titlebarActionsPlacement === 'titlebar'; // 功能入口行：可切到 GoNavi 右侧
   // 内联形态下工具条常驻标题栏第二行；独立工具条形态下改放在工具条下方，标题栏不再预留第二行。
   const dockActionsInTitlebarBand = shouldDockCollapsedSidebarActionsInTitlebar && titleBarActionsInline;
   const titleBarLayout = resolveTitleBarLayout(

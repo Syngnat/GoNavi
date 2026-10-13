@@ -16,7 +16,6 @@ import {
     shouldUseSqlEditorManagedTransactionForType, isSqlEditorSchemaChangingStatement,
 } from '../../../utils/sqlEditorTransaction';
 import { isOracleLikeDialect } from '../../../utils/sqlDialect';
-import { textHasMysqlDelimiterDirective } from '../../../utils/sqlMysqlDelimiter';
 import {
     type QueryEditorMetadataRequestSnapshot, invalidateQueryEditorHoverDdlCacheForConnection,
 } from '../queryEditorHoverDdl';
@@ -303,11 +302,8 @@ export const runQueryEditorSqlStatements = async ({
 
     // 自动给 SELECT 语句注入行数限制（防止大结果集卡死）
     const maxRowsForLimit = Number(queryOptions?.maxRows) || 0;
-    // 含 DELIMITER 的 MySQL 脚本必须原文下发：按分号重新拼接会丢掉过程体依赖的结束符。
-    const shouldPreserveMysqlDelimiterScript = textHasMysqlDelimiterDirective(normalizedDbType, normalizedRawSQL);
     let anyLimitApplied = false;
     const executablePlans = statementPlans.map((plan) => {
-        if (shouldPreserveMysqlDelimiterScript) return plan;
         if (!Number.isFinite(maxRowsForLimit) || maxRowsForLimit <= 0) return plan;
         const result = applyQueryAutoLimit(plan.executedSql, normalizedDbType, maxRowsForLimit, driver);
         if (result.applied) anyLimitApplied = true;
@@ -317,9 +313,7 @@ export const runQueryEditorSqlStatements = async ({
     const shouldPreserveOraclePlsqlBatch = isOracleLikeDialect(normalizedDbType) && containsOraclePlsqlDefinition(sourceStatements);
     const fullSQL = shouldPreserveOraclePlsqlBatch
         ? normalizeOracleSqlPlusSlashTerminators(normalizedRawSQL)
-        : shouldPreserveMysqlDelimiterScript
-            ? normalizedRawSQL
-            : executableStatements.join(';\n');
+        : executableStatements.join(';\n');
     recordExecutionOrigin(currentQuery, executableSQL, fullSQL, executablePlans);
 
     // 运行时绑定参数门控：以刚要执行的 SQL 做权威分析。

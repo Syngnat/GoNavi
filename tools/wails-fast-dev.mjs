@@ -101,6 +101,13 @@ const child = spawn(wailsCommand, [...fastArgs, ...passThroughArgs], {
   stdio: 'inherit',
 });
 
+// 后台预热 dev server 的模块图：避免 WKWebView 首载并发拉模块时撞上
+// vite 冷转换期的瞬时 502（「Importing a module script failed」）。
+if (!dryRun && !process.env.GONAVI_FAST_DEV_SKIP_WARMUP) {
+  const { warmupWailsDevServer } = await import('./wailsDevWarmup.mjs');
+  void warmupWailsDevServer(devServerUrl.startsWith('http') ? devServerUrl : 'http://localhost:34115');
+}
+
 child.on('exit', (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal);

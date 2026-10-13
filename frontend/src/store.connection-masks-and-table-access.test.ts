@@ -819,7 +819,7 @@ describe('store appearance persistence', () => {
     )).toEqual(legacyTag?.childOrder);
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(21);
+    expect(persisted.version).toBe(22);
     expect(persisted.state.connectionTags[0].childOrder).toEqual([
       'connection:conn-a',
       'connection:conn-b',

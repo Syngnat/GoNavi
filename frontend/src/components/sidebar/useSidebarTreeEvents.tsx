@@ -35,6 +35,8 @@ import type { SidebarTreeViewStateApi } from './useSidebarTreeViewState';
 import type { SidebarTitlebarSyncApi } from './useSidebarTitlebarSync';
 import { isElasticsearchFamilyType } from '../../utils/elasticsearchFamily';
 import { prefetchTableOpenMetadata } from '../../utils/tableOpenPrefetch';
+import { openObjectOverview } from '../objectOverview/objectOverviewActions';
+import { useStore } from '../../store';
 
 export interface UseSidebarTreeEventsInput {
   loadDatabases: ReturnType<typeof useSidebarTreeLoaders>['loadDatabases'];
@@ -90,6 +92,8 @@ export const useSidebarTreeEvents = ({
   tableDoubleClickAction, resolveSavedQueryDisplayName, openExternalSQLFile, openJVMOverviewTab,
   openJVMResourceTab, openJVMMonitoringTab, openJVMDiagnosticTab, expandedKeys,
 }: UseSidebarTreeEventsInput) => {
+  // Navicat 布局开关：双击库/Schema 打开表预览等行为只在 navicat 模式生效。
+  const navicatLayout = useStore(state => state.appearance.uiLayoutMode === 'navicat');
   const onLoadData = async ({ key, children, dataRef, type }: any) => {
     if (type === 'tag' || type === 'all-saved-queries' || type === 'saved-query-group' || type === 'saved-query-manual-group' || type === 'unmatched-saved-queries') return;
     if (hasSidebarLazyChildren(children)) return;
@@ -307,23 +311,18 @@ export const useSidebarTreeEvents = ({
       else if (type === 'folder-indexes') openDesign(info.node, 'indexes', false);
       else if (type === 'folder-fks') openDesign(info.node, 'foreignKeys', false);
       else if (type === 'folder-triggers') openDesign(info.node, 'triggers', false);
-      else if (type === 'object-group' && dataRef?.groupKey === 'tables') {
-          // 单击延迟打开表概览，双击时会取消此定时器
+      else if (type === 'object-group' && (dataRef?.groupKey === 'tables' || dataRef?.groupKey === 'views' || dataRef?.groupKey === 'routines' || dataRef?.groupKey === 'events')) {
+          // 单击延迟打开对象列表（表/视图/函数），双击时会取消此定时器
           if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
           const { id, dbName: gDbName, schemaName } = dataRef;
+          const overviewKind = dataRef.groupKey;
           clickTimerRef.current = setTimeout(() => {
               clickTimerRef.current = null;
-              addTab({
-                  id: `table-overview-${id}-${gDbName}${schemaName ? `-${schemaName}` : ''}`,
-                  title: t('sidebar.tab.table_overview', {
-                      database: gDbName,
-                      schema: schemaName ? ` (${schemaName})` : '',
-                  }),
-                  type: 'table-overview' as any,
+              openObjectOverview(addTab, overviewKind, {
                   connectionId: id,
                   dbName: gDbName,
-                  schemaName,
-              } as any);
+                  schemaName: schemaName || undefined,
+              });
           }, 250);
       } else if (openSidebarObjectNode(info.node)) {
           return;
@@ -419,6 +418,20 @@ export const useSidebarTreeEvents = ({
           setActiveContext({
               connectionId: dataRef.id,
               dbName: dataRef.nacosNamespaceName || dataRef.nacosNamespaceId || 'public',
+          });
+      }
+
+      // Navicat 布局：双击数据库 / Schema 节点时，主区直接打开该库的表对象预览页。
+      // 树的展开切换保持原行为；表是否为空由预览页自身的空态呈现。
+      if (
+          navicatLayout
+          && (type === 'database'
+              || (type === 'object-group' && dataRef?.groupKey === 'schema'))
+      ) {
+          openObjectOverview(addTab, 'tables', {
+              connectionId: nodeConnectionId || dataRef.id,
+              dbName: dataRef.dbName,
+              schemaName: String(dataRef.schemaName || '').trim() || undefined,
           });
       }
 

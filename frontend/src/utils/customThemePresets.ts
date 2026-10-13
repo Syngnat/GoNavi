@@ -654,6 +654,25 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
   ),
 
   createPreset(
+    'builtin-navicat-classic',
+    'Navicat Classic',
+    'app.theme.custom.preset.navicat_classic.name',
+    'app.theme.custom.preset.navicat_classic.description',
+    {
+      mode: 'light', app: '#f0f0f3', chrome: '#f2f2f5', panel: '#ffffff', panel2: '#f6f6f8', input: '#ffffff',
+      hover: 'rgba(38, 38, 43, 0.055)', active: 'rgba(38, 38, 43, 0.09)', selected: 'rgba(43, 111, 216, 0.14)',
+      fg1: '#26262b', fg2: '#45454e', fg3: '#5f5f68', fg4: '#6f6f78', fg5: '#6a6a72',
+      border1: 'rgba(38, 38, 43, 0.09)', border2: 'rgba(38, 38, 43, 0.14)', border3: 'rgba(38, 38, 43, 0.22)',
+      accent: '#2868cc', accent2: '#235ec2', accentSoft: '#e9f1fc', accentSoftHover: '#dbe8fa', accentOutline: 'rgba(43, 111, 216, 0.30)', onAccent: '#ffffff',
+      info: '#3572a4', infoSoft: '#ddeaf4', onInfo: '#ffffff', warn: '#8a5a10', warnSoft: '#f6ead6', danger: '#c9463a', dangerStrong: '#b03a30', dangerHover: '#a93327', onDanger: '#ffffff', purple: '#8a4fb5', purpleSoft: '#f0e6f8',
+      shadowSm: '0 1px 2px rgba(38, 38, 43, 0.06)', shadowMd: '0 4px 14px rgba(38, 38, 43, 0.09)', shadowLg: '0 12px 36px rgba(38, 38, 43, 0.15)', shadowCard: '0 0 0 0.5px rgba(38, 38, 43, 0.10), 0 1px 3px rgba(38, 38, 43, 0.06)',
+      kbdBg: '#e3e3e8', kbdFg: '#45454e',
+      icons: { primary: '#4f8ef7', accent: '#e8862f', badge: '#28c840', warm: '#f59e0b' },
+    },
+    'app.theme.custom.preset.badge.recommended',
+  ),
+
+  createPreset(
     'builtin-amber-ember',
     'Amber Ember',
     'app.theme.custom.preset.amber_ember.name',

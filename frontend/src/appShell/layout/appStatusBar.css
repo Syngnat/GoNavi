@@ -1,0 +1,111 @@
+/*
+ * 底部全局状态栏。高度对齐 DataGrid 状态栏的 26px 契约
+ * （--gn-v2-statusbar-control-height），表面用 chrome 色 + 顶部分割线。
+ */
+
+body[data-ui-version='v2'] .gn-app-statusbar {
+  --gn-app-statusbar-height: calc(var(--gn-v2-statusbar-control-height, 26px) * var(--gn-ui-scale, 1));
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  height: var(--gn-app-statusbar-height);
+  padding: 0 calc(10px * var(--gn-ui-scale, 1));
+  background: var(--gn-bg-chrome, var(--gn-bg-panel-2));
+  border-top: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  font-size: var(--gn-font-size-xs, 11px);
+  line-height: 1.2;
+  user-select: none;
+  overflow: hidden;
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gn-fg-4, rgba(100, 116, 139, 0.6));
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-dot.is-on {
+  background: var(--gn-status-connected, #37c26f);
+  box-shadow: 0 0 0 2px rgba(55, 194, 111, 0.18);
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-context-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+  color: var(--gn-fg-2, inherit);
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-context-text.is-placeholder {
+  color: var(--gn-fg-4, rgba(100, 116, 139, 0.7));
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-tab {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 24vw;
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 12px;
+  background: var(--gn-br-2, rgba(15, 23, 42, 0.12));
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: calc(20px * var(--gn-ui-scale, 1));
+  padding: 0 calc(7px * var(--gn-ui-scale, 1));
+  border: none;
+  border-radius: calc(6px * var(--gn-ui-scale, 1));
+  background: transparent;
+  color: var(--gn-fg-3, inherit);
+  font: inherit;
+  font-size: var(--gn-font-size-xs, 11px);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-action:hover,
+body[data-ui-version='v2'] .gn-app-statusbar-action:focus-visible {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+  color: var(--gn-fg-1, inherit);
+  outline: none;
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-action.is-active {
+  background: var(--gn-accent-soft, rgba(21, 128, 61, 0.12));
+  color: var(--gn-accent, #15803d);
+}
+
+body[data-ui-version='v2'] .gn-app-statusbar-version {
+  white-space: nowrap;
+  color: var(--gn-fg-4, rgba(100, 116, 139, 0.7));
+  font-family: var(--gn-font-mono, monospace);
+}

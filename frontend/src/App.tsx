@@ -12,6 +12,7 @@ import { getAntdLocale } from './i18n/frameworkLocale';
 import './App.css';
 import './v2-theme.css';
 import './styles/v2-theme-workbench.css';
+import './styles/navicatTheme.css';
 import './styles/v2-theme-ai.css';
 import { type ToolCenterGroupKey } from './appShell/settingsCenterPanes';
 import { useAppCoreState } from './appShell/hooks/useAppCoreState';
@@ -40,6 +41,9 @@ import { renderAppSettingsCenterModal } from './appShell/settings/renderAppSetti
 import { AppTitleBar } from './appShell/layout/AppTitleBar';
 import { AppSider } from './appShell/layout/AppSider';
 import { AppContent } from './appShell/layout/AppContent';
+import { AppStatusBar } from './appShell/layout/AppStatusBar';
+import LinuxResizeHandles from './appShell/layout/LinuxResizeHandles';
+import AppLogPanelResizeGhost from './appShell/layout/AppLogPanelResizeGhost';
 import { AppGlobalDialogs } from './appShell/layout/AppGlobalDialogs';
 
 function App() {
@@ -529,6 +533,7 @@ function App() {
              registerAIPanelTerminalGuard={registerAIPanelTerminalGuard}
            />
           </Layout>
+          <AppStatusBar isLogPanelOpen={isLogPanelOpen} onToggleLogPanel={handleToggleLogPanel} />
           {isConnectionModalMounted && (
           <ConnectionModal
             open={isModalOpen}
@@ -614,18 +619,7 @@ function App() {
           />
 
           {showLinuxResizeHandles && (
-              <>
-                  {/* Linux Mint 下 frameless 仅局部可缩放：补四边四角命中层 */}
-                  <div style={{ ...linuxResizeHandleStyleBase, top: 0, left: 14, right: 14, height: 6, cursor: 'ns-resize' }} />
-                  <div style={{ ...linuxResizeHandleStyleBase, bottom: 0, left: 14, right: 14, height: 6, cursor: 'ns-resize' }} />
-                  <div style={{ ...linuxResizeHandleStyleBase, top: 14, bottom: 14, left: 0, width: 6, cursor: 'ew-resize' }} />
-                  <div style={{ ...linuxResizeHandleStyleBase, top: 14, bottom: 14, right: 0, width: 6, cursor: 'ew-resize' }} />
-
-                  <div style={{ ...linuxResizeHandleStyleBase, top: 0, left: 0, width: 14, height: 14, cursor: 'nwse-resize' }} />
-                  <div style={{ ...linuxResizeHandleStyleBase, top: 0, right: 0, width: 14, height: 14, cursor: 'nesw-resize' }} />
-                  <div style={{ ...linuxResizeHandleStyleBase, bottom: 0, left: 0, width: 14, height: 14, cursor: 'nesw-resize' }} />
-                  <div style={{ ...linuxResizeHandleStyleBase, bottom: 0, right: 0, width: 14, height: 14, cursor: 'nwse-resize' }} />
-              </>
+              <LinuxResizeHandles visible={showLinuxResizeHandles} styleBase={linuxResizeHandleStyleBase} />
           )}
 
           <ConnectionGroupManagementModal
@@ -641,20 +635,7 @@ function App() {
           />
 
           {/* Ghost Resize Line for Log Panel */}
-          <div
-              ref={logGhostRef}
-              style={{
-                  position: 'fixed',
-                  left: renderedSidebarWidth, // Start from the rendered sidebar edge
-                  right: 0,
-                  height: '4px',
-                  background: resizeGuideColor,
-                  zIndex: 9999,
-                  pointerEvents: 'none',
-                  display: 'none',
-                  cursor: 'row-resize'
-              }}
-          />
+          <AppLogPanelResizeGhost ghostRef={logGhostRef} left={renderedSidebarWidth} guideColor={resizeGuideColor} />
         </Layout>
     </ConfigProvider>
   );

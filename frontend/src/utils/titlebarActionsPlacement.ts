@@ -31,7 +31,8 @@ export interface TitlebarActionsPlacementSettings {
 
 /**
  * 新用户（本地没有任何配置）的默认值：标题栏 GoNavi 右侧 + 图标 + 精简名称。
- * 首次启动时持久化层拿不到 appearance，直接使用这里的默认外观。
+ * Navicat 布局模式（appearance.uiLayoutMode='navicat'）在渲染层强制独立工具条，
+ * 不改这里的持久化默认值。
  */
 export const DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS: TitlebarActionsPlacementSettings = {
   titlebarActionsPlacement: 'titlebar',

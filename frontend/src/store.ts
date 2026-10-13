@@ -21,6 +21,7 @@ import { normalizeSavedQueryGroups } from "./utils/savedQueryGroups";
 import { clearQueryTabDraft } from "./utils/sqlFileTabDrafts";
 import { DEFAULT_QUERY_EDITOR_EDITOR_HEIGHT_RATIO } from "./utils/queryEditorSplitLayout";
 import { sanitizeSidebarWidth } from "./utils/sidebarLayout";
+import { sanitizeSideInfoPanelHeight, sanitizeSideInfoPanelTab } from "./utils/infoPanelLayout";
 import {
   DEFAULT_AI_PANEL_WIDTH,
   sanitizeAIPanelWidth,
@@ -145,6 +146,7 @@ import { createSavedQuerySlice } from "./store/savedQuerySlice";
 import { createPreferenceSlice } from "./store/preferenceSlice";
 import { createTableMemorySlice } from "./store/tableMemorySlice";
 import { createAIPanelSlice } from "./store/aiPanelSlice";
+import { createInfoPanelSlice } from "./store/infoPanelSlice";
 import { createJvmDiagnosticSlice } from "./store/jvmDiagnosticSlice";
 export type {
   AIChatSessionSummary,
@@ -201,6 +203,7 @@ export const useStore = create<AppState>()(
       ...createPreferenceSlice(set, get),
       ...createTableMemorySlice(set, get),
       ...createAIPanelSlice(set, get),
+      ...createInfoPanelSlice(set, get),
       ...createJvmDiagnosticSlice(set, get),
     }),
     {
@@ -223,15 +226,10 @@ export const useStore = create<AppState>()(
         const safeTabs = sanitizeQueryTabs(state.tabs);
         nextState.tabs = safeTabs;
         nextState.activeTabId = sanitizeActiveTabId(state.activeTabId, safeTabs);
-        if (version < 5) {
-          nextState.connectionTags = sanitizeConnectionTags(
-            state.connectionTags,
-          );
-        } else {
-          nextState.connectionTags = sanitizeConnectionTags(
-            state.connectionTags,
-          );
-        }
+        // connectionTags 的新老迁移路径一致，历史 if/else 两个分支早已相同。
+        nextState.connectionTags = sanitizeConnectionTags(
+          state.connectionTags,
+        );
         nextState.sidebarRootOrder = resolveHydratedSidebarRootOrderTokens(
           state.sidebarRootOrder,
           state.connectionTags === undefined ? undefined : nextState.connectionTags,
@@ -451,6 +449,9 @@ export const useStore = create<AppState>()(
           windowState: sanitizeWindowState(state.windowState),
           sidebarWidth: sanitizeSidebarWidth(state.sidebarWidth),
           aiPanelWidth: sanitizeAIPanelWidth(state.aiPanelWidth),
+          infoPanelVisible: state.infoPanelVisible !== false,
+          sideInfoPanelHeight: sanitizeSideInfoPanelHeight(state.sideInfoPanelHeight),
+          sideInfoPanelActiveTab: sanitizeSideInfoPanelTab(state.sideInfoPanelActiveTab),
           aiChatOpenMode: sanitizeAIChatOpenMode(state.aiChatOpenMode),
           aiChatDetachedBoundsMemory: sanitizeAIChatDetachedBoundsMemory(
             state.aiChatDetachedBoundsMemory,

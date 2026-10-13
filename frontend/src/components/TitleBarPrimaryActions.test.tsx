@@ -214,7 +214,7 @@ describe('TitleBarPrimaryActions', () => {
     const actions = renderer.root.findByProps({ 'data-titlebar-primary-actions': 'true' });
     const buttons = actions.findAllByType('button');
     expect(actions.props['data-no-titlebar-toggle']).toBe('true');
-    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['新建连接', '新建查询', '管理连接分组']);
+    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['新建连接', '管理连接分组', '新建查询']);
     expect(buttons.map((button) => button.props.className)).toEqual([
       'gonavi-titlebar-primary-action',
       'gonavi-titlebar-primary-action',
@@ -224,12 +224,12 @@ describe('TitleBarPrimaryActions', () => {
     // 标题栏纯图标模式只能靠悬浮提示识别，「管理连接分组」同样带完整名称。
     expect(buttons.map((button) => button.props.title)).toEqual([
       '新建连接 · ⌘⇧N',
-      '新建查询 · ⌘N',
       '管理连接分组',
+      '新建查询 · ⌘N',
     ]);
     // 按钮内容是 [图标, 文案] 两段，文案永远是最后一个子节点。
     expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-label' })[0].children))
-      .toEqual([['新建连接'], ['新建查询'], ['管理连接分组']]);
+      .toEqual([['新建连接'], ['管理连接分组'], ['新建查询']]);
     expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-icon' }))).toHaveLength(3);
 
     buttons[0].props.onClick();
@@ -278,7 +278,7 @@ describe('TitleBarPrimaryActions', () => {
     expect(buttons.flatMap((button) => button.findAllByProps({ 'data-titlebar-icon': 'true' }))).toHaveLength(0);
     expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-icon' }))).toHaveLength(3);
     expect(buttons.map((button) => button.findAllByProps({ className: 'gn-titlebar-toolbar-item-label' })[0].children))
-      .toEqual([['新建连接'], ['消息工作台'], ['管理连接分组']]);
+      .toEqual([['新建连接'], ['管理连接分组'], ['消息工作台']]);
   });
 
   it('uses current platform custom bindings and hides disabled shortcuts', () => {

@@ -42,7 +42,81 @@ export const resolveSize = (size?: number | string): number | string => size ?? 
 export const AI_SPARK_MAJOR_PATH = 'M11.4 3.2 12.9 8.1 17.8 9.6 12.9 11.1 11.4 16 9.9 11.1 5 9.6 9.9 8.1Z';
 export const AI_SPARK_MINOR_PATH = 'M18.1 14.4 18.85 16.75 21.2 17.5 18.85 18.25 18.1 20.6 17.35 18.25 15 17.5 17.35 16.75Z';
 
-/** 插头（新建连接）：斜置插头本体 + 左下引线 + 右下绿色加号角标。 */
+/** 新建连接（Navicat 线稿）：圆柱 + 加号角标。 */
+export function TitlebarPlugLineIcon({ size, className }: GonaviTitlebarIconProps) {
+  const primary = GONAVI_TITLEBAR_ICON_COLORS.primary;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={resolveSize(size)}
+      height={resolveSize(size)}
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke={primary}
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <ellipse cx="7.2" cy="3.6" rx="5" ry="1.8" />
+      <path d="M2.2 3.6v8.6c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V3.6" />
+      <path d="M2.2 7.9c0 1 2.2 1.8 5 1.8s5-.8 5-1.8" opacity=".55" />
+      <path d="M12.6 9.4v4.4M10.4 11.6h4.4" style={{ stroke: GONAVI_TITLEBAR_ICON_COLORS.badge }} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** 新建查询（Navicat 线稿）：终端框（>_ 提示符）。 */
+export function TitlebarGridLineIcon({ size, className }: GonaviTitlebarIconProps) {
+  const primary = GONAVI_TITLEBAR_ICON_COLORS.primary;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={resolveSize(size)}
+      height={resolveSize(size)}
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke={primary}
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.4" />
+      <path d="M4.2 6.1 6.6 8 4.2 9.9" />
+      <path d="M8.3 10.3h3.6" />
+    </svg>
+  );
+}
+
+/** 数据库柱体（Navicat 线稿）：三层堆叠圆柱。 */
+export function TitlebarDatabaseLineIcon({ size, className }: GonaviTitlebarIconProps) {
+  const primary = GONAVI_TITLEBAR_ICON_COLORS.primary;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={resolveSize(size)}
+      height={resolveSize(size)}
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke={primary}
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <ellipse cx="8" cy="3.6" rx="5.6" ry="2.1" />
+      <path d="M2.4 3.6v8.9c0 1.1 2.5 2.1 5.6 2.1s5.6-1 5.6-2.1V3.6" />
+      <path d="M2.4 8.1c0 1.1 2.5 2.1 5.6 2.1s5.6-1 5.6-2.1" opacity=".55" />
+    </svg>
+  );
+}
+
+
+/** 插头（新建连接，classic 默认）：斜置插头本体 + 左下引线 + 右下绿色加号角标。 */
 export function TitlebarPlugIcon({ size, className }: GonaviTitlebarIconProps) {
   return (
     <svg
@@ -53,7 +127,6 @@ export function TitlebarPlugIcon({ size, className }: GonaviTitlebarIconProps) {
       aria-hidden="true"
       focusable="false"
     >
-      {/* 左下引线 */}
       <path
         d="M7.6 16.4 3.6 20.4"
         strokeWidth="2.4"
@@ -61,12 +134,10 @@ export function TitlebarPlugIcon({ size, className }: GonaviTitlebarIconProps) {
         fill="none"
         style={{ stroke: GONAVI_TITLEBAR_ICON_COLORS.primary }}
       />
-      {/* 插头本体 */}
       <path
         d="M8.4 14.2c-.9-.9-.9-2.3 0-3.2l4.3-4.3c.9-.9 2.3-.9 3.2 0l3.4 3.4c.9.9.9 2.3 0 3.2l-4.3 4.3c-.9.9-2.3.9-3.2 0z"
         style={{ fill: GONAVI_TITLEBAR_ICON_COLORS.primary }}
       />
-      {/* 插脚 */}
       <path
         d="M15.9 3.7 17.6 2m1.9 3.8L21.2 4"
         strokeWidth="2.2"
@@ -74,7 +145,6 @@ export function TitlebarPlugIcon({ size, className }: GonaviTitlebarIconProps) {
         fill="none"
         style={{ stroke: GONAVI_TITLEBAR_ICON_COLORS.primary }}
       />
-      {/* 加号角标 */}
       <circle cx="18.4" cy="18.4" r="4.4" style={{ fill: GONAVI_TITLEBAR_ICON_COLORS.badge }} />
       <path
         d="M18.4 16.4v4m-2-2h4"
@@ -132,18 +202,14 @@ export function TitlebarConnectionToolsIcon({ size, className }: GonaviTitlebarI
       aria-hidden="true"
       focusable="false"
     >
-      {/* 表头行 */}
       <rect x="2.6" y="3.4" width="18.8" height="5.2" style={{ fill: primary }} />
-      {/* 表头列 */}
       <rect x="2.6" y="3.4" width="5.4" height="14.6" style={{ fill: primary }} />
-      {/* 其余单元格：浅蓝描边 */}
       <g style={{ fill: soft }}>
         <rect x="9.6" y="10.2" width="5" height="3.2" />
         <rect x="16.2" y="10.2" width="5.2" height="3.2" />
         <rect x="9.6" y="15" width="5" height="3" />
         <rect x="16.2" y="15" width="5.2" height="3" />
       </g>
-      {/* 加号角标 */}
       <circle cx="18.6" cy="18.4" r="4.4" style={{ fill: GONAVI_TITLEBAR_ICON_COLORS.badge }} />
       <path
         d="M18.6 16.4v4m-2-2h4"
@@ -155,7 +221,7 @@ export function TitlebarConnectionToolsIcon({ size, className }: GonaviTitlebarI
   );
 }
 
-/** 数据库柱体（管理连接分组）：三层堆叠的圆柱。 */
+/** 数据库柱体（管理连接分组，classic 默认）：三层堆叠的圆柱。 */
 export function TitlebarDatabaseIcon({ size, className }: GonaviTitlebarIconProps) {
   const primary = GONAVI_TITLEBAR_ICON_COLORS.primary;
   return (
@@ -167,22 +233,18 @@ export function TitlebarDatabaseIcon({ size, className }: GonaviTitlebarIconProp
       aria-hidden="true"
       focusable="false"
     >
-      {/* 顶层：完整椭圆 + 柱身 */}
       <path
         d="M12 2.4c4 0 7.2 1.3 7.2 2.9v3.2c0 1.6-3.2 2.9-7.2 2.9S4.8 10.1 4.8 8.5V5.3c0-1.6 3.2-2.9 7.2-2.9z"
         style={{ fill: primary }}
       />
-      {/* 中段 */}
       <path
         d="M4.8 12.2c1.4 1.1 4.1 1.8 7.2 1.8s5.8-.7 7.2-1.8v3.4c0 1.6-3.2 2.9-7.2 2.9s-7.2-1.3-7.2-2.9z"
         style={{ fill: primary }}
       />
-      {/* 底段 */}
       <path
         d="M4.8 17.6c1.4 1.1 4.1 1.8 7.2 1.8s5.8-.7 7.2-1.8v2.5c0 1.6-3.2 2.9-7.2 2.9s-7.2-1.3-7.2-2.9z"
         style={{ fill: primary }}
       />
-      {/* 分段之间留白 */}
       <path d="M4.8 11.3c1.4 1.1 4.1 1.8 7.2 1.8s5.8-.7 7.2-1.8" stroke="#fff" strokeWidth="1.1" fill="none" />
       <path d="M4.8 16.7c1.4 1.1 4.1 1.8 7.2 1.8s5.8-.7 7.2-1.8" stroke="#fff" strokeWidth="1.1" fill="none" />
     </svg>

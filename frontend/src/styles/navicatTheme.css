@@ -1,0 +1,234 @@
+/*
+ * Navicat 布局主题（appearance.uiLayoutMode = 'navicat'）的全局样式层。
+ *
+ * 作用域：body[data-ui-layout='navicat'] —— classic 模式完全不受影响。
+ * 双属性选择器与暗色主题同权重，靠导入顺序（App.tsx 中在 v2-theme.css 之后）取胜，
+ * 因此 navicat 模式下以浅色 Navicat 配色为准（暗色 + navicat 的组合后续再支持）。
+ * 布局与表面沿用 Navicat 原型，但主色使用 GoNavi 品牌绿（与 classic 模式同色系）。
+ */
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] {
+  --gn-bg-app: #f0f0f3;
+  --gn-bg-chrome: #f2f2f5;
+  --gn-bg-chrome-strong: #e9e9ee;
+  --gn-bg-titlebar: #f6f6f8;
+  --gn-bg-panel: #ffffff;
+  --gn-bg-panel-2: #f6f6f8;
+  --gn-bg-input: #ffffff;
+  --gn-monaco-bg: var(--gn-bg-panel-2);
+  --gn-bg-hover: rgba(38, 38, 43, 0.055);
+  --gn-bg-active: rgba(38, 38, 43, 0.09);
+  --gn-bg-selected: rgba(22, 163, 74, 0.12);
+  --gn-fg-1: #26262b;
+  --gn-fg-2: #45454e;
+  --gn-fg-3: #5f5f68;
+  --gn-fg-4: #6f6f78;
+  --gn-fg-5: #6a6a72;
+  --gn-br-1: rgba(38, 38, 43, 0.14);
+  --gn-br-2: rgba(38, 38, 43, 0.18);
+  --gn-br-3: rgba(38, 38, 43, 0.26);
+  --gn-accent: #16a34a;
+  --gn-accent-2: #15803d;
+  --gn-accent-soft: #dcfce7;
+  --gn-on-accent: #ffffff;
+  --gn-info: #3572a4;
+  --gn-info-soft: #ddeaf4;
+  --gn-warn: #8a5a10;
+  --gn-warn-soft: #f6ead6;
+  --gn-danger-strong: #b03a30;
+  --gn-status-connected: #37c26f;
+  --gn-shadow-sm: 0 1px 2px rgba(38, 38, 43, 0.06);
+  --gn-shadow-md: 0 4px 14px rgba(38, 38, 43, 0.09);
+  --gn-shadow-lg: 0 12px 36px rgba(38, 38, 43, 0.15);
+  --gn-shadow-card: 0 0 0 0.5px rgba(38, 38, 43, 0.10), 0 1px 3px rgba(38, 38, 43, 0.06);
+}
+
+/* 窗口骨架：不透明浅色表面（去掉毛玻璃），更接近 Navicat 桌面质感。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-root {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  --gonavi-window-opacity: 1;
+}
+
+/* 侧栏资源管理器底部工具条（上下文摘要 + 搜索/定位/折叠按钮）：
+   Navicat 模式整条不展示——顶部已有搜索输入框，上下文信息由底部
+   状态栏与「信息」页签承载，原型侧栏也没有这条横带。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-explorer-actions {
+  display: none;
+}
+
+/* 侧栏面板表面。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-sider,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-sidebar-redesign {
+  background: #f6f6f8;
+}
+
+/* 主工作区表面。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .ant-layout-content {
+  background: #f0f0f3;
+}
+
+/* 空工作区：Navicat 无标签时就是一块安静的灰色画布，不展示首页引导。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-navicat-empty-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #f0f0f3;
+}
+
+/* ============================================================
+ * 主标签条（原型 wtabs 精修版）：
+ * 浅灰带 → 圆角顶灰页签 → 激活页白色 + 品牌绿顶标；
+ * 页签内部的主机/库等彩色部件统一降噪为灰阶，激活页仅图标留绿。
+ * ============================================================ */
+
+/* 带体：浅灰带，页签自顶部内边距处“立”起来 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs > .ant-tabs-nav {
+  background: #e3e3e8;
+  padding: 5px 8px 0;
+  margin: 0;
+}
+
+/* 页签：圆角顶 + 灰底，2px 间隔 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab {
+  border-radius: 8px 8px 0 0 !important;
+  background: #d9d9df;
+  border: none;
+  margin: 0 2px 0 0 !important;
+  box-shadow: none !important;
+  transition: background-color 0.12s ease;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab:hover:not(.ant-tabs-tab-active) {
+  background: #cfcfd6;
+}
+
+/* 激活页：白色 + 品牌绿顶标 + 加粗文本 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  background: #ffffff !important;
+  box-shadow: inset 0 2px 0 var(--gn-accent) !important;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab .ant-tabs-tab-btn {
+  color: #5a5a64;
+  font-size: 12px;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #26262b;
+  font-weight: 600;
+}
+
+/* 页签内部部件降噪：主机/库/分隔符统一灰阶，避免彩色碎片感 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-part-host,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-part-schema,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-part-group {
+  color: #8b8b94;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-part-database {
+  color: #7a7a83;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-separator {
+  color: #a9a9b3;
+}
+
+/* 类型图标：非激活灰、激活品牌绿 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-kind-icon {
+  color: #8b8b94;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active .gn-v2-tab-kind-icon {
+  color: var(--gn-accent);
+}
+
+/* 关闭按钮：悬浮才显形，圆形热区 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-close {
+  color: #8b8b94;
+  border-radius: 5px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-close:hover {
+  background: #d8d8de;
+  color: #33333a;
+}
+
+/* 新页签“+”：中性灰（替代亮绿） */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-nav-add {
+  background: transparent !important;
+  color: #66666e !important;
+  margin-left: 6px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-nav-add:hover {
+  background: #d2d2d9 !important;
+  color: #33333a !important;
+}
+
+/* —— 页签宽度自适应（覆盖 JS 注入的固定 --gn-v2-tab-width）——
+   短标题不再撑满 260px 空宽；长标题 240px 封顶截断。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab {
+  width: auto !important;
+  min-width: 132px !important;
+  max-width: 240px !important;
+}
+
+/* —— 标签排版：内容成组居中（图标 + 标题 + 关闭），呼吸感来自页签内边距 —— */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label {
+  padding: 0 6px;
+  gap: 7px;
+  justify-content: center;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-content {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* 主标题：略大更清晰，非激活 500 / 激活 600 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-main.tab-title-text {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active .gn-v2-tab-label-main.tab-title-text {
+  font-weight: 600;
+}
+
+/* 双行模式第二行：更小更淡 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-secondary {
+  font-size: 10.5px;
+  color: #8b8b94;
+}
+
+/* 关闭按钮：悬浮页签才显形（占位不变，避免布局抖动） */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-close {
+  opacity: 0;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab:hover .gn-v2-tab-close,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active .gn-v2-tab-close {
+  opacity: 1;
+}
+
+/* 标题栏：浅色渐变 + 底部分割线（原型 titlebar）。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-titlebar {
+  background: linear-gradient(#f9f9fb, #efeff3);
+  border-bottom: 1px solid #d9d9df;
+}
+
+/* antd 控件基础观感：1px 实线边框、5px 圆角（原型 sel-lite / mini-btn 口径）。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .ant-input,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .ant-select-selector,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .ant-input-affix-wrapper {
+  border-radius: 5px;
+}
+
+/* 数据网格表头（原型 ghead）。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-data-grid thead th,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .data-grid-root .ant-table-thead > tr > th {
+  background: #f2f2f5;
+}

@@ -61,6 +61,7 @@ export const useAppAntdTheme = ({
 
   const showLinuxResizeHandles = isLinuxRuntime;
   const resizeGuideColor = 'var(--gn-accent, #16a34a)';
+  // Navicat 布局模式与 classic 共用品牌绿主色；用户选了自定义主题时以自定义为准。
   const v2AntPrimaryColor = customThemeAntTokens.primary ?? (darkMode ? '#22c55e' : '#16a34a');
   const v2AntPrimaryContrastColor = customThemeAntTokens.primaryContrast ?? '#ffffff';
   const v2AntPrimaryHoverColor = customThemeAntTokens.primaryHover ?? (darkMode ? '#4ade80' : '#15803d');

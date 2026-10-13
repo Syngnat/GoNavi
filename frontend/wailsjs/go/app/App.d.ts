@@ -134,6 +134,8 @@ export function DBGetServerVersionContext(arg1:context.Context,arg2:connection.C
 
 export function DBGetSessionMonitorCapabilities(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
 
+export function DBGetTableInfo(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
+
 export function DBGetTables(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
 export function DBGetTablesContext(arg1:context.Context,arg2:connection.ConnectionConfig,arg3:string):Promise<connection.QueryResult>;
@@ -457,6 +459,8 @@ export function InspectElasticsearchConsole(arg1:connection.ConnectionConfig,arg
 export function InspectSavedConnectionHealth(arg1:string):Promise<connection.ConnectionHealthReport>;
 
 export function InspectSavedConnectionsHealth(arg1:Array<string>):Promise<Array<connection.ConnectionHealthReport>>;
+
+export function InspectSource(arg1:context.Context,arg2:connection.ConnectionConfig,arg3:app.SourceInspectQuery):Promise<connection.QueryResult>;
 
 export function InstallLocalDriverPackage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 

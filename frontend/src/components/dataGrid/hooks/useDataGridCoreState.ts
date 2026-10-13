@@ -140,10 +140,12 @@ export const useDataGridCoreState = ({
     const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
     const dataGridBackdropFilter = 'none';
     const showDataTableVerticalBorders = appearance.showDataTableVerticalBorders === true;
-    // 未显式传入时跟随外观设置（默认显示行号）；DataViewer / SQL 结果共用
-    const resolvedShowRowNumberColumn = typeof showRowNumberColumn === 'boolean'
-        ? showRowNumberColumn
-        : appearance.showDataTableRowNumber !== false;
+    // 未显式传入时跟随外观设置（默认显示行号）；DataViewer / SQL 结果共用。
+    // Navicat 布局模式不展示「#」行号列（classic 保持原样）。
+    const resolvedShowRowNumberColumn = appearance.uiLayoutMode !== 'navicat'
+        && (typeof showRowNumberColumn === 'boolean'
+            ? showRowNumberColumn
+            : appearance.showDataTableRowNumber !== false);
     const dataTableDensity = appearance.dataTableDensity;
     const densityParams = useMemo(() => getDensityParams(dataTableDensity), [dataTableDensity]);
     const headerCellMinHeight = densityParams.headerMinHeight;

@@ -152,6 +152,37 @@ export const createBrowserMockAppMethods = ({
         GetTableColumns: async () => [],
         DBGetDatabases: async () => ({ success: true, data: ['missav_bot'] }),
         DBGetTables: async () => ({ success: true, data: cloneBrowserMockValue(mockQueryTables) }),
+        // 连接弹窗的驱动状态 / 连接测试：浏览器预览没有真实驱动与网络，
+        // 统一返回「驱动可用 + 测试通过」，让建连流程可以走通。
+        GetDriverStatusList: async () => ({ success: true, data: { drivers: [] } }),
+        TestConnection: async () => ({ success: true, data: null }),
+        TestConnectionWithProgress: async () => ({ success: true, data: null }),
+        // 右侧对象信息面板（Navicat 格局）的浏览器预览数据。
+        DBGetTableInfo: async (_config: any, dbName: string, _schemaName: string, tableName: string) => {
+            const matched = mockQueryTables.find((table) => table.table_name === String(tableName || '').trim());
+            if (!matched) {
+                return { success: false, message: `table ${tableName} not found` };
+            }
+            return {
+                success: true,
+                data: {
+                    engine: 'InnoDB',
+                    comment: matched.table_comment,
+                    collation: 'utf8mb4_general_ci',
+                    rowFormat: 'Dynamic',
+                    rows: 1024,
+                    dataLength: 262144,
+                    indexLength: 131072,
+                    autoIncrement: '2049',
+                    createTime: '2024-05-01 10:00:00',
+                    updateTime: '2026-10-01 08:30:00',
+                },
+            };
+        },
+        DBShowCreateTable: async (_config: any, dbName: string, tableName: string) => ({
+            success: true,
+            data: `CREATE TABLE \`${dbName || 'missav_bot'}\`.\`${String(tableName || 'table').replace(/`/g, '')}\` (\n  \`id\` bigint NOT NULL AUTO_INCREMENT COMMENT 'primary key',\n  PRIMARY KEY (\`id\`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='browser mock';`,
+        }),
         DataSyncCapability: async (sourceConfig: any, targetConfig: any) => {
             const sourceType = String(sourceConfig?.type || sourceConfig?.driver || '').trim().toLowerCase();
             const targetType = String(targetConfig?.type || targetConfig?.driver || '').trim().toLowerCase();

@@ -1,6 +1,8 @@
 import { splitQualifiedNameLast } from './qualifiedName';
 
 export const SIDEBAR_LOCATE_CONNECTION_EVENT = 'gonavi:locate-sidebar-connection';
+/** 定位到侧栏「收藏查询」根节点（工具条「查询」按钮等外部入口使用）。 */
+export const SIDEBAR_LOCATE_SAVED_QUERIES_EVENT = 'gonavi:locate-sidebar-saved-queries';
 
 export type SidebarLocateObjectGroup = 'tables' | 'views' | 'materializedViews' | 'triggers' | 'routines' | 'sequences' | 'packages' | 'events' | 'databaseLinks' | 'externalSqlFiles' | 'savedQueries';
 export type SidebarLocateDatabaseObjectGroup = Exclude<SidebarLocateObjectGroup, 'externalSqlFiles' | 'savedQueries'>;

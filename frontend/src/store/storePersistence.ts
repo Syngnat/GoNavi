@@ -1,5 +1,6 @@
 import { toPersistedGlobalProxy } from "../utils/globalProxyDraft";
 import { sanitizeAIPanelWidth } from "../utils/aiPanelLayout";
+import { sanitizeSideInfoPanelHeight, sanitizeSideInfoPanelTab } from "../utils/infoPanelLayout";
 import { createDebouncedPersistStorage } from "../utils/debouncedPersistStorage";
 import { sanitizeTableAccessCount } from "../utils/tableAccessCount";
 import type { AppState } from "./storeStateTypes";
@@ -69,6 +70,9 @@ const PERSISTED_STATE_DEPENDENCY_KEYS = [
   "windowState",
   "sidebarWidth",
   "aiPanelWidth",
+  "infoPanelVisible",
+  "sideInfoPanelHeight",
+  "sideInfoPanelActiveTab",
   "connections",
 ] as const satisfies readonly (keyof AppState)[];
 
@@ -142,6 +146,9 @@ const buildPersistedStateProjection = (
     windowState: state.windowState,
     sidebarWidth: state.sidebarWidth,
     aiPanelWidth: sanitizeAIPanelWidth(state.aiPanelWidth),
+    infoPanelVisible: state.infoPanelVisible !== false,
+    sideInfoPanelHeight: sanitizeSideInfoPanelHeight(state.sideInfoPanelHeight),
+    sideInfoPanelActiveTab: sanitizeSideInfoPanelTab(state.sideInfoPanelActiveTab),
   };
 
   if (hasLegacyConnectionSecrets(state.connections)) {

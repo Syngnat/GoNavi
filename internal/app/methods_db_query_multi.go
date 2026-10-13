@@ -253,14 +253,12 @@ func (a *App) dbQueryMulti(
 		return ok && querier.SupportsStatementBatchMultiResult()
 	}
 	useNativeMultiResult := (shouldUseNativeMultiResultBatch(resolvedDBType, statements, allReadOnly) || supportsStatementBatch(dbInst)) &&
-		// 含 GO 的 SQL Server 批次、含 DELIMITER 的 MySQL 脚本不能下发原文（服务端不认），退回逐条执行。
-		!sqlServerBatchTextNeedsPerStatement(resolvedDBType, query) &&
-		!mysqlBatchTextNeedsPerStatement(resolvedDBType, query)
+		// 含 GO 的 SQL Server 批次不能下发原文（服务端不认 GO），退回逐条执行。
+		!sqlServerBatchTextNeedsPerStatement(resolvedDBType, query)
 
 	runMultiQuery := func(inst db.Database) ([]connection.ResultSetData, []string, error) {
 		if q, ok := inst.(db.StatementBatchMultiResultQuerierContext); ok && q.SupportsStatementBatchMultiResult() &&
-			!sqlServerBatchTextNeedsPerStatement(resolvedDBType, query) &&
-			!mysqlBatchTextNeedsPerStatement(resolvedDBType, query) {
+			!sqlServerBatchTextNeedsPerStatement(resolvedDBType, query) {
 			setRunningQueryCancellable(true)
 			var (
 				results []connection.ResultSetData
@@ -475,9 +473,8 @@ func (a *App) dbQueryMulti(
 			}
 		}
 		if allWrite && !containsPLSQLBlock && !containsQueryFirstWrite && len(statements) == 1 &&
-			// 批量写下发的是原文；含 GO / DELIMITER 时必须退回逐条执行，否则它们会发给服务端。
-			!sqlServerBatchTextNeedsPerStatement(resolvedDBType, query) &&
-			!mysqlBatchTextNeedsPerStatement(resolvedDBType, query) {
+			// 批量写下发的是原文；含 GO 时必须退回逐条执行，否则 GO 会发给服务端。
+			!sqlServerBatchTextNeedsPerStatement(resolvedDBType, query) {
 			batcher := sessionBatchTarget
 			if batcher == nil {
 				if fallbackBatcher, ok := dbInst.(db.BatchWriteExecer); ok {

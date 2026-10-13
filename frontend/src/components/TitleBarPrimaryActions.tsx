@@ -5,7 +5,15 @@ import {
   type ShortcutOptions,
   type ShortcutPlatform,
 } from '../utils/shortcuts';
-import { TitlebarDatabaseIcon, TitlebarGridIcon, TitlebarPlugIcon } from './titlebar/gonaviTitlebarIcons';
+import { useStore } from '../store';
+import {
+  TitlebarDatabaseIcon,
+  TitlebarDatabaseLineIcon,
+  TitlebarGridIcon,
+  TitlebarGridLineIcon,
+  TitlebarPlugIcon,
+  TitlebarPlugLineIcon,
+} from './titlebar/gonaviTitlebarIcons';
 
 type TitleBarPrimaryShortcutAction = 'newQueryTab' | 'newConnection';
 
@@ -74,7 +82,13 @@ const TitleBarPrimaryActions: React.FC<TitleBarPrimaryActionsProps> = ({
   connectionGroupLabel,
   onConnectionGroupManagement,
   shortLabels,
-}) => (
+}) => {
+  // Navicat 布局用线稿图标；classic 保持原实心图标。
+  const navicatLayout = useStore(state => state.appearance.uiLayoutMode === 'navicat');
+  const PlugIcon = navicatLayout ? TitlebarPlugLineIcon : TitlebarPlugIcon;
+  const QueryIcon = navicatLayout ? TitlebarGridLineIcon : TitlebarGridIcon;
+  const GroupIcon = navicatLayout ? TitlebarDatabaseLineIcon : TitlebarDatabaseIcon;
+  return (
   <div
     className="gonavi-titlebar-primary-actions"
     data-titlebar-primary-actions="true"
@@ -90,8 +104,11 @@ const TitleBarPrimaryActions: React.FC<TitleBarPrimaryActionsProps> = ({
       data-gonavi-create-connection-action="true"
       onClick={onNewConnection}
     >
-      {renderToolbarActionContent(newConnectionLabel, <TitlebarPlugIcon size="100%" />, shortLabels?.newConnection)}
+      {renderToolbarActionContent(newConnectionLabel, <PlugIcon size="100%" />, shortLabels?.newConnection)}
     </button>
+    {connectionGroupLabel && onConnectionGroupManagement && <button type="button" className="gonavi-titlebar-primary-action" aria-label={connectionGroupLabel} title={connectionGroupLabel} data-gonavi-connection-group-management-action="true" onClick={onConnectionGroupManagement}>
+      {renderToolbarActionContent(connectionGroupLabel, <GroupIcon size="100%" />, shortLabels?.connectionGroup)}
+    </button>}
     <button
       type="button"
       className="gonavi-titlebar-primary-action"
@@ -100,12 +117,10 @@ const TitleBarPrimaryActions: React.FC<TitleBarPrimaryActionsProps> = ({
       data-gonavi-new-query-action="true"
       onClick={onNewQuery}
     >
-      {renderToolbarActionContent(newQueryLabel, <TitlebarGridIcon size="100%" />, shortLabels?.newQuery)}
+      {renderToolbarActionContent(newQueryLabel, <QueryIcon size="100%" />, shortLabels?.newQuery)}
     </button>
-    {connectionGroupLabel && onConnectionGroupManagement && <button type="button" className="gonavi-titlebar-primary-action" aria-label={connectionGroupLabel} title={connectionGroupLabel} data-gonavi-connection-group-management-action="true" onClick={onConnectionGroupManagement}>
-      {renderToolbarActionContent(connectionGroupLabel, <TitlebarDatabaseIcon size="100%" />, shortLabels?.connectionGroup)}
-    </button>}
   </div>
-);
+  );
+};
 
 export default TitleBarPrimaryActions;

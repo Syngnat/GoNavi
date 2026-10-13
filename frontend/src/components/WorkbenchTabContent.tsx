@@ -16,6 +16,7 @@ const NacosServiceViewer = React.lazy(() => import('./NacosServiceViewer'));
 const TriggerViewer = React.lazy(() => import('./TriggerViewer'));
 const DefinitionViewer = React.lazy(() => import('./DefinitionViewer'));
 const TableOverview = React.lazy(() => import('./TableOverview'));
+const ObjectOverview = React.lazy(() => import('./objectOverview/ObjectOverview'));
 const TableExportWorkbench = React.lazy(() => import('./TableExportWorkbench'));
 const DataImportWorkbench = React.lazy(() => import('./DataImportWorkbench'));
 const MockDataWorkbench = React.lazy(() => import('./mockData/MockDataWorkbench'));
@@ -153,6 +154,8 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <DefinitionViewer tab={tab} />;
   } else if (tab.type === 'table-overview') {
     content = <TableOverview tab={tab} />;
+  } else if (tab.type === 'object-overview') {
+    content = <ObjectOverview tab={tab} />;
   } else if (tab.type === 'table-export') {
     content = <TableExportWorkbench tab={tab} />;
   } else if (tab.type === 'data-import') {

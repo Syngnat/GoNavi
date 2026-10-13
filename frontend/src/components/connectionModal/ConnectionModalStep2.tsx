@@ -513,7 +513,27 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                 ? advancedSection
                 : networkSecuritySection;
 
+        const illustration = (
+          <div className="gn-conn-illustration" aria-hidden="true">
+            <div className="gn-conn-illustration-icon">
+              {getDbIcon(effectiveIconType, effectiveIconColor, 56)}
+              <span>GoNavi</span>
+            </div>
+            <div className="gn-conn-illustration-line" />
+            <div className="gn-conn-illustration-cylinder">
+              <svg width="52" height="56" viewBox="0 0 52 56" fill="none">
+                <ellipse cx="26" cy="10" rx="20" ry="6.5" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M6 10v36c0 3.6 9 6.5 20 6.5s20-2.9 20-6.5V10" stroke="currentColor" strokeWidth="1.6" fill="none" />
+                <path d="M6 22c0 3.6 9 6.5 20 6.5S46 25.6 46 22M6 34c0 3.6 9 6.5 20 6.5s20-2.9 20-6.5" stroke="currentColor" strokeWidth="1.6" fill="none" />
+              </svg>
+              <span>{'数据库'}</span>
+            </div>
+          </div>
+        );
+
         return (
+          <>
+          {illustration}
           <div className="gn-conn-form-layout">
             <nav className="gn-conn-form-nav" aria-label={t("connection.modal.config.sections")}>
               {sectionItems.map((item) => {
@@ -559,6 +579,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
               {currentSectionContent}
             </div>
           </div>
+          </>
         );
       })()}
     </Form>

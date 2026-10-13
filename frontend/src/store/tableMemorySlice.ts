@@ -33,6 +33,7 @@ export type TableMemorySliceState = Pick<AppState,
   | 'setWindowBounds'
   | 'setWindowState'
   | 'setSidebarWidth'
+  | 'toggleSidebarExternalSqlVisible'
   | 'setAIPanelWidth'
 >;
 
@@ -241,6 +242,9 @@ export const createTableMemorySlice = (set: StoreSet, _get: StoreGet): TableMemo
     // 与窗口尺寸一致即时落盘，避免退出阶段丢失最后一次观测状态。
     writePersistedStatePatch({ windowState: nextState });
   },
+
+  toggleSidebarExternalSqlVisible: () =>
+    set((state) => ({ sidebarExternalSqlVisible: !state.sidebarExternalSqlVisible })),
 
   setSidebarWidth: (width) =>
     set({ sidebarWidth: sanitizeSidebarWidth(width) }),

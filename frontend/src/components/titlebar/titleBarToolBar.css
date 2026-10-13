@@ -205,3 +205,27 @@ body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-titleb
 body[data-ui-version='v2'] .gn-v2-titlebar .gn-v2-titlebar-about-slot .gn-titlebar-toolbar-item-label {
   white-space: nowrap;
 }
+
+/*
+ * Navicat 布局主题的工具条密度（原型 navicat-prototype.html）：
+ * 56px 宽按钮 / 19px 图标 / 11px 文字。仅 data-ui-layout='navicat' 生效。
+ */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-titlebar-toolbar {
+  --gn-titlebar-toolbar-item-width: calc(56px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-item-height: calc(44px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-icon-size: calc(19px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-label-size: calc(11px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-gap: calc(2px * var(--gn-ui-scale, 1));
+  --gn-titlebar-toolbar-inline-padding: calc(10px * var(--gn-ui-scale, 1));
+  background: #fafafc;
+  border-bottom: 1px solid #d9d9df;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action:hover,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action:hover {
+  background: #e9e9f0;
+}
+
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action {
+  gap: calc(2px * var(--gn-ui-scale, 1));
+}

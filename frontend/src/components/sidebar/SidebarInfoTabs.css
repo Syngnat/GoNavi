@@ -1,0 +1,174 @@
+/*
+ * 侧栏底部「对象 / 信息」面板（Navicat 原型 side-bottom）：
+ * 顶部分割线 + 拖拽调高手柄，页签条带下划线激活态。
+ */
+
+body[data-ui-version='v2'] .gn-side-info-tabs {
+  position: relative;
+  display: grid;
+  grid-template-rows: 30px 1fr;
+  flex: 0 0 auto;
+  min-height: 0;
+  border-top: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  background: var(--gn-bg-panel, transparent);
+}
+
+body[data-ui-version='v2'] .gn-side-info-resize-handle {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 2;
+}
+
+body[data-ui-version='v2'] .gn-side-info-resize-handle:hover,
+body[data-ui-version='v2'] .gn-side-info-resize-handle:active {
+  background: var(--gn-accent-soft, rgba(21, 128, 61, 0.18));
+}
+
+body[data-ui-version='v2'] .gn-side-info-tabstrip {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.035));
+}
+
+body[data-ui-version='v2'] .gn-side-info-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--gn-fg-2, inherit);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+body[data-ui-version='v2'] .gn-side-info-tab + .gn-side-info-tab {
+  border-left: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+}
+
+body[data-ui-version='v2'] .gn-side-info-tab:hover {
+  color: var(--gn-fg-1, inherit);
+}
+
+body[data-ui-version='v2'] .gn-side-info-tab.is-active {
+  background: var(--gn-bg-panel, transparent);
+  color: var(--gn-accent, #15803d);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--gn-accent, #15803d);
+}
+
+body[data-ui-version='v2'] .gn-side-info-pane {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ---- 对象快览 ---- */
+
+body[data-ui-version='v2'] .gn-side-quick {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
+}
+
+body[data-ui-version='v2'] .gn-side-quick-btn {
+  width: 24px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-fg-2, inherit);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-btn:hover:not(:disabled),
+body[data-ui-version='v2'] .gn-side-quick-btn:focus-visible:not(:disabled) {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+  color: var(--gn-fg-1, inherit);
+  outline: none;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+}
+
+body[data-ui-version='v2'] .gn-side-quick-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 3px 0 6px;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-empty {
+  padding: 14px 10px;
+  font-size: 12px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  text-align: center;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 10px;
+  cursor: default;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-row:hover {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+}
+
+body[data-ui-version='v2'] .gn-side-quick-row.is-selected {
+  background: var(--gn-accent-soft, rgba(21, 128, 61, 0.1));
+}
+
+body[data-ui-version='v2'] .gn-side-quick-row.is-selected .gn-side-quick-row-name {
+  color: var(--gn-accent, #15803d);
+  font-weight: 600;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-row-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-family: var(--gn-font-mono, monospace);
+  color: var(--gn-fg-1, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-ui-version='v2'] .gn-side-quick-row-comment {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}

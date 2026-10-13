@@ -242,6 +242,10 @@ export function DBGetSessionMonitorCapabilities(arg1) {
   return window['go']['app']['App']['DBGetSessionMonitorCapabilities'](arg1);
 }
 
+export function DBGetTableInfo(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBGetTableInfo'](arg1, arg2, arg3, arg4);
+}
+
 export function DBGetTables(arg1, arg2) {
   return window['go']['app']['App']['DBGetTables'](arg1, arg2);
 }
@@ -888,6 +892,10 @@ export function InspectSavedConnectionHealth(arg1) {
 
 export function InspectSavedConnectionsHealth(arg1) {
   return window['go']['app']['App']['InspectSavedConnectionsHealth'](arg1);
+}
+
+export function InspectSource(arg1, arg2, arg3) {
+  return window['go']['app']['App']['InspectSource'](arg1, arg2, arg3);
 }
 
 export function InstallLocalDriverPackage(arg1, arg2, arg3, arg4) {

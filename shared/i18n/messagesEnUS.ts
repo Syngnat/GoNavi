@@ -1,4 +1,8 @@
 export const enUSMessages: Record<string, string> = {
+  "connection.modal.more_options.uri": "Connection string quick fill",
+  "connection.modal.more_options.mode": "Deployment mode & cluster options",
+  "connection.modal.more_options.scope": "Database scope filters (exact/include/exclude)",
+
   "common.action.cancel": "Cancel",
   "common.action.save": "Save",
   "common.action.close": "Close",

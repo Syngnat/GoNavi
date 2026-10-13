@@ -685,7 +685,7 @@ describe('store appearance persistence', () => {
       mac: { combo: 'Meta+K', enabled: false },
       windows: { combo: 'Ctrl+K', enabled: true },
     });
-    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(21);
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(22);
 
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {

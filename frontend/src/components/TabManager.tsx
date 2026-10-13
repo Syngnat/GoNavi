@@ -3,6 +3,7 @@ import { Tabs } from 'antd';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { t } from '../i18n';
+import { useStore } from '../store';
 import DetachDragPreview from './DetachDragPreview';
 import {
   TAB_WORKBENCH_CLASS_NAME, TAB_ENVIRONMENT_ACCENT_CSS_HEIGHT,
@@ -87,6 +88,12 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
     pinnedTableShortcuts, handleOpenPinnedTable, linkedExternalSQLDirectoryShortcuts,
     handleCreateQueryForConnection, handleAddExternalSQLDirectory,
   });
+
+  // Navicat 布局：无标签页时不展示首页引导（原型为空白工作区），classic 保持现有首页。
+  const navicatLayout = useStore(state => state.appearance.uiLayoutMode === 'navicat');
+  const emptyWorkspaceNode = navicatLayout
+    ? <div className="gn-navicat-empty-workspace" data-testid="gn-navicat-empty-workspace" />
+    : EmptyWorkbench;
 
   return (
     <div
@@ -291,7 +298,7 @@ body[data-theme='dark'] .main-tabs .ant-tabs-tab.ant-tabs-tab-active {
             }
         `}</style>
         {!hasTabs ? (
-          EmptyWorkbench
+          emptyWorkspaceNode
         ) : !hasDockedTabs ? (
           // All tabs are floating: keep empty docked area; floating host still shows content.
           <div className="gn-detached-only-workbench" style={{ flex: 1, minHeight: 0 }} />

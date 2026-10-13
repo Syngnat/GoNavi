@@ -1,6 +1,7 @@
 import { Spin } from 'antd';
 import { Sider } from '../appLayoutParts';
 import Sidebar from '../../components/Sidebar';
+import SidebarInfoTabs from '../../components/sidebar/SidebarInfoTabs';
 import type { AppWorkbenchActionsApi } from '../hooks/useAppWorkbenchActions';
 import type { AppShellStateApi } from '../hooks/useAppShellState';
 import type { AppSettingsNavigationApi } from '../hooks/useAppSettingsNavigation';
@@ -151,6 +152,8 @@ export const AppSider = ({
                 </div>
             )}
         </div>
+        {/* 侧栏底部「对象 / 信息」面板（Navicat 格局），折叠侧栏时隐藏。 */}
+        {!isSidebarCollapsed && <SidebarInfoTabs />}
     </div>
     {!isSidebarCollapsed && <div
         data-sidebar-resize-handle="true"

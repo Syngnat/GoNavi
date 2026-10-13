@@ -26,6 +26,7 @@ import { useNativeMenuUpdateCheck } from '../../hooks/useNativeMenuUpdateCheck';
 import { useMacNativeMenuBridge } from '../../hooks/useMacNativeMenuBridge';
 import TitleBarSystemActions from '../../components/TitleBarSystemActions';
 import TitleBarActionRow from '../../components/titlebar/TitleBarActionRow';
+import { useWorkbenchToolbarObjectActions } from './useWorkbenchToolbarObjectActions';
 import { DockedSidebarActionsHost } from '../../components/sidebar/SidebarExplorerToolbar';
 import type { AppCoreStateApi } from './useAppCoreState';
 import type { AppSettingsNavigationApi } from './useAppSettingsNavigation';
@@ -130,6 +131,7 @@ export const useAppSettingsCenterRender = ({
   setCollapsedSidebarActionsTarget, handleExpandSidebarPanel, handleCollapseSidebarPanel,
   sidebarCollapsedToggleRef, brandIconId, handleBrandIconChange,
 }: UseAppSettingsCenterRenderInput) => {
+  const workbenchToolbarObjectActions = useWorkbenchToolbarObjectActions();
   const settingsCenterGroups: SettingsCenterNavigationGroup[] = [
       {
           key: 'preferences' as const,
@@ -451,6 +453,7 @@ export const useAppSettingsCenterRender = ({
       onManageConnectionGroups={() => setIsConnectionGroupManagementOpen(true)}
       aiActive={aiPanelVisible} onToggleAI={handleToggleOrFocusAIPanel}
       trailingSlot={useNativeMacWindowControls ? titleBarTrailingSlot : undefined}
+      objectActions={workbenchToolbarObjectActions.node}
     />
   );
 

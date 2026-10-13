@@ -19,6 +19,7 @@ import {
   normalizeSidebarLocateConnectionRequest,
   collectSidebarLocateExpandKeys,
   SIDEBAR_LOCATE_CONNECTION_EVENT,
+  SIDEBAR_LOCATE_SAVED_QUERIES_EVENT,
 } from '../../utils/sidebarLocate';
 import { useSidebarCommandSearchRunner } from './useSidebarCommandSearchRunner';
 import { MenuProps } from 'antd';
@@ -388,6 +389,37 @@ export const useSidebarContextMenus = ({
           window.removeEventListener(SIDEBAR_LOCATE_CONNECTION_EVENT, handleLocateSidebarConnection as EventListener);
       };
   }, [locateConnectionInSidebar]);
+
+  // 工具条「查询」按钮等外部入口：定位到「收藏查询」根节点。
+  useEffect(() => {
+      const handleLocateSavedQueries = () => {
+          onEnsureSidebarExpanded?.();
+          setSearchValue('');
+          setV2ExplorerFilter('all');
+          const node = findTreeNodeByKeyRef.current
+              ? findTreeNodeByKeyRef.current(treeDataRef.current, 'all-saved-queries')
+              : null;
+          if (!node) return;
+          mergeExpandedTreeKeys(['all-saved-queries']);
+          setSidebarSelectedKeys([node.key]);
+          selectedNodesRef.current = [node];
+          scrollSidebarTreeToKey(node.key);
+      };
+      window.addEventListener(SIDEBAR_LOCATE_SAVED_QUERIES_EVENT, handleLocateSavedQueries);
+      return () => {
+          window.removeEventListener(SIDEBAR_LOCATE_SAVED_QUERIES_EVENT, handleLocateSavedQueries);
+      };
+  }, [
+      findTreeNodeByKeyRef,
+      mergeExpandedTreeKeys,
+      onEnsureSidebarExpanded,
+      scrollSidebarTreeToKey,
+      selectedNodesRef,
+      setSearchValue,
+      setSidebarSelectedKeys,
+      setV2ExplorerFilter,
+      treeDataRef,
+  ]);
 
   const getNodeMenuItems = (node: any): MenuProps['items'] => buildSidebarNodeMenuItems(node, {
     addTab,

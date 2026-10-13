@@ -33,8 +33,8 @@ const contrastRatio = (foreground: string, background: string): number => {
 };
 
 describe('built-in custom theme presets', () => {
-  it('ships sixteen unique, safe, size-bounded presets', () => {
-    expect(BUILTIN_CUSTOM_THEME_PRESETS).toHaveLength(16);
+  it('ships seventeen unique, safe, size-bounded presets', () => {
+    expect(BUILTIN_CUSTOM_THEME_PRESETS).toHaveLength(17);
     const ids = new Set<string>();
     const nameKeys = new Set<string>();
     for (const preset of BUILTIN_CUSTOM_THEME_PRESETS) {
@@ -65,7 +65,7 @@ describe('built-in custom theme presets', () => {
       );
     }
     expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'dark')).toHaveLength(8);
-    expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'light')).toHaveLength(8);
+    expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'light')).toHaveLength(9);
   });
 
   it('keeps Comfort Dark first and covers low-glare surfaces plus hard-coded hotspots', () => {

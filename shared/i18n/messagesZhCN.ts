@@ -1,4 +1,8 @@
 export const zhCNMessages: Record<string, string> = {
+  "connection.modal.more_options.uri": "连接串快速填充",
+  "connection.modal.more_options.mode": "部署模式与集群选项",
+  "connection.modal.more_options.scope": "库范围过滤(精确/包含/排除)",
+
   "common.action.cancel": "取消",
   "common.action.save": "保存",
   "common.action.close": "关闭",

@@ -384,11 +384,20 @@ export const useSidebarSearchModel = ({
     return result;
   };
 
+  // Navicat 布局：侧栏默认不展示「外部 SQL 文件」根节点（工具栏「外部SQL」按钮按需唤出）；
+  // classic 模式保持原样。命令搜索（⌘K）仍可搜到外部 SQL 文件。
+  const navicatLayout = useStore(state => state.appearance.uiLayoutMode === 'navicat');
+  const sidebarExternalSqlVisible = useStore(state => state.sidebarExternalSqlVisible);
+  const hideExternalSqlRoot = navicatLayout && !sidebarExternalSqlVisible;
+
   const displayTreeData = useMemo(() => {
     const keyword = String(deferredSearchValue || '').trim();
-    if (!keyword) return normalizedTreeData;
-    return loop(normalizedTreeData, keyword);
-  }, [deferredSearchValue, normalizedTreeData, searchScopes]);
+    const base = hideExternalSqlRoot
+      ? normalizedTreeData.filter(node => node.type !== 'external-sql-root')
+      : normalizedTreeData;
+    if (!keyword) return base;
+    return loop(base, keyword);
+  }, [deferredSearchValue, hideExternalSqlRoot, normalizedTreeData, searchScopes]);
 
   const commandSearchTreeItems = useMemo(() => {
     if (!isV2CommandSearchOpen) {

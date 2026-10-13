@@ -681,3 +681,64 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     line-height: 1.4;
 }
 
+
+/* ── Navicat 风格:顶部居中药丸 Tab + 插画头 ── */
+.gn-conn-form-layout {
+    gap: 0;
+}
+
+.gn-conn-form-nav {
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 12px 6px;
+    background: var(--gn-bg-chrome, var(--ant-color-fill-quaternary));
+}
+
+.gn-conn-form-nav-item {
+    padding: 5px 16px;
+    border-radius: 6px;
+    border-bottom: none;
+    margin-bottom: 0;
+    color: var(--gn-fg-2, rgba(0, 0, 0, 0.62));
+}
+
+.gn-conn-form-nav-item:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.06));
+}
+
+.gn-conn-form-nav-item[aria-selected='true'] {
+    background: var(--gn-accent, #1677ff);
+    color: #fff;
+}
+
+.gn-conn-illustration {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 26px 0 6px;
+    user-select: none;
+}
+
+.gn-conn-illustration-icon,
+.gn-conn-illustration-cylinder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.55));
+}
+
+.gn-conn-illustration-line {
+    width: 180px;
+    height: 1.5px;
+    background: var(--gn-br-2, rgba(16, 24, 40, 0.22));
+    margin: 0 34px 34px;
+}
+
+/* 库范围过滤三行(精确/包含/排除)默认隐藏,保持常规页 Navicat 式极简;
+   字段仍随表单提交,后续如需暴露可移除此规则 */
+.connection-modal-form .gn-conn-f-row:has(.gn-conn-scope-select) {
+    display: none;
+}

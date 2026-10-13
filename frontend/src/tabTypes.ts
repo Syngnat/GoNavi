@@ -30,6 +30,7 @@ export type WorkbenchTabType =
   | "package-def"
   | "database-link-def"
   | "table-overview"
+  | "object-overview"
   | "table-export"
   | "data-import"
   | "mock-data"

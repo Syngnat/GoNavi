@@ -37,10 +37,14 @@ export const DEFAULT_LOW_SPEC_MODE: boolean | null = null;
  */
 export const DEFAULT_REDUCE_MOTION = false;
 
+/** 界面布局主题默认值：classic（现有样式）。Navicat 风格需在设置里显式开启。 */
+export const DEFAULT_UI_LAYOUT_MODE = "classic";
+
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   enabled: true,
   opacity: 1.0,
   blur: 0,
+  uiLayoutMode: DEFAULT_UI_LAYOUT_MODE,
   lowSpecMode: DEFAULT_LOW_SPEC_MODE,
   reduceMotion: DEFAULT_REDUCE_MOTION,
   tableDoubleClickAction: "open-data",
@@ -72,6 +76,7 @@ export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 20;
 export const DEFAULT_STARTUP_FULLSCREEN = false;
 export const DEFAULT_AUTO_CHECK_FOR_UPDATES = true;
+/** 界面布局主题默认值：classic（现有样式）。Navicat 风格需在设置里显式开启。 */
 /** 自动检查更新间隔（分钟）；与关于页 Select 选项保持一致 */
 export const AUTO_CHECK_FOR_UPDATES_INTERVAL_OPTIONS = [
   15, 30, 60, 120, 360, 720, 1440,
@@ -163,9 +168,11 @@ export const MIN_KEEPALIVE_INTERVAL_MINUTES = 1;
 export const MAX_KEEPALIVE_INTERVAL_MINUTES = 1440;
 export const DEFAULT_DIAGNOSTIC_TIMEOUT_SECONDS = 15;
 export const MAX_DIAGNOSTIC_TIMEOUT_SECONDS = 300;
-export const PERSIST_VERSION = 21;
+export const PERSIST_VERSION = 22;
 export const SQL_EDITOR_FONT_SIZE_SPLIT_VERSION = 19;
 export const TAB_DISPLAY_DEFAULT_MIGRATION_VERSION = 20;
+/** Navicat 格局：功能入口默认从标题栏内联迁到独立工具条，只迁移仍是旧默认值的配置。 */
+export const TITLEBAR_TOOLBAR_DEFAULT_MIGRATION_VERSION = 22;
 export const SIDEBAR_SEARCH_SHORTCUT_MIGRATION_VERSION = 18;
 export const PERSIST_STORAGE_KEY = "lite-db-storage";
 export const PERSIST_WRITE_DEBOUNCE_MS = 160;

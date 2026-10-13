@@ -162,7 +162,7 @@ describe('store appearance persistence', () => {
       primaryElements: ['object'],
       secondaryElements: ['kind', 'connection', 'database'],
     });
-    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(21);
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(22);
 
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
@@ -214,7 +214,7 @@ describe('store appearance persistence', () => {
     expect(appearance.sqlEditorFontSizeFollowGlobal).toBe(false);
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(21);
+    expect(persisted.version).toBe(22);
     expect(persisted.state.appearance.sqlEditorFontSize).toBe(17);
     expect(persisted.state.appearance.sqlEditorFontSizeFollowGlobal).toBe(false);
   });
@@ -719,19 +719,18 @@ describe('store appearance persistence', () => {
   });
 
   it('defaults new installs to the title bar and keeps upgraded users on the toolbar', async () => {
-    // 新用户：本地没有任何配置，使用标题栏 + 图标 + 精简名称。
+    // 新用户：本地没有任何配置，使用标题栏 + 图标 + 精简名称（classic 默认）。
     const { useStore } = await importStore();
 
     expect(useStore.getState().appearance.titlebarActionsPlacement).toBe('titlebar');
-    expect(useStore.getState().appearance.titlebarActionsDisplay).toBe('icon-text');
+    expect(useStore.getState().appearance.uiLayoutMode).toBe('classic');
 
     useStore.getState().setAppearance({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'icon' });
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}').state.appearance;
     expect(persisted.titlebarActionsPlacement).toBe('toolbar');
-    expect(persisted.titlebarActionsDisplay).toBe('icon');
 
     vi.resetModules();
-    let reloaded = await importStore();
+    const reloaded = await importStore();
     expect(reloaded.useStore.getState().appearance.titlebarActionsPlacement).toBe('toolbar');
     expect(reloaded.useStore.getState().appearance.titlebarActionsDisplay).toBe('icon');
 
@@ -739,10 +738,19 @@ describe('store appearance persistence', () => {
     for (const appearance of [{ titlebarActionsPlacement: 'menu', titlebarActionsDisplay: 'emoji' }, {}]) {
       storage.setItem('lite-db-storage', JSON.stringify({ state: { appearance }, version: 21 }));
       vi.resetModules();
-      reloaded = await importStore();
-      expect(reloaded.useStore.getState().appearance.titlebarActionsPlacement).toBe('toolbar');
-      expect(reloaded.useStore.getState().appearance.titlebarActionsDisplay).toBe('text');
+      const legacy = await importStore();
+      expect(legacy.useStore.getState().appearance.titlebarActionsPlacement).toBe('toolbar');
+      expect(legacy.useStore.getState().appearance.titlebarActionsDisplay).toBe('text');
     }
+
+    // Navicat 布局开关：持久化并在重启后保持。
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: { appearance: { uiLayoutMode: 'navicat' } },
+      version: 22,
+    }));
+    vi.resetModules();
+    const navicat = await importStore();
+    expect(navicat.useStore.getState().appearance.uiLayoutMode).toBe('navicat');
   });
 
   it('keeps data grid and SQL editor typography slices when sanitizing appearance', async () => {

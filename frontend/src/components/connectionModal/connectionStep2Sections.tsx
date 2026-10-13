@@ -1,6 +1,6 @@
 import { t } from "../../i18n";
 import { CodeOutlined, FileTextOutlined, ApiOutlined } from "@ant-design/icons";
-import { Form, Input, Alert, Tag } from "antd";
+import { Collapse, Form, Input, Alert, Tag } from "antd";
 import { getCustomConnectionDriverHelp } from "../../utils/driverImportGuidance";
 import { noAutoCapInputProps } from "../../utils/inputAutoCap";
 import { ConnectionStep2JvmModeCards } from "./ConnectionStep2JvmModeCards";
@@ -219,11 +219,23 @@ export const createConnectionStep2Sections = ({
 }: CreateConnectionStep2SectionsInput) => {
   const baseInfoSection = (
     <div className="gn-conn-dense" style={{ display: "grid", gap: 4 }}>
-      {uriQuickBlock}
       {uriQuickBlock ? (
-        <div className="gn-conn-uri-divider">
-          {t("connection.modal.uri.orManual")}
-        </div>
+        <Collapse
+          ghost
+          className="gn-conn-more-options"
+          items={[{
+            key: "uri",
+            label: t("connection.modal.more_options.uri"),
+            children: (
+              <>
+                {uriQuickBlock}
+                <div className="gn-conn-uri-divider">
+                  {t("connection.modal.uri.orManual")}
+                </div>
+              </>
+            ),
+          }]}
+        />
       ) : null}
 
       <div style={{ display: "grid", gap: isCustom || isJVM ? 16 : 4 }}>
@@ -369,6 +381,14 @@ export const createConnectionStep2Sections = ({
               isNacosProtection={isNacosProtection}
             />
 
+            <Collapse
+              ghost
+              className="gn-conn-more-options"
+              items={[{
+                key: "mode",
+                label: t("connection.modal.more_options.mode"),
+                children: (
+                  <>
             <ConnectionStep2ModeFields
               isMySQLLike={isMySQLLike}
               denseLabel={denseLabel}
@@ -406,6 +426,11 @@ export const createConnectionStep2Sections = ({
               createUriAwareRequiredRule={createUriAwareRequiredRule}
               redisDbList={redisDbList}
               mongoAuthMechanism={mongoAuthMechanism}
+            />
+
+                  </>
+                ),
+              }]}
             />
 
             <ConnectionStep2ProtectionFields

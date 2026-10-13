@@ -65,6 +65,17 @@ export const ThemeAppearanceSettingsSection = ({
           options?.hideSectionTabs ? null : t('app.theme.nav.appearance.title'),
           <>
               {renderThemeSettingsRow({
+                  label: t('app.theme.appearance.navicat_layout_title'),
+                  hint: t('app.theme.appearance.navicat_layout_hint'),
+                  stacked: true,
+                  control: (
+                      <Switch
+                          checked={appearance.uiLayoutMode === 'navicat'}
+                          onChange={(checked) => setAppearance({ uiLayoutMode: checked ? 'navicat' : 'classic' })}
+                      />
+                  ),
+              })}
+              {renderThemeSettingsRow({
                   label: t('app.theme.appearance.ui_scale_title'),
                   hint: t('app.theme.appearance.ui_scale_hint'),
                   stacked: true,

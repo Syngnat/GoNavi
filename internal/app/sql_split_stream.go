@@ -117,7 +117,6 @@ type sqlStreamSplitter struct {
 	sqlServerBatch         []string
 	preserveSQLServerBatch bool
 	sqlServerGoSeen        bool
-	noBackslashEscapes     bool
 }
 
 func (s *sqlStreamSplitter) takeStatement() string {
@@ -249,7 +248,7 @@ func (s *sqlStreamSplitter) Feed(chunk []byte) []string {
 			s.cur.WriteByte(ch)
 			continue
 		}
-		if !s.noBackslashEscapes && (s.inSingle || s.inDouble) && ch == '\\' {
+		if (s.inSingle || s.inDouble) && ch == '\\' {
 			s.escaped = true
 			s.cur.WriteByte(ch)
 			continue
@@ -464,8 +463,7 @@ func (s *sqlStreamSplitter) Feed(chunk []byte) []string {
 
 		// 分号分隔
 		if ch == ';' {
-			// DELIMITER 换了结束符后分号只是语句内容，不再依赖 BEGIN/END 计数判断边界。
-			if s.preserveSQLServerBatch || s.activeDelimiter() != ";" {
+			if s.preserveSQLServerBatch {
 				s.cur.WriteByte(ch)
 				continue
 			}
@@ -490,7 +488,7 @@ func (s *sqlStreamSplitter) Feed(chunk []byte) []string {
 			break
 		}
 		if ch == 0xEF && i+2 < len(text) && text[i+1] == 0xBC && text[i+2] == 0x9B {
-			if s.preserveSQLServerBatch || s.activeDelimiter() != ";" {
+			if s.preserveSQLServerBatch {
 				s.cur.WriteString("；")
 				i += 2
 				continue
@@ -594,6 +592,59 @@ func (s *sqlStreamSplitter) flushStatements() []string {
 // 多语句结果仅用于兼容直接调用；流式入口使用 flushStatements 保留 GO n 的逐条回调语义。
 func (s *sqlStreamSplitter) Flush() string {
 	return strings.Join(s.flushStatements(), ";\n")
+}
+
+func isSQLStreamMySQLClientDialect(dbType string) bool {
+	switch normalizeExplainLexicalDBType(dbType) {
+	case "mysql", "mariadb":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *sqlStreamSplitter) canConsumeClientDirective() bool {
+	return sqlCurrentLineWhitespaceOnly(&s.cur) && !hasExecutableSQLStatementContent(s.dbType, s.cur.String())
+}
+
+func scanSQLStreamDelimiterDirective(text string, start int, eof bool) (delimiter string, lineEnd int, matched bool, incomplete bool) {
+	const keyword = "delimiter"
+	if start < 0 || start >= len(text) {
+		return "", start, false, false
+	}
+	remaining := text[start:]
+	prefixLength := len(remaining)
+	if prefixLength > len(keyword) {
+		prefixLength = len(keyword)
+	}
+	if !strings.EqualFold(remaining[:prefixLength], keyword[:prefixLength]) {
+		return "", start, false, false
+	}
+	if len(remaining) < len(keyword) {
+		return "", start, false, !eof
+	}
+	if len(remaining) == len(keyword) {
+		return "", start, false, !eof
+	}
+	if !isSQLHorizontalWhitespace(remaining[len(keyword)]) {
+		return "", start, false, false
+	}
+
+	newline := strings.IndexByte(remaining, '\n')
+	if newline < 0 && !eof {
+		return "", start, false, true
+	}
+	line := remaining
+	lineEnd = len(text)
+	if newline >= 0 {
+		line = remaining[:newline]
+		lineEnd = start + newline + 1
+	}
+	value := strings.TrimSpace(line[len(keyword):])
+	if value == "" || strings.IndexFunc(value, func(r rune) bool { return r == ' ' || r == '\t' || r == '\r' || r == '\n' }) >= 0 {
+		return "", start, false, false
+	}
+	return value, lineEnd, true, false
 }
 
 func scanSQLStreamGoDirective(text string, start int, eof bool) (repeat int, lineEnd int, matched bool, incomplete bool) {
