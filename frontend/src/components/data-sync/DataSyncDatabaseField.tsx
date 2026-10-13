@@ -8,8 +8,8 @@ import type { DataSyncMetadataResult } from './useDataSyncMetadata';
 export const DATA_SYNC_NEW_DATABASE_OPTION = '\u0000gonavi:new-database';
 
 /**
- * Database / Catalog 选择。allowCreate 时可以填写一个尚不存在的库名：
- * 一次性迁移会在运行前创建它，其余任务只能从已有库里选。
+ * Database / Catalog 选择。allowCreate 时可以填写一个尚不存在的库名，
+ * 任务会在运行前创建它；不能建表的任务（如 CDC）只能从已有库里选。
  */
 export const DataSyncDatabaseField: React.FC<{
   value: string;
