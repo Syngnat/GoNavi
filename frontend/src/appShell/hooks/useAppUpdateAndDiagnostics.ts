@@ -44,6 +44,7 @@ import type { AppSecurityUpdateApi } from './useAppSecurityUpdate';
 
 export interface UseAppUpdateAndDiagnosticsInput {
   isMacRuntime: AppShellStateApi['isMacRuntime'];
+  isBrowserServedApp: AppShellStateApi['isBrowserServedApp'];
   shortcutOptions: AppCoreStateApi['shortcutOptions'];
   runtimeBuildType: AppCoreStateApi['runtimeBuildType'];
   t: AppCoreStateApi['t'];
@@ -62,11 +63,14 @@ export interface UseAppUpdateAndDiagnosticsInput {
 }
 
 export const useAppUpdateAndDiagnostics = ({
-  isMacRuntime, shortcutOptions, runtimeBuildType, t, windowDiagSequenceRef,
+  isMacRuntime, isBrowserServedApp, shortcutOptions, runtimeBuildType, t, windowDiagSequenceRef,
   windowDiagLastSignatureRef, windowDiagLastAtRef, activeTabId, tabs, connections, activeContext,
   addTab, appearance, setActiveTab, applicationQuitHandlingRef, applicationQuitConfirmRef,
 }: UseAppUpdateAndDiagnosticsInput) => {
-  const useNativeMacWindowControls = isMacRuntime;
+  // 「原生 macOS 窗口语义」（隐藏设置│主题胶囊、不画自绘窗口控制）只在真正的
+  // wails 桌面窗口生效；浏览器承载的 web 版 / dev 调试页没有原生菜单栏，
+  // 必须始终保留自定义标题栏入口。
+  const useNativeMacWindowControls = isMacRuntime && !isBrowserServedApp;
   const activeShortcutPlatform = getShortcutPlatform(isMacRuntime);
   const titleBarNewQueryShortcut = resolveTitleBarPrimaryActionShortcut(
       shortcutOptions,

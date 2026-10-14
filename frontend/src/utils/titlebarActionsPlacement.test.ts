@@ -7,37 +7,37 @@ import {
 } from './titlebarActionsPlacement';
 
 describe('titlebarActionsPlacement', () => {
-  it('defaults new installs to the title bar with icons and short labels', () => {
+  it('defaults new installs to the separate toolbar with a left sidebar rail', () => {
     expect(DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS).toEqual({
-      titlebarActionsPlacement: 'titlebar',
+      titlebarActionsPlacement: 'toolbar',
       titlebarActionsDisplay: 'icon-text',
-      sidebarActionsPlacement: 'toolbar',
+      sidebarActionsPlacement: 'rail',
     });
   });
 
-  it('falls back to the pre-upgrade toolbar for persisted settings missing the fields', () => {
-    const legacy = {
+  it('falls back to the default toolbar + rail for persisted settings missing the fields', () => {
+    const fallback = {
       titlebarActionsPlacement: 'toolbar',
-      titlebarActionsDisplay: 'text',
-      sidebarActionsPlacement: 'toolbar',
+      titlebarActionsDisplay: 'icon-text',
+      sidebarActionsPlacement: 'rail',
     };
-    expect(LEGACY_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS).toEqual(legacy);
-    expect(sanitizeTitlebarActionsPlacementSettings(undefined)).toEqual(legacy);
-    expect(sanitizeTitlebarActionsPlacementSettings({})).toEqual(legacy);
+    expect(LEGACY_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS).toEqual(fallback);
+    expect(sanitizeTitlebarActionsPlacementSettings(undefined)).toEqual(fallback);
+    expect(sanitizeTitlebarActionsPlacementSettings({})).toEqual(fallback);
   });
 
   it('keeps known values and rejects unknown ones', () => {
     expect(sanitizeTitlebarActionsPlacementSettings({ titlebarActionsPlacement: 'titlebar', titlebarActionsDisplay: 'icon-text' }))
-      .toEqual({ titlebarActionsPlacement: 'titlebar', titlebarActionsDisplay: 'icon-text', sidebarActionsPlacement: 'toolbar' });
+      .toEqual({ titlebarActionsPlacement: 'titlebar', titlebarActionsDisplay: 'icon-text', sidebarActionsPlacement: 'rail' });
     expect(sanitizeTitlebarActionsPlacementSettings({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'icon' }))
-      .toEqual({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'icon', sidebarActionsPlacement: 'toolbar' });
+      .toEqual({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'icon', sidebarActionsPlacement: 'rail' });
     expect(sanitizeTitlebarActionsPlacementSettings({ titlebarActionsPlacement: 'menu' as never, titlebarActionsDisplay: 'emoji' as never }))
-      .toEqual({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'text', sidebarActionsPlacement: 'toolbar' });
+      .toEqual({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'icon-text', sidebarActionsPlacement: 'rail' });
   });
 
-  it('keeps the sidebar rail choice and falls back to the toolbar for anything else', () => {
+  it('keeps the toolbar choice and falls back to the left rail for anything else', () => {
     expect(sanitizeTitlebarActionsPlacementSettings({ sidebarActionsPlacement: 'rail' }).sidebarActionsPlacement).toBe('rail');
     expect(sanitizeTitlebarActionsPlacementSettings({ sidebarActionsPlacement: 'toolbar' }).sidebarActionsPlacement).toBe('toolbar');
-    expect(sanitizeTitlebarActionsPlacementSettings({ sidebarActionsPlacement: 'left' as never }).sidebarActionsPlacement).toBe('toolbar');
+    expect(sanitizeTitlebarActionsPlacementSettings({ sidebarActionsPlacement: 'left' as never }).sidebarActionsPlacement).toBe('rail');
   });
 });

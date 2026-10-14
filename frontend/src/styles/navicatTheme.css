@@ -8,12 +8,7 @@
  * --gn-accent 等）。亮色 / 暗色基础主题、GoNavi 内置主题、用户自定义
  * CSS 主题因此都能在 navicat 布局下正常生效；本层不再写死任何
  * Navicat 原型调色板。侧栏、内容区、标题栏、数据网格表头等表面
- * 完全沿用基础层 / 主题层的 token 规则（本层曾试图覆盖它们，但那些
- * 基础规则带 !important，覆盖从未生效，已删除死代码）。
- *
- * 「比 chrome 重一档」的页签灰阶用 color-mix 向 --gn-fg-1 混合派生：
- * 亮色主题（fg-1 近黑）自然压暗，暗色主题（fg-1 近白）自然提亮，
- * 方向随主题自动翻转，无需按明暗写两套值。
+ * 完全沿用基础层 / 主题层的 token 规则。
  */
 
 body[data-ui-layout='navicat'][data-ui-version='v2'] {
@@ -21,11 +16,6 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] {
      自定义主题用 --gn-window-opacity-percent，两套都要在 body 上钉住。 */
   --gn-window-opacity: 1;
   --gn-window-opacity-percent: 100%;
-
-  /* 主页签条灰阶（Navicat 原型的「灰带 → 圆角灰页签 → 激活面板面」层次）。 */
-  --gn-navicat-tab-band: color-mix(in srgb, var(--gn-bg-chrome, var(--gn-bg-panel-2, #e3e3e8)) 90%, var(--gn-fg-1, #26262b));
-  --gn-navicat-tab-face: color-mix(in srgb, var(--gn-bg-chrome, var(--gn-bg-panel-2, #e3e3e8)) 84%, var(--gn-fg-1, #26262b));
-  --gn-navicat-tab-face-hover: color-mix(in srgb, var(--gn-bg-chrome, var(--gn-bg-panel-2, #e3e3e8)) 76%, var(--gn-fg-1, #26262b));
 }
 
 /* 窗口骨架：不透明表面（去掉毛玻璃），更接近 Navicat 桌面质感。 */
@@ -33,6 +23,15 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-root {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   --gonavi-window-opacity: 1;
+}
+
+/* 侧栏（对齐 Navicat 观感）：比内容区表面深一档。chrome token 在亮/暗
+   基础主题与 GoNavi 内置/自定义主题里都恰好是「内容面 → 侧栏面」的
+   那一档色差，直接引用即可，无需自行派生。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-sider,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-sidebar-redesign,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-sider .gn-side-info-tabs {
+  background: var(--gn-bg-chrome, var(--gn-bg-panel-2)) !important;
 }
 
 /* 侧栏资源管理器底部工具条（上下文摘要 + 搜索/定位/折叠按钮）：
@@ -50,37 +49,52 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-navicat-empty-workspace
 }
 
 /* ============================================================
- * 主标签条（原型 wtabs 精修版）：
- * 灰带 → 圆角灰页签 → 激活页取主题面板面 + 主题强调色顶标；
- * 页签内部的主机/库等彩色部件统一降噪为主题灰阶，激活页仅图标留强调色。
+ * 主标签条：参考 antd Tabs 默认「线式页签」的布局与样式。
+ * 页签条背景与左侧栏同色（chrome，比内容面深一档，对齐 Navicat
+ * 「左树 + 页签行一灰、内容区更亮」的骨架），页签平铺无盒子，
+ * 整条底部一条发丝线（基础层 ::before），激活页签仅加粗文字 +
+ * 2px 主题强调色顶部标记。
+ * 布局上带高随页签自适应：基础层把带高钉死（单行 36 / 双行 46px），
+ * 而双行页签 46px + 内边距会超出固定带高，页签底部溢出压到内容
+ * 上（「背景图层 + 悬浮页签」的错位观感）；自适应后
+ * 带底 = 页签底 = 内容顶，天然一个整体。
  * ============================================================ */
 
-/* 带体：灰带，页签自顶部内边距处“立”起来 */
-body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs > .ant-tabs-nav {
-  background: var(--gn-navicat-tab-band);
-  padding: 5px 8px 0;
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs > .ant-tabs-nav,
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs-double > .ant-tabs-nav {
+  background: var(--gn-bg-chrome, var(--gn-bg-panel-2));
+  height: auto;
+  flex: 0 0 auto;
+  min-height: 0;
+  /* 左侧顶格：首签与侧栏分割线对齐（Navicat 式），右侧留滚动溢出空间。 */
+  padding: 0 8px 0 0;
   margin: 0;
 }
 
-/* 页签：圆角顶 + 主题灰阶底，2px 间隔。背景需要 !important：
-   v2 基础层把 .ant-tabs-tab 背景钉成了 transparent !important，
-   不提权就无法立起「凸起页签」。 */
+/* antd 对非首签有兄弟 margin（与本层同权重、被运行时注入的 antd 样式压过），
+   这里提权清零，页签保持紧排。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab + .ant-tabs-tab {
+  margin: 0 !important;
+}
+
+/* 页签：平铺文本页签（antd 线式）——无底色、无圆角、无竖向分割线。 */
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab {
-  border-radius: 8px 8px 0 0 !important;
-  background: var(--gn-navicat-tab-face) !important;
-  margin: 0 2px 0 0 !important;
-  box-shadow: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border-right: none !important;
+  margin: 0 !important;
   transition: background-color 0.12s ease;
 }
 
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab:hover:not(.ant-tabs-tab-active) {
-  background: var(--gn-navicat-tab-face-hover) !important;
+  background: var(--gn-bg-hover, rgba(38, 38, 43, 0.05)) !important;
 }
 
-/* 激活页：主题面板面 + 主题强调色顶标（文字色沿用基础层的 fg-1 规则）。 */
+/* 激活页签：无盒子，仅加粗文字 + 基础层的 2px 主题强调色顶部标记。
+   指示条放顶部而不是 antd 墨线（ink-bar）的底部：页签底部有连接
+   环境色条（生产/测试标识，TabManager 内联样式），放底部会互相压盖。 */
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-tab.ant-tabs-tab-active {
-  background: var(--gn-bg-panel, #ffffff) !important;
-  box-shadow: inset 0 2px 0 var(--gn-accent, #16a34a) !important;
+  background: transparent !important;
 }
 
 /* 页签文字：非激活 fg-3 / 激活 fg-1。btn 上必须显式声明——antd 自身对
@@ -150,11 +164,13 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-
   max-width: 240px !important;
 }
 
-/* —— 标签排版：内容成组居中（图标 + 标题 + 关闭），呼吸感来自页签内边距 —— */
+/* —— 标签排版：内容左对齐 + 所有页签统一的左右内边距 ——
+   不能居中：页签宽度是内容自适应的，居中会让文字左缘随内容宽度漂移
+   （新页签副标题异步补全、标题更新时都会跳变），不同页签左缘也不一致。 */
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label {
-  padding: 0 6px;
+  padding: 0 10px;
   gap: 7px;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-label-content {

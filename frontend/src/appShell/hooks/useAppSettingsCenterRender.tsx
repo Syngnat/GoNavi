@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import React, { useCallback } from 'react';
 import { Alert, Button, Spin } from 'antd';
+import { useSettingsCenterScrollReset } from './useSettingsCenterScrollReset';
 import AiSparkOutlined from '../../components/icons/AiSparkOutlined';
 import { AI_SETTINGS_NAV_ITEMS } from '../../components/ai/AISettingsSidebar';
 import LanguageSettingsPanel from '../../components/LanguageSettingsPanel';
@@ -26,6 +27,7 @@ import { useNativeMenuUpdateCheck } from '../../hooks/useNativeMenuUpdateCheck';
 import { useMacNativeMenuBridge } from '../../hooks/useMacNativeMenuBridge';
 import TitleBarSystemActions from '../../components/TitleBarSystemActions';
 import TitleBarActionRow from '../../components/titlebar/TitleBarActionRow';
+import TitleBarToolBar from '../../components/titlebar/TitleBarToolBar';
 import { useWorkbenchToolbarObjectActions } from './useWorkbenchToolbarObjectActions';
 import { DockedSidebarActionsHost } from '../../components/sidebar/SidebarExplorerToolbar';
 import type { AppCoreStateApi } from './useAppCoreState';
@@ -132,6 +134,8 @@ export const useAppSettingsCenterRender = ({
   sidebarCollapsedToggleRef, brandIconId, handleBrandIconChange,
 }: UseAppSettingsCenterRenderInput) => {
   const workbenchToolbarObjectActions = useWorkbenchToolbarObjectActions();
+  // 设置页签隐藏不销毁，切回时内容滚动复位到顶，避免顶部大段空白残留。
+  useSettingsCenterScrollReset();
   const settingsCenterGroups: SettingsCenterNavigationGroup[] = [
       {
           key: 'preferences' as const,
@@ -457,6 +461,15 @@ export const useAppSettingsCenterRender = ({
     />
   );
 
+  // Navicat 界面风格：对象工具条（表 / 视图 / 函数…）是该风格的组成部分，
+  // 不随「功能入口位置」内联而消失；功能入口内联到标题栏时，对象工具条
+  // 独立成行渲染在标题栏下方（工具条形态下已随 titleBarActionRow 同行渲染）。
+  const titleBarObjectActionsRow = appearance.uiLayoutMode === 'navicat' && titleBarActionsInline ? (
+    <TitleBarToolBar ariaLabel={t('app.titlebar.toolbar.aria')}>
+      {workbenchToolbarObjectActions.node}
+    </TitleBarToolBar>
+  ) : null;
+
   const dockedSidebarActionsHost = shouldDockCollapsedSidebarActionsInTitlebar ? (
     <DockedSidebarActionsHost
       label={t('sidebar.rail.system_actions')}
@@ -472,6 +485,7 @@ export const useAppSettingsCenterRender = ({
     settingsCenterGroups, activeSettingsCenterDetailPanelStyle, settingsCenterDetailBodyStyle,
     renderSettingsCenterPane, sidebarPanelCollapseLabel, sidebarPanelExpandLabel,
     handleAppContextMenu, handleNativeMenuCheckUpdate, titleBarSystemActionsNode, titleBarActionRow,
+    titleBarObjectActionsRow,
     dockedSidebarActionsHost,
   };
 };

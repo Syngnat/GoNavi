@@ -3,6 +3,7 @@ import { message } from 'antd';
 import { DragEndEvent } from '@dnd-kit/core';
 import { useDataGridReloadReset } from '../../useDataGridReloadReset';
 import { useDataGridBatchActions } from '../../useDataGridBatchActions';
+import { useDataGridGridGestures } from './useDataGridGridGestures';
 import {
     CELL_SELECTION_DRAG_THRESHOLD_PX,
     GONAVI_ROW_KEY,
@@ -233,6 +234,28 @@ export const useDataGridCellEditing = ({
       updateCellSelection,
     });
 
+    // Navicat 式网格手势：Ctrl/Cmd+A 只全选数据单元格。
+    // 判定/计算在 dataGrid/batchActions/gridGesturesInteraction。
+    useDataGridGridGestures({
+      containerRef,
+      isActive,
+      isTableSurfaceActive,
+      displayDataRef,
+      displayColumnNames,
+      rowKeyStr,
+      makeCellKey,
+      canModifyData,
+      cellEditModeRef,
+      setCellEditMode,
+      setSelectedCells,
+      currentSelectionRef,
+      selectionStartRef,
+      pendingCellSelectionStartRef,
+      updateCellSelection,
+      markCellSelectionDeleteEligible,
+      markCellSelectionUserSelection,
+    });
+
     const displayData = useMemo(() => {
         // 查询结果页没有服务端 WHERE 回调时，用列头筛选条件在客户端过滤当前结果集
         if (exportScope === 'queryResult' && filterConditions.length > 0) {
@@ -389,14 +412,23 @@ export const useDataGridCellEditing = ({
         autoCommitFailedTokenRef.current = -1;
     }, [addedRows, modifiedRows, deletedRowKeys]);
 
-    const rowClassName = useCallback((record: Item) => {
+    const rowClassName = useCallback((record: Item, index?: number) => {
+        // 斑马纹（Navicat 图4 节奏）：六行一循环 —— 两行素色、一行灰带、
+        // 两行素色、一行主题强调色带。index 是虚拟模式下稳定的绝对行号
+        // （rc-table BodyGrid 传递），排序/滚动后条带不漂移；
+        // 状态行（增删改/选中）由 CSS :not 排除不受影响。
+        let zebraClass = '';
+        if (index !== undefined) {
+            if (index % 6 === 2) zebraClass = ' row-zebra-band';
+            else if (index % 6 === 5) zebraClass = ' row-zebra-band-accent';
+        }
         const k = record?.[GONAVI_ROW_KEY];
-        if (k === undefined || k === null) return '';
+        if (k === undefined || k === null) return zebraClass.trim();
         const keyStr = rowKeyStr(k);
-        if (addedRowKeySet.has(keyStr)) return 'row-added';
-        if (deletedRowKeys.has(keyStr)) return 'row-deleted';
-        if (modifiedRowKeySet.has(keyStr)) return 'row-modified';
-        return '';
+        if (addedRowKeySet.has(keyStr)) return `row-added${zebraClass}`;
+        if (deletedRowKeys.has(keyStr)) return `row-deleted${zebraClass}`;
+        if (modifiedRowKeySet.has(keyStr)) return `row-modified${zebraClass}`;
+        return zebraClass.trim();
     }, [addedRowKeySet, modifiedRowKeySet, deletedRowKeys, rowKeyStr]);
 
     const handleTableChange = useCallback((_pag: any, _filtersArg: any, sorter: any) => {

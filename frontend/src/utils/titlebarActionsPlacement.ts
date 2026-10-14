@@ -18,8 +18,8 @@ export type TitlebarActionsDisplay = 'text' | 'icon' | 'icon-text';
 /**
  * 侧栏工具按钮（搜索 / 定位 / 回顶 / 连接操作 / 折叠）的摆放位置。
  *
- * - toolbar：默认。桌面端常驻标题栏第二行或独立工具条下方，其他平台在 explorer 头部。
- * - rail：固定在连接树左侧的侧边栏里竖排，展开、折叠都不动。
+ * - rail：默认。固定在连接树左侧的侧边栏里竖排，展开、折叠都不动。
+ * - toolbar：常驻标题栏第二行或独立工具条下方，其他平台在 explorer 头部。
  */
 export type SidebarActionsPlacement = 'toolbar' | 'rail';
 
@@ -30,24 +30,23 @@ export interface TitlebarActionsPlacementSettings {
 }
 
 /**
- * 新用户（本地没有任何配置）的默认值：标题栏 GoNavi 右侧 + 图标 + 精简名称。
- * Navicat 布局模式（appearance.uiLayoutMode='navicat'）在渲染层强制独立工具条，
- * 不改这里的持久化默认值。
+ * 新用户（本地没有任何配置）的默认值：独立工具条 + 左侧侧边栏竖排工具按钮
+ * （Navicat 式骨架）。「功能入口位置」在 classic / Navicat 两种布局下都生效；
+ * 选「独立工具条」时 Navicat 风格的功能入口与对象按钮（表 / 视图 / 函数…）
+ * 同行渲染，选「标题栏」时对象工具条独立成行。
  */
 export const DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS: TitlebarActionsPlacementSettings = {
-  titlebarActionsPlacement: 'titlebar',
+  titlebarActionsPlacement: 'toolbar',
   titlebarActionsDisplay: 'icon-text',
-  sidebarActionsPlacement: 'toolbar',
+  sidebarActionsPlacement: 'rail',
 };
 
 /**
- * 老配置缺字段时的回退：保持升级前的独立工具条，避免界面突变；
- * 之后切到标题栏时默认纯文字。
+ * 老配置缺字段时的回退：与新用户默认一致。
+ * 已持久化的合法取值不会被改写——只影响缺字段/非法值的兜底。
  */
 export const LEGACY_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS: TitlebarActionsPlacementSettings = {
-  titlebarActionsPlacement: 'toolbar',
-  titlebarActionsDisplay: 'text',
-  sidebarActionsPlacement: 'toolbar',
+  ...DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS,
 };
 
 const sanitizeTitlebarActionsPlacement = (value: unknown): TitlebarActionsPlacement => (
@@ -62,12 +61,12 @@ const sanitizeTitlebarActionsDisplay = (value: unknown): TitlebarActionsDisplay 
     : LEGACY_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS.titlebarActionsDisplay
 );
 
-// 侧栏按钮位置新老用户默认一致（toolbar），缺字段或非法值都回退到它。
+// 侧栏按钮位置回落到默认的「左侧侧边栏」；只有显式选过「顶部工具条」才保持。
 const sanitizeSidebarActionsPlacement = (value: unknown): SidebarActionsPlacement => (
-  value === 'rail' ? 'rail' : 'toolbar'
+  value === 'toolbar' ? 'toolbar' : 'rail'
 );
 
-/** 归一化已持久化的外观：未知值或缺字段按老用户处理，回退到升级前的布局。 */
+/** 归一化已持久化的外观：未知值或缺字段回退到默认布局（标题栏 GoNavi 右侧）。 */
 export const sanitizeTitlebarActionsPlacementSettings = (
   value: Partial<TitlebarActionsPlacementSettings> | undefined,
 ): TitlebarActionsPlacementSettings => ({

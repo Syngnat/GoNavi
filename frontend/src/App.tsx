@@ -103,7 +103,7 @@ function App() {
     setConnectionImportNotice, browserConnectionImportInputRef,
     aiPanelRenderNonce, setAiPanelRenderNonce,
     aiSettingsRenderNonce, setAiSettingsRenderNonce, LazyAIChatPanel, LazyAISettingsContent,
-    sidebarWidth, setSidebarWidth, documentPlatform, isMacRuntime,
+    sidebarWidth, setSidebarWidth, documentPlatform, isMacRuntime, isBrowserServedApp,
     shouldDockCollapsedSidebarActionsInTitlebar, collapsedSidebarActionsTarget,
     handleCollapseSidebarPanel, handleEnsureSidebarExpanded, handleExpandSidebarPanel,
     isCollapsedSidebarActionsDocked, isSidebarCollapsed, setCollapsedSidebarActionsTarget,
@@ -191,7 +191,7 @@ function App() {
     releaseNotesModalVisible, emitWindowDiagnostic, handleNewQuery, switchActiveTabByOffset,
     resetApplicationQuitRequest, forceQuitApplication,
   } = useAppUpdateAndDiagnostics({
-    isMacRuntime, shortcutOptions, runtimeBuildType, t, windowDiagSequenceRef,
+    isMacRuntime, isBrowserServedApp, shortcutOptions, runtimeBuildType, t, windowDiagSequenceRef,
     windowDiagLastSignatureRef, windowDiagLastAtRef, activeTabId, tabs, connections, activeContext,
     addTab, appearance, setActiveTab, applicationQuitHandlingRef, applicationQuitConfirmRef,
   });
@@ -381,7 +381,7 @@ function App() {
   const {
     settingsCenterGroups, activeSettingsCenterDetailPanelStyle, settingsCenterDetailBodyStyle,
     renderSettingsCenterPane, sidebarPanelCollapseLabel, sidebarPanelExpandLabel,
-    handleAppContextMenu, handleNativeMenuCheckUpdate, titleBarSystemActionsNode, titleBarActionRow,
+    handleAppContextMenu, handleNativeMenuCheckUpdate, titleBarSystemActionsNode, titleBarActionRow, titleBarObjectActionsRow,
     dockedSidebarActionsHost,
   } = useAppSettingsCenterRender({
     t, handleOpenSettingsCenterPane, setThemeModalSection, themeSettingsSections, isWebRuntime,
@@ -464,7 +464,7 @@ function App() {
             handleApplicationQuitRequest={handleApplicationQuitRequest}
           />
 
-          {!titleBarActionsInline && titleBarActionRow}{/* 工具条不套 mac 红绿灯留白 */}
+          {!titleBarActionsInline && titleBarActionRow}{titleBarObjectActionsRow}{/* 工具条不套 mac 红绿灯留白；navicat 内联形态下对象工具条独立成行 */}
           {!titleBarActionsInline && dockedSidebarActionsHost}
 
           {showLinuxCJKFontBanner && (

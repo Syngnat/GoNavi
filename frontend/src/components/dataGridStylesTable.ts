@@ -12,7 +12,26 @@ export const buildDataGridTableCss = ({
     rowAddedBg,
     rowModBg,
     bgContent,
-}: DataGridCssVars): string => `${DATA_GRID_FILL_BODY_CSS}
+}: DataGridCssVars): string => {
+    // 斑马纹（Navicat 图4 节奏：2 素 + 1 灰 + 2 素 + 1 强调色，六行一循环）：
+    // 灰带跟随主题前景色、彩带跟随主题强调色，亮暗主题方向自动翻转。
+    // 用 background-image 半透明图层叠加，不破坏透明单元格与固定列的实心遮挡底。
+    const zebraBandColor = darkMode
+        ? 'color-mix(in srgb, var(--gn-fg-1, #ffffff) 6%, transparent)'
+        : 'color-mix(in srgb, var(--gn-fg-1, #0c1322) 4%, transparent)';
+    const zebraAccentBandColor = `color-mix(in srgb, var(--gn-accent, ${darkMode ? '#22c55e' : '#16a34a'}) 9%, transparent)`;
+    const zebraStateGuard = ':not(.row-added):not(.row-modified):not(.row-deleted):not(.ant-table-row-selected)';
+    const zebraCellGuard = ':not([data-cell-selected="true"])';
+    const zebraSelectors = (bandClass: string) => [
+        `.${gridId} .ant-table-tbody-virtual-holder .ant-table-row.${bandClass}${zebraStateGuard} > .ant-table-cell${zebraCellGuard}`,
+        `.${gridId} .ant-table-tbody .ant-table-row.${bandClass}${zebraStateGuard} > .ant-table-cell${zebraCellGuard}`,
+        `.${gridId} .ant-table-tbody > tr.${bandClass}${zebraStateGuard} > td${zebraCellGuard}`,
+    ].join(',\n');
+    const zebraFixedSelectors = (bandClass: string) => [
+        `.${gridId}.data-grid-root .ant-table-tbody-virtual-holder .ant-table-row.${bandClass}${zebraStateGuard} > .ant-table-cell:is(.data-grid-row-number-cell, .ant-table-selection-column)`,
+        `.${gridId}.data-grid-root .ant-table-tbody > tr.${bandClass}${zebraStateGuard} > td:is(.data-grid-row-number-cell, .ant-table-selection-column)`,
+    ].join(',\n');
+    return `${DATA_GRID_FILL_BODY_CSS}
                 .${gridId} .data-grid-toolbar-scroll > * {
 
                     flex-shrink: 0;
@@ -476,6 +495,31 @@ export const buildDataGridTableCss = ({
                 }
 
                 /*
+                 * 奇偶行斑马纹（Navicat 式数据预览观感，六行周期）：
+                 * row-zebra-band = 灰带，row-zebra-band-accent = 主题强调色带。
+                 * 半透明 background-image 叠加在「透明单元格 / 固定列实心底」之上，
+                 * 不破坏横向滚动遮挡。排除状态行与选中行：它们有整行语义色；
+                 * 排除已选单元格：选区高亮规则（更靠后）需要完整接管其底色。
+                 * 特异性必须 ≥ 0,4,1（virtual-holder 透明底规则），详见下方行选中注释。
+                 */
+                ${zebraSelectors('row-zebra-band')},
+                ${zebraSelectors('row-zebra-band-accent')} {
+                    background-image: linear-gradient(${zebraBandColor}, ${zebraBandColor}) !important;
+                }
+
+                /* 斑马纹同样覆盖固定行控制列（序号/勾选框），整条行带连续。 */
+                ${zebraFixedSelectors('row-zebra-band')},
+                ${zebraFixedSelectors('row-zebra-band-accent')} {
+                    background-image: linear-gradient(${zebraBandColor}, ${zebraBandColor}) !important;
+                }
+
+                /* 强调色带覆盖灰带：同权重规则按源顺序取胜。 */
+                ${zebraSelectors('row-zebra-band-accent')},
+                ${zebraFixedSelectors('row-zebra-band-accent')} {
+                    background-image: linear-gradient(${zebraAccentBandColor}, ${zebraAccentBandColor}) !important;
+                }
+
+                /*
                  * 行选中：整行统一绿色。
                  * 关键：virtual-holder 下有
                  *   .row > .ant-table-cell { background: transparent !important }
@@ -546,6 +590,18 @@ export const buildDataGridTableCss = ({
 
                 .${gridId}.cell-edit-mode .ant-table-tbody .ant-table-row > .ant-table-cell[data-col-name] { user-select: none; -webkit-user-select: none; cursor: crosshair; }
 
+                /* 双击编辑中：整个编辑单元格（含输入框周边）用文本 I-beam 光标，
+                   覆盖 cell-edit-mode 的 crosshair 与浏览器对 input 的默认箭头。 */
+                .${gridId} .ant-table-cell[data-cell-editing="true"],
+
+                .${gridId} .data-grid-virtual-inline-editing,
+
+                .${gridId} .data-grid-inline-editor-input,
+
+                .${gridId} .data-grid-virtual-inline-editing .ant-input,
+
+                .${gridId} .data-grid-virtual-inline-editing .ant-picker { cursor: text !important; }
+
                 /* 单元格选区：与行选中/主题强调色统一为 V2 绿色，不用黄色 selectionAccent */
                 .${gridId} .ant-table-tbody > tr > td[data-cell-selected="true"],
                 .${gridId} .ant-table-tbody .ant-table-row > .ant-table-cell[data-cell-selected="true"],
@@ -611,3 +667,4 @@ export const buildDataGridTableCss = ({
                 }
 
 `;
+};

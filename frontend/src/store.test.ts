@@ -718,11 +718,12 @@ describe('store appearance persistence', () => {
     expect(reloaded.useStore.getState().appearance.autoAddTableAlias).toBe(true);
   });
 
-  it('defaults new installs to the title bar and keeps upgraded users on the toolbar', async () => {
+  it('defaults new installs to the title bar and falls back missing fields to the same default', async () => {
     // 新用户：本地没有任何配置，使用标题栏 + 图标 + 精简名称（classic 默认）。
     const { useStore } = await importStore();
 
-    expect(useStore.getState().appearance.titlebarActionsPlacement).toBe('titlebar');
+    expect(useStore.getState().appearance.titlebarActionsPlacement).toBe('toolbar');
+    expect(useStore.getState().appearance.sidebarActionsPlacement).toBe('rail');
     expect(useStore.getState().appearance.uiLayoutMode).toBe('classic');
 
     useStore.getState().setAppearance({ titlebarActionsPlacement: 'toolbar', titlebarActionsDisplay: 'icon' });
@@ -734,13 +735,13 @@ describe('store appearance persistence', () => {
     expect(reloaded.useStore.getState().appearance.titlebarActionsPlacement).toBe('toolbar');
     expect(reloaded.useStore.getState().appearance.titlebarActionsDisplay).toBe('icon');
 
-    // 老用户：已有配置但没有这些字段（或写入了未知值），保持升级前的工具条，切到标题栏时默认纯文字。
+    // 老用户：已有配置但没有这些字段（或写入了未知值），回退到与新用户一致的标题栏默认。
     for (const appearance of [{ titlebarActionsPlacement: 'menu', titlebarActionsDisplay: 'emoji' }, {}]) {
       storage.setItem('lite-db-storage', JSON.stringify({ state: { appearance }, version: 21 }));
       vi.resetModules();
       const legacy = await importStore();
       expect(legacy.useStore.getState().appearance.titlebarActionsPlacement).toBe('toolbar');
-      expect(legacy.useStore.getState().appearance.titlebarActionsDisplay).toBe('text');
+      expect(legacy.useStore.getState().appearance.titlebarActionsDisplay).toBe('icon-text');
     }
 
     // Navicat 布局开关：持久化并在重启后保持。
@@ -783,7 +784,7 @@ describe('store appearance persistence', () => {
       sqlEditorFontSize: 16,
       sqlEditorFontSizeFollowGlobal: false,
       titlebarActionsPlacement: 'toolbar',
-      titlebarActionsDisplay: 'text',
+      titlebarActionsDisplay: 'icon-text',
     });
   });
 
