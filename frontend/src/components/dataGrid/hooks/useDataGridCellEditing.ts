@@ -4,6 +4,7 @@ import { DragEndEvent } from '@dnd-kit/core';
 import { useDataGridReloadReset } from '../../useDataGridReloadReset';
 import { useDataGridBatchActions } from '../../useDataGridBatchActions';
 import { useDataGridGridGestures } from './useDataGridGridGestures';
+import type { DataGridSelectionColumnMode } from '../../../utils/dataGridDisplay';
 import {
     CELL_SELECTION_DRAG_THRESHOLD_PX,
     GONAVI_ROW_KEY,
@@ -42,6 +43,8 @@ export interface UseDataGridCellEditingInput {
     cellSelectionScrollRafRef: DataGridCellEditorStateApi['cellSelectionScrollRafRef'];
     cellSelectionAutoScrollRafRef: DataGridCellEditorStateApi['cellSelectionAutoScrollRafRef'];
     updateCellSelection: DataGridColumnTitlesApi['updateCellSelection'];
+    selectionColumnMode: DataGridSelectionColumnMode;
+    rowSelectionKeysRef: { current: Iterable<unknown> };
     setCellEditMode: DataGridCellEditorStateApi['setCellEditMode'];
     cellEditModeRef: DataGridCellEditorStateApi['cellEditModeRef'];
     closeBatchEditModal: DataGridCellEditorStateApi['closeBatchEditModal'];
@@ -107,7 +110,8 @@ export const useDataGridCellEditing = ({
     currentSelectionRef, selectionStartRef, cellSelectionAnchorSourceRef,
     pendingCellSelectionStartRef, isDraggingRef, cellSelectionPointerRef, cellSelectionRafRef,
     cellSelectionScrollRafRef, cellSelectionAutoScrollRafRef, updateCellSelection, setCellEditMode,
-    cellEditModeRef, closeBatchEditModal, data, setSelectedRowKeys, deletedRowKeys,
+    rowSelectionKeysRef,
+    cellEditModeRef, closeBatchEditModal, data, setSelectedRowKeys, deletedRowKeys, selectionColumnMode,
     setDeletedRowKeys, closeCellEditModeRef, cellEditMode, cellSelectionDeleteEligible,
     cellSelectionSourceDataRef, isActive, addedRows, setAddedRows, batchEditSetNull, batchEditValue,
     canModifyData, cellSelectionAutoScrollControllerRef, columnIndexMap, containerRef,
@@ -254,6 +258,9 @@ export const useDataGridCellEditing = ({
       updateCellSelection,
       markCellSelectionDeleteEligible,
       markCellSelectionUserSelection,
+      selectionColumnBlank: selectionColumnMode === 'blank',
+      rowSelectionKeysRef: selectedRowKeysRef,
+      setRowSelectionKeys: setSelectedRowKeys,
     });
 
     const displayData = useMemo(() => {

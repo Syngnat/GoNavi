@@ -25,13 +25,16 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-root {
   --gonavi-window-opacity: 1;
 }
 
-/* 侧栏（对齐 Navicat 观感）：比内容区表面深一档。chrome token 在亮/暗
-   基础主题与 GoNavi 内置/自定义主题里都恰好是「内容面 → 侧栏面」的
-   那一档色差，直接引用即可，无需自行派生。 */
+/* 侧栏 + 主页签条（对齐 Navicat 观感）：比内容区表面再深一档。
+   在 chrome 基础上向前景色偏移 6%：亮色主题压暗、暗色主题提亮，
+   GoNavi 内置/自定义主题自动跟随；比内容区（panel-2）明显更灰。 */
+body[data-ui-layout='navicat'][data-ui-version='v2'] {
+  --gn-navicat-side-surface: color-mix(in srgb, var(--gn-bg-chrome, var(--gn-bg-panel-2, #f2f2f5)) 94%, var(--gn-fg-1, #26262b));
+}
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-sider,
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-sidebar-redesign,
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-app-sider .gn-side-info-tabs {
-  background: var(--gn-bg-chrome, var(--gn-bg-panel-2)) !important;
+  background: var(--gn-navicat-side-surface) !important;
 }
 
 /* 侧栏资源管理器底部工具条（上下文摘要 + 搜索/定位/折叠按钮）：
@@ -62,7 +65,7 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-navicat-empty-workspace
 
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs > .ant-tabs-nav,
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs-double > .ant-tabs-nav {
-  background: var(--gn-bg-chrome, var(--gn-bg-panel-2));
+  background: var(--gn-navicat-side-surface);
   height: auto;
   flex: 0 0 auto;
   min-height: 0;
@@ -131,10 +134,12 @@ body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .ant-tabs-
   color: var(--gn-accent, #16a34a) !important;
 }
 
-/* 关闭按钮：悬浮才显形，圆形热区 */
+/* 关闭按钮：悬浮才显形，圆形热区；margin-left:auto 钉在页签右缘——
+   页签宽度随内容自适应时，关闭按钮距外层右边的距离保持一致。 */
 body[data-ui-layout='navicat'][data-ui-version='v2'] .gn-v2-main-tabs .gn-v2-tab-close {
   color: var(--gn-fg-4, #8b8b94);
   border-radius: 5px;
+  margin-left: auto;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 

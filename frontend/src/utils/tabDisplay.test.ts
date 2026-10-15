@@ -38,12 +38,19 @@ const redisConnection: SavedConnection = {
   },
 };
 
+// 这些用例原本基于双行默认编写；默认切单行后显式传双行设置保持原验证意图。
+const DOUBLE_DISPLAY_SETTINGS = sanitizeTabDisplaySettings({
+  layout: 'double',
+  primaryElements: ['object'],
+  secondaryElements: ['kind', 'connection', 'database'],
+});
+
 describe('tabDisplay', () => {
-  it('uses the requested double-line tab display defaults', () => {
+  it('defaults to the single-line tab display', () => {
     expect(DEFAULT_TAB_DISPLAY_SETTINGS).toEqual({
-      layout: 'double',
-      primaryElements: ['object'],
-      secondaryElements: ['kind', 'connection', 'database'],
+      layout: 'single',
+      primaryElements: ['connection', 'kind', 'object'],
+      secondaryElements: [],
     });
     expect(getDefaultTabDisplaySnapshot('single')).toEqual({
       primaryElements: ['connection', 'kind', 'object'],
@@ -164,7 +171,7 @@ describe('tabDisplay', () => {
 
     expect(buildTabDisplayTitle(driverManagerTab, undefined, undefined, translate))
       .toBe('Treiberverwaltung');
-    expect(buildTabDisplayModel(driverManagerTab, undefined, undefined, translate).primaryText)
+    expect(buildTabDisplayModel(driverManagerTab, undefined, DOUBLE_DISPLAY_SETTINGS, translate).primaryText)
       .toBe('Treiberverwaltung');
   });
 
@@ -181,7 +188,7 @@ describe('tabDisplay', () => {
 
     expect(buildTabDisplayTitle(requestDiagnosticsTab, undefined, undefined, translate))
       .toBe('Request Diagnostics');
-    expect(buildTabDisplayModel(requestDiagnosticsTab, undefined, undefined, translate).primaryText)
+    expect(buildTabDisplayModel(requestDiagnosticsTab, undefined, DOUBLE_DISPLAY_SETTINGS, translate).primaryText)
       .toBe('Request Diagnostics');
   });
 
@@ -308,10 +315,10 @@ describe('tabDisplay', () => {
 
     const model = buildTabDisplayModel(tableTab, connection);
 
-    expect(model.layout).toBe('double');
-    expect(model.primaryText).toBe('andon_events');
-    expect(model.secondaryText).toBe('TABLE·[DEV]·appdb');
-    expect(model.fullTitle).toBe('andon_events · TABLE·[DEV]·appdb');
+    expect(model.layout).toBe('single');
+    expect(model.primaryText).toBe('[DEV] TABLE andon_events');
+    expect(model.secondaryText).toBe('');
+    expect(model.fullTitle).toBe('[DEV] TABLE andon_events');
   });
 
   it('keeps query tab labels compact when the title is raw SQL', () => {
@@ -335,7 +342,7 @@ describe('tabDisplay', () => {
       query: 'select * from fs_org_auth_application where application_id is not null;',
     };
 
-    const model = buildTabDisplayModel(queryTab, connection);
+    const model = buildTabDisplayModel(queryTab, connection, DOUBLE_DISPLAY_SETTINGS);
 
     expect(model.primaryText).toBe('New query');
     expect(model.secondaryText).toBe('SQL·[开发240]·front_end_sys');
@@ -353,7 +360,7 @@ describe('tabDisplay', () => {
       query: 'select * from fs_org_auth_application where application_id is not null;',
     };
 
-    const model = buildTabDisplayModel(queryTab, undefined, undefined, keyEchoTranslate);
+    const model = buildTabDisplayModel(queryTab, undefined, DOUBLE_DISPLAY_SETTINGS, keyEchoTranslate);
 
     expect(model.primaryText).toBe('T(New query)');
     expect(model.secondaryText).toBe('SQL·front_end_sys');
@@ -371,7 +378,7 @@ describe('tabDisplay', () => {
       query: 'select 1;',
     };
 
-    const model = buildTabDisplayModel(queryTab, undefined, undefined, keyEchoTranslate);
+    const model = buildTabDisplayModel(queryTab, undefined, DOUBLE_DISPLAY_SETTINGS, keyEchoTranslate);
 
     expect(model.primaryText).toBe('T(New query)');
     expect(model.secondaryText).toBe('SQL·front_end_sys');
@@ -387,7 +394,7 @@ describe('tabDisplay', () => {
       query: 'select 1;',
     };
 
-    const model = buildTabDisplayModel(queryTab, undefined, undefined, keyEchoTranslate);
+    const model = buildTabDisplayModel(queryTab, undefined, DOUBLE_DISPLAY_SETTINGS, keyEchoTranslate);
 
     expect(model.primaryText).toBe('T(New query (main))');
     expect(model.secondaryText).toBe('SQL·main');
@@ -403,7 +410,7 @@ describe('tabDisplay', () => {
       query: 'select * from very_long_table_name;',
     };
 
-    const model = buildTabDisplayModel(queryTab);
+    const model = buildTabDisplayModel(queryTab, undefined, DOUBLE_DISPLAY_SETTINGS);
 
     expect(model.primaryText).toBe('monthly-report.sql');
     expect(model.secondaryText).toBe('SQL');
@@ -469,7 +476,7 @@ describe('tabDisplay', () => {
       primaryElements: ['schema', 'schema', 'bad' as never],
       secondaryElements: ['object', 'schema', 'host'],
     })).toEqual({
-      layout: 'double',
+      layout: 'single',
       primaryElements: ['schema'],
       secondaryElements: ['object', 'host'],
     });

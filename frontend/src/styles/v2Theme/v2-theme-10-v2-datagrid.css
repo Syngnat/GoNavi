@@ -458,3 +458,9 @@ body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead .ant-table-column-s
 body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead .ant-table-column-sorter {
   flex: 0 0 auto;
 }
+
+/* 行首选择列拖选中（Navicat 式）：拖动进行中抑制原生文本选择。 */
+body.gn-datagrid-row-select-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}

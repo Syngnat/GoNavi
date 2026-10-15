@@ -27,6 +27,7 @@ import { getShortcutPlatform } from '../../../utils/shortcuts';
 import {
     getDensityParams,
     resolveDataTableVerticalBorderRule,
+    type DataGridSelectionColumnMode,
 } from '../../../utils/dataGridDisplay';
 import {
     useDataGridColumnLayout,
@@ -146,6 +147,15 @@ export const useDataGridCoreState = ({
         && (typeof showRowNumberColumn === 'boolean'
             ? showRowNumberColumn
             : appearance.showDataTableRowNumber !== false);
+    // 行首选择列形态（showDataTableCheckboxColumn 三态）：
+    //   Navicat 风格：默认「空白选择列」（点击/拖选行，对齐 Navicat 习惯），
+    //                显式开启才显示复选框；该布局不提供整列隐藏。
+    //   classic：默认复选框列，显式关闭才整列隐藏。
+    const inNavicatLayout = appearance.uiLayoutMode === 'navicat';
+    const storedCheckboxColumn = appearance.showDataTableCheckboxColumn;
+    const selectionColumnMode: DataGridSelectionColumnMode = inNavicatLayout
+        ? (storedCheckboxColumn === true ? 'checkbox' : 'blank')
+        : (storedCheckboxColumn === false ? 'hidden' : 'checkbox');
     const dataTableDensity = appearance.dataTableDensity;
     const densityParams = useMemo(() => getDensityParams(dataTableDensity), [dataTableDensity]);
     const headerCellMinHeight = densityParams.headerMinHeight;
@@ -502,7 +512,7 @@ export const useDataGridCoreState = ({
         setEnableHiddenColumnMemory, clearTableHiddenColumns, shortcutOptions, language,
         translateDataGrid, localizedDataEditAutoCommitDelayOptions, rowLocatorMessages, isMacLike,
         isWindowsLike, effectiveUiScale, activeShortcutPlatform, darkMode, opacity,
-        dataGridBackdropFilter, resolvedShowRowNumberColumn, dataTableDensity, densityParams,
+        dataGridBackdropFilter, resolvedShowRowNumberColumn, selectionColumnMode, dataTableDensity, densityParams,
         headerCellMinHeight, inputCellPadding, dataTableVerticalBorderRule, effectiveEditLocator,
         visibleColumnNames, shouldCommitColumn, canModifyData, showColumnComment, showColumnType,
         alignNumericTemporalRight, allOrderedColumnNames, localHiddenColumns, setLocalHiddenColumns,

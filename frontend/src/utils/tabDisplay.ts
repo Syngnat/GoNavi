@@ -68,10 +68,12 @@ const DEFAULT_DOUBLE_TAB_DISPLAY_SNAPSHOT: TabDisplayLayoutSnapshot = {
   secondaryElements: ['kind', 'connection', 'database'],
 };
 
+// 默认单行页签（Navicat 式阅读节奏：页签只占一行，只回答「我在看哪个对象」；
+// 副标题/SYNC 等徽标属于双行布局，需要更全上下文的用户可在设置里切回双行）。
 export const DEFAULT_TAB_DISPLAY_SETTINGS: TabDisplaySettings = {
-  layout: 'double',
-  primaryElements: [...DEFAULT_DOUBLE_TAB_DISPLAY_SNAPSHOT.primaryElements],
-  secondaryElements: [...DEFAULT_DOUBLE_TAB_DISPLAY_SNAPSHOT.secondaryElements],
+  layout: 'single',
+  primaryElements: [...DEFAULT_SINGLE_TAB_DISPLAY_SNAPSHOT.primaryElements],
+  secondaryElements: [...DEFAULT_SINGLE_TAB_DISPLAY_SNAPSHOT.secondaryElements],
 };
 
 export const getCurrentTabDisplaySnapshot = (settings: TabDisplaySettings): TabDisplayLayoutSnapshot => ({

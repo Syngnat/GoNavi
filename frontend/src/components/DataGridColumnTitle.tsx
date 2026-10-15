@@ -113,7 +113,7 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
   const columnTypeRoleClassName = columnTypeRole === 'none' ? '' : ` is-${columnTypeRole}`;
   const shouldShowColumnType = showColumnType && columnType.length > 0;
   const shouldShowColumnComment = showColumnComment && columnComment.length > 0;
-  const isSingleLineColumnTitle = !shouldShowColumnType && !shouldShowColumnComment;
+  const isSingleLineColumnTitle = !shouldShowColumnComment;
   const pinIcon = pinnedLeft ? (
     <PushpinOutlined
       data-grid-column-pinned-icon="true"
@@ -126,6 +126,30 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
       }}
     />
   ) : null;
+  // 类型以 11px 灰色小字内联在列名后（Navicat 式单行表头），不再占独立一行；
+  // 完整类型/键角色/注释仍走 hoverLines 悬浮提示。
+  const inlineTypeSpan = shouldShowColumnType ? (
+    <span
+      className={`gn-v2-column-title-type${columnTypeRoleClassName}`}
+      data-grid-column-type-role={columnTypeRole}
+      style={{
+        flex: 'none',
+        fontSize: metaFontSize,
+        lineHeight: 1,
+        color: columnTypeRole === 'none' ? columnMetaHintColor : undefined,
+        maxWidth: 120,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {columnTypeRole !== 'none' && (
+        <span className="gn-v2-column-title-type-swatch" aria-hidden="true" />
+      )}
+      <span className="gn-v2-column-title-type-text">{columnType}</span>
+    </span>
+  ) : null;
+
   const [filterPopoverOpen, setFilterPopoverOpen] = React.useState(false);
   const initialFilterOperator = columnFilter?.initialOperator || columnFilter?.defaultOperator || '=';
   const [draftFilterOperator, setDraftFilterOperator] = React.useState(initialFilterOperator);
@@ -197,6 +221,7 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
         {normalizedName}
       </span>
+      {inlineTypeSpan}
       <LinkOutlined style={{ fontSize: metaFontSize + 1, color: columnMetaHintColor, flex: 'none' }} />
     </button>
   ) : (
@@ -208,6 +233,7 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
         {normalizedName}
       </span>
+      {inlineTypeSpan}
     </span>
   );
 
@@ -233,26 +259,6 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
       }}
     >
       {fieldLabel}
-      {shouldShowColumnType && (
-        <span
-          className={`gn-v2-column-title-type${columnTypeRoleClassName}`}
-          data-grid-column-type-role={columnTypeRole}
-          style={{
-            marginTop: 2,
-            fontSize: metaFontSize,
-            color: columnTypeRole === 'none' ? columnMetaHintColor : undefined,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: '100%',
-          }}
-        >
-          {columnTypeRole !== 'none' && (
-            <span className="gn-v2-column-title-type-swatch" aria-hidden="true" />
-          )}
-          <span className="gn-v2-column-title-type-text">{columnType}</span>
-        </span>
-      )}
       {shouldShowColumnComment && (
         <span
           className="gn-v2-column-title-comment"

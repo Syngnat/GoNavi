@@ -262,6 +262,37 @@ export const useDataGridV2ColumnActions = ({
         if (!payload) return;
         copyToClipboard(payload);
     }, [buildSelectedCellsClipboardPayload, copyToClipboard]);
+
+    // 行选中复制（Navicat 式空白选择列/行号选中）：列间 TAB、行间换行（TSV，含表头）。
+    const buildSelectedRowsClipboardPayload = useCallback((): DataGridClipboardPayload | null => {
+        const keys = new Set<string>();
+        for (const key of selectedRowKeysRef.current) keys.add(String(key));
+        if (keys.size === 0) return null;
+        const selectedCells: Array<{ rowKey: string; colName: string }> = [];
+        for (const row of mergedDisplayData as Array<Record<string, any>>) {
+            const rawKey = row?.[GONAVI_ROW_KEY];
+            if (rawKey === undefined || rawKey === null) continue;
+            const keyStr = rowKeyStr(rawKey);
+            if (!keys.has(keyStr)) continue;
+            for (const colName of displayColumnNames) {
+                selectedCells.push({ rowKey: keyStr, colName });
+            }
+        }
+        if (selectedCells.length === 0) return null;
+        return buildSelectedCellClipboardPayload({
+            selectedCells,
+            rows: mergedDisplayData as Array<Record<string, any>>,
+            columnOrder: displayColumnNames,
+            rowKeyField: GONAVI_ROW_KEY,
+        });
+    }, [
+        GONAVI_ROW_KEY,
+        buildSelectedCellClipboardPayload,
+        displayColumnNames,
+        mergedDisplayData,
+        rowKeyStr,
+        selectedRowKeysRef,
+    ]);
   
     useEffect(() => {
         if (!isActive || !isTableSurfaceActive || (!cellEditMode && selectedCells.size === 0)) return;
@@ -296,7 +327,7 @@ export const useDataGridV2ColumnActions = ({
     }, [cellEditMode, selectedCells, resetCellSelection, closeCellEditMode, isActive, isTableSurfaceActive]);
   
     useEffect(() => {
-        if (!isActive || !isTableSurfaceActive || selectedCells.size === 0) return;
+        if (!isActive || !isTableSurfaceActive || (selectedCells.size === 0 && selectedRowKeys.length === 0)) return;
   
         const onCopy = (event: ClipboardEvent) => {
             if (event.defaultPrevented) return;
@@ -306,7 +337,13 @@ export const useDataGridV2ColumnActions = ({
             if (activeElement?.closest(nativeShortcutGuard) || eventTarget?.closest(nativeShortcutGuard)) return;
             if (document.getSelection?.()?.toString()) return;
   
-            const payload = buildSelectedCellsClipboardPayload();
+            // 单元格选区优先（拖选/点选单元格）；仅行选中时整行复制（列间 TAB、行间换行）。
+            let payload: DataGridClipboardPayload | null = null;
+            if (selectedCells.size > 0) {
+                payload = buildSelectedCellsClipboardPayload();
+            } else if (selectedRowKeys.length > 0) {
+                payload = buildSelectedRowsClipboardPayload();
+            }
             if (!payload) return;
             if (writeClipboardPayloadToEvent(event, payload)) {
                 void message.success(translateDataGrid('data_grid.message.copied_to_clipboard'));
@@ -317,7 +354,7 @@ export const useDataGridV2ColumnActions = ({
   
         window.addEventListener('copy', onCopy);
         return () => window.removeEventListener('copy', onCopy);
-    }, [buildSelectedCellsClipboardPayload, copyToClipboard, isActive, isTableSurfaceActive, selectedCells.size, translateDataGrid]);
+    }, [buildSelectedCellsClipboardPayload, buildSelectedRowsClipboardPayload, copyToClipboard, isActive, isTableSurfaceActive, selectedCells.size, selectedRowKeys.length, translateDataGrid]);
   
     useEffect(() => {
         if (!isActive || !isTableSurfaceActive || (!cellEditMode && selectedCells.size === 0)) return;

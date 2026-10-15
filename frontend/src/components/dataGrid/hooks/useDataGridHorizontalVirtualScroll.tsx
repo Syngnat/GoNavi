@@ -18,6 +18,7 @@ import {
 import { EditableCell, SortableHeaderCell } from '../../DataGridCore';
 import type { DataGridCommitApi } from './useDataGridCommit';
 import type { DataGridCellEditorStateApi } from './useDataGridCellEditorState';
+import type { DataGridSelectionColumnMode } from '../../../utils/dataGridDisplay';
 import type { DataGridCoreStateApi } from './useDataGridCoreState';
 import type { DataGridInlineEditorApi } from './useDataGridInlineEditor';
 import type { DataGridCellEditingApi } from './useDataGridCellEditing';
@@ -70,6 +71,7 @@ export interface UseDataGridHorizontalVirtualScrollInput {
     selectedRowKeys: DataGridCellEditorStateApi['selectedRowKeys'];
     setSelectedRowKeys: DataGridCellEditorStateApi['setSelectedRowKeys'];
     selectionColumnWidth: DataGridCoreStateApi['selectionColumnWidth'];
+    selectionColumnMode: DataGridSelectionColumnMode;
     tableColumns: DataGridRowActionsApi['tableColumns'];
     densityParams: DataGridCoreStateApi['densityParams'];
     tableViewportWidth: DataGridTableMetricsApi['tableViewportWidth'];
@@ -120,7 +122,7 @@ export const useDataGridHorizontalVirtualScroll = ({
     toggleAllColumnsVisibility, toggleColumnVisibility, setEnableColumnOrderMemory,
     setEnableHiddenColumnMemory, clearTableColumnOrder, clearTableHiddenColumns,
     showCellContextMenu, handleBatchFillToSelected, selectedRowKeys, setSelectedRowKeys,
-    selectionColumnWidth, tableColumns, densityParams, tableViewportWidth, isMacLike, isWindowsLike,
+    selectionColumnMode, selectionColumnWidth, tableColumns, densityParams, tableViewportWidth, isMacLike, isWindowsLike,
     mergedColumns, measuredHorizontalScrollMetrics, floatingScrollbarInset, isTableSurfaceActive,
     tableHeight, effectiveUiScale, virtualEditingCellForRender, enableVirtual, displayColumnNames,
     useInlineEditableBodyCell, virtualHorizontalElementsRef, tableContainerRef,
@@ -206,15 +208,33 @@ export const useDataGridHorizontalVirtualScroll = ({
         handleBatchFillToSelected,
     }), [showCellContextMenu, handleBatchFillToSelected]);
 
-    const rowSelectionConfig = useMemo(() => ({
-        selectedRowKeys,
-        onChange: setSelectedRowKeys,
-        columnWidth: selectionColumnWidth,
-        // 与行号列一起左侧固定，横向滚动时仍可勾选/识别行
-        fixed: true as const,
-    }), [selectedRowKeys, selectionColumnWidth]);
+    // 行首选择列三态（见 selectionColumnMode）：
+    //   checkbox：复选框列（classic 原形态，显式开启时）
+    //   blank：空白选择列（Navicat 风格默认）——表头与单元格留白，
+    //          行选中通过「点击行首」完成（见 useDataGridGridGestures）
+    //   hidden：整列隐藏（显式关闭时），行选中仍可走行号列点击
+    const rowSelectionConfig = useMemo(() => {
+        if (selectionColumnMode === 'hidden') return undefined;
+        if (selectionColumnMode === 'blank') {
+            return {
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+                columnWidth: selectionColumnWidth,
+                fixed: true as const,
+                columnTitle: ' ' as unknown as React.ReactNode,
+                renderCell: () => null,
+            };
+        }
+        return {
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+            columnWidth: selectionColumnWidth,
+            // 与行号列一起左侧固定，横向滚动时仍可勾选/识别行
+            fixed: true as const,
+        };
+    }, [selectionColumnMode, selectedRowKeys, selectionColumnWidth]);
 
-    const totalWidth = tableColumns.reduce((sum: number, col: any) => sum + (Number(col.width) || densityParams.defaultColumnWidth), 0) + selectionColumnWidth;
+    const totalWidth = tableColumns.reduce((sum: number, col: any) => sum + (Number(col.width) || densityParams.defaultColumnWidth), 0) + (selectionColumnMode !== 'hidden' ? selectionColumnWidth : 0);
     const tableScrollX = useMemo(() => {
         // rc-table 在 scroll.x 小于容器宽度时会把实际列宽按视口补齐。
         // 这里必须与其使用同一套 scroll.x 口径，否则少字段场景下 header/body 会错位。

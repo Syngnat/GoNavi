@@ -655,7 +655,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
 
   createPreset(
     'builtin-navicat-classic',
-    'Navicat Classic',
+    'Comfort White',
     'app.theme.custom.preset.navicat_classic.name',
     'app.theme.custom.preset.navicat_classic.description',
     {

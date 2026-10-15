@@ -95,6 +95,8 @@ export const useAppLayoutEffects = ({
 }: UseAppLayoutEffectsInput) => {
   // 界面布局主题（classic / navicat）：单字段订阅，供首帧 body 属性使用。
   const uiLayoutMode = useStore((state) => state.appearance.uiLayoutMode);
+  // 行首选择列形态（true=复选框 / false=隐藏 / null=跟布局）：供 CSS 区分选中样式。
+  const showDataTableCheckboxColumn = useStore((state) => state.appearance.showDataTableCheckboxColumn);
   // Apply the document theme before the first paint. V2 structural styles are
   // scoped by data-ui-version; a passive effect leaves one unstyled titlebar
   // frame where the centered context and its marker collapse into the legacy
@@ -106,6 +108,9 @@ export const useAppLayoutEffects = ({
     document.body.setAttribute('data-theme', darkMode ? 'dark' : 'light');
     document.body.setAttribute('data-ui-version', 'v2');
     document.body.setAttribute('data-ui-layout', uiLayoutMode === 'navicat' ? 'navicat' : 'classic');
+    document.body.setAttribute('data-grid-selection-checkbox',
+      showDataTableCheckboxColumn === true ? 'true'
+        : showDataTableCheckboxColumn === false ? 'false' : 'layout');
     document.body.setAttribute('data-platform', documentPlatform);
     document.body.style.fontSize = `${effectiveFontSize}px`;
     document.body.style.setProperty('--gn-font-sans', resolvedUiFontFamily);
@@ -127,6 +132,7 @@ export const useAppLayoutEffects = ({
     document.documentElement.style.setProperty('--gn-control-height-sm', `${tokenControlHeightSM}px`);
   }, [
     darkMode,
+    showDataTableCheckboxColumn,
     effectiveDataTableFontSize,
     effectiveFontSize,
     effectiveOpacity,
