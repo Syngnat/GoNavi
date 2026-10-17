@@ -520,6 +520,10 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	// 和「刚取消固定」，而后者的按钮同样带着过期快照；代价是 Explorer 重绘
 	// 一次桌面图标（切换本身已会让开始菜单列表闪烁）。
 	windowsApplicationIconNotifyAssociationChanged()
+	// 曾在此处恢复 1.5s 延迟安全网（定向通知+重注册）以修「固定后首切失效」，
+	// 实测回归：与重建按钮路径互相干扰——重注册让按钮多刷一遍（换两遍），
+	// 且打断紧随的第二次切换的按钮重建（第二次无效）。Explorer 对固定按钮
+	// 的刷新路径以 a43e0e11 的重建按钮为准，不再叠加延迟补偿。
 	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
 		return err
 	}
