@@ -8,7 +8,11 @@
 // 一致，确保「按语句分组」与「参数扫描」对同一份 SQL 得到互相吻合的边界。
 package sqlparam
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // ScanOptions 控制方言相关的词法规则，字段语义与 sql_split.go 的方言判定对齐。
 type ScanOptions struct {
@@ -29,6 +33,11 @@ type ScanOptions struct {
 	// QuotedPlaceholders 为 true 时，引号里的 {name}、'{name} 后缀'、'${name}'
 	// 是绑定参数。为 false 时这些文本保持字面量，只认引号外的 :name 和 ${name}。
 	QuotedPlaceholders bool
+	// OracleAlternativeQuotes 表示 q'...' / Q'...' / nq'...' 是 Oracle 替代
+	// 引号：首个字符是定界符（括号对取匹配闭括号），到「定界符 + '」结束，
+	// 内容整体是字面量。Oracle 家族启用，避免 q'{abc}' 的内容被误认成
+	// 引号参数、以及 q'[it's]' 里的撇号吞掉后续真实参数。
+	OracleAlternativeQuotes bool
 }
 
 // OptionsForDBType 按数据源类型返回与语句拆分器一致的词法选项。
@@ -46,6 +55,9 @@ func OptionsForDBType(dbType string) ScanOptions {
 			normalized == "goldendb" || normalized == "sphinx" || normalized == "tidb",
 		// 历史默认开启。查询编辑器按用户开关关掉后，'{code1}-{code2}' 按原文执行。
 		QuotedPlaceholders: true,
+		// Oracle 家族（oracle / dameng，yashandb、OceanBase Oracle 协议等在
+		// app 层已归一为 oracle）支持 q'...' 替代引号。
+		OracleAlternativeQuotes: IsOracleFamilyDBType(normalized),
 	}
 	if normalized == "" {
 		opts.HashComments = true
@@ -84,8 +96,24 @@ func normalizeDBType(dbType string) string {
 		return "kingbase"
 	case "greatdb", "gdb":
 		return "goldendb"
+	case "dm", "dm8":
+		// 达梦别名归一，与 internal/db/driver_support.go 的口径一致。
+		return "dameng"
 	default:
 		return normalized
+	}
+}
+
+// IsOracleFamilyDBType 报告 dbType 是否为 Oracle 兼容方言（替代引号、
+// :NEW/:OLD 伪记录等词法共享）。dameng 是达梦的归一名；yashandb、
+// OceanBase Oracle 协议在 app 层 resolveDDLDBType 已归一为 oracle。
+// 前端 isOracleLikeDialect 的 oracle 家族口径与这里保持一致。
+func IsOracleFamilyDBType(dbType string) bool {
+	switch normalizeDBType(dbType) {
+	case "oracle", "dameng", "dm":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -121,6 +149,7 @@ func Scan(sql string, opts ScanOptions) []Span {
 	singleStart := -1
 	inLineComment, inBlockComment, escaped := false, false, false
 	dollarTag := ""
+	var altQuoteFailFrom map[rune]int
 
 	for i := 0; i < len(sql); i++ {
 		ch := sql[i]
@@ -166,6 +195,35 @@ func Scan(sql string, opts ScanOptions) []Span {
 		if opts.BackslashEscapes && (inSingle || inDouble) && ch == '\\' {
 			escaped = true
 			continue
+		}
+
+		// Oracle 替代引号 q'X...X'：内容整体是字面量，不参与引号参数识别。
+		// 找不到合法闭合时回退为普通引号处理，避免吞掉后续真实参数。
+		// altQuoteFailFrom 按 opener 定界符记录「该定界符在此位置起找不到
+		// 闭合」的最早位置：同一定界符的后续 q-quote 搜索范围是失败扫描
+		// 范围的子集，必然同样失败，直接跳过探测，保证大量未闭合 q' 的
+		// 最坏情况仍是线性。前缀不匹配（普通文本里的 n/q 字母）、标识符
+		// 守卫失败、定界符非法都与具体位置相关，不代表同定界符的后续
+		// q-quote 会失败，不得记入水位线。
+		if opts.OracleAlternativeQuotes && !inSingle && !inDouble && !inBacktick &&
+			(ch == 'q' || ch == 'Q' || ch == 'n' || ch == 'N') {
+			opener, openerIndex, ok := oracleAlternativeQuoteOpener(sql, i)
+			if ok {
+				// 同定界符此前已确认从更晚位置起找不到闭合：本次搜索范围是
+				// 失败扫描范围的子集，必然同样失败，跳过探测并回退普通引号。
+				// openerIndex 更早时搜索范围覆盖了失败范围之外的前段，仍需探测。
+				failFrom, failed := altQuoteFailFrom[opener]
+				if !failed || openerIndex < failFrom {
+					if end, ok := oracleAlternativeQuoteEnd(sql, i, opener, openerIndex); ok {
+						i = end - 1
+						continue
+					}
+					if altQuoteFailFrom == nil {
+						altQuoteFailFrom = make(map[rune]int)
+					}
+					altQuoteFailFrom[opener] = openerIndex
+				}
+			}
 		}
 
 		if !inDouble && !inBacktick && ch == '\'' {
@@ -320,6 +378,77 @@ func parseDollarTagAt(text string, start int) string {
 		}
 	}
 	return ""
+}
+
+// oracleAlternativeQuoteOpener 判定 text[start:] 是否以 Oracle 替代引号的
+// 合法开头起跑（q'X、Q'X、nq'X、NQ'X，X 非空白且非引号），是则返回 opener
+// 定界符与其字节下标。前一个字符是标识符成分（如 abcq'、中q'）时不认，
+// 按 rune 解码判定，与 result_masking.go 的 isSQLIdentifierRune 一致。
+// 只做 O(1) 校验，不扫描内容；调用方据此决定是否探测闭合与记失败水位。
+func oracleAlternativeQuoteOpener(text string, start int) (rune, int, bool) {
+	prefixLen := 0
+	switch {
+	case start+1 < len(text) && (text[start] == 'q' || text[start] == 'Q') && text[start+1] == '\'':
+		prefixLen = 1
+	case start+2 < len(text) && (text[start] == 'n' || text[start] == 'N') &&
+		(text[start+1] == 'q' || text[start+1] == 'Q') && text[start+2] == '\'':
+		prefixLen = 2
+	default:
+		return 0, 0, false
+	}
+	if start > 0 && isSQLIdentifierRuneAt(text, start-1) {
+		return 0, 0, false
+	}
+	openerIndex := start + prefixLen + 1
+	opener, openerSize := utf8.DecodeRuneInString(text[openerIndex:])
+	if opener == utf8.RuneError && openerSize == 0 {
+		return 0, 0, false
+	}
+	switch opener {
+	case '\'', ' ', '\t', '\r', '\n':
+		return 0, 0, false
+	}
+	return opener, openerIndex, true
+}
+
+// oracleAlternativeQuoteEnd 从 oracleAlternativeQuoteOpener 已确认的 opener
+// 处扫描闭合序列「定界符 + '」，括号类定界符取匹配闭括号，返回闭合引号
+// 之后的下标；找不到闭合返回 false，由调用方回退为普通引号词法。
+// 语义对齐 internal/mcpserver/result_masking.go 的 sqlOracleAlternativeQuoteEnd。
+func oracleAlternativeQuoteEnd(text string, start int, opener rune, openerIndex int) (int, bool) {
+	_, openerSize := utf8.DecodeRuneInString(text[openerIndex:])
+	closer := opener
+	switch opener {
+	case '[':
+		closer = ']'
+	case '{':
+		closer = '}'
+	case '(':
+		closer = ')'
+	case '<':
+		closer = '>'
+	}
+	for index := openerIndex + openerSize; index < len(text); {
+		candidate, size := utf8.DecodeRuneInString(text[index:])
+		if candidate == closer && index+size < len(text) && text[index+size] == '\'' {
+			return index + size + 1, true
+		}
+		index += size
+	}
+	return start, false
+}
+
+// isSQLIdentifierRuneAt 判定 text 中 index 处开始的字符是否为标识符成分
+// （字母/数字/下划线/$/#/@，rune 级），与 result_masking.go 的
+// isSQLIdentifierRune 语义一致：多字节字母（如中文）也计为标识符成分。
+// index 可能落在多字节字符中间（start-1 是字节下标），先向前找 rune 起点。
+func isSQLIdentifierRuneAt(text string, index int) bool {
+	for index > 0 && !utf8.RuneStart(text[index]) {
+		index--
+	}
+	r, _ := utf8.DecodeRuneInString(text[index:])
+	return r == '_' || r == '$' || r == '#' || r == '@' ||
+		unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // isQuotedParamName 校验引号包裹参数的名字：标识符规则（字母/下划线开头，

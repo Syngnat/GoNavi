@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"unicode"
+
+	"GoNavi-Wails/internal/sqlparam"
 )
 
 func leadingSQLKeyword(query string) string {
@@ -299,6 +301,15 @@ func skipSQLQuotedOrComment(text string, start int, dbTypes ...string) (int, boo
 		return skipSQLDelimited(text, start, text[start]), true
 	case text[start] == '[' && supportsSQLBracketIdentifier(dbType):
 		return skipSQLBracketIdentifier(text, start), true
+	case isOracleLikeDBType(dbType) &&
+		(text[start] == 'q' || text[start] == 'Q' || text[start] == 'n' || text[start] == 'N'):
+		// Oracle 替代引号 q'X...X'：内容整体是字面量，其中的撇号不是字符串
+		// 边界。不认它会让 q'[it's]' 之后的 DELETE 进入幻影字符串被漏判
+		// （只读守卫放行）。找不到闭合时按普通词法继续，不吞后续文本。
+		if end, ok := sqlparam.OracleAlternativeQuoteEnd(text, start); ok {
+			return end, true
+		}
+		return start, false
 	default:
 		if tag, ok := sqlDollarQuoteTag(text, start); ok {
 			end := strings.Index(text[start+len(tag):], tag)

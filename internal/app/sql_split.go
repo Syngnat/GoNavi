@@ -1,6 +1,10 @@
 package app
 
-import "strings"
+import (
+	"strings"
+
+	"GoNavi-Wails/internal/sqlparam"
+)
 
 // splitSQLStatements 按分号拆分 SQL 文本为独立语句。
 // 正确处理单引号/双引号/反引号字符串、行注释（-- / #）、块注释（/* */）、
@@ -134,6 +138,19 @@ func splitSQLStatementsForDialectMode(dbType, sql string, backslashEscapes bool)
 			escaped = true
 			cur.WriteByte(ch)
 			continue
+		}
+
+		// Oracle 替代引号 q'X...X' / nq'X...X'：内容整体是字面量，其中的
+		// 撇号不是字符串边界（q'[it's]' 若按普通引号词法会进入幻影字符串，
+		// 后续分号不再切分）。与 sqlparam.Scan 的判定口径一致，保证「按
+		// 语句分组」与「参数扫描」边界吻合。找不到闭合时回退普通引号词法。
+		if isOracleLikeDBType(dbType) && !inSingle && !inDouble && !inBacktick &&
+			(ch == 'q' || ch == 'Q' || ch == 'n' || ch == 'N') {
+			if end, ok := sqlparam.OracleAlternativeQuoteEnd(text, i); ok {
+				cur.WriteString(text[i:end])
+				i = end - 1
+				continue
+			}
 		}
 
 		// 字符串开闭

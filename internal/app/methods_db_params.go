@@ -56,15 +56,19 @@ func (a *App) AnalyzeQueryParameters(config connection.ConnectionConfig, dbName 
 		if trimmed == "" {
 			continue
 		}
-		opts := sqlparam.OptionsForDBType(resolvedDBType)
-		opts.QuotedPlaceholders = quotedPlaceholders
-		names := sqlparam.Names(trimmed, opts)
 		entry := QueryParameterStatement{Index: idx, Text: trimmed, Parameters: []string{}}
-		for _, name := range names {
-			entry.Parameters = append(entry.Parameters, name)
-			if _, dup := seen[name]; !dup {
-				seen[name] = struct{}{}
-				analysis.ParameterNames = append(analysis.ParameterNames, name)
+		// Oracle 家族存储程序定义（触发器等）不进入参数扫描：体内的 :NEW/:OLD
+		// 不是绑定参数，绑定语义在 DDL 上不成立。
+		if statementQualifiesForParameterBinding(resolvedDBType, trimmed) {
+			opts := sqlparam.OptionsForDBType(resolvedDBType)
+			opts.QuotedPlaceholders = quotedPlaceholders
+			names := sqlparam.Names(trimmed, opts)
+			for _, name := range names {
+				entry.Parameters = append(entry.Parameters, name)
+				if _, dup := seen[name]; !dup {
+					seen[name] = struct{}{}
+					analysis.ParameterNames = append(analysis.ParameterNames, name)
+				}
 			}
 		}
 		analysis.Statements = append(analysis.Statements, entry)
@@ -407,12 +411,17 @@ type parameterizedStatement struct {
 }
 
 // bindParameterizedStatements 对每条语句做占位符重写与值绑定；缺值立即返回
-// 可操作错误（包含缺失参数名），不执行任何语句。
+// 可操作错误（包含缺失参数名），不执行任何语句。Oracle 家族存储程序定义
+// 不重写，按原文执行（:NEW/:OLD 等不是绑定参数）。
 func bindParameterizedStatements(statementTexts []string, dbType string, values map[string]sqlparam.TypedValue, quotedPlaceholders bool) ([]parameterizedStatement, error) {
 	stmts := make([]parameterizedStatement, 0, len(statementTexts))
 	for _, statement := range statementTexts {
 		trimmed := strings.TrimSpace(statement)
 		if trimmed == "" {
+			continue
+		}
+		if !statementQualifiesForParameterBinding(dbType, trimmed) {
+			stmts = append(stmts, parameterizedStatement{text: trimmed, sql: trimmed})
 			continue
 		}
 		opts := sqlparam.OptionsForDBType(dbType)
