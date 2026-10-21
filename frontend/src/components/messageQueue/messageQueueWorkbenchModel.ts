@@ -125,6 +125,15 @@ export const rowDestination = (row: Record<string, any>, fallback: string): stri
   row.topic || row.queue || row.routing_key || fallback || '',
 ).trim();
 
+const padTimestampPart = (value: number): string => String(value).padStart(2, '0');
+
+// 消息时间统一展示为 YYYY-MM-DD HH:mm:ss（本地时区），与表概览、侧栏的时间列一致；
+// 只给时分秒会让跨天、跨批次的消息无法区分先后。
+export const formatMessageTimestamp = (date: Date): string => (
+  `${date.getFullYear()}-${padTimestampPart(date.getMonth() + 1)}-${padTimestampPart(date.getDate())}`
+  + ` ${padTimestampPart(date.getHours())}:${padTimestampPart(date.getMinutes())}:${padTimestampPart(date.getSeconds())}`
+);
+
 export const rowTimestamp = (row: Record<string, any>): string => {
   const raw = row.received_at || row.timestamp || row.store_timestamp || row.born_timestamp;
   if (raw === undefined || raw === null || raw === '') return '';
@@ -132,7 +141,7 @@ export const rowTimestamp = (row: Record<string, any>): string => {
   const date = Number.isFinite(numeric)
     ? new Date(numeric > 10_000_000_000 ? numeric : numeric * 1000)
     : new Date(String(raw));
-  return Number.isNaN(date.getTime()) ? String(raw) : date.toLocaleTimeString();
+  return Number.isNaN(date.getTime()) ? String(raw) : formatMessageTimestamp(date);
 };
 
 export const rowPayload = (row: Record<string, any>): unknown => {

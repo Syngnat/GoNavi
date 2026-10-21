@@ -78,13 +78,15 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(requestID int64, req o
 			return err
 		}
 		if !resp.Success {
-			// 失败响应是 agent 为该请求写入的最后一帧，读取到它即代表流已自然终止。
+			// 失败响应是 agent 为该请求写入的最后一帧，读取到它即代表流已自然终止：
+			// 帧边界仍然可信，同一个 transport 可以继续服务下一个请求。
 			errText := strings.TrimSpace(resp.Error)
 			if errText == "" {
 				errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
 			}
+			// 单帧超限只代表「这一批数据发不出去」，agent 已就此结束该请求。
+			// 若在这里终止 transport，一条超大消息会让整个连接永久不可用。
 			if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
-				_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
 				return ErrOptionalDriverAgentJSONLineTooLarge
 			}
 			return errors.New(errText)

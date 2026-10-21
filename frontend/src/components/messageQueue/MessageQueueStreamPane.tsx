@@ -4,6 +4,7 @@ import { CopyOutlined } from '@ant-design/icons';
 import {
   type MessageDirection,
   Text,
+  formatMessageTimestamp,
   rowTimestamp,
   rowMetadata,
   prettyPayload,
@@ -101,7 +102,7 @@ export const MessageQueueStreamPane = ({
                   {item.preview || t('message_queue_workbench.message.empty_payload')}
                 </strong>
               </div>
-              <Text type="secondary">{rowTimestamp(item.row) || new Date(item.receivedAt).toLocaleTimeString()}</Text>
+              <Text type="secondary">{rowTimestamp(item.row) || formatMessageTimestamp(new Date(item.receivedAt))}</Text>
             </div>
             <div className="gn-message-card-topic" title={item.destination}>
               {item.destination}
@@ -144,7 +145,7 @@ export const MessageQueueStreamPane = ({
                 </Tooltip>
               </div>
               <div className="gn-message-detail-time">
-                {rowTimestamp(selectedMessage.row) || new Date(selectedMessage.receivedAt).toLocaleTimeString()}
+                {rowTimestamp(selectedMessage.row) || formatMessageTimestamp(new Date(selectedMessage.receivedAt))}
               </div>
               {metadata.length > 0 && (
                 <div className="gn-message-card-meta">
