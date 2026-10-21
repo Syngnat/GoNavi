@@ -26,7 +26,7 @@ func init() {
 		"clickhouse":    "src-80997488765f6b63",
 		"elasticsearch": "src-16c84fa6e6955556",
 		"trino":         "src-c18f6549c674c811",
-		"kafka":         "src-b7f04fa5c219323a",
+		"kafka":         "src-01b7d1996538f780",
 		"rocketmq":      "src-98a409bf353b4b6f",
 		"pulsar":        "src-7c004331822a7377",
 		"cockroachdb":   "src-52d5e4384349f3b8",

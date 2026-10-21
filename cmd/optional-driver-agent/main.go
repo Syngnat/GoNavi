@@ -599,12 +599,17 @@ type agentStreamResponseWriter struct {
 	columns   []string
 	rows      [][]interface{}
 	rowCount  int64
+	// batchSize 是当前批量。遇到超限帧会减半重试，成功的大小会被记住：
+	// 消息体普遍很大（如单条十几 MB 的 Kafka 消息）时批量自动降到能发出去的档位，
+	// 不必每一批都从 agentStreamBatchSize 重新减半。
+	batchSize int
 }
 
 func newAgentStreamResponseWriter(writer *agentResponseWriter, requestID int64) *agentStreamResponseWriter {
 	return &agentStreamResponseWriter{
 		writer:    writer,
 		requestID: requestID,
+		batchSize: agentStreamBatchSize,
 	}
 }
 
@@ -633,7 +638,7 @@ func (w *agentStreamResponseWriter) ConsumeRowValues(values []interface{}) error
 	row := append([]interface{}(nil), values...)
 	w.rows = append(w.rows, row)
 	w.rowCount++
-	if len(w.rows) < agentStreamBatchSize {
+	if len(w.rows) < w.batchSize {
 		return nil
 	}
 	return w.flushRows()
@@ -655,6 +660,10 @@ func (w *agentStreamResponseWriter) flushRows() error {
 				Data:      batch,
 			})
 			if err == nil {
+				// 记住能发出去的最大批量：大行流会稳定在降档后的值上。
+				if len(batch) < w.batchSize {
+					w.batchSize = len(batch)
+				}
 				break
 			}
 			if !errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) || len(batch) == 1 {

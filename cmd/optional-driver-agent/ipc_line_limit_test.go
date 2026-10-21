@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -152,7 +153,7 @@ func TestServeAgentRequestsReportsOversizedRequestAndStops(t *testing.T) {
 		t.Fatalf("Flush 失败：%v", err)
 	}
 	responses := decodeAgentResponses(t, out.Bytes())
-	if len(responses) != 1 || responses[0].Success || !strings.Contains(responses[0].Error, "32 MiB") {
+	if len(responses) != 1 || responses[0].Success || !strings.Contains(responses[0].Error, fmt.Sprintf("%d MiB", db.OptionalDriverAgentMaxJSONLineBytes>>20)) {
 		t.Fatalf("超限请求响应 = %#v，want one diagnostic failure", responses)
 	}
 }
@@ -212,7 +213,8 @@ func TestAgentStreamResponseWriterKeepsLargeChunkWithinFrameLimit(t *testing.T) 
 }
 
 func TestAgentStreamResponseWriterSplitsOversizedBatchByBytes(t *testing.T) {
-	const rowBytes = 1 << 20
+	// 40 行 × 2 MiB = 80 MiB，稳定超过单帧上限，保证拆分逻辑被触发。
+	const rowBytes = 2 << 20
 	const rowCount = 40
 	var out bytes.Buffer
 	writer := bufio.NewWriter(&out)

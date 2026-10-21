@@ -86,7 +86,7 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(requestID int64, req o
 			}
 			// 单帧超限只代表「这一批数据发不出去」，agent 已就此结束该请求。
 			// 若在这里终止 transport，一条超大消息会让整个连接永久不可用。
-			if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
+			if strings.HasPrefix(errText, OptionalDriverAgentJSONLineTooLargePrefix) {
 				return ErrOptionalDriverAgentJSONLineTooLarge
 			}
 			return errors.New(errText)

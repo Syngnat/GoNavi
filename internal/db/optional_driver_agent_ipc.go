@@ -3,12 +3,22 @@ package db
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 )
 
-const OptionalDriverAgentMaxJSONLineBytes = 32 << 20
+// 单帧上限：消息队列的 value 常是大 JSON 或二进制（JSON 里按 base64 编码后还会再涨三分之一），
+// 单条十几 MB 的消息在 32 MiB 上限下会连「2 行一批」都发不出去。放宽到 64 MiB 后，
+// 十几 MB 的消息能按 2 行一批传输，同时仍是一个明确的硬上限，不会被无界帧撑爆内存。
+const OptionalDriverAgentMaxJSONLineBytes = 64 << 20
 
-var ErrOptionalDriverAgentJSONLineTooLarge = errors.New("驱动代理 JSON Lines 单帧超过 32 MiB 上限")
+// OptionalDriverAgentJSONLineTooLargePrefix 用于跨版本识别单帧超限：上限调整后文案里的
+// MiB 数字会变，只比较前缀才能同时认出旧 agent（32 MiB）与新 agent（128 MiB）报来的错误。
+const OptionalDriverAgentJSONLineTooLargePrefix = "驱动代理 JSON Lines 单帧超过"
+
+var ErrOptionalDriverAgentJSONLineTooLarge = fmt.Errorf(
+	"%s %d MiB 上限", OptionalDriverAgentJSONLineTooLargePrefix, OptionalDriverAgentMaxJSONLineBytes>>20,
+)
 
 // ReadOptionalDriverAgentJSONLine reads one JSON Lines frame without allowing
 // bufio.Reader to grow an unbounded buffer for a missing newline. The returned
