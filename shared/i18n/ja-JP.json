@@ -2867,6 +2867,8 @@
   "ai_settings.provider_preset.cheaperinference.label": "Cheaper Inference",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI 互換",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.apiclaw.desc": "月額定額プラン / OpenAI 互換",
+  "ai_settings.provider_preset.apiclaw.label": "APIClaw",
   "ai_settings.provider_preset.claude_subscription.desc": "ローカル Claude Code CLI / Claude サブスクリプションログイン",
   "ai_settings.provider_preset.claude_subscription.label": "Claude サブスクリプション",
   "ai_settings.provider_preset.custom.desc": "カスタム API 端点",

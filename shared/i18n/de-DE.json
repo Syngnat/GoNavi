@@ -2867,6 +2867,8 @@
   "ai_settings.provider_preset.cheaperinference.label": "Cheaper Inference",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI-kompatibel",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.apiclaw.desc": "Monatliche Pauschalpläne / OpenAI-kompatibel",
+  "ai_settings.provider_preset.apiclaw.label": "APIClaw",
   "ai_settings.provider_preset.claude_subscription.desc": "Lokale Claude Code CLI / Claude-Abonnementanmeldung",
   "ai_settings.provider_preset.claude_subscription.label": "Claude-Abonnement",
   "ai_settings.provider_preset.custom.desc": "Benutzerdefinierter API-Endpunkt",

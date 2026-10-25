@@ -2860,6 +2860,8 @@
   "ai_settings.provider_preset.cheaperinference.label": "Cheaper Inference",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI 兼容接口",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.apiclaw.desc": "固定月费套餐 / OpenAI 兼容",
+  "ai_settings.provider_preset.apiclaw.label": "APIClaw",
   "ai_settings.provider_preset.claude_subscription.desc": "本机 Claude Code CLI / Claude 订阅登录态",
   "ai_settings.provider_preset.claude_subscription.label": "Claude 订阅",
   "ai_settings.provider_preset.custom.desc": "自定义 API 端点",

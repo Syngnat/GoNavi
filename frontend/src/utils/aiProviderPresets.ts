@@ -14,6 +14,8 @@ export const API_ROUTE_BASE_URL = 'https://global.api-route.com/v1';
 export const API_ROUTE_DEFAULT_MODEL = 'gpt-6.1-sol';
 export const CHEAPER_INFERENCE_BASE_URL = 'https://api.cheaperinference.com/v1';
 export const CHEAPER_INFERENCE_DEFAULT_MODEL = 'gpt-5.4-mini';
+export const APICLAW_BASE_URL = 'https://apiclaw.biz/v1';
+export const APICLAW_DEFAULT_MODEL = 'apiclaw/claude-sonnet-5.5';
 export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
 export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-flash';
 // deepseek-v4-pro 仍在服务，但 V4.1 Pro 尚未发布；旧 ID deepseek-v4-flash 已下线并转发到 V4.1-Flash。

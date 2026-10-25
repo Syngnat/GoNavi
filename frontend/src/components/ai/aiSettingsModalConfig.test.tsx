@@ -9,6 +9,8 @@ import {
   API_ROUTE_DEFAULT_MODEL,
   CHEAPER_INFERENCE_BASE_URL,
   CHEAPER_INFERENCE_DEFAULT_MODEL,
+  APICLAW_BASE_URL,
+  APICLAW_DEFAULT_MODEL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   XIAOMI_MIMO_DEFAULT_MODEL,
   XIAOMI_MIMO_OPENAI_BASE_URL,
@@ -164,6 +166,21 @@ describe('aiSettingsModalConfig', () => {
     }).key).toBe('cheaperinference');
   });
 
+  it('exposes and recognizes the APIClaw preset', () => {
+    const preset = findPreset('apiclaw');
+
+    expect(preset).toMatchObject({
+      label: 'APIClaw',
+      backendType: 'openai',
+      defaultBaseUrl: APICLAW_BASE_URL,
+      defaultModel: APICLAW_DEFAULT_MODEL,
+    });
+    expect(matchProviderPreset({
+      type: 'openai',
+      baseUrl: APICLAW_BASE_URL,
+    }).key).toBe('apiclaw');
+  });
+
   it('exposes and recognizes the API Route preset', () => {
     const preset = findPreset('api-route');
 
@@ -284,6 +301,7 @@ describe('aiSettingsModalConfig', () => {
     expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'cheaperinference')).toBe(true);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'apiclaw')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'xiaomi-mimo')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'codex')).toBe(false);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'claude-subscription')).toBe(false);

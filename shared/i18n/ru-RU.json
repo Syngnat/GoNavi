@@ -2867,6 +2867,8 @@
   "ai_settings.provider_preset.cheaperinference.label": "Cheaper Inference",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / Совместимость с OpenAI",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.apiclaw.desc": "Фиксированные ежемесячные тарифы / совместимо с OpenAI",
+  "ai_settings.provider_preset.apiclaw.label": "APIClaw",
   "ai_settings.provider_preset.claude_subscription.desc": "Локальный Claude Code CLI / вход по подписке Claude",
   "ai_settings.provider_preset.claude_subscription.label": "Подписка Claude",
   "ai_settings.provider_preset.custom.desc": "Пользовательская конечная точка API",
