@@ -9,6 +9,8 @@ import {
   API_ROUTE_DEFAULT_MODEL,
   CHEAPER_INFERENCE_BASE_URL,
   CHEAPER_INFERENCE_DEFAULT_MODEL,
+  RUNCRATE_BASE_URL,
+  RUNCRATE_DEFAULT_MODEL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   XIAOMI_MIMO_DEFAULT_MODEL,
   XIAOMI_MIMO_OPENAI_BASE_URL,
@@ -177,6 +179,21 @@ describe('aiSettingsModalConfig', () => {
       type: 'openai',
       baseUrl: `  ${API_ROUTE_BASE_URL}/  `,
     }).key).toBe('api-route');
+  });
+
+  it('exposes and recognizes the Runcrate preset', () => {
+    const preset = findPreset('runcrate');
+
+    expect(preset).toMatchObject({
+      label: 'Runcrate',
+      backendType: 'openai',
+      defaultBaseUrl: RUNCRATE_BASE_URL,
+      defaultModel: RUNCRATE_DEFAULT_MODEL,
+    });
+    expect(matchProviderPreset({
+      type: 'openai',
+      baseUrl: `  ${RUNCRATE_BASE_URL}/  `,
+    }).key).toBe('runcrate');
   });
 
   it('exposes Xiaomi MiMo with current official endpoints and model', () => {

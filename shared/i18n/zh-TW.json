@@ -13008,6 +13008,8 @@
   "hive.capability.gridReadOnly": "Hive 網格編輯已停用；請使用 SQL 或匯入/同步，由後端驗證資料表寫入支援。",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI 相容介面",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.runcrate.desc": "DeepSeek V4.1 Flash / OpenAI 相容",
+  "ai_settings.provider_preset.runcrate.label": "Runcrate",
   "app.theme.font_family.gallery.apply": "應用字型",
   "db.backend.error.kingbase_maintenance_database_hint": "。提示：未指定資料庫時會依次探測維護庫 test 與 template1；若業務庫正常，請在連線設定中填寫具體資料庫名稱後重試。",
   "file.backend.message.dialog_cancelled": "已取消",

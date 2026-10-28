@@ -62,6 +62,13 @@ describe('AIProviderLogo', () => {
     expect(readFileSync(new URL('../../../public/icons/ai/api-route.png', import.meta.url)).subarray(1, 4).toString()).toBe('PNG');
   });
 
+  it('renders the Runcrate mark without inverting its colors', () => {
+    const markup = renderToStaticMarkup(<AIProviderLogo presetKey="runcrate" label="Runcrate" dark />);
+    expect(markup).toContain('/icons/ai/runcrate.png');
+    expect(markup).not.toContain('invert');
+    expect(readFileSync(new URL('../../../public/icons/ai/runcrate.png', import.meta.url)).subarray(1, 4).toString()).toBe('PNG');
+  });
+
   it('falls back to the first letter when there is no asset', () => {
     const markup = renderToStaticMarkup(<AIProviderLogo presetKey="unknown-provider" label="Kimi" />);
     expect(markup).toContain('is-fallback');

@@ -35,6 +35,8 @@ import {
   API_ROUTE_DEFAULT_MODEL,
   CHEAPER_INFERENCE_BASE_URL,
   CHEAPER_INFERENCE_DEFAULT_MODEL,
+  RUNCRATE_BASE_URL,
+  RUNCRATE_DEFAULT_MODEL,
   QWEN_BAILIAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_MODELS,
@@ -104,6 +106,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { key: 'orcarouter', label: 'OrcaRouter', labelKey: 'ai_settings.provider_preset.orcarouter.label', icon: <CloudOutlined />, desc: 'Smart routing to 200+ models / OpenAI-compatible', descKey: 'ai_settings.provider_preset.orcarouter.desc', color: '#0e7490', backendType: 'openai', defaultBaseUrl: ORCAROUTER_BASE_URL, defaultModel: ORCAROUTER_DEFAULT_MODEL, models: [] },
   { key: 'cheaperinference', label: 'Cheaper Inference', labelKey: 'ai_settings.provider_preset.cheaperinference.label', icon: <CloudOutlined />, desc: 'GPT-5.4 mini / OpenAI-compatible', descKey: 'ai_settings.provider_preset.cheaperinference.desc', color: '#15803d', backendType: 'openai', defaultBaseUrl: CHEAPER_INFERENCE_BASE_URL, defaultModel: CHEAPER_INFERENCE_DEFAULT_MODEL, models: [] },
   { key: 'api-route', label: 'API Route', labelKey: 'ai_settings.provider_preset.api_route.label', icon: <CloudOutlined />, desc: 'GPT-6.1 Sol / OpenAI-compatible', descKey: 'ai_settings.provider_preset.api_route.desc', color: '#35a794', backendType: 'openai', defaultBaseUrl: API_ROUTE_BASE_URL, defaultModel: API_ROUTE_DEFAULT_MODEL, models: [] },
+  { key: 'runcrate', label: 'Runcrate', labelKey: 'ai_settings.provider_preset.runcrate.label', icon: <CloudOutlined />, desc: 'DeepSeek V4.1 Flash / OpenAI-compatible', descKey: 'ai_settings.provider_preset.runcrate.desc', color: '#1933f6', backendType: 'openai', defaultBaseUrl: RUNCRATE_BASE_URL, defaultModel: RUNCRATE_DEFAULT_MODEL, models: [] },
   { key: 'deepseek', label: 'DeepSeek', labelKey: 'ai_settings.provider_preset.deepseek.label', icon: <ThunderboltOutlined />, desc: 'DeepSeek-V4.1-Flash / Responses and Chat APIs', descKey: 'ai_settings.provider_preset.deepseek.desc', color: '#3b82f6', backendType: 'openai', defaultApiFormat: 'openai-responses', defaultBaseUrl: DEEPSEEK_RESPONSES_BASE_URL, defaultModel: DEEPSEEK_DEFAULT_MODEL, models: DEEPSEEK_MODELS },
   {
     key: 'qwen-bailian', label: 'Qwen', labelKey: 'ai_settings.provider_preset.qwen_bailian.label', icon: <CloudOutlined />, desc: 'Bailian General / Coding Plan', descKey: 'ai_settings.provider_preset.qwen_bailian.desc', color: '#6366f1',

@@ -6,7 +6,7 @@ import {
 
 const PROVIDER_PRESETS = [
   'anthropic', 'api_route', 'atlascloud', 'cheaperinference', 'claude_subscription', 'cursor_cli', 'custom', 'deepseek', 'gemini', 'grok',
-  'minimax', 'moonshot', 'ollama', 'openai', 'orcarouter', 'qwen_bailian', 'qwen_coding_plan',
+  'minimax', 'moonshot', 'ollama', 'openai', 'orcarouter', 'qwen_bailian', 'qwen_coding_plan', 'runcrate',
   'volcengine_ark', 'volcengine_coding', 'xiaomi_mimo', 'zhipu',
 ] as const;
 

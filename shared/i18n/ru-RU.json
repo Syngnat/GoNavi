@@ -13008,6 +13008,8 @@
   "hive.capability.gridReadOnly": "Редактирование Hive в таблице отключено. Используйте SQL или импорт/синхронизацию с проверкой возможностей записи таблицы.",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / Совместимость с OpenAI",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.runcrate.desc": "DeepSeek V4.1 Flash / совместимо с OpenAI",
+  "ai_settings.provider_preset.runcrate.label": "Runcrate",
   "app.theme.font_family.gallery.apply": "Применить шрифт",
   "db.backend.error.kingbase_maintenance_database_hint": ". Подсказка: если база данных не указана, GoNavi проверяет служебные базы test и template1; если рабочие базы доступны, укажите конкретную базу данных в настройках подключения и повторите попытку.",
   "file.backend.message.dialog_cancelled": "Отменено",

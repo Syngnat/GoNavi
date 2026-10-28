@@ -13008,6 +13008,8 @@
   "hive.capability.gridReadOnly": "Hive grid editing is disabled. Use SQL or import/synchronization, which validate table-specific write support.",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI-compatible",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.runcrate.desc": "DeepSeek V4.1 Flash / OpenAI-compatible",
+  "ai_settings.provider_preset.runcrate.label": "Runcrate",
   "app.theme.font_family.gallery.apply": "Apply font",
   "db.backend.error.kingbase_maintenance_database_hint": ". Hint: with no database specified, GoNavi probes the maintenance databases test and template1; if your business databases are reachable, set a specific database name in the connection settings and retry.",
   "file.backend.message.dialog_cancelled": "Canceled",

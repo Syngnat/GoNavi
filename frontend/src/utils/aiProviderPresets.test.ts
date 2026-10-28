@@ -8,6 +8,7 @@ import {
   MOONSHOT_OPENAI_BASE_URL,
   ORCAROUTER_BASE_URL,
   CHEAPER_INFERENCE_BASE_URL,
+  RUNCRATE_BASE_URL,
   LEGACY_QWEN_CODING_PLAN_OPENAI_BASE_URL,
   QWEN_BAILIAN_ANTHROPIC_BASE_URL,
   QWEN_BAILIAN_MODELS_BASE_URL,
@@ -51,6 +52,7 @@ const PRESETS: ProviderPresetMatcher[] = [
   { key: 'atlascloud', backendType: 'openai', defaultBaseUrl: ATLAS_CLOUD_BASE_URL },
   { key: 'orcarouter', backendType: 'openai', defaultBaseUrl: ORCAROUTER_BASE_URL },
   { key: 'cheaperinference', backendType: 'openai', defaultBaseUrl: CHEAPER_INFERENCE_BASE_URL },
+  { key: 'runcrate', backendType: 'openai', defaultBaseUrl: RUNCRATE_BASE_URL },
   { key: 'moonshot', backendType: 'openai', defaultBaseUrl: MOONSHOT_OPENAI_BASE_URL },
   {
     key: 'xiaomi-mimo', backendType: 'openai', defaultBaseUrl: XIAOMI_MIMO_OPENAI_BASE_URL,
@@ -393,6 +395,13 @@ describe('resolveProviderPresetKey', () => {
       type: 'openai',
       baseUrl: `${CHEAPER_INFERENCE_BASE_URL}/`,
     }, PRESETS, 'custom')).toBe('cheaperinference');
+  });
+
+  it('recognizes Runcrate by its OpenAI-compatible endpoint', () => {
+    expect(resolveProviderPresetKey({
+      type: 'openai',
+      baseUrl: `${RUNCRATE_BASE_URL}/`,
+    }, PRESETS, 'custom')).toBe('runcrate');
   });
 
   it('不会把自定义 OpenAI 端点误识别成千问 Coding Plan', () => {

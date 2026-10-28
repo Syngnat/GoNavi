@@ -13008,6 +13008,8 @@
   "hive.capability.gridReadOnly": "Hive-Datenraster können nicht bearbeitet werden. Nutzen Sie SQL oder Import/Synchronisierung mit Prüfung der Schreibfunktionen je Tabelle.",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI-kompatibel",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.runcrate.desc": "DeepSeek V4.1 Flash / OpenAI-kompatibel",
+  "ai_settings.provider_preset.runcrate.label": "Runcrate",
   "app.theme.font_family.gallery.apply": "Schriftart anwenden",
   "db.backend.error.kingbase_maintenance_database_hint": ". Hinweis: Ohne Datenbankangabe prüft GoNavi die Wartungsdatenbanken test und template1; wenn Ihre Anwendungsdatenbanken erreichbar sind, tragen Sie in den Verbindungseinstellungen einen konkreten Datenbanknamen ein und versuchen Sie es erneut.",
   "file.backend.message.dialog_cancelled": "Abgebrochen",

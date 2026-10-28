@@ -13008,6 +13008,8 @@
   "hive.capability.gridReadOnly": "Hive 网格编辑已禁用；请使用 SQL 或导入/同步，由后端验证表级写入支持。",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI 兼容接口",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.runcrate.desc": "DeepSeek V4.1 Flash / OpenAI 兼容",
+  "ai_settings.provider_preset.runcrate.label": "Runcrate",
   "app.theme.font_family.gallery.apply": "应用字体",
   "db.backend.error.kingbase_maintenance_database_hint": "。提示：未指定数据库时会依次探测维护库 test 与 template1；若业务库正常，请在连接配置中填写具体数据库名后重试。",
   "file.backend.message.dialog_cancelled": "已取消",

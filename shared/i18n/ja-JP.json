@@ -13008,6 +13008,8 @@
   "hive.capability.gridReadOnly": "Hive グリッドでの編集は無効です。テーブル固有の書き込み可否を検証する SQL またはインポート/同期を使用してください。",
   "ai_settings.provider_preset.api_route.desc": "GPT-6.1 Sol / OpenAI 互換",
   "ai_settings.provider_preset.api_route.label": "API Route",
+  "ai_settings.provider_preset.runcrate.desc": "DeepSeek V4.1 Flash / OpenAI 互換",
+  "ai_settings.provider_preset.runcrate.label": "Runcrate",
   "app.theme.font_family.gallery.apply": "フォントを適用",
   "db.backend.error.kingbase_maintenance_database_hint": "。ヒント：データベース未指定時はメンテナンスデータベース test と template1 を順に確認します。業務データベースが利用可能な場合は、接続設定に具体的なデータベース名を入力して再試行してください。",
   "file.backend.message.dialog_cancelled": "キャンセルしました",
