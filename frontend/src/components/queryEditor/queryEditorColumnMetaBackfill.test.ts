@@ -75,8 +75,8 @@ describe('resolveQueryResultColumnMetaByCandidateTables', () => {
     expect(metaMap?.name?.type).toBe('character varying(50)');
     expect(metaMap?.name?.comment).toBe('客户姓名');
     expect(metaMap?.vip_level?.comment).toBe('会员等级');
-    // 主表在前：id 取 lab_customers 的注释，而不是 lab_orders 的
-    expect(metaMap?.id?.comment).toBe('客户ID, 主键自增');
+    // 未投影且来源重名的 id 不应从任意候选表借用注释。
+    expect(metaMap?.id).toBeUndefined();
     // 聚合/窗口别名在源表里没有同名列，不显示类型行
     expect(metaMap?.order_cnt).toBeUndefined();
     expect(metaMap?.rank).toBeUndefined();
@@ -148,6 +148,19 @@ describe('mergeColumnMetaMapsByPriority', () => {
 });
 
 describe('SELECT 别名映射回填', () => {
+  it('qualified aliases override unrelated names and ambiguous join columns stay unknown', async () => {
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT o.id AS city, id, COUNT(*) AS name FROM lab_customers c JOIN lab_orders o ON o.customer_id = c.id',
+      dbType: 'kingbase',
+      currentDb: config.database,
+      defaultSchema: '',
+      config,
+    });
+    expect(metaMap?.city?.comment).toBe('订单ID');
+    expect(metaMap?.id).toBeUndefined();
+    expect(metaMap?.name).toBeUndefined();
+  });
+
   beforeEach(() => {
     clearLocatorMetaCache();
     clearQueryResultColumnMetaBackfillCache();
@@ -156,6 +169,38 @@ describe('SELECT 别名映射回填', () => {
       if (String(table).includes('lab_orders')) return Promise.resolve({ success: true, data: orderColumns });
       return Promise.resolve({ success: false, message: 'not found', data: [] });
     });
+  });
+
+  it('qualified star only projects that table and quoted aliases remain case-sensitive', async () => {
+    const params = { statement: 'SELECT c.*, o.id AS "ID", o.id AS "id" FROM lab_customers c JOIN lab_orders o ON o.customer_id=c.id', dbType: 'kingbase', currentDb: config.database, defaultSchema: '', config };
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables(params);
+    expect(metaMap?.customer_id).toBeUndefined();
+    expect(metaMap?.ID?.comment).toBe('订单ID');
+    expect(metaMap?.id?.comment).toBe('订单ID');
+    expect(metaMap?.name?.comment).toBe('客户姓名');
+  });
+
+  it('qualified star and explicit schema keep exact column comments without fabricating empty ones', async () => {
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [
+      { name: 'Name', type: 'varchar', comment: 'quoted name' },
+      { name: 'name', type: 'varchar', comment: 'plain name' },
+      { name: 'empty', type: 'integer', comment: '' },
+    ] });
+    const params = { statement: 'SELECT DISTINCT c.* FROM archive.lab_customers c LIMIT 10 OFFSET 20', dbType: 'kingbase', currentDb: config.database, defaultSchema: '', config };
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables(params);
+    expect(metaMap?.Name?.comment).toBe('quoted name');
+    expect(metaMap?.name?.comment).toBe('plain name');
+    expect(metaMap?.['c.Name']?.comment).toBe('quoted name');
+    expect(metaMap?.empty?.comment).toBe('');
+    expect(backendApp.DBGetColumns.mock.calls[0][2]).toBe('archive.lab_customers');
+  });
+
+  it('quoted mixed-case result aliases keep the source comment', async () => {
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: customerColumns });
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT name AS "Customer" FROM lab_customers', dbType: 'kingbase', currentDb: config.database, defaultSchema: '', config,
+    });
+    expect(metaMap?.Customer?.comment).toBe('客户姓名');
   });
 
   it('中文别名也能拿到源列类型与注释', async () => {
@@ -183,7 +228,7 @@ describe('SELECT 别名映射回填', () => {
     expect(metaMap?.['客户号']?.comment).toBe('客户ID, 主键自增');
   });
 
-  it('别名与结果集中真实列同名时以真实列为准', async () => {
+  it('别名源列未知时不借用其它表同名列', async () => {
     const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
       statement: 'SELECT o.name AS city FROM lab_orders o JOIN lab_customers c ON o.customer_id = c.id',
       dbType: 'kingbase',
@@ -191,7 +236,7 @@ describe('SELECT 别名映射回填', () => {
       defaultSchema: 'dbms_job',
       config,
     });
-    expect(metaMap?.city?.comment).toBe('所在城市');
+    expect(metaMap?.city).toBeUndefined();
   });
 
   it('聚合与窗口别名不映射', async () => {

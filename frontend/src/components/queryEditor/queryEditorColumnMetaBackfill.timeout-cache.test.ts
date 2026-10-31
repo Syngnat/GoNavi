@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -5,6 +6,7 @@ import {
   resolveQueryResultColumnMetaByCandidateTables,
 } from './queryEditorColumnMetaBackfill';
 import { clearLocatorMetaCache } from '../../utils/queryLocatorMetaCache';
+import { SIDEBAR_DATABASE_REFRESH_EVENT } from '../../utils/sidebarDatabaseRefresh';
 
 const backendApp = vi.hoisted(() => ({ DBGetColumns: vi.fn() }));
 
@@ -74,6 +76,25 @@ describe('query result column meta backfill cache', () => {
     expect(await resolveQueryResultColumnMetaByCandidateTables(request)).toBeUndefined();
 
     expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a late response replace columns fetched after DDL invalidation', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveLate: (value: unknown) => void = () => undefined;
+      backendApp.DBGetColumns.mockImplementationOnce(() => new Promise((resolve) => { resolveLate = resolve; }));
+      const first = resolveQueryResultColumnMetaByCandidateTables(request);
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(await first).toBeUndefined();
+      window.dispatchEvent(new CustomEvent(SIDEBAR_DATABASE_REFRESH_EVENT));
+      backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [{ ...columns[0], comment: 'latest' }] });
+      expect((await resolveQueryResultColumnMetaByCandidateTables(request))?.id?.comment).toBe('latest');
+      resolveLate({ success: true, data: columns });
+      await vi.advanceTimersByTimeAsync(0);
+      expect((await resolveQueryResultColumnMetaByCandidateTables(request))?.id?.comment).toBe('latest');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fills the cache from a late response that arrived after the soft timeout', async () => {

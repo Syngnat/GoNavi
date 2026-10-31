@@ -4,6 +4,7 @@ import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { isOracleLikeDialect } from '../../utils/sqlDialect';
 import { extractQueryResultTableRef } from '../../utils/queryResultTable';
 import {
+    getQueryResultLocatorMetaCacheKey,
     resolveQueryResultBackfillDefaultSchema,
     resolveQueryResultColumnMetaByCandidateTables,
 } from './queryEditorColumnMetaBackfill';
@@ -21,7 +22,6 @@ import { getColumnDefinitionName, getColumnDefinitionKey } from '../../utils/col
 import { buildIndexedColumnMetadata } from '../dataGridColumnTypeMarker';
 import { t as translate } from '../../i18n';
 import {
-    getLocatorMetaCacheKey,
     getLocatorMetaCached,
     setLocatorMetaCached,
 } from '../../utils/queryLocatorMetaCache';
@@ -140,7 +140,7 @@ export const resolveQueryLocatorPlan = async ({
         // 命中 → 直接用快照，省掉 DBGetColumns + DBGetIndexes 两次 IPC；
         // 未命中 → 仍走下面的两次调用，且**保留** withSoftTimeout 软超时兜底
         //（缓存不是替换它：超时语义与「执行不被元数据拖死」的保证完全不变）。
-        const locatorMetaKey = getLocatorMetaCacheKey(
+        const locatorMetaKey = getQueryResultLocatorMetaCacheKey(
             config,
             tableRef.metadataDbName,
             tableRef.metadataTableName,

@@ -310,7 +310,7 @@ export const runQueryEditorSqlStatements = async ({
             plan,
             statement: executedSourceStatements[index] || sourceStatements[index] || '',
         }))
-        .filter((target) => !target.plan.tableRef && String(target.statement || '').trim());
+        .filter((target) => (normalizedDbType === 'kingbase' || !target.plan.tableRef) && String(target.statement || '').trim());
     if (backfillTargets.length > 0) {
         try {
             const columnMetaMaps = await resolveQueryResultColumnMetaForStatements(
@@ -324,7 +324,7 @@ export const runQueryEditorSqlStatements = async ({
             );
             if (!isCurrentRun()) return;
             columnMetaMaps.forEach((metaMap, index) => {
-                if (metaMap) backfillTargets[index].plan.columnMetaMap = metaMap;
+                if (metaMap || normalizedDbType === 'kingbase') backfillTargets[index].plan.columnMetaMap = metaMap;
             });
         } catch {
             // 回填失败只影响表头类型/注释，不影响执行
