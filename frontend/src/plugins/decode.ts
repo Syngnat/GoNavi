@@ -32,11 +32,21 @@ function validExporter(exporter: Record<string, unknown>, commands: Map<string, 
     && typeof exporter.contentType === 'string' && /^(text|application)\/[a-z0-9][a-z0-9.+-]{0,63}$/.test(exporter.contentType)
     && (exporter.streaming === undefined || typeof exporter.streaming === 'boolean');
 }
+// Mirrors internal/plugin's package icon rule: a bounded package-relative raster path.
+// SVG is refused because the host renders logos in its own window.
+const PACKAGE_ICON_PATH = /^[^\\:<>"|?*\u0000-\u001f]+\.(?:png|jpe?g|webp|gif)$/i;
+function validPackageIcon(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 256 || !PACKAGE_ICON_PATH.test(value)) return false;
+  return value.split('/').every((part) => part !== '' && part !== '.' && part !== '..'
+    && part.length <= 240 && part === part.replace(/[ .]+$/, ''));
+}
 function validAIProvider(provider: Record<string, unknown>, commands: Map<string, Record<string, unknown>>): boolean {
   const command = typeof provider.command === 'string' ? commands.get(provider.command) : undefined;
   const models = provider.models;
   if (typeof provider.id !== 'string' || !/^[a-z][a-z0-9_.-]{0,63}$/.test(provider.id)
     || typeof provider.name !== 'string' || provider.name.trim() === '' || !utf8Within(provider.name, 256) || provider.name.includes('\u0000')
+    || (provider.icon != null && !validPackageIcon(provider.icon))
+    || (provider.defaultBaseUrl != null && (typeof provider.defaultBaseUrl !== 'string' || provider.defaultBaseUrl.length > 2048))
     || command == null || typeof provider.supportsTools !== 'boolean' || typeof provider.supportsImages !== 'boolean'
     || !Array.isArray(models) || models.length < 1 || models.length > 32) return false;
   const seen = new Set<string>();
@@ -176,7 +186,7 @@ export const MANIFEST_JSON_LIMITS = { bytes: 1 << 20, text: 256 << 10, depth: 64
 export function decodeManifest(data: unknown): PluginManifest {
   boundedJSON(data, MANIFEST_JSON_LIMITS.bytes, MANIFEST_JSON_LIMITS.text, MANIFEST_JSON_LIMITS.depth, MANIFEST_JSON_LIMITS.values);
   const raw = requireRecord(data);
-  const allowed = new Set(['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window', 'configSchema']);
+  const allowed = new Set(['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window', 'configSchema']);
   if (Object.keys(raw).some((key) => !allowed.has(key))) invalid();
   const m: Record<string, unknown> = { ...raw, permissions: raw.permissions ?? [] };
   if (m.schemaVersion !== 1 || m.apiVersion !== 1 || typeof m.id !== 'string' || typeof m.name !== 'string'
@@ -193,6 +203,7 @@ export function decodeManifest(data: unknown): PluginManifest {
     if (limit != null && !utf8Within(value, limit)) invalid();
     if (key === 'minHostVersion' && value !== '' && !validVersion(value)) invalid();
   }
+  if (m.icon != null && !validPackageIcon(m.icon)) invalid();
   if (m.permissionNotes != null) {
     const notes = requireRecord(m.permissionNotes);
     const granted = new Set(m.permissions as string[]);

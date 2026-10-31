@@ -80,8 +80,11 @@ describe('plugin provider identity and immutable config', () => {
   it('accepts only bounded raster icon data URLs from the catalog', () => {
     const icon = 'data:image/png;base64,iVBORw0KGgo=';
     expect(decodePluginAIProviders({ items: [{ ...view, icon }] })[0].icon).toBe(icon);
+    // 上限跟随宿主的 5 MiB 原始字节（base64 约 4/3），不再按 128 KiB 的 data URL 长度卡。
+    const largest = 'data:image/png;base64,' + 'A'.repeat(Math.ceil((5 << 20) * 4 / 3));
+    expect(decodePluginAIProviders({ items: [{ ...view, icon: largest }] })[0].icon).toBe(largest);
     for (const bad of ['data:image/svg+xml;base64,PHN2Zz4=', 'data:text/html;base64,PGgxPg==', 'javascript:alert(1)',
-      'data:image/png;base64,' + 'A'.repeat(128 * 1024)]) {
+      'data:image/png;base64,' + 'A'.repeat(Math.ceil((5 << 20) * 4 / 3) + 128)]) {
       expect(() => decodePluginAIProviders({ items: [{ ...view, icon: bad }] })).toThrow();
     }
   });
