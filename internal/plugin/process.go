@@ -76,8 +76,12 @@ type rpcProcess struct {
 	hostLog        func(json.RawMessage) (json.RawMessage, error)
 	hostDescribe   func(json.RawMessage) (json.RawMessage, error)
 	hostCapability func(json.RawMessage) (json.RawMessage, error)
-	hostLogWindow  time.Time
-	hostLogCount   int
+	// hostRequests bounds the callbacks the protocol reader may run in the background. They
+	// left the read loop because a slow metadata/connection call would otherwise stop ping
+	// responses from being consumed and get a healthy plugin quarantined by the watchdog.
+	hostRequests  chan struct{}
+	hostLogWindow time.Time
+	hostLogCount  int
 	stderrTail     []byte
 	stopping       bool
 }
@@ -108,7 +112,7 @@ func launchProcess(m Manifest, packageRoot, dataRoot string, proxyEnvironment fu
 	cmd := exec.Command(executable, args...)
 	cmd.Dir = dataRoot
 	cmd.Env = processEnvironment(packageRoot, dataRoot, proxyEnvironment)
-	p := &rpcProcess{cmd: cmd, pending: make(map[uint64]rpcPending), failed: make(chan struct{}), done: make(chan struct{}), outgoing: make(chan []byte, 64)} // Queue bounded to one frame per pending request.
+	p := &rpcProcess{cmd: cmd, pending: make(map[uint64]rpcPending), failed: make(chan struct{}), done: make(chan struct{}), outgoing: make(chan []byte, 64), hostRequests: make(chan struct{}, 8)} // Queue bounded to one frame per pending request.
 	if p.stdin, err = cmd.StdinPipe(); err != nil {
 		return nil, err
 	}

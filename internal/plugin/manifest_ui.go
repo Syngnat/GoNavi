@@ -52,6 +52,26 @@ func validateNode(n UINode, commands map[string]bool, depth int, count *int) err
 	if n.Type != "button" && n.Command != "" {
 		return fmt.Errorf("non-button command is unsupported")
 	}
+	// Keep installation and rendering in agreement: the renderer ignores fields that do not
+	// belong to a node type, so a manifest that declares them must not be accepted either.
+	switch n.Type {
+	case "text", "alert":
+		if len(n.Children) > 0 || len(n.Arguments) > 0 || len(n.Columns) > 0 || len(n.Rows) > 0 {
+			return fmt.Errorf("panel element field is not supported")
+		}
+	case "column", "row":
+		if len(n.Arguments) > 0 || len(n.Columns) > 0 || len(n.Rows) > 0 {
+			return fmt.Errorf("panel element field is not supported")
+		}
+	case "button":
+		if len(n.Children) > 0 || len(n.Columns) > 0 || len(n.Rows) > 0 {
+			return fmt.Errorf("panel element field is not supported")
+		}
+	case "table":
+		if len(n.Children) > 0 || len(n.Arguments) > 0 {
+			return fmt.Errorf("panel element field is not supported")
+		}
+	}
 	if len(n.Columns) > 32 || len(n.Rows) > 500 || len(n.Children) > 128 {
 		return fmt.Errorf("panel data exceeds limit")
 	}

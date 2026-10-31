@@ -26,15 +26,25 @@ var writeHostLog = func(id, level, message string) {
 }
 
 func (m *Manager) bindHostLog(inst *instance, process *rpcProcess) {
-	process.hostLog = func(params json.RawMessage) (json.RawMessage, error) {
-		return m.acceptHostLog(inst, process, params)
-	}
-	process.hostDescribe = func(params json.RawMessage) (json.RawMessage, error) {
-		return m.acceptHostDescribe(inst, process, params)
-	}
-	process.hostCapability = func(params json.RawMessage) (json.RawMessage, error) {
-		return m.acceptHostCapability(inst, process, params)
-	}
+	process.bindHostHandlers(
+		func(params json.RawMessage) (json.RawMessage, error) {
+			return m.acceptHostLog(inst, process, params)
+		},
+		func(params json.RawMessage) (json.RawMessage, error) {
+			return m.acceptHostDescribe(inst, process, params)
+		},
+		func(params json.RawMessage) (json.RawMessage, error) {
+			return m.acceptHostCapability(inst, process, params)
+		},
+	)
+}
+
+// bindHostHandlers installs the callback set under the same lock the protocol reader uses,
+// so a plugin that emits host.* immediately after exec cannot race the binding.
+func (p *rpcProcess) bindHostHandlers(log, describe, capability func(json.RawMessage) (json.RawMessage, error)) {
+	p.mu.Lock()
+	p.hostLog, p.hostDescribe, p.hostCapability = log, describe, capability
+	p.mu.Unlock()
 }
 
 func (m *Manager) acceptHostLog(inst *instance, process *rpcProcess, params json.RawMessage) (json.RawMessage, error) {

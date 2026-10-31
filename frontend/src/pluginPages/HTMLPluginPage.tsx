@@ -33,7 +33,6 @@ export function HTMLPluginPage({
   if (ready && !initialPreferences.current) initialPreferences.current = preferences;
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [token] = useState(createPageToken);
-  const [loaded, setLoaded] = useState(false);
   const loads = useRef(0);
   const document = useMemo(() => sandboxedPageDocument(source, token, launch, initialPreferences.current), [launch, source, token, ready]);
   usePageBridge({
@@ -43,15 +42,13 @@ export function HTMLPluginPage({
     token,
     enabled: !blocked,
     preferences,
-    loaded,
     onNotify: showPluginPageNotification,
   });
-  // The first load is the srcdoc document the host just wrote. Any further load means the
-  // page navigated itself - a sandbox escape - so the frame is torn down and reported.
+  // The bridge now starts over a per-document MessagePort, so a second load can only mean
+  // the page navigated itself away; tear the frame down instead of trusting the new document.
   const handleLoad = () => {
     loads.current += 1;
     if (loads.current > 1) setBlocked(true);
-    else setLoaded(true);
   };
   if (blocked) {
     return <div className="plugin-page-status">

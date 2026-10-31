@@ -121,6 +121,19 @@ describe('page declarations', () => {
     })).not.toThrow();
   });
 
+  it('rejects page nodes the renderer cannot draw and reserved-command buttons', () => {
+    const reserved = manifest(['ui.pages', 'data.sources']);
+    reserved.backend = { default: { executable: 'backend' } };
+    reserved.contributes!.commands = [{ id: 'query', title: 'Query', effect: 'read' }];
+    reserved.contributes!.dataSources = [{ id: 'db', name: 'DB', dialect: 'mysql', command: 'query', readOnly: true }];
+    reserved.contributes!.pages = [{ id: 'main', title: 'Main', body: { type: 'button', title: 'Run', command: 'query' } }];
+    expect(() => validatePages(reserved)).toThrow(/undeclared command/);
+
+    const fields = manifest(['ui.pages']);
+    fields.contributes!.pages = [{ id: 'text', title: 'Text', body: { type: 'text', text: 'x', children: [{ type: 'text', text: 'y' }] } as unknown as Page['body'] }];
+    expect(() => validatePages(fields)).toThrow(/element field/);
+  });
+
   it('parses shipped page fields and rejects unknown nested keys', () => {
     const value = { schemaVersion: 1, apiVersion: 1, id: 'example.pages', name: 'Pages', version: '1.0.0', permissions: ['ui.pages'], contributes: { pages: [textPage('overview', 'Overview')], navigation: [{ id: 'entry', title: 'Entry', page: 'overview', location: 'tools' }] } };
     const parsed = parseManifest(value);
