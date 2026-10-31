@@ -216,7 +216,7 @@ func scanSourceQueryDiffInPagesContextWithBatchSize(ctx context.Context, sourceD
 			}
 		}
 
-		page := diffSourcePageByPK(pkCol, sourceRows, targetRows)
+		page := diffSourcePageByPK(pkCol, pkCol, pagedColumnNames(targetCols), sourceRows, targetRows)
 		totals.Inserts += len(page.Inserts)
 		totals.Updates += len(page.Updates)
 		totals.Same += page.Same

@@ -222,7 +222,14 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				"current": i + 1,
 				"total":   totalTables,
 			}))
-			defer s.progress(config.JobID, i+1, totalTables, tableName, tableCompletedStage)
+			// Report the completed stage only when the table actually completed: a failed table
+			// reporting "table completed" contradicts the final result and makes the progress bar
+			// claim every table finished.
+			defer func() {
+				if tableFailure == "" {
+					s.progress(config.JobID, i+1, totalTables, tableName, tableCompletedStage)
+				}
+			}()
 
 			plan, cols, targetCols, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
 			if err != nil {
