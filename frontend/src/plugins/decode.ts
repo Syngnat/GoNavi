@@ -32,11 +32,26 @@ function validExporter(exporter: Record<string, unknown>, commands: Map<string, 
     && typeof exporter.contentType === 'string' && /^(text|application)\/[a-z0-9][a-z0-9.+-]{0,63}$/.test(exporter.contentType)
     && (exporter.streaming === undefined || typeof exporter.streaming === 'boolean');
 }
+// Mirrors internal/plugin's package icon rule (validPackageIcon + safePackagePath): a bounded
+// package-relative raster path. An empty string means "no logo", because the host skips the
+// check and IconPath falls back to the provider icon. SVG is refused: logos render in the host
+// window, so an executable vector document is never needed.
+const PACKAGE_ICON_PATH = /\.(?:png|jpe?g|webp|gif)$/i;
+function validPackageIcon(value: unknown): value is string {
+  if (value === '') return true;
+  if (typeof value !== 'string' || value.length > 256 || !utf8Within(value, 256) || !PACKAGE_ICON_PATH.test(value)
+    || /[\\:\u0000-\u001f<>"|?*]/.test(value) || value.startsWith('/')) return false;
+  const parts = value.split('/');
+  return parts.length <= 33 && parts.every((part) => part !== '' && part !== '.' && part !== '..'
+    && part.length <= 240 && !part.endsWith(' ') && !part.endsWith('.') && !reservedSkillSegment(part));
+}
 function validAIProvider(provider: Record<string, unknown>, commands: Map<string, Record<string, unknown>>): boolean {
   const command = typeof provider.command === 'string' ? commands.get(provider.command) : undefined;
   const models = provider.models;
   if (typeof provider.id !== 'string' || !/^[a-z][a-z0-9_.-]{0,63}$/.test(provider.id)
     || typeof provider.name !== 'string' || provider.name.trim() === '' || !utf8Within(provider.name, 256) || provider.name.includes('\u0000')
+    || (provider.icon != null && !validPackageIcon(provider.icon))
+    || (provider.defaultBaseUrl != null && (typeof provider.defaultBaseUrl !== 'string' || provider.defaultBaseUrl.length > 2048))
     || command == null || typeof provider.supportsTools !== 'boolean' || typeof provider.supportsImages !== 'boolean'
     || !Array.isArray(models) || models.length < 1 || models.length > 32) return false;
   const seen = new Set<string>();
@@ -184,9 +199,9 @@ export function decodeManifest(data: unknown): PluginManifest {
     || m.permissions.some((p) => typeof p !== 'string')) invalid();
   const name = m.name as string;
   if (!validPluginID(m.id) || typeof m.version !== 'string' || !validVersion(m.version) || name.trim() === '' || !utf8Within(name, 256) || name.includes('\u0000')) invalid();
-  const icon = m.icon;
-  if (icon !== undefined && (typeof icon !== 'string' || (icon !== '' && (!utf8Within(icon, 256)
-    || !/\.(png|jpe?g|webp|gif)$/i.test(icon) || !validWindowEntry(icon))))) invalid();
+  // Only an absent key means "no logo": a literal null is not a path, and the host never emits
+  // one because the field is omitempty, so accepting it would only widen the contract.
+  if (m.icon !== undefined && !validPackageIcon(m.icon)) invalid();
   const textLimits: Record<string, number> = { description: 16384, author: 512, license: 256 };
   for (const key of ['description', 'author', 'license', 'minHostVersion']) {
     const value = m[key];

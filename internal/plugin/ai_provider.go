@@ -121,6 +121,9 @@ func validateAIProviders(manifest Manifest, commands map[string]bool) error {
 		if declaration.Icon != "" && !validPackageIcon(declaration.Icon) {
 			return fmt.Errorf("invalid ai provider icon")
 		}
+		if declaration.DefaultBaseURL != "" && !validAIProviderBaseURL(declaration.DefaultBaseURL) {
+			return fmt.Errorf("invalid ai provider default base url")
+		}
 		if err := validateAIModels(declaration.Models); err != nil {
 			return err
 		}

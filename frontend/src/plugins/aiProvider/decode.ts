@@ -4,7 +4,10 @@ import { invalidPluginAICatalog, isPluginModelId, pluginAIText } from './validat
 import type { PluginAIModel, PluginAIProviderView } from './types';
 
 export const MAX_PLUGIN_AI_PROVIDERS = 4096;
-const MAX_PLUGIN_AI_ICON_LENGTH = 128 * 1024;
+// The host reads at most 5 MiB of raster bytes (internal/plugin/icon.go) and expands them to a
+// base64 data URL, so the ceiling has to cover 4/3 of that plus the prefix — a smaller value
+// here would reject an icon the package scanner just accepted and drop the whole catalog.
+const MAX_PLUGIN_AI_ICON_LENGTH = Math.ceil((5 << 20) * 4 / 3) + 64;
 const PLUGIN_AI_ICON = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 function decodeModels(value: unknown): readonly PluginAIModel[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 32) return invalidPluginAICatalog();
