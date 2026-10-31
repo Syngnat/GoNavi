@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-
-	"GoNavi-Wails/internal/plugin"
 )
 
 // Capability method names are stable contract values: the front-end bridge and
@@ -20,40 +18,6 @@ const (
 	pluginPageMethodQueryRead         = "query.read"
 	pluginPageMethodNotify            = "ui.notify"
 )
-
-// defaultPluginPageCapabilities is the complete v1 catalogue. Adding a method
-// means adding a registration here, a permission, docs and tests; it must never
-// expose a Wails binding directly.
-func defaultPluginPageCapabilities() pluginPageCapabilities {
-	return pluginPageCapabilities{
-		pluginPageMethodAppInfo: {
-			handle: pluginPageAppInfo,
-		},
-		pluginPageMethodConnectionsList: {
-			permission: plugin.ConnectionsReadPermission,
-			handle:     pluginPageConnectionsList,
-		},
-		pluginPageMethodMetadataDatabases: {
-			permission: plugin.MetadataReadPermission,
-			handle:     pluginPageMetadataDatabases,
-		},
-		pluginPageMethodMetadataTables: {
-			permission: plugin.MetadataReadPermission,
-			handle:     pluginPageMetadataTables,
-		},
-		pluginPageMethodMetadataColumns: {
-			permission: plugin.MetadataReadPermission,
-			handle:     pluginPageMetadataColumns,
-		},
-		pluginPageMethodQueryRead: {
-			permission: plugin.QueryReadPermission,
-			handle:     pluginPageQueryRead,
-		},
-		pluginPageMethodNotify: {
-			handle: pluginPageNotify,
-		},
-	}
-}
 
 // pluginCapabilityAPIVersion is the capability catalogue generation exposed by
 // app.info. It is independent from the package manifest apiVersion so older

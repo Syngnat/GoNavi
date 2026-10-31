@@ -24,6 +24,12 @@ type Manager struct {
 	done        chan struct{}
 	wake        chan struct{}
 	owner       *os.File
+	// stateCache keeps the last validated state together with the file it came from.
+	// reconcile and every Invoke call loadState; without it the whole JSON tree and every
+	// manifest are decoded and validated again on each read.
+	stateCacheMu   sync.Mutex
+	stateCache     *diskState
+	stateCacheInfo os.FileInfo
 }
 
 // Each instance owns a lifecycle context, never an API request context.

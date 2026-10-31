@@ -5,12 +5,14 @@ import type { PluginManagerState } from '../../plugins/usePluginManager';
 import { PluginLifecycleControls } from './PluginLifecycleControls';
 import { PluginLogo } from './PluginLogo';
 import { PluginCommandsPanel } from './PluginCommandsPanel';
+import { PluginWindowAction } from './PluginWindowAction';
 import { PluginDataSourceSummary } from './PluginDataSourceSummary';
 import { PluginAIProviderSummary } from './PluginAIProviderSummary';
 import { PluginExporterSummary } from './PluginExporterSummary';
 import { PluginSkillSummary } from './PluginSkillSummary';
 import { PluginPageList } from './PluginPageList';
 import { publicPluginCommands } from '../../plugins/dataSource/reservedCommands';
+import { usePluginInvocation } from '../../plugins/usePluginInvocation';
 import { pluginPermissionText } from '../../plugins/permissionLabel';
 
 interface Props {
@@ -28,6 +30,7 @@ export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpda
   const active = plugin.state === 'running' && plugin.desiredEnabled && !manager.revoked.has(id);
   const webRuntime = manager.runtime.webRuntime === true;
   const permissions = plugin.manifest.permissions ?? [];
+  const windowInvocation = usePluginInvocation(id, plugin.generation, active && manager.runtime.managementAllowed);
   return <article className="plugin-card plugin-installed-card">
     <header className="plugin-card-header">
       <div className="plugin-installed-heading">
@@ -64,7 +67,8 @@ export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpda
       <PluginExporterSummary manifest={plugin.manifest} />
       <PluginSkillSummary manifest={plugin.manifest} />
       <PluginPageList plugin={plugin} active={active} managementAllowed={manager.runtime.managementAllowed} webRuntime={webRuntime} />
-      {active && publicPluginCommands(plugin.manifest).length > 0 && <PluginCommandsPanel key={id + ':' + plugin.generation} plugin={plugin} allowed={manager.runtime.managementAllowed} webRuntime={webRuntime} />}
+      {plugin.manifest.window && !webRuntime && <PluginWindowAction disabled={!active || !manager.runtime.managementAllowed} onOpen={() => void windowInvocation.openWindow()} />}
+      {publicPluginCommands(plugin.manifest).length > 0 && <PluginCommandsPanel key={id + ':' + plugin.generation} plugin={plugin} allowed={manager.runtime.managementAllowed} webRuntime={webRuntime} />}
       </div>
     </Drawer>}
   </article>;

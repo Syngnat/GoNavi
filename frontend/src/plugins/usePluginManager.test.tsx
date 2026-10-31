@@ -40,6 +40,15 @@ describe('plugin lifecycle priority and fencing', () => {
     expect(manager.revoked.has(plugin.manifest.id)).toBe(true);
     expect(manager.error).toBe('');
   });
+  it('restores availability when a disable request fails', async () => {
+    host.PluginList.mockResolvedValue(ok([{ ...plugin, state: 'running' }]));
+    host.PluginSetEnabled.mockResolvedValue({ success: false, message: 'plugin busy' });
+    await act(async () => { renderer = create(<Harness />); });
+    await act(async () => { await manager.setEnabled(plugin.manifest.id, false); });
+    expect(manager.revoked.has(plugin.manifest.id)).toBe(false);
+    expect(manager.error).toContain('plugin busy');
+  });
+
   it('keeps an existing revocation when removal fails', async () => {
     host.PluginSetEnabled.mockResolvedValue(ok({ ...plugin, state: 'disabled', desiredEnabled: false }));
     host.PluginRemove.mockRejectedValue(new Error('remove failed'));

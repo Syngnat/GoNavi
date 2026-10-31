@@ -48,6 +48,7 @@ export function usePluginManager() {
   }, [refresh]);
   const setEnabled = useCallback(async (id: string, enabled: boolean) => {
     const action = (actions.current[id] ?? 0) + 1;
+    const wasRevoked = isRevoked(id);
     actions.current[id] = action;
     intents.current[id] = enabled;
     if (!enabled) { revokePluginDataSourceAvailability(id); invalidatePackagedSkillPreviews(id); invalidatePluginAIProviders({ pluginId: id, reason: 'disabled' }); }
@@ -61,12 +62,19 @@ export function usePluginManager() {
       const status = await pluginAPI.setEnabled(id, enabled);
       if (alive.current && actions.current[id] === action) setPlugins((items) => items.map((p) => p.manifest.id === id ? status : p));
       notifyPluginLifecycle();
-    } catch (cause) { if (alive.current && actions.current[id] === action) setActionError(pluginErrorText(cause)); }
+    } catch (cause) {
+      if (alive.current && actions.current[id] === action) {
+        // The optimistic revocation only reflects a confirmed lifecycle change; a failed
+        // request must restore the previous state or the plugin stays disabled in the UI.
+        revoke(id, wasRevoked);
+        setActionError(pluginErrorText(cause));
+      }
+    }
     finally {
       void refreshPluginDataSources();
       if (alive.current && actions.current[id] === action) { delete intents.current[id]; setBusy((current) => ({ ...current, [id]: false })); void refresh(); }
     }
-  }, [refresh, revoke]);
+  }, [isRevoked, refresh, revoke]);
   // 后端要求先停用再删除；进程收尾期间 ActiveGeneration 仍占着包，插件会以 busy 拒绝，
   // 这里做一次有界重试，让用户点一次「移除」就能完成。
   const removePluginPackage = useCallback(async (id: string, purge: boolean) => {

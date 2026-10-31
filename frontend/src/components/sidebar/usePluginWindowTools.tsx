@@ -54,6 +54,7 @@ function boundedRequest<T>(request: Promise<T>): { promise: Promise<T>; cancel: 
 
 function useWindowToolCatalog(web: boolean) {
   const [plugins, setPlugins] = useState<PluginStatus[]>([]);
+  const [hasWindowPlugins, setHasWindowPlugins] = useState(false);
   const [error, setError] = useState('');
   const current = useRef({ alive: false, epoch: 0, plugins: [] as PluginStatus[], installedTools: new Set<string>(), revoked: new Map<string, string | null>() });
   const startup = useRef<ReturnType<typeof setTimeout>>();
@@ -84,13 +85,17 @@ function useWindowToolCatalog(web: boolean) {
         return Boolean(canOpen(plugin)) && plugin.desiredEnabled && plugin.state === 'running';
       }) : [];
       current.current.installedTools = new Set(available.map((plugin) => plugin.manifest.id));
+      // Window preferences must follow any running window plugin, including ones opened from
+      // the manager that never declare a title-bar entry.
+      setHasWindowPlugins(allowed && items.some((plugin) => Boolean(plugin.manifest.window)
+        && plugin.desiredEnabled && plugin.state === 'running'));
       publish(available); setError('');
       if (allowed && items.some((plugin) => canOpen(plugin) && plugin.desiredEnabled && plugin.state === 'starting')
           && Date.now() + STARTUP_INTERVAL_MS <= until.current) {
         startup.current = setTimeout(() => { void refresh(true); }, STARTUP_INTERVAL_MS);
       }
     } catch (cause) {
-      if (current.current.alive && ticket === current.current.epoch) { publish([]); setError(pluginErrorText(cause)); }
+      if (current.current.alive && ticket === current.current.epoch) { publish([]); setHasWindowPlugins(false); setError(pluginErrorText(cause)); }
     }
   }, [publish, web]);
   useEffect(() => {
@@ -117,7 +122,7 @@ function useWindowToolCatalog(web: boolean) {
   }, [publish, refresh, web]);
   const isCurrent = (plugin: PluginStatus) => current.current.alive
     && current.current.plugins.some((item) => item.manifest.id === plugin.manifest.id && identity(item) === identity(plugin));
-  return { plugins, error, refresh, isCurrent, hasInstalledTools: current.current.installedTools.size > 0 };
+  return { plugins, error, refresh, isCurrent, hasInstalledTools: current.current.installedTools.size > 0, hasWindowPlugins };
 }
 
 function useWindowToolOpen(catalog: ReturnType<typeof useWindowToolCatalog>, web: boolean, language: string, synchronize: () => Promise<void>) {
@@ -168,7 +173,7 @@ export function usePluginWindowTools(): TitleBarQuickAction[] {
   const { language, t } = useI18n();
   const web = isWebRuntime();
   const catalog = useWindowToolCatalog(web);
-  const synchronize = usePluginWindowPreferences(language, !web && catalog.plugins.some(plugin => toolTarget(plugin, web)?.kind === 'window'));
+  const synchronize = usePluginWindowPreferences(language, !web && catalog.hasWindowPlugins);
   const invocation = useWindowToolOpen(catalog, web, language, synchronize);
   const icon = <TitlebarPluginIcon size="100%" />;
   // 入口位置不取决于页面或窗口；点击时再按插件声明选择打开目标。

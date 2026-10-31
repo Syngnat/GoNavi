@@ -29,7 +29,7 @@ export interface AIModel { id: string; name: string; contextWindow: number; maxO
 /** Requires ai.providers and an exact backend command; images are not supported in v1. */
 export interface AIProvider {
   id: string; name: string; command: string; icon?: string; models: AIModel[];
-  supportsTools: boolean; supportsImages: false;
+  supportsTools: boolean; supportsImages: boolean;
 }
 /** Requires data.export and a backend command; metadata grants no filesystem access. */
 export interface Exporter { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }
@@ -52,7 +52,7 @@ export interface Manifest {
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
   backend?: { default?: Entry; platforms?: Record<string, Entry> };
-  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body: UINode }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
+  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body?: UINode; html?: PageHTML }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
   window?: { entry: string; title?: string; width?: number; height?: number };
   configSchema?: JSONValue;
 }

@@ -19,6 +19,18 @@ func downloadFileWithHashSequential(
 	filePath string,
 	onProgress func(downloaded, total int64),
 ) (string, error) {
+	return downloadFileWithHashSequentialLimit(client, rawURL, filePath, onProgress, 0)
+}
+
+var errDownloadTooLarge = errors.New("download exceeds size limit")
+
+func downloadFileWithHashSequentialLimit(
+	client *http.Client,
+	rawURL string,
+	filePath string,
+	onProgress func(downloaded, total int64),
+	limit int64,
+) (string, error) {
 	resp, err := doGitHubDownload(client, rawURL)
 	if err != nil {
 		return "", err
@@ -36,6 +48,9 @@ func downloadFileWithHashSequential(
 			}
 		}
 		return "", classifyGitHubUpdateHTTPError(resp.StatusCode, body, resp.Header, false)
+	}
+	if limit > 0 && resp.ContentLength > limit {
+		return "", errDownloadTooLarge
 	}
 	_ = os.Remove(filePath)
 	var out *os.File
@@ -57,9 +72,19 @@ func downloadFileWithHashSequential(
 	if onProgress != nil {
 		onProgress(0, total)
 	}
-	if _, err := io.Copy(io.MultiWriter(out, hasher, progressWriter), resp.Body); err != nil {
+	reader := io.Reader(resp.Body)
+	if limit > 0 {
+		reader = io.LimitReader(resp.Body, limit+1)
+	}
+	written, err := io.Copy(io.MultiWriter(out, hasher, progressWriter), reader)
+	if err != nil {
 		_ = out.Close()
 		return "", wrapUpdateNetworkError(err)
+	}
+	if limit > 0 && written > limit {
+		_ = out.Close()
+		_ = os.Remove(filePath)
+		return "", errDownloadTooLarge
 	}
 	if onProgress != nil {
 		onProgress(progressWriter.written, total)
