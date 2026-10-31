@@ -11,6 +11,8 @@ describe('shipped contribution names', () => {
         skills: [{ id: 'guide', name: 'Guide', description: 'Read', entry: 'SKILL.md', resources: ['NOTES.md'] }],
         aiProviders: [{ id: 'chat', name: 'Chat', command: 'chat', models: [{ id: 'm', name: 'M', contextWindow: 8, maxOutputTokens: 2 }], supportsTools: true, supportsImages: false }],
         exporters: [{ id: 'ndjson', name: 'NDJSON', command: 'export', extension: 'ndjson', contentType: 'application/x-ndjson' }],
+        pages: [{ id: 'overview', title: 'Overview', body: { type: 'text', text: 'hello' } }],
+        navigation: [{ id: 'overview-tools', title: 'Overview', page: 'overview', location: 'tools' }],
       },
     };
     const raw = JSON.stringify(manifest);
@@ -20,9 +22,14 @@ describe('shipped contribution names', () => {
     expect(raw).toContain('"aiProviders"');
     expect(raw).toContain('"supportsImages":false');
     expect(raw).toContain('"exporters"');
+    expect(raw).toContain('"pages"');
+    expect(raw).toContain('"navigation"');
+    expect(raw).toContain('"location":"tools"');
     const decoded = JSON.parse(raw) as Manifest;
     expect(decoded.contributes?.dataSources?.[0].readOnly).toBe(true);
     expect(decoded.contributes?.exporters).toHaveLength(1);
     expect(decoded.contributes?.aiProviders?.[0].supportsImages).toBe(false);
+    expect(decoded.contributes?.pages?.[0].id).toBe('overview');
+    expect(decoded.contributes?.navigation?.[0].page).toBe('overview');
   });
 });

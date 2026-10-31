@@ -58,14 +58,15 @@ describe('FontGalleryPanel preview', () => {
     await act(async () => { option.click(); });
   };
 
-  it('does not repeat system-installed recommendations in the browse dropdown', async () => {
+  it('renders system-installed recommendations with the installed status in the browse dropdown', async () => {
     await act(async () => {
       root.render(<FontGalleryPanel installedFontFamilies={[{ family: 'JetBrains Mono' }]}
         onEnable={() => undefined} />);
     });
     openDropdown();
     const dropdown = document.querySelector('.ant-select-dropdown')!;
-    expect(dropdown.textContent).not.toContain('JetBrains Mono');
+    expect(dropdown.textContent).toContain('JetBrains Mono');
+    expect(dropdown.textContent).toContain('app.theme.font_family.gallery.status_system');
     expect(dropdown.textContent).toContain('Fira Code');
     // 目录未加载完成前的静态占位行不发起预览。
     expect(preview).not.toHaveBeenCalled();

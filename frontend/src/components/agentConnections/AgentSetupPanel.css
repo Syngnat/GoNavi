@@ -1,0 +1,152 @@
+/* 智能体检测/启用面板：与连接弹窗同一套 v2 设计语言。 */
+.gn-agent-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* 弹窗内容区（.ant-modal-body）本身没有内边距，普通数据库表单走
+     .gn-conn-form-main 的 padding。这里直接贴着弹窗边缘会很难看，
+     留出与表单一致的横向留白。 */
+  padding: 16px 20px 18px;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: 14px;
+}
+
+.gn-agent-setup-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gn-agent-setup-ico {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 10px;
+  background: var(--gn-bg-active);
+  font-size: 22px;
+}
+
+.gn-agent-setup-ico.is-claude {
+  color: var(--gn-warn);
+}
+
+.gn-agent-setup-ico.is-codex {
+  color: var(--gn-fg-1);
+}
+
+.gn-agent-setup-head-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gn-agent-setup-title {
+  color: var(--gn-fg-1);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.gn-agent-setup-subtitle {
+  color: var(--gn-fg-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-agent-setup-loading {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+}
+
+.gn-agent-setup-status-icon.ok {
+  color: var(--gn-accent);
+}
+
+.gn-agent-setup-status-icon.warn {
+  color: var(--gn-warn);
+}
+
+.gn-agent-setup-status-icon.bad {
+  color: var(--gn-danger);
+}
+
+/* 探测事实：每行「标签 + 值」，值超长省略并可悬停看全路径。 */
+.gn-agent-setup-facts {
+  display: flex;
+  margin: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 8px;
+  background: var(--gn-bg-panel);
+}
+
+.gn-agent-setup-fact {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 12px;
+  min-width: 0;
+}
+
+.gn-agent-setup-fact + .gn-agent-setup-fact {
+  border-top: 1px solid var(--gn-br-1);
+}
+
+.gn-agent-setup-fact-label {
+  flex: 0 0 auto;
+  width: 72px;
+  color: var(--gn-fg-3);
+  font-size: 12px;
+}
+
+.gn-agent-setup-fact-value {
+  overflow: hidden;
+  min-width: 0;
+  margin: 0;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-agent-setup-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gn-agent-setup-manual-label {
+  color: var(--gn-fg-2);
+  font-size: 12px;
+}
+
+.gn-agent-setup-hint {
+  /* 说明文字排到左侧，按钮组靠右——用 order 而不是 margin，避免
+     margin-right:auto 落在最后一个子元素上把按钮组顶到左边。 */
+  order: -1;
+  margin-right: auto;
+  color: var(--gn-fg-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-agent-setup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.gn-agent-setup-actions .gn-agent-setup-hint {
+  text-align: left;
+}

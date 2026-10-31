@@ -26,7 +26,7 @@ const contrastRatio = (foreground: string, background: string): number => {
 };
 
 describe('GoNavi Monaco themes', () => {
-  it('defines bold SQL keyword colors that remain AA-readable on the shared workbench surface', () => {
+  it('defines SQL keyword colors that remain AA-readable on the shared workbench surface', () => {
     const defineTheme = vi.fn();
     registerGonaviMonacoThemes({ editor: { defineTheme } } as never);
 
@@ -52,11 +52,9 @@ describe('GoNavi Monaco themes', () => {
     for (const token of keywordTokens) {
       expect(lightRules.find((rule: any) => rule.token === token)).toMatchObject({
         foreground: '6D28D9',
-        fontStyle: 'bold',
       });
       expect(darkRules.find((rule: any) => rule.token === token)).toMatchObject({
         foreground: 'C792EA',
-        fontStyle: 'bold',
       });
     }
 

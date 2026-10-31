@@ -18,6 +18,9 @@ func newExportFileWriterWithContext(ctx context.Context, f io.Writer, options Ex
 	options = normalizeExportFileOptions("", options)
 	switch options.Format {
 	case "csv":
+		if options.LosslessHive {
+			return newHiveCSVFileWriter(f, options.ColumnComments, options.CSVEncoding)
+		}
 		return newCSVExportFileWriter(f, options.ColumnComments, options.CSVEncoding)
 	case "parquet":
 		return newParquetExportFileWriter(ctx, f), nil
@@ -37,7 +40,11 @@ func newExportFileWriterWithContext(ctx context.Context, f io.Writer, options Ex
 			writeOptions.tempDir = filepath.Dir(managed.file.Name())
 			writeOptions.budget = managed.budget
 		}
-		return newXLSXExportFileWriter(file, options.XLSXMaxRowsPerSheet, writeOptions)
+		writer, err := newXLSXExportFileWriter(file, options.XLSXMaxRowsPerSheet, writeOptions)
+		if err == nil {
+			writer.losslessHive = options.LosslessHive
+		}
+		return writer, err
 	case "sql":
 		return newSQLInsertExportFileWriter(f, options)
 	default:
@@ -53,7 +60,7 @@ func exportQueryResultToFileWithContext(ctx context.Context, f io.Writer, dbInst
 	if err := validateExportColumnsSelection(options); err != nil {
 		return 0, nil, err
 	}
-	writer, err := newExportFileWriterWithContext(ctx, f, options)
+	writer, err := newHiveAwareQueryFileWriter(ctx, f, config, options)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -117,7 +124,11 @@ func writeRowsToFileWithReporter(exportCtx context.Context, f io.Writer, data []
 	if err != nil {
 		return 0, err
 	}
-	if err := writer.SetColumns(columns); err != nil {
+	var consumer db.QueryStreamConsumer = writer
+	if options.LosslessHive {
+		consumer = &hiveExportConsumer{delegate: writer}
+	}
+	if err := consumer.SetColumns(columns); err != nil {
 		return 0, errors.Join(err, abortExportFileWriter(writer))
 	}
 	if reporter != nil {
@@ -127,7 +138,7 @@ func writeRowsToFileWithReporter(exportCtx context.Context, f io.Writer, data []
 		if err := exportCtx.Err(); err != nil {
 			return int64(index), errors.Join(err, abortExportFileWriter(writer))
 		}
-		if err := writer.ConsumeRow(row); err != nil {
+		if err := consumer.ConsumeRow(row); err != nil {
 			return int64(index), errors.Join(err, abortExportFileWriter(writer))
 		}
 		if reporter != nil {

@@ -19,7 +19,9 @@ export const EndpointStage: React.FC<{
   t: DataSyncWorkbenchTranslate;
   onPatch: (patch: TaskPatch) => void;
   onContinue: () => void;
-}> = ({ task, gateway, connectionTree, t, onPatch, onContinue }) => {
+  // 对比只有一步（选完两端直接比），底部工具栏才是主操作，这里不显示「下一步」。
+  showContinue?: boolean;
+}> = ({ task, gateway, connectionTree, t, onPatch, onContinue, showContinue = true }) => {
   const connections = useDataSyncSavedConnections(gateway);
   const sourceDatabases = useDataSyncDatabases(gateway, task.source.connectionId,
     connections.items.some((connection) => connection.id === task.source.connectionId));
@@ -157,21 +159,28 @@ export const EndpointStage: React.FC<{
         </Field>
       </div>
     ) : null}
-    <div className="gn-data-sync-guide__actions">
-      <button
-        type="button"
-        className="gn-data-sync-button gn-data-sync-button--primary"
-        data-guide-continue="true"
-        disabled={!canContinue}
-        onClick={onContinue}
-      >
-        <span>
-          {t('workbench.next_step', {
-            stage: t(dataSyncStageTextKey('mappings', task.kind, task.compareMode)),
-          })}
-        </span>
-      </button>
-    </div>
+    {showContinue ? (
+      <div className="gn-data-sync-guide__actions">
+        <button
+          type="button"
+          className="gn-data-sync-button gn-data-sync-button--primary"
+          data-guide-continue="true"
+          disabled={!canContinue}
+          onClick={onContinue}
+        >
+          <span>
+            {t('workbench.next_step', {
+              stage: t(dataSyncStageTextKey('mappings', task.kind, task.compareMode)),
+            })}
+          </span>
+        </button>
+      </div>
+    ) : null}
+    {task.kind === 'compare' ? (
+      <p className="gn-data-sync-guide__note" data-compare-scope-note="true">
+        {t('editor.compare_scope_note')}
+      </p>
+    ) : null}
   </section>
   );
 };

@@ -24,8 +24,8 @@ interface CatalogOption {
 export function FontGalleryPanel({ installedFontFamilies, onEnable, activeUi, activeMono }: Props) {
   const { t, language } = useI18n();
   const gallery = useFontGalleryPanel();
-  const rows = useMemo(() => buildFontCatalogRows(gallery.entries, installedFontFamilies, gallery.installed),
-    [gallery.entries, installedFontFamilies, gallery.installed]);
+  const rows = useMemo(() => buildFontCatalogRows(gallery.entries),
+    [gallery.entries]);
   const nameOf = (row: CatalogRow) => row.names[language] || row.names['en-US'] || row.family;
   const selected = rows.find(row => row.id === gallery.selectedId) || rows[0] || null;
   const installed = (row: CatalogRow) => gallery.installed.find(item => item.entry.id === row.id || fontFamilyKey(item.entry.family) === fontFamilyKey(row.family));

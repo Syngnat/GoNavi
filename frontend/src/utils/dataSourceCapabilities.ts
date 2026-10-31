@@ -1,4 +1,5 @@
 import type { ConnectionConfig } from '../types';
+import { canonicalizeDataSourceType } from './dataSourceRegistry';
 import { isPluginDataSourceNamespace, pluginDataSourceConfigType } from '../plugins/dataSource/identity';
 import { pluginDataSourceCapabilities } from '../plugins/dataSource/capabilities';
 import dataSourceCapabilityContractDocument from '../../../internal/db/data_source_capability_contract.json';
@@ -110,7 +111,7 @@ const normalizeDataSourceToken = (raw: string): string => {
     case 'cachedb':
       return 'cache';
     default:
-      return normalized;
+      return canonicalizeDataSourceType(normalized);
   }
 };
 

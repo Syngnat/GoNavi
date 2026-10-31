@@ -220,6 +220,12 @@ func (d *OptionalDriverAgentDB) ApplyChangesContext(ctx context.Context, tableNa
 			logger.Warnf("Kingbase ApplyChanges 字段名规范化失败：%v", normErr)
 		}
 	}
+	if normalizeRuntimeDriverType(d.driverType) == "hive" {
+		changes, err = hiveChangesForAgent(ctx, d, tableName, changes)
+		if err != nil {
+			return err
+		}
+	}
 	err = client.callContext(ctx, optionalAgentRequest{
 		Method:    optionalAgentMethodApplyChanges,
 		TableName: tableName,

@@ -4,6 +4,7 @@ import "GoNavi-Wails/internal/connection"
 
 // SyncConfig defines the parameters for a synchronization task
 type SyncConfig struct {
+	hiveMicrosecondTarget bool
 	// characterLengthTarget is scoped to this plan; never serialized or shared across connections.
 	characterLengthTarget *characterLengthTarget
 	SourceConfig          connection.ConnectionConfig `json:"sourceConfig"`
@@ -16,6 +17,9 @@ type SyncConfig struct {
 	Content               string                      `json:"content,omitempty"` // "data", "schema", "both"
 	Mode                  string                      `json:"mode"`              // "insert_update", "insert_only", "full_overwrite"
 	JobID                 string                      `json:"jobId,omitempty"`
+	// CompareOnly 标记只读对比任务：目标缺表是它要报告的差异，不是失败，
+	// 分析阶段要按整表缺表返回结构化列差异，供前端生成建表语句。
+	CompareOnly           bool                        `json:"-"`
 	AutoAddColumns        bool                        `json:"autoAddColumns,omitempty"` // 自动补齐缺失字段
 	TargetTableStrategy   string                      `json:"targetTableStrategy,omitempty"`
 	CreateIndexes         bool                        `json:"createIndexes,omitempty"`

@@ -233,6 +233,12 @@ func executeSQLFileSingleTransactionStream(ctx context.Context, dbInst db.Databa
 
 func executeSQLFileStream(ctx context.Context, dbInst db.Database, reader io.Reader, options sqlFileExecutionOptions, bytesRead func() int64) (sqlFileExecutionResult, error) {
 	options = normalizeSQLFileExecutionOptions(options)
+	if options.BatchCreateOnly && !options.ContinueOnError && options.TransactionMode == sqlFileTransactionModeOff && isFastSQLFileCreateDialect(options.DBType) {
+		return executeSQLFileFastCreateBatch(ctx, dbInst, reader, options, bytesRead)
+	}
+	if normalizeInsertSQLDialect(options.DBType) == "hive" {
+		return executeHiveSQLFileStream(ctx, dbInst, reader, options, bytesRead)
+	}
 	if options.TransactionMode == sqlFileTransactionModeSingle {
 		return executeSQLFileSingleTransactionStream(ctx, dbInst, reader, options, bytesRead)
 	}

@@ -33,7 +33,7 @@ func ResolveMigrationCapability(sourceConfig connection.ConnectionConfig, target
 		// Time-series targets are deliberately narrowed below.
 		SupportsMutations: true,
 	}
-	if targetType == "tdengine" || targetType == "iotdb" {
+	if targetType == "tdengine" || targetType == "iotdb" || (targetType == "hive" && hiveSyncFamily(targetConfig) == "spark") {
 		capability.SupportsMutations = false
 	}
 	syncConfig := SyncConfig{
@@ -52,6 +52,11 @@ func ResolveMigrationCapability(sourceConfig connection.ConnectionConfig, target
 		capability.SupportLevel = MigrationSupportLevelFull
 		capability.CanExecute = true
 		capability.SupportsAutoCreate = true
+		return capability
+	}
+	if isHiveMigrationPair(sourceType, targetType) && !supportsHiveMigrationPair(sourceType, targetType) {
+		capability.SupportLevel = MigrationSupportLevelUnsupported
+		capability.RequiresExistingTarget = true
 		return capability
 	}
 	if !supportsMigrationSourceEndpoint(sourceConfig, sourceType) || !supportsMigrationTargetEndpoint(targetConfig, targetType) {
@@ -119,7 +124,7 @@ func supportsMigrationSourceEndpoint(config connection.ConnectionConfig, dbType 
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx",
 		"postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb",
 		"oracle", "sqlserver", "dameng", "sqlite", "duckdb", "iris",
-		"clickhouse", "tdengine", "iotdb", "trino", "mongodb":
+		"clickhouse", "tdengine", "iotdb", "trino", "mongodb", "hive":
 		return true
 	default:
 		return registryMigrationEndpoint(dbType, false) || normalizeMigrationDBType(config.Type) == "custom"
@@ -131,7 +136,7 @@ func supportsMigrationTargetEndpoint(config connection.ConnectionConfig, dbType 
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks",
 		"postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb",
 		"oracle", "sqlserver", "dameng", "sqlite", "duckdb", "iris",
-		"clickhouse", "tdengine", "iotdb", "mongodb":
+		"clickhouse", "tdengine", "iotdb", "mongodb", "hive":
 		return true
 	default:
 		return registryMigrationEndpoint(dbType, true) || normalizeMigrationDBType(config.Type) == "custom"

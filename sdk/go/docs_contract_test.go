@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,10 +12,14 @@ import (
 	"testing"
 )
 
-// The SDK guide is the public contract for third-party plugins. Every exported identifier must be
-// named there, so removing or renaming one is always a deliberate, documented change.
+// The SDK guide is published by the market website. The cross-repository check
+// runs only when GoNavi-Plugin-Market is checked out beside GoNavi.
 func TestExportedIdentifiersAreDocumented(t *testing.T) {
-	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "plugins", "sdk.md"))
+	guidePath := filepath.Join("..", "..", "..", "GoNavi-Plugin-Market", "docs", "plugins", "sdk.md")
+	doc, err := os.ReadFile(guidePath)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("GoNavi-Plugin-Market checkout is not available beside GoNavi")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

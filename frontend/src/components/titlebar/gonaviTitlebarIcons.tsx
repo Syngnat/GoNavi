@@ -346,6 +346,30 @@ export function TitlebarDriverIcon({ size, className }: GonaviTitlebarIconProps)
   );
 }
 
+/**
+ * 插件（插件管理）：强调色拼图块（顶部 + 右侧各一个凸扣），与「驱动管理」同用强调色系，
+ * 表达「扩展 / 管理类工具」；不用齿轮或立方体，避免与「设置」「驱动管理」混淆。
+ */
+export function TitlebarPluginIcon({ size, className }: GonaviTitlebarIconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={resolveSize(size)}
+      height={resolveSize(size)}
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M5 8h3.3a2.2 2.2 0 1 1 4.4 0H16v3.3a2.2 2.2 0 1 1 0 4.4V19H5Z"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+        style={{ fill: GONAVI_TITLEBAR_ICON_COLORS.accent, stroke: GONAVI_TITLEBAR_ICON_COLORS.accent }}
+      />
+    </svg>
+  );
+}
+
 /** 关于：紫色实心圆 + 白色 i。 */
 export function TitlebarInfoIcon({ size, className }: GonaviTitlebarIconProps) {
   return (

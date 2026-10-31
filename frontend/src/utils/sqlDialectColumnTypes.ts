@@ -1,3 +1,4 @@
+import { HIVE_COLUMN_TYPES } from './hiveSqlDialect';
 import {
   optionValues,
   type ColumnTypeOption,
@@ -298,6 +299,7 @@ const COMMON_TYPES = optionValues(['int', 'varchar(255)', 'text', 'datetime', 'd
 
 export const resolveColumnTypeOptions = (dbType: string): ColumnTypeOption[] => {
   const dialect = resolveSqlDialect(dbType);
+  if (dialect === 'hive') return HIVE_COLUMN_TYPES;
   if (dialect === 'diros') return DORIS_TYPES;
   if (dialect === 'starrocks') return STARROCKS_TYPES;
   if (dialect === 'sphinx') return SPHINX_TYPES;

@@ -36,6 +36,8 @@ export const resolveQueryEditorFormatterLanguage = (conn: any): SqlLanguage => {
         case 'opengauss':
         case 'gaussdb':
             return 'postgresql';
+        case 'hive':
+            return 'hive';
         case 'duckdb':
             return 'duckdb';
         case 'sqlite':

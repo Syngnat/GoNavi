@@ -18,7 +18,7 @@ const (
 
 func supportsTruncateTableForDBType(dbType string) bool {
 	switch normalizeSQLClassifierDBType(dbType) {
-	case "mysql", "mariadb", "oceanbase", "starrocks", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "iris", "oracle", "dameng", "clickhouse", "duckdb":
+	case "mysql", "mariadb", "oceanbase", "starrocks", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "iris", "oracle", "dameng", "clickhouse", "duckdb", "hive":
 		return true
 	default:
 		return false
@@ -122,6 +122,10 @@ func (a *App) runTableDataClear(config connection.ConnectionConfig, dbName strin
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
+	if err := preflightHiveTableClear(a.pluginRuntimeContext(), dbInst, runConfig, dbName, objects, mode); err != nil {
+		failureKey, _ := tableDataClearMessageKeys(mode, false)
+		return connection.QueryResult{Success: false, Message: a.appText(failureKey, map[string]any{"table": strings.Join(objects, ", "), "detail": err.Error(), "count": 0}), Data: map[string]interface{}{"executedSQLs": []string{}, "count": 0}}
+	}
 	logger.Warnf("%s 开始：%s db=%s tables=%v（共 %d 张）", actionLabel, formatConnSummary(runConfig), dbName, objects, len(objects))
 
 	var executedSQLs []string
@@ -138,13 +142,14 @@ func (a *App) runTableDataClear(config connection.ConnectionConfig, dbName strin
 			}
 		}
 
-		if _, err := dbInst.Exec(sql); err != nil {
+		if _, err := execTableDataClear(a.pluginRuntimeContext(), dbInst, runConfig, sql); err != nil {
 			logger.Warnf("%s 第 %d/%d 张表失败：%s table=%s err=%v（已成功%s %d 张）", actionLabel, i+1, len(objects), formatConnSummary(runConfig), objectName, err, progressLabel, len(executedSQLs))
 			failureKey, _ := tableDataClearMessageKeys(mode, len(executedSQLs) > 0)
 			errMsg := a.appText(failureKey, map[string]any{"table": objectName, "detail": err.Error(), "count": len(executedSQLs)})
 			return connection.QueryResult{
-				Success: false,
-				Message: errMsg,
+				Success:        false,
+				Message:        errMsg,
+				OutcomeUnknown: tableClearOutcomeUnknown(err),
 				Data: map[string]interface{}{
 					"executedSQLs": executedSQLs,
 					"count":        len(executedSQLs),

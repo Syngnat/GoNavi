@@ -5,23 +5,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-
-	"GoNavi-Wails/internal/secretstore"
 )
 
 // Options supplies host-owned configuration; TrustedOfficialURL must never come from marketplace metadata.
 type Options struct {
 	Root               string
-	Secrets            secretstore.SecretStore
 	Client             *http.Client
 	HostVersion        string
 	TrustedOfficialURL string
 }
 
-// Settings contains no credentials. SourceID binds cached and installed data to one API base.
+// Settings describes the selected source. SourceID binds cached and installed data to one API base.
 type Settings struct {
 	BaseURL         string `json:"baseUrl"`
-	Authenticated   bool   `json:"authenticated"`
 	SourceID        string `json:"sourceId"`
 	TrustedOfficial bool   `json:"trustedOfficial"`
 }
@@ -37,6 +33,7 @@ type Item struct {
 	Version        string          `json:"version"`
 	Category       string          `json:"category,omitempty"`
 	MinHostVersion string          `json:"minHostVersion,omitempty"`
+	SourceURL      string          `json:"sourceUrl,omitempty"`
 	Platforms      []string        `json:"platforms"`
 	RatingAverage  float64         `json:"ratingAverage"`
 	RatingCount    int64           `json:"ratingCount"`
@@ -58,12 +55,13 @@ type Artifact struct {
 
 // CatalogPage marks cached fallback explicitly and is returned alongside a nonnil error on fetch failure.
 type CatalogPage struct {
-	Items      []Item     `json:"items"`
-	NextCursor string     `json:"nextCursor,omitempty"`
-	Stale      bool       `json:"stale"`
-	Error      string     `json:"error,omitempty"`
-	CachedAt   *time.Time `json:"cachedAt,omitempty"`
-	SourceID   string     `json:"sourceId"`
+	FilterVersion int        `json:"filterVersion,omitempty"`
+	Items         []Item     `json:"items"`
+	NextCursor    string     `json:"nextCursor,omitempty"`
+	Stale         bool       `json:"stale"`
+	Error         string     `json:"error,omitempty"`
+	CachedAt      *time.Time `json:"cachedAt,omitempty"`
+	SourceID      string     `json:"sourceId"`
 }
 
 // Rating is the service-owned, mutable rating for one user and plugin.
@@ -74,18 +72,4 @@ type Rating struct {
 	Body      string    `json:"body"`
 	Version   string    `json:"version"`
 	UpdatedAt time.Time `json:"updatedAt"`
-}
-
-// DeviceAuthorization is a pending browser approval, never an authenticated session.
-type DeviceAuthorization struct {
-	VerificationURI string `json:"verificationUri"`
-	UserCode        string `json:"userCode"`
-	DeviceCode      string `json:"deviceCode"`
-	IntervalSeconds int    `json:"intervalSeconds"`
-	ExpiresIn       int    `json:"expiresIn"`
-}
-
-// LoginStatus deliberately excludes bearer and refresh tokens from host/UI responses.
-type LoginStatus struct {
-	Status string `json:"status"`
 }

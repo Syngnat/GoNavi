@@ -5,7 +5,7 @@ import { getProviderEndpointType, getProviderEndpointTypes, resolveProviderEndpo
 describe('provider endpoint compatibility', () => {
   it.each<[ProviderEndpointType, string[]]>([
     ['openai-responses', ['openai', 'deepseek', 'custom']],
-    ['openai', ['gonavi-ai', 'openai', 'atlascloud', 'orcarouter', 'cheaperinference', 'api-route', 'deepseek', 'qwen-bailian', 'zhipu', 'moonshot', 'xiaomi-mimo', 'volcengine-ark', 'minimax', 'ollama', 'custom']],
+    ['openai', ['gonavi-ai', 'openai', 'deepseek', 'qwen-bailian', 'zhipu', 'moonshot', 'xiaomi-mimo', 'volcengine-ark', 'minimax', 'ollama', 'custom']],
     ['anthropic', ['qwen-bailian', 'moonshot', 'xiaomi-mimo', 'anthropic', 'minimax', 'custom']],
     ['gemini', ['gemini', 'custom']],
     ['cli', ['qwen-bailian', 'anthropic', 'grok', 'codebuddy', 'cursor', 'custom']],
@@ -15,7 +15,7 @@ describe('provider endpoint compatibility', () => {
   });
 
   it('does not promise Responses for a compatible Chat URL or direct APIs for a CLI proxy', () => {
-    expect(resolveProviderEndpointConnection(findPreset('atlascloud'), 'openai-responses')).toBeUndefined();
+    expect(resolveProviderEndpointConnection(findPreset('zhipu'), 'openai-responses')).toBeUndefined();
     expect(resolveProviderEndpointConnection(findPreset('qwen-bailian'), 'cli')).toEqual({
       type: 'custom', apiFormat: 'claude-cli', baseUrl: 'https://coding.dashscope.aliyuncs.com/apps/anthropic',
     });

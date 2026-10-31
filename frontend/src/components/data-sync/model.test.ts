@@ -39,10 +39,8 @@ describe('data sync task model', () => {
       trigger: { mode: 'manual' },
       incremental: { mode: 'snapshot' },
     });
-    expect(dataSyncTaskStages('compare')).toEqual([
-      'endpoints',
-      'mappings',
-    ]);
+    // 对比只选两端：表清单在运行期按源库展开，不再有单独的对象选择阶段。
+    expect(dataSyncTaskStages('compare')).toEqual(['endpoints']);
     expect(dataSyncTaskStages('reconcile')).toContain('delivery');
     expect(dataSyncTaskBelongsToFamily(compare, 'compare')).toBe(true);
     expect(dataSyncTaskBelongsToFamily(compare, 'sync')).toBe(false);

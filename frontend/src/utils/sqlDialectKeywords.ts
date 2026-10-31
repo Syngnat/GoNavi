@@ -1,3 +1,4 @@
+import { HIVE_KEYWORDS } from './hiveSqlDialect';
 import {
   ROCKETMQ_KEYWORDS,
   MQTT_KEYWORDS,
@@ -154,6 +155,7 @@ export const filterFunctionsByMinimumVersion = (
 
 export const resolveSqlKeywords = (dbType: string): string[] => {
   const dialect = resolveSqlDialect(dbType);
+  if (dialect === 'hive') return [...HIVE_KEYWORDS];
   if (dialect === 'starrocks') return unique([...COMMON_KEYWORDS, ...MYSQL_KEYWORDS, ...STARROCKS_KEYWORDS]);
   if (isMysqlFamilyDialect(dialect)) return unique([...COMMON_KEYWORDS, ...MYSQL_KEYWORDS]);
   if (isPgLikeDialect(dialect)) return unique([...COMMON_KEYWORDS, ...PG_KEYWORDS]);

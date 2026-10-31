@@ -271,6 +271,30 @@ export const createWailsDataSyncWorkbenchGateway = (
       return selected || null;
     },
 
+    // Desktop returns {path}; the web channel returns {fileName} because the
+    // browser owns the destination. Cancellation is the backend sentinel, not
+    // an error, so the caller can stay silent like the directory picker.
+    async exportTextFile(defaultName, content, format) {
+      const result = await api.ExportTextFile(defaultName, content, format);
+      if (!result?.success) {
+        if (result?.message === BACKEND_CANCELLED_MESSAGE) return null;
+        throw new DataSyncGatewayProtocolError(
+          'ExportTextFile',
+          String(result?.message || 'backend rejected the text export'),
+        );
+      }
+      const data = result.data as Record<string, unknown> | null | undefined;
+      const saved = String(data?.path || data?.fileName || '').trim();
+      return saved || null;
+    },
+
+    // 打开导出文件只是便利动作：失败不该变成导出失败，所以只回报布尔值。
+    async openExportedFile(filePath) {
+      if (!filePath.trim()) return false;
+      const result = await api.OpenExportedTextFile(filePath);
+      return result?.success === true;
+    },
+
     async listDatabases(connectionId, requestOptions) {
       return decodeDatabaseMetadata(
         requireWailsQueryData(

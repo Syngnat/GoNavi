@@ -219,7 +219,7 @@ func shouldTryQueryResultFirst(dbType string, query string) bool {
 	case "exec", "execute", "call":
 		return true
 	case "set", "print":
-		return isSQLServer
+		return isSQLServer || (normalizeSQLClassifierDBType(dbType) == "hive" && isHiveSettingReadQuery(query))
 	case "dbcc":
 		return isSQLServer
 	case "do":

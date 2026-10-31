@@ -6,6 +6,7 @@ import {
     isQueryEditorIdentifierCharAt,
 } from './queryEditorIdentifierPaths';
 import { analyzeQueryEditorTableReferences } from './queryEditorTableReferences';
+import { supportsSqlHashLineComment } from '../../utils/sqlStatementSelection';
 
 export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = ''): string => {
     // Keep the original string length so offsets reported by Monaco remain
@@ -150,9 +151,9 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = '
             }
         }
 
-        // MySQL-style # comments must not consume PostgreSQL JSONB operators
-        // such as #>, #>>, and #-.
-        if (ch === '#' && next !== '>' && next !== '-') {
+        // MySQL 系与 ClickHouse 的 # 行注释；同时不能吞掉 PostgreSQL 的
+        // JSONB 操作符（#>、#>>、#-），也不能误伤达梦/Oracle 标识符里的 #。
+        if (ch === '#' && supportsSqlHashLineComment(dbType) && next !== '>' && next !== '-') {
             maskAt(i);
             inLineComment = true;
             continue;

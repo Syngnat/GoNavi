@@ -4,6 +4,7 @@ import type {
   DataSyncTableDiffSummary,
 } from './model';
 import { getDataSourceSpec } from '../../utils/dataSourceRegistry';
+import { t } from '../../i18n';
 
 const PG_LIKE = new Set([
   'postgres',
@@ -87,11 +88,36 @@ const modifyTypeSql = (
   return `ALTER TABLE ${tableSql} MODIFY COLUMN ${col} ${columnType};`;
 };
 
+/**
+ * 目标整表不存在时的建表语句。
+ *
+ * 后端在对比阶段把源列全部标成 missing_in_target，并把列类型放在 source 里，
+ * 所以这里直接用「列名 + 源列定义」拼 CREATE TABLE；对它输出 ADD COLUMN 没有意义。
+ */
+const createTableBlock = (
+  summary: DataSyncTableDiffSummary,
+  tableSql: string,
+  dialect: string,
+): string => {
+  const head = `-- ${summary.table}`;
+  const columns = (summary.columnDiffs || [])
+    .filter((diff) => diff.kind === 'missing_in_target')
+    .map((diff) => {
+      const columnType = String(diff.source || '').trim();
+      return `  ${quoteCompareIdent(diff.column, dialect)} ${columnType || 'TEXT'}`;
+    });
+  if (columns.length === 0) {
+    return `${head}\n-- ${tableSql}: 缺少源列定义，无法生成建表语句`;
+  }
+  return [head, `CREATE TABLE ${tableSql} (`, columns.join(',\n'), ');'].join('\n');
+};
+
 export const buildCompareRepairSQL = (
   result: DataSyncCompareResult,
   options: { dialect: string; schema?: string },
 ): string => {
   const dialect = options.dialect;
+  if (normalizeDialect(dialect) === 'hive') return '-- ' + t('hive.capability.schemaRepair');
   const schema = options.schema || '';
   const blocks: string[] = [
     '-- 由结构比对结果生成，请在目标库核对后再执行。',
@@ -99,15 +125,20 @@ export const buildCompareRepairSQL = (
   ];
   for (const summary of result.tables) {
     const diffs = summary.columnDiffs || [];
-    const missing = (summary.missingColumns || []).filter(
-      (column) => !diffs.some((diff) => diff.column === column && diff.kind === 'missing_in_target'),
-    );
-    if (diffs.length === 0 && missing.length === 0) continue;
     const tableSql = qualifyCompareTable(
       summary.targetObject || summary.table,
       schema,
       dialect,
     );
+    // 对比任务里 targetTableExists=false 表示目标整表缺失：只能建表，不能补列。
+    if (summary.targetTableExists === false) {
+      blocks.push(createTableBlock(summary, tableSql, dialect));
+      continue;
+    }
+    const missing = (summary.missingColumns || []).filter(
+      (column) => !diffs.some((diff) => diff.column === column && diff.kind === 'missing_in_target'),
+    );
+    if (diffs.length === 0 && missing.length === 0) continue;
     const statements: string[] = [`-- ${summary.table}`];
     missing.forEach((column) => {
       statements.push(addColumnSql(tableSql, column, '', dialect));

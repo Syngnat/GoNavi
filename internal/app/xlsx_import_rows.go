@@ -32,6 +32,9 @@ func streamXLSXSheetRowsWithOptionsAndStyles(
 	consumer importFileConsumer,
 	options ImportFileOptions,
 ) error {
+	if options.LosslessHive {
+		return streamHiveXLSXSheetRows(entry, sharedStrings, styles, date1904, consumer, options)
+	}
 	reader, err := entry.Open()
 	if err != nil {
 		return err

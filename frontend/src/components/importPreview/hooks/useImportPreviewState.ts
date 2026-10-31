@@ -41,8 +41,9 @@ export const useImportPreviewState = ({
   const connections = useStore((state) => state.connections);
   const darkMode = useStore((state) => state.theme === "dark");
   const connection = connections.find((item) => item.id === connectionId);
-  const parserOptions = buildImportParserOptions(importOptions, continueOnError);
+  const parserOptions = buildImportParserOptions(importOptions, continueOnError, connection?.config);
   const parserOptionsKey = JSON.stringify({
+    losslessHive: parserOptions.losslessHive,
     encoding: parserOptions.encoding,
     delimiter: parserOptions.delimiter,
     headerRow: parserOptions.headerRow,

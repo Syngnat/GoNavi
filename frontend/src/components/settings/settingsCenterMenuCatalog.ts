@@ -4,7 +4,7 @@ import { PREFERENCE_PAGES, preferenceTitleKey, preferenceDescriptionKey, type Pr
 // because title-bar 数据同步/数据对比 entries navigate with it and the handler
 // dispatches on `action` alone.
 export type SettingsCenterNavigationTarget = {
-  group: PreferencePage | 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'plugins' | 'about';
+  group: PreferencePage | 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
   pane?: string;
   /** Child page inside a pane: a theme section or an AI settings section. */
   section?: string;
@@ -18,6 +18,7 @@ export type SettingsCenterNavigationTarget = {
     | 'compare'
     | 'sync'
     | 'drivers'
+    | 'plugins'
     | 'sql-audit'
     | 'request-diagnostics'
     | 'dml-snapshot';
@@ -90,14 +91,8 @@ export const SETTINGS_CENTER_MENU_CATALOG: ReadonlyArray<SettingsCenterMenuNode>
     target: { group: 'services', pane: 'ai', section: 'providers' },
   },
 
-  // 插件是叶子分组（分组即入口），目录里只挂一个无 item 的节点，参照 about。
-  {
-    group: 'plugins',
-    titleKey: 'plugin.manager.title',
-    descriptionKey: 'plugin.manager.description',
-    target: { group: 'plugins', pane: 'plugins' },
-  },
-
+  // 插件不进设置中心：入口在标题栏工具条，作为独立工作台 Tab 打开
+  // （SETTINGS_WORKBENCH_TAB_BUILDERS.plugins），目录（命令面板 / 搜索）里不挂插件节点。
   group('config', 'app.tools.group.config.title', 'app.tools.group.config.description'),
   pane('config', 'data-root', 'app.tools.entry.data_root'),
   {

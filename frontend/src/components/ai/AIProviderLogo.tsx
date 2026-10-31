@@ -18,9 +18,6 @@ export const PRESET_ICON_SLUG: Record<string, string> = {
   cursor: 'cursor',
   'cursor-cli': 'cursor',
   ollama: 'ollama',
-  atlascloud: 'atlascloud',
-  orcarouter: 'orcarouter',
-  cheaperinference: 'cheaperinference',
   zhipu: 'zhipu',
   moonshot: 'moonshot',
   'xiaomi-mimo': 'xiaomimimo',
@@ -42,7 +39,7 @@ export const brandIconZoom = (brandIconId: unknown): number => (
   resolveBrandIcon(brandIconId).slug.startsWith('ribbon-') ? 1 / RIBBON_TILE_ART_FRACTION : BUNDLED_BRAND_ICON_ZOOM
 );
 
-const WHITE_DARK_SLUGS = new Set(['openai', 'anthropic', 'ollama', 'cursor', 'grok', 'claudecode', 'atlascloud', 'cheaperinference']);
+const WHITE_DARK_SLUGS = new Set(['openai', 'anthropic', 'ollama', 'cursor', 'grok', 'claudecode']);
 
 export interface AIProviderLogoProps {
   presetKey: string;
@@ -64,7 +61,7 @@ export const AIProviderLogo: React.FC<AIProviderLogoProps> = ({
   const brandIconId = useStore((state) => state.brandIconId);
   const slug = PRESET_ICON_SLUG[presetKey];
   const brandSrc = presetKey === GONAVI_AI_PRESET_KEY ? resolveBrandIconSrc(brandIconId) : '';
-  const src = iconPath || brandSrc || (presetKey === 'api-route' ? '/icons/ai/api-route.png' : slug ? `/icons/ai/${slug}.svg` : '');
+  const src = iconPath || brandSrc || (slug ? `/icons/ai/${slug}.svg` : '');
   const invert = Boolean(dark && !iconPath && slug && WHITE_DARK_SLUGS.has(slug));
   const classes = ['gonavi-ai-provider-logo', className].filter(Boolean).join(' ');
   if (src && !failed) {

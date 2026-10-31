@@ -1,0 +1,41 @@
+name: gonavi-hive-1584-auth
+
+services:
+  kdc:
+    image: gonavi-hive-1584-kdc:bookworm
+    build: .
+    container_name: gonavi-hive-1584-kdc
+    hostname: kdc.gonavi.test
+    ports:
+      - "127.0.0.1:11188:88/tcp"
+      - "127.0.0.1:11188:88/udp"
+      - "127.0.0.1:12464:464/tcp"
+      - "127.0.0.1:12464:464/udp"
+    volumes:
+      - ${GONAVI_AUTH_PRIVATE_DIR:-/opt/gonavi-db-lab/hive-1584/auth/private}:/var/lib/gonavi-kdc
+    networks:
+      lab:
+        aliases: [kdc.gonavi.test]
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    restart: "no"
+    labels:
+      org.gonavi.purpose: hive-auth-validation
+      org.gonavi.issue: "1584"
+    healthcheck:
+      test: ["CMD-SHELL", "KRB5CCNAME=FILE:/var/lib/gonavi-kdc/health.ccache kinit -k -t /var/lib/gonavi-kdc/client/gonavi.keytab gonavi@GONAVI.TEST && KRB5CCNAME=FILE:/var/lib/gonavi-kdc/health.ccache kdestroy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  lab:
+    name: gonavi-hive-1584
+    external: true

@@ -1,19 +1,26 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/db"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
 )
 
 const defaultSyncReadPageSize = defaultSyncApplyBatchSize
 
 func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncResult, tableIndex, totalTables int, tableName string, sourceDB db.Database, targetDB db.Database, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, opts TableOptions, sourceType, targetType, applyTableName string) (bool, int, error) {
+	if normalizeSyncMode(config.Mode) == "full_overwrite" && hiveTargetHasRequiredColumns(targetCols) {
+		return false, 0, nil
+	}
+	if sourceType == "hive" {
+		return s.tryApplyHiveTableStream(config, res, tableName, applyTableName, sourceDB, targetDB, plan, sourceCols, targetCols, opts, sourceType, targetType)
+	}
 	if hasExplicitSyncMappings(config) {
 		return false, 0, nil
 	}
@@ -66,18 +73,33 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 		return true, 0, err
 	}
 
+	if targetType == "hive" {
+		if err := validateHiveInsertRows(targetCols, firstRows); err != nil {
+			return true, 0, err
+		}
+	}
+	cleared := false
 	if tableMode == "full_overwrite" && plan.TargetTableExists {
 		s.appendLog(config.JobID, res, "warn", fmt.Sprintf("  -> 全量覆盖模式：即将清空目标表 %s", tableName))
 		s.progress(config.JobID, tableIndex, totalTables, tableName, "清空目标表")
-		clearSQL := buildClearTargetTableSQL(targetType, plan.TargetQueryTable)
-		if _, err := execSyncDatabaseContext(s.context(), targetDB, clearSQL); err != nil {
+		if err := clearSyncTargetContext(s.context(), targetDB, targetType, plan.TargetQueryTable); err != nil {
 			return true, 0, fmt.Errorf("清空目标表失败: %w", err)
 		}
+		cleared = true
+	}
+	// Clearing cannot be rolled back, so a later failure has to say the target is now empty and
+	// only partially refilled; otherwise the user reads "read failed" and never learns the
+	// previous contents are gone.
+	failAfterClear := func(inserted int, err error) (bool, int, error) {
+		if cleared {
+			return true, inserted, fmt.Errorf("目标表已被清空且仅写入 %d 行（无法回滚，需人工核对）: %w", inserted, err)
+		}
+		return true, inserted, err
 	}
 
 	inserted, err := s.applyDirectImportPage(config, res, tableName, applyTableName, applier, targetColSet, pkCol, opts, firstRows, pageSize, 0)
 	if err != nil {
-		return true, inserted, err
+		return failAfterClear(inserted, err)
 	}
 	if len(firstRows) < pageSize {
 		return true, inserted, nil
@@ -88,7 +110,7 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceCols, pkCol, pageSize, offset)
 		rows, _, err := querySyncDatabaseContext(s.context(), sourceDB, query)
 		if err != nil {
-			return true, inserted, fmt.Errorf("分页读取源表失败(offset=%d): %w", offset, err)
+			return failAfterClear(inserted, fmt.Errorf("分页读取源表失败(offset=%d): %w", offset, err))
 		}
 		if len(rows) == 0 {
 			return true, inserted, nil
@@ -96,7 +118,7 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 		applied, err := s.applyDirectImportPage(config, res, tableName, applyTableName, applier, targetColSet, pkCol, opts, rows, pageSize, offset)
 		inserted += applied
 		if err != nil {
-			return true, inserted, err
+			return failAfterClear(inserted, err)
 		}
 		if len(rows) < pageSize {
 			return true, inserted, nil
@@ -220,11 +242,25 @@ func directImportPaginationPK(sourceType string, sourceCols []connection.ColumnD
 	if !supportsDirectImportPagination(sourceType) {
 		return "", false
 	}
+	// ClickHouse's primary key is a sorting-key prefix and is not unique, so ORDER BY it does not
+	// define a stable order across page boundaries. OFFSET paging would then duplicate or skip
+	// rows; fall back to the snapshot path instead.
+	if normalizeMigrationDBType(sourceType) == "clickhouse" {
+		return "", false
+	}
 	pkCols := make([]string, 0, 2)
 	for _, col := range sourceCols {
-		if col.Key == "PRI" || col.Key == "PK" {
-			pkCols = append(pkCols, col.Name)
+		if col.Key != "PRI" && col.Key != "PK" {
+			continue
 		}
+		// OFFSET pagination is only stable when the ORDER BY column is non-null: SQLite allows
+		// several NULLs in a TEXT PRIMARY KEY, and NULLs have no deterministic order, so a page
+		// boundary can duplicate or skip rows. A nullable key therefore falls back to the
+		// snapshot path.
+		if strings.EqualFold(strings.TrimSpace(col.Nullable), "YES") {
+			return "", false
+		}
+		pkCols = append(pkCols, col.Name)
 	}
 	if len(pkCols) != 1 || strings.TrimSpace(pkCols[0]) == "" {
 		return "", false
@@ -295,6 +331,11 @@ func buildPaginatedSelectSQLForSync(dbType, baseSQL, selectList, orderBySQL stri
 	orderBy := strings.TrimSpace(orderBySQL)
 
 	switch normalizeMigrationDBType(dbType) {
+	case "hive":
+		if safeOffset != 0 {
+			return ""
+		}
+		return strings.TrimSpace(fmt.Sprintf("%s %s LIMIT %d", base, orderBy, safeLimit))
 	case "sqlserver":
 		upperBound := safeOffset + safeLimit
 		if orderBy == "" {
@@ -308,7 +349,7 @@ func buildPaginatedSelectSQLForSync(dbType, baseSQL, selectList, orderBySQL stri
 
 func buildClearTargetTableSQL(targetType, targetQueryTable string) string {
 	quotedTable := quoteQualifiedIdentByType(targetType, targetQueryTable)
-	if normalizeMigrationDBType(targetType) == "mysql" {
+	if normalized := normalizeMigrationDBType(targetType); normalized == "mysql" || normalized == "hive" {
 		return fmt.Sprintf("TRUNCATE TABLE %s", quotedTable)
 	}
 	return fmt.Sprintf("DELETE FROM %s", quotedTable)
@@ -335,7 +376,11 @@ func isSameSyncEndpoint(config SyncConfig, sourceType, targetType string) bool {
 // Driver/DSN 可能因 built-in/custom 连接或默认库不同而不同，不能作为物理服务不同的证据。
 func isSamePhysicalSyncServer(config SyncConfig, sourceType, targetType string) bool {
 	normalizedType := normalizeMigrationDBType(sourceType)
-	if normalizedType != normalizeMigrationDBType(targetType) {
+	// mysql / mariadb / oceanbase / diros / starrocks 走同一条 MySQL 线协议，同一 host:port
+	// 上就是同一台物理服务。按类型名严格相等判断会把「两条连接分别填 mysql 与 mariadb」的
+	// 同表自同步放行，而 full_overwrite 的分页路径会先清空再按 OFFSET 读（=已空的表），
+	// 静默只导回第一页。判宽只会退回快照路径，方向安全。
+	if !sameSyncProtocolFamily(normalizedType, normalizeMigrationDBType(targetType)) {
 		return false
 	}
 	if normalizedType == "sqlite" || normalizedType == "duckdb" {
@@ -344,6 +389,11 @@ func isSamePhysicalSyncServer(config SyncConfig, sourceType, targetType string) 
 	source := config.SourceConfig
 	target := config.TargetConfig
 	if sourceID := strings.TrimSpace(source.ID); sourceID != "" && strings.EqualFold(sourceID, strings.TrimSpace(target.ID)) {
+		return true
+	}
+	// URI may carry the actual endpoint independently of Host/Database. An
+	// unknown URI endpoint must not be assumed distinct during live writes.
+	if strings.TrimSpace(source.URI) != "" || strings.TrimSpace(target.URI) != "" {
 		return true
 	}
 	sourceHost := strings.TrimSpace(source.Host)
@@ -355,6 +405,16 @@ func isSamePhysicalSyncServer(config SyncConfig, sourceType, targetType string) 
 	// 只要一侧使用 DSN，就无法在不解析各驱动私有格式的情况下安全排除同一服务；
 	// mixed built-in/custom 连接也必须保守退回非分页路径。
 	return strings.TrimSpace(source.DSN) != "" || strings.TrimSpace(target.DSN) != ""
+}
+
+// sameSyncProtocolFamily reports whether two normalized dialect names address the same physical
+// server product line, so an "is this the same table" check cannot be fooled by aliases such as
+// mysql vs mariadb.
+func sameSyncProtocolFamily(left, right string) bool {
+	if left == right {
+		return true
+	}
+	return isMySQLCoreType(left) && isMySQLCoreType(right)
 }
 
 func normalizedSyncHost(host string) string {

@@ -7,13 +7,26 @@ const knownPermissions: Record<string, string> = {
   'data.export': 'plugin.permission.data_export',
   'host.log': 'plugin.permission.host_log',
   'host.describe': 'plugin.permission.host_describe',
+  'ui.pages': 'plugin.permission.ui_pages',
+  'system.open-external': 'plugin.permission.system_open_external',
+  'host.connections.read': 'plugin.permission.host_connections_read',
+  'host.connections.credentials': 'plugin.permission.host_connections_credentials',
+  'host.metadata.read': 'plugin.permission.host_metadata_read',
+  'host.query.read': 'plugin.permission.host_query_read',
+  'host.schema.write': 'plugin.permission.host_schema_write',
 };
 
 export function pluginPermissionText(permission: string, t: (key: string) => string, note?: string): string {
-  const custom = cleanPermissionNote(note);
-  if (custom) return custom + ' (' + permission + ')';
   const key = knownPermissions[permission];
-  return key ? t(key) + ' (' + permission + ')' : permission;
+  if (key) {
+    const label = t(key);
+    const descriptionKey = key + '.description';
+    const description = t(descriptionKey);
+    const localized = description && description !== descriptionKey ? label + ' — ' + description : label;
+    return localized + ' (' + permission + ')';
+  }
+  const custom = cleanPermissionNote(note);
+  return custom ? custom + ' (' + permission + ')' : permission;
 }
 
 function cleanPermissionNote(note?: string): string {

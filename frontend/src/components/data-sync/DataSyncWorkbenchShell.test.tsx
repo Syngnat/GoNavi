@@ -935,23 +935,16 @@ describe('DataSyncWorkbenchShell', () => {
       .map((node) =>
         node.children.filter((child): child is string => typeof child === 'string').join(''),
       );
-    expect(labels).toEqual(['选择源和目标', '选择比对对象']);
+    // 对比只保留一步：选完源和目标直接开始比对，表清单在运行期按源库展开。
+    expect(labels).toEqual(['选择源和目标']);
     expect(labels.join()).not.toContain('目标写入');
     expect(labels.join()).not.toContain('选择同步数据');
     const title = renderer.root.findByProps({
       className: 'gn-data-sync-workbench__title-full',
     });
     expect(title.children).toContain('表结构比对');
-    const guideContinue = renderer.root.findByProps({ 'data-guide-continue': 'true' });
-    const guideLabel = guideContinue.findAll(
-      (node) =>
-        typeof node.children[0] === 'string' &&
-        String(node.children[0]).includes('下一步'),
-    )[0]?.children[0];
-    expect(guideLabel).toBe('下一步：选择比对对象');
-    act(() => {
-      renderer.root.findByProps({ 'data-stage': 'mappings' }).props.onClick();
-    });
+    // 没有第二步：不再出现指向「选择比对对象」的下一步引导，主操作是底部按钮。
+    expect(renderer.root.findAllByProps({ 'data-guide-continue': 'true' })).toHaveLength(0);
     const footerLabels = renderer.root
       .findAllByType('button')
       .flatMap((button) =>

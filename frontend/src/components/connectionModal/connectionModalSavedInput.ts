@@ -1,4 +1,5 @@
 import type { ConnectionConfig, SavedConnection } from "../../types";
+import { isHiveConnectionType } from "../../utils/hiveConnection";
 import { resolveConnectionSecretDraft } from "../../utils/connectionSecretDraft";
 import { normalizeConnectionEnvironmentType } from "../../utils/connectionEnvironment";
 import { isMySQLCompatibleType, isFileDatabaseType } from "../../utils/connectionTypeCapabilities";
@@ -93,7 +94,7 @@ export const buildSavedConnectionInput = ({
     hasSecret: initialValues?.hasPrimaryPassword,
     valueInput: config.password,
     clearSecret: clearSecrets.primaryPassword,
-    forceClear: values.type === "mongodb" && values.savePassword === false,
+    forceClear: (values.type === "mongodb" || isHiveConnectionType(values.type)) && values.savePassword === false,
   });
   const sshDraft = resolveConnectionSecretDraft({
     hasSecret: initialValues?.hasSSHPassword,

@@ -3,6 +3,7 @@ import { Alert, Checkbox, Descriptions, Modal, Tag, Typography } from 'antd';
 import { useI18n } from '../../i18n/provider';
 import { pluginPermissionText } from '../../plugins/permissionLabel';
 import { pluginErrorText } from '../../plugins/apiResult';
+import { formatBytes } from '../../utils/byteSize';
 import type { PluginInspection } from '../../plugins/types';
 import { PluginDataSourceSummary } from './PluginDataSourceSummary';
 import { PluginAIProviderSummary } from './PluginAIProviderSummary';
@@ -25,7 +26,8 @@ export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed,
   const manifest = inspection.manifest;
   return <Modal open title={t('plugin.install.preview')} onCancel={onCancel}
     onOk={() => void install()} okText={t(replace ? 'plugin.install.replace_confirm' : 'plugin.install.confirm')} cancelText={t(busy ? 'plugin.install.close_pending' : 'common.cancel')}
-    confirmLoading={busy} okButtonProps={{ disabled: !trusted || !allowed }} maskClosable={!busy} width={680}>
+    confirmLoading={busy} okButtonProps={{ disabled: !trusted || !allowed }} maskClosable={!busy} width={680}
+    styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
     <div className="plugin-stack">
       <Alert showIcon type="warning" message={t('plugin.install.warning')} description={t(replace ? 'plugin.install.replace_hint' : 'plugin.install.disabled_hint')} />
       {details}
@@ -35,7 +37,8 @@ export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed,
         { key: 'version', label: t('plugin.label.version'), children: manifest.version },
         { key: 'source', label: t('plugin.label.source'), children: <span className="plugin-break">{inspection.sourcePath}</span> },
         { key: 'digest', label: digestLabel ?? t('plugin.label.digest'), children: <code className="plugin-break">{inspection.digest}</code> },
-        { key: 'size', label: t('plugin.label.size'), children: t('plugin.label.bytes', { count: inspection.sizeBytes.toLocaleString() }) },
+        { key: 'size', label: t('plugin.label.size'), children: <span className="plugin-package-size"
+          title={t('plugin.label.bytes', { count: inspection.sizeBytes.toLocaleString() })}>{formatBytes(inspection.sizeBytes)}</span> },
       ]} />
       <div><Typography.Text strong>{t('plugin.install.permissions')}</Typography.Text>
         <div className="plugin-permissions">{manifest.permissions.length ? manifest.permissions.map((permission) => <Tag key={permission}>{pluginPermissionText(permission, t, manifest.permissionNotes?.[permission])}</Tag>) : t('plugin.install.no_permissions')}</div>

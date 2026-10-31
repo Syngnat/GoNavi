@@ -1,6 +1,7 @@
 import type { WorkbenchTabType } from '../tabTypes';
 import type { DatabaseJobKind } from './databaseJobTypes';
 import type { JVMDiagnosticTransport } from './jvmTypes';
+import type { PluginPageLaunch } from '../pluginPages/launch';
 
 export interface ColumnDefinition {
   name: string;
@@ -86,6 +87,7 @@ export interface TabData {
   title: string;
   type: WorkbenchTabType;
   connectionId: string;
+  agentIntegrationId?: string; // 智能体集成 ID：agent-assets 页签定位唯一管理工作台
   dbName?: string;
   tableName?: string;
   query?: string;
@@ -93,6 +95,8 @@ export interface TabData {
   queryMode?: "standard" | "object-edit";
   returnToTabId?: string;
   filePath?: string;
+  /** Plugin page identity; the page host resolves the declaration and bridge from here. */
+  pluginPage?: { pluginID: string; pageID: string; title: string; launch?: PluginPageLaunch };
   initialTab?: string;
   initialViewMode?: "table" | "json" | "text" | "fields" | "ddl" | "er" | "sqlLog";
   initialViewModeRequestId?: string;

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Button, Tooltip } from 'antd';
 import type { ConnectionConfig } from '../../../types';
 import { GnRollbackIcon, GnSaveIcon, GnSqlDocIcon } from '../../icons/gnIcons';
-import { getDataGridSaveCapability } from '../dataGridSaveCapability';
+import { getDataGridSaveCapability, getDataGridSaveRestrictionLabelKey } from '../dataGridSaveCapability';
 import './DataGridSaveRestriction.css';
 
 export interface DataGridSaveRestrictionProps {
@@ -22,6 +22,7 @@ export const DataGridSaveRestriction = ({
   const capability = getDataGridSaveCapability(connectionConfig);
   if (!tableName || capability.supported) return null;
   const reason = translate(capability.messageKey);
+  const labelKey = getDataGridSaveRestrictionLabelKey(capability);
   const commitLabel = translate('data_grid.toolbar.commit', { count: pendingChangeCount });
   const previewLabel = translate('data_grid.toolbar.preview_sql');
   const rollbackLabel = translate('data_grid.toolbar.rollback');
@@ -37,7 +38,7 @@ export const DataGridSaveRestriction = ({
       </Tooltip>
       <Tooltip title={reason} trigger={['hover', 'focus']}>
         <span className="data-grid-save-restriction-label">
-          {translate('data_grid.toolbar.navicat_http_tunnel_read_only')}
+          {translate(labelKey)}
         </span>
       </Tooltip>
       {hasChanges && (

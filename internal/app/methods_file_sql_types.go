@@ -23,9 +23,12 @@ type sqlFileExecutionOptions struct {
 	MaxStatementBytes      int64
 	ContinueOnError        bool
 	PreflightEachStatement bool
-	TransactionMode        sqlFileTransactionMode
-	StatementGuard         func(index int, stmt string) error
-	SkipStatement          func(index int, stmt string) bool
+	// BatchCreateOnly 允许纯新增 CREATE 脚本走 MySQL 单批 DDL 快路径；
+	// 只在无 continue-on-error、无事务、驱动明确支持 multiStatements 时启用。
+	BatchCreateOnly bool
+	TransactionMode sqlFileTransactionMode
+	StatementGuard  func(index int, stmt string) error
+	SkipStatement   func(index int, stmt string) bool
 	// PinDatabase 非空时，把 SQL 文件里的 USE 改写到这个库。导入工作台指定的目标库优先于文件内的 USE。
 	PinDatabase string
 	Text        fileBackendTextFunc

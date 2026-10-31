@@ -237,6 +237,8 @@ func watermarkCursorSQLLiteral(dbType string, value WatermarkCursorValue) (strin
 			return "decode('" + hexValue + "', 'hex')", nil
 		case "sqlserver":
 			return "0x" + hexValue, nil
+		case "hive":
+			return "unhex('" + hexValue + "')", nil
 		case "duckdb":
 			return "from_hex('" + hexValue + "')", nil
 		default:
@@ -254,7 +256,7 @@ func watermarkCursorSQLLiteral(dbType string, value WatermarkCursorValue) (strin
 			return "", fmt.Errorf("无效 timestamp 游标: %w", err)
 		}
 		formatted := parsed.Format(time.RFC3339Nano)
-		if normalized := normalizeMigrationDBType(dbType); normalized == "mysql" || normalized == "mariadb" {
+		if normalized := normalizeMigrationDBType(dbType); normalized == "mysql" || normalized == "mariadb" || normalized == "hive" {
 			formatted = parsed.Format("2006-01-02 15:04:05.999999999")
 		}
 		return quoteSyncSQLString(dbType, formatted), nil

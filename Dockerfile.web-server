@@ -78,7 +78,8 @@ COPY --from=builder /src/NOTICE /usr/share/doc/gonavi/NOTICE
 ENV HOME=/var/lib/gonavi \
     GONAVI_DATA_ROOT=/data \
     GONAVI_LOG_DIR=/var/lib/gonavi/logs \
-    GONAVI_WEB_ADDR=0.0.0.0:34116
+    GONAVI_WEB_ADDR=0.0.0.0:34116 \
+    GOMEMLIMIT=112MiB
 
 VOLUME ["/data"]
 EXPOSE 34116

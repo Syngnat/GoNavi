@@ -148,6 +148,7 @@ import { createTableMemorySlice } from "./store/tableMemorySlice";
 import { createAIPanelSlice } from "./store/aiPanelSlice";
 import { createInfoPanelSlice } from "./store/infoPanelSlice";
 import { createJvmDiagnosticSlice } from "./store/jvmDiagnosticSlice";
+import { createAgentAssetsSlice } from "./store/agentAssetsSlice";
 export type {
   AIChatSessionSummary,
   TableDoubleClickAction,
@@ -205,6 +206,7 @@ export const useStore = create<AppState>()(
       ...createAIPanelSlice(set, get),
       ...createInfoPanelSlice(set, get),
       ...createJvmDiagnosticSlice(set, get),
+      ...createAgentAssetsSlice(set, get),
     }),
     {
       name: PERSIST_STORAGE_KEY, // name of the item in the storage (must be unique)

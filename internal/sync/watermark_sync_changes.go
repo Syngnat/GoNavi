@@ -20,17 +20,22 @@ func buildWatermarkChangeSet(ctx context.Context, plan watermarkRuntimePlan, tar
 	if len(projectedRows) == 0 {
 		return connection.ChangeSet{}, nil
 	}
+	if isHiveMigrationPair(plan.sourceType, plan.targetType) {
+		if err := validateHiveTypedKeys(plan.targetType, plan.targetColumns, plan.targetTieColumns, projectedRows, "watermark source"); err != nil {
+			return connection.ChangeSet{}, err
+		}
+	}
 	query, err := buildWatermarkTargetLookupQuery(plan, projectedRows)
 	if err != nil {
 		return connection.ChangeSet{}, err
 	}
-	targetRows, _, err := querySyncDatabaseContext(ctx, targetDB, query)
+	targetRows, _, err := querySyncTableSnapshotContext(ctx, targetDB, plan.targetType, plan.targetQueryTable, plan.targetColumns, query)
 	if err != nil {
 		return connection.ChangeSet{}, fmt.Errorf("按复合 tie-breaker 读取 watermark 目标行失败: %w", err)
 	}
 	targetByKey := make(map[string]map[string]interface{}, len(targetRows))
 	for _, targetRow := range targetRows {
-		key, err := watermarkCompositeRowKey(targetRow, plan.targetTieColumns)
+		key, err := watermarkSyncRowKey(plan, targetRow)
 		if err != nil {
 			return connection.ChangeSet{}, fmt.Errorf("目标行复合主键无效: %w", err)
 		}
@@ -45,7 +50,7 @@ func buildWatermarkChangeSet(ctx context.Context, plan watermarkRuntimePlan, tar
 		Updates: make([]connection.UpdateRow, 0),
 	}
 	for _, sourceRow := range projectedRows {
-		key, err := watermarkCompositeRowKey(sourceRow, plan.targetTieColumns)
+		key, err := watermarkSyncRowKey(plan, sourceRow)
 		if err != nil {
 			return connection.ChangeSet{}, fmt.Errorf("投影后源行复合主键无效: %w", err)
 		}
@@ -56,6 +61,9 @@ func buildWatermarkChangeSet(ctx context.Context, plan watermarkRuntimePlan, tar
 		}
 		values := make(map[string]interface{})
 		for column, sourceValue := range sourceRow {
+			if isHiveMigrationPair(plan.sourceType, plan.targetType) && changeEventContainsFold(plan.targetTieColumns, column) {
+				continue
+			}
 			targetValue, _, ambiguous := lookupProjectionSourceValue(targetRow, column)
 			if ambiguous {
 				return connection.ChangeSet{}, fmt.Errorf("目标行字段 %s 大小写歧义", column)
@@ -74,6 +82,13 @@ func buildWatermarkChangeSet(ctx context.Context, plan watermarkRuntimePlan, tar
 				return connection.ChangeSet{}, fmt.Errorf("投影后源行缺少目标主键 %s", column)
 			}
 			keys[column] = value
+		}
+		if isHiveMigrationPair(plan.sourceType, plan.targetType) {
+			_, typedKeys, err := hiveTypedKey(plan.targetType, plan.targetColumns, plan.targetTieColumns, sourceRow)
+			if err != nil {
+				return connection.ChangeSet{}, err
+			}
+			keys = typedKeys
 		}
 		changeSet.Updates = append(changeSet.Updates, connection.UpdateRow{Keys: keys, Values: values})
 	}
@@ -98,7 +113,11 @@ func buildWatermarkTargetLookupQuery(plan watermarkRuntimePlan, rows []map[strin
 			if ambiguous || !exists || value == nil {
 				return "", fmt.Errorf("投影后源行缺少目标 tie-breaker %s", column)
 			}
-			typed, err := watermarkCursorValue(value)
+			definition, found := columnDefinitionFold(plan.targetColumns, column)
+			if !found {
+				return "", fmt.Errorf("watermark target key column %s is missing", column)
+			}
+			typed, err := watermarkCursorValueForColumn(value, definition)
 			if err != nil {
 				return "", err
 			}

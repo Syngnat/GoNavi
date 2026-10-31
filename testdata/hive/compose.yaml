@@ -1,0 +1,58 @@
+name: gonavi-hive-1584
+
+services:
+  warehouse-init:
+    image: apache/hive:4.0.1@sha256:5194161ef50b80875f937dff04936df047cbe894e9727ab8f0606349345b1bd3
+    user: root
+    entrypoint: ["sh", "-c", "mkdir -p /data/warehouse /data/external && chown -R hive:hive /data"]
+    volumes:
+      - hive-data:/data
+    network_mode: none
+    mem_limit: 128m
+    cpus: 0.25
+    restart: "no"
+
+  hive:
+    image: apache/hive:4.0.1@sha256:5194161ef50b80875f937dff04936df047cbe894e9727ab8f0606349345b1bd3
+    container_name: gonavi-hive-1584
+    depends_on:
+      warehouse-init:
+        condition: service_completed_successfully
+    environment:
+      SERVICE_NAME: hiveserver2
+      DB_DRIVER: derby
+      HIVE_CUSTOM_CONF_DIR: /hive_custom_conf
+      SERVICE_OPTS: >-
+        -Xmx1536m
+        -Dhive.server2.transport.mode=${HIVE_TRANSPORT_MODE:-binary}
+        -Dhive.server2.authentication=${HIVE_AUTH_MODE:-NONE}
+    ports:
+      - "127.0.0.1:11084:10000"
+      - "127.0.0.1:11085:10001"
+    volumes:
+      - hive-data:/opt/hive/data
+      - ./hive-site.xml:/hive_custom_conf/hive-site.xml:ro
+    mem_limit: 3g
+    memswap_limit: 3g
+    cpus: 2
+    restart: "no"
+    labels:
+      org.gonavi.purpose: hive-integration-test
+      org.gonavi.issue: "1584"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  hive-data:
+    name: gonavi-hive-1584-data
+    labels:
+      org.gonavi.purpose: hive-integration-test
+
+networks:
+  default:
+    name: gonavi-hive-1584
+    labels:
+      org.gonavi.purpose: hive-integration-test

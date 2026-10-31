@@ -18,12 +18,17 @@ import {
 import { useTableOverviewState } from './tableOverview/hooks/useTableOverviewState';
 import { useTableOverviewTableActions } from './tableOverview/hooks/useTableOverviewTableActions';
 import { useTableOverviewRenderers } from './tableOverview/hooks/useTableOverviewRenderers';
+import { useTableOverviewSelection } from './tableOverview/hooks/useTableOverviewSelection';
+import { useTableOverviewInlineRename } from './tableOverview/hooks/useTableOverviewInlineRename';
 
 export interface TableOverviewProps {
     tab: TabData;
 }
 
 const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
+    // 表概览的选中手势（单击 / 拖选 / Shift 区间 / 点外部清空）挂在内容区上。
+    const overviewContentRef = React.useRef<HTMLDivElement | null>(null);
+
     const {
       addTab, setAIPanelVisible, addAIContext, pinnedSidebarTables, setSidebarTablePinned, darkMode,
       activeShortcutPlatform, tables, loading, searchText, setSearchText, sortField, setSortField,
@@ -39,7 +44,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const {
       textPrimary, textSecondary, textMuted, accentColor, containerBg, toggleSort, sortMenuItems,
       hasKnownTableSize, getCombinedTableSize, maxCombinedSize, renderToolbarSummary,
-      renderV2OverviewTableContextMenu,
+      renderV2OverviewTableContextMenu, commitTableRename,
     } = useTableOverviewTableActions({
       tab, addTab, schemaName, buildConfig, connection, loadData, allowClear, pinnedSidebarTables,
       setSidebarTablePinned, addAIContext, setAIPanelVisible, sortField, setSortField, setSortOrder,
@@ -48,13 +53,43 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
       activeShortcutPlatform, supportsCopyTable, metadataDialect, setV2ContextMenu,
     });
 
+    // 单选某张表后再次单击表名 → 就地编辑；失焦 / 回车提交。
+    const selectionRef = React.useRef<{ names: string[]; setSelection: (names: string[]) => void }>({
+      names: [], setSelection: () => {},
+    });
+    const rename = useTableOverviewInlineRename({
+      commitRename: commitTableRename,
+      onRenamed: (previousName, newName) => {
+        // 只把「原来那张表」的选中态跟到新名字；期间点到别的行就不抢它的选中。
+        const current = selectionRef.current;
+        if (current.names.length > 0 && current.names.includes(previousName)) {
+          current.setSelection([newName]);
+        }
+      },
+    });
+    const selection = useTableOverviewSelection({
+      contentRef: overviewContentRef,
+      onActivateName: rename.startRename,
+    });
+    selectionRef.current = { names: selection.selectedNames, setSelection: selection.setSelection };
+
+    // 进入改名的那一次双击不应顺带打开表数据页。
+    const safeOpenTableByDefaultAction = React.useCallback((tableName: string) => {
+      if (rename.renamingTable) return;
+      openTableByDefaultAction(tableName);
+    }, [openTableByDefaultAction, rename.renamingTable]);
+
     const {
       renderOverviewSectionTitle, renderCardTable, renderListTable, renderCompactTableHeader,
       renderCompactTableRow,
     } = useTableOverviewRenderers({
-      textMuted, textSecondary, textPrimary, darkMode, openTableByDefaultAction,
+      textMuted, textSecondary, textPrimary, darkMode, openTableByDefaultAction: safeOpenTableByDefaultAction,
       openV2OverviewContextMenu, accentColor, metadataDialect, maxCombinedSize, hasKnownTableSize,
       getCombinedTableSize, sortField, toggleSort, sortOrder,
+      isOverviewTableSelected: selection.isSelected,
+      renamingTable: rename.renamingTable, renameDraft: rename.renameDraft,
+      renameEditorRef: rename.editorRef, onRenameDraftChange: rename.setRenameDraft,
+      onRenameCommit: rename.commitRename, onRenameCancel: rename.cancelRename,
     });
 
     if (loading) {
@@ -141,6 +176,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
 
             {/* Content Area */}
             <div
+                ref={overviewContentRef}
                 className={'gn-v2-table-overview-content'}
                 data-view-mode={viewMode}
                 style={{

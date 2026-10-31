@@ -68,7 +68,8 @@ describe('data sync metadata selectors', () => {
     await flush();
     expect(renderer.root.findByProps({ 'data-endpoint-role': 'source' }).findAllByProps({ 'data-missing-connection': 'true' })).toHaveLength(1);
     expect(renderer.root.findByProps({ 'data-guide-step': 'source' }).props['data-complete']).toBe('false');
-    expect(renderer.root.findByProps({ 'data-guide-continue': 'true' }).props.disabled).toBe(true);
+    // 对比只有一步，不再渲染「下一步」；主操作在底部工具栏按 blocker 禁用。
+    expect(renderer.root.findAllByProps({ 'data-guide-continue': 'true' })).toHaveLength(0);
     expect(requestedConnections).not.toContain('1778032424921');
     await act(async () => renderer.unmount());
   });

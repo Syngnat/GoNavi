@@ -145,6 +145,19 @@ body[data-ui-version='v2'] .gn-titlebar-toolbar [data-titlebar-toolbar-item-acti
   background: var(--gn-titlebar-toolbar-active-surface);
 }
 
+/*
+ * 选中项悬停时仍用激活底。上面的 :hover / :focus-visible 比激活选择器多一个伪类，
+ * 不写这条时近白 hover 底会盖住激活底，指针离开后再靠 0.15s 过渡补回来。
+ */
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action[data-titlebar-toolbar-item-active='true']:hover,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gonavi-titlebar-primary-action[data-titlebar-toolbar-item-active='true']:focus-visible,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action[data-titlebar-toolbar-item-active='true']:hover,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-v2-titlebar-quick-action[data-titlebar-toolbar-item-active='true']:focus-visible,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-item-active:hover,
+body[data-ui-version='v2'] .gn-titlebar-toolbar .gn-titlebar-toolbar-item-active:focus-visible {
+  background: var(--gn-titlebar-toolbar-active-surface);
+}
+
 /* 激活态换的是主题强调色淡化底，文字要跟着变强调色才读得出选中。 */
 body[data-ui-version='v2'] .gn-titlebar-toolbar [data-titlebar-toolbar-item-active='true'] .gn-titlebar-toolbar-item-label {
   color: var(--gn-titlebar-toolbar-active-label);

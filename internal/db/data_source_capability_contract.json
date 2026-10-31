@@ -1,6 +1,62 @@
 {
     "version":  2,
     "profiles":  {
+        "sql-hive": {
+            "query": {
+                "supported": true
+            },
+            "metadata": {
+                "supported": true
+            },
+            "transaction": {
+                "supported": false,
+                "reason": "transaction_not_supported",
+                "alternative": "execute-statement-directly",
+                "messageKey": "query_editor.message.unsupported_source"
+            },
+            "pagination": {
+                "supported": true
+            },
+            "cancel": {
+                "supported": true,
+                "runtimeProbe": true
+            },
+            "schema": {
+                "supported": false,
+                "reason": "schema_designer_not_supported",
+                "alternative": "use-database-metadata",
+                "messageKey": "query_editor.message.unsupported_source"
+            },
+            "sampling": {
+                "supported": true
+            },
+            "streaming": {
+                "supported": false,
+                "reason": "not_streaming_data_source",
+                "alternative": "use-paginated-query",
+                "messageKey": "query_editor.message.unsupported_source"
+            },
+            "dangerousOperations": {
+                "supported": true
+            },
+            "ui": {
+                "parameterBinding": true,
+                "explainDiagnosis": true,
+                "sqlQueryExport": true,
+                "copyInsert": false,
+                "createDatabase": true,
+                "dropDatabase": true,
+                "forceReadOnlyQueryResult": true,
+                "forceReadOnlyStructureDesigner": true,
+                "preferManualTotalCount": true
+            },
+            "navigation": {
+                "primaryVisibilitySupported": true,
+                "primaryKind": "database",
+                "secondarySchemaVisibilitySupported": false,
+                "schemaIdentifierCaseSensitive": false
+            }
+        },
                      "sql-gbase8s":  {"query": {"supported": true}, "metadata": {"supported": true}, "transaction": {"supported": true}, "pagination": {"supported": true}, "cancel": {"supported": true, "runtimeProbe": true}, "schema": {"supported": true}, "sampling": {"supported": true}, "streaming": {"supported": false, "reason": "not_streaming_data_source", "alternative": "use-paginated-query", "messageKey": "query_editor.message.unsupported_source"}, "dangerousOperations": {"supported": true}, "ui": {"userManagement": false, "parameterBinding": false, "explainDiagnosis": false, "sqlQueryExport": true, "copyInsert": true, "mockData": true, "copyTable": false, "createDatabase": false, "createDatabaseCharset": false, "dropDatabase": false}, "navigation": {"primaryVisibilitySupported": true, "primaryKind": "database", "secondarySchemaVisibilitySupported": false, "schemaIdentifierCaseSensitive": false}},
                      "sql-gbase8a":  {"query": {"supported": true}, "metadata": {"supported": true}, "transaction": {"supported": true}, "pagination": {"supported": true}, "cancel": {"supported": true, "runtimeProbe": true}, "schema": {"supported": true}, "sampling": {"supported": true}, "streaming": {"supported": false, "reason": "not_streaming_data_source", "alternative": "use-paginated-query", "messageKey": "query_editor.message.unsupported_source"}, "dangerousOperations": {"supported": true}, "ui": {"userManagement": false, "parameterBinding": true, "explainDiagnosis": true, "sqlQueryExport": true, "copyInsert": true, "mockData": true, "copyTable": true, "createDatabase": true, "createDatabaseCharset": true, "dropDatabase": true}, "navigation": {"primaryVisibilitySupported": true, "primaryKind": "database", "secondarySchemaVisibilitySupported": false, "schemaIdentifierCaseSensitive": false}},
                      "sql-yashandb":  {"query": {"supported": true}, "metadata": {"supported": true}, "transaction": {"supported": true}, "pagination": {"supported": true}, "cancel": {"supported": true, "runtimeProbe": true}, "schema": {"supported": true}, "sampling": {"supported": true}, "streaming": {"supported": false, "reason": "not_streaming_data_source", "alternative": "use-paginated-query", "messageKey": "query_editor.message.unsupported_source"}, "dangerousOperations": {"supported": true}, "ui": {"userManagement": false, "parameterBinding": true, "explainDiagnosis": true, "sqlQueryExport": true, "copyInsert": true, "mockData": true, "preferManualTotalCount": true, "supportsApproximateTableCount": true}, "navigation": {"primaryVisibilitySupported": true, "primaryKind": "owner", "secondarySchemaVisibilitySupported": false, "schemaIdentifierCaseSensitive": false}},
@@ -1548,6 +1604,7 @@
                     "opensearch":  "document-index-readonly",
                     "meilisearch":  "search-document",
                     "typesense":  "search-document",
+                    "hive":  "sql-hive",
                     "trino":  "sql-trino",
                     "presto":  "sql-trino",
                     "tidb":  "sql-mysql",

@@ -53,6 +53,22 @@ describe('DatabaseIcons', () => {
     });
   }
 
+  it('renders brand logos for the agent data source types', () => {
+    // 智能体类型（ChatGPT / Claude Code）也要有品牌图标：没有品牌资源时，
+    // 选型卡片会回退成通用数据库圆柱，认不出是哪个智能体。
+    const AGENT_ICON_CASES: Array<[string, string]> = [
+      ['codex', 'codex.svg'],
+      ['claude', 'claudecode.svg'],
+    ];
+
+    for (const [type, asset] of AGENT_ICON_CASES) {
+      expect(hasDbIconAsset(type)).toBe(true);
+      expect(getDbIconAssetSrc(type)).toContain(asset);
+      const markup = renderToStaticMarkup(<>{getDbIcon(type, undefined, 22)}</>);
+      expect(markup).toContain(`src="${getDbIconAssetSrc(type)}"`);
+    }
+  });
+
   it('wraps database icons in a consistent frame for sidebar sizing', () => {
     const mysqlMarkup = renderToStaticMarkup(<>{getDbIcon('mysql', undefined, 22)}</>);
     const jvmMarkup = renderToStaticMarkup(<>{getDbIcon('jvm', undefined, 22)}</>);

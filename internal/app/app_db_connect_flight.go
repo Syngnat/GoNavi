@@ -420,5 +420,46 @@ func shouldRefreshCachedConnection(err error) bool {
 			return true
 		}
 	}
+	// 驱动代理是独立进程：它在运行期退出、传输关闭或请求超时时，缓存里留下的是一条
+	// 不可用的连接。这里若不判定为可刷新，后续查询会一直失败在同一条坏连接上，
+	// 用户看到的就是「同一句 SQL 有时能查、有时查不了」，只能靠手动重连恢复。
+	// 安装/架构类错误（路径为空、缺失、架构不兼容）重连也没用，直接排除。
+	if isDriverAgentInstallFailure(normalized) {
+		return false
+	}
+	// 代理错误文本里会插入动作名（如「驱动代理 查询 请求超时」），所以按「驱动代理 + 运行期特征」组合判断，
+	// 而不是要求整段连续匹配。
+	if strings.Contains(normalized, "驱动代理") {
+		runtimePatterns := []string{"传输", "请求超时", "失败", "响应失败", "已关闭"}
+		for _, pattern := range runtimePatterns {
+			if strings.Contains(normalized, pattern) {
+				return true
+			}
+		}
+	}
+	agentTransportPatterns := []string{"driver agent transport", "driver-agent transport"}
+	for _, pattern := range agentTransportPatterns {
+		if strings.Contains(normalized, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDriverAgentInstallFailure 判断错误是否属于「驱动没装好/装错」这一类：
+// 这类问题只能靠驱动管理里的重装解决，重建连接不会有帮助。
+func isDriverAgentInstallFailure(normalized string) bool {
+	installPatterns := []string{
+		"重新安装启用",
+		"驱动代理路径为空",
+		"驱动代理路径是目录",
+		"驱动代理不存在",
+		"未启用",
+	}
+	for _, pattern := range installPatterns {
+		if strings.Contains(normalized, pattern) {
+			return true
+		}
+	}
 	return false
 }

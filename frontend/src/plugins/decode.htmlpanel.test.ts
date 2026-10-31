@@ -23,6 +23,13 @@ describe('custom HTML panel decoding', () => {
     expect(() => decodeManifest(manifest({ id: 'overview', title: 'Overview' }))).toThrow();
   });
 
+  it('tolerates the zero-value body older hosts still serialize for HTML-only panels', () => {
+    const parsed = decodeManifest(manifest({ id: 'overview', title: 'Overview', body: { type: '' }, html: { source: '<p>x</p>' } }));
+    expect(parsed.contributes?.panels?.[0].html?.source).toBe('<p>x</p>');
+    expect(parsed.contributes?.panels?.[0].body).toBeUndefined();
+    expect(() => decodeManifest(manifest({ id: 'overview', title: 'Overview', body: { type: '' } }))).toThrow();
+  });
+
   it('rejects malformed, empty, NUL-containing and oversized markup', () => {
     expect(() => decodeManifest(manifest({ id: 'overview', title: 'Overview', html: { source: '<p>x</p>', extra: true } }))).toThrow();
     expect(() => decodeManifest(manifest({ id: 'overview', title: 'Overview', html: { source: '   ' } }))).toThrow();

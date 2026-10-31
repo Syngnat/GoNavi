@@ -8,10 +8,13 @@ import { rowsFromRecord } from '../../../utils/aiProviderKeyValue';
 import type { AISettingsLeaveGuard } from '../../../utils/aiSettingsLeaveGuard';
 import { isPluginAIProviderNamespace } from '../../../plugins/aiProvider/identity';
 import { pluginProviderEditorSession } from '../../../plugins/aiProvider/editor';
+import { usePluginProviderCatalog } from '../../../plugins/aiProvider/context';
 import type { UseAISettingsProviderEditingInput } from './useAISettingsProviderEditing';
 
 export function useAISettingsProviderEdit(input: UseAISettingsProviderEditingInput, confirmProviderLeave: AISettingsLeaveGuard) {
   const { messageApi, t, mountedRef, activeRef, active, providers, applyProviderEditorSession, editorSessionRef, invalidateProviderTest, resolveAIService, focusProviderId, openedFocusProviderRef, applySection } = input;
+  // Catalog entry carries the shipped gateway so an empty saved baseUrl still opens prefilled.
+  const pluginCatalog = usePluginProviderCatalog();
   const handleEditProvider = (p: AIProviderConfig) => withAISettingsLeaveGuard(confirmProviderLeave, async () => {
       if (isPluginAIProviderNamespace(p.type) && p.id === 'gonavi-ai') { void messageApi.error(t('plugin.ai_provider.error.reserved_id')); return; }
       const session = ++editorSessionRef.current;
@@ -25,7 +28,7 @@ export function useAISettingsProviderEdit(input: UseAISettingsProviderEditingInp
           if (!mountedRef.current || !activeRef.current || session !== editorSessionRef.current) return;
           if (isPluginAIProviderNamespace(p.type) || isPluginAIProviderNamespace(editableProvider.type)) {
               if (isPluginAIProviderNamespace(p.type) && p.type !== editableProvider.type) throw new Error(t('plugin.ai_provider.error.unavailable'));
-              applyProviderEditorSession(pluginProviderEditorSession(editableProvider)); return;
+              applyProviderEditorSession(pluginProviderEditorSession(editableProvider, pluginCatalog?.find(editableProvider.type) ?? undefined)); return;
           }
           // 尝试根据 baseUrl 和 type 推断 preset
           const matchedPreset = matchProviderPreset(editableProvider);

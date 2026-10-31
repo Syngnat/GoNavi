@@ -142,7 +142,7 @@ func TestPluginBridgeCancelBeforeInvokeAndBoundedConcurrency(t *testing.T) {
 	}
 	// Control/heartbeat remains usable while all command slots are occupied.
 	beat := servePluginTest(c, entry, http.MethodPost, pluginBridgePrefix+"heartbeat", `{"sequence":1}`)
-	if beat.Code != 204 {
+	if beat.Code != 200 {
 		t.Fatal("busy commands blocked heartbeat")
 	}
 	c.Revoke("test.one")

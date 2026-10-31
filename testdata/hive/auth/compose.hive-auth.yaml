@@ -1,0 +1,25 @@
+# Apply ONLY after Lead sends AUTH PHASE GO; this is not used by deploy-kdc.sh.
+# Combine with the original ../compose.yaml; do not run a second Hive project.
+services:
+  hive:
+    hostname: hive.gonavi.test
+    environment:
+      SERVICE_OPTS: >-
+        -Xmx1536m
+        -Djava.security.krb5.conf=/run/gonavi-auth/krb5.conf
+        -Dsun.security.krb5.disableReferrals=true
+        -Dhive.server2.transport.mode=${GONAVI_HIVE_STAGE_MODE:?set binary or http}
+        -Dhive.server2.authentication=${GONAVI_HIVE_STAGE_AUTH:?set KERBEROS or NONE}
+    volumes:
+      - ${GONAVI_AUTH_PRIVATE_DIR:-/opt/gonavi-db-lab/hive-1584/auth/private}/hive:/run/gonavi-auth:ro
+      - ${GONAVI_AUTH_PRIVATE_DIR:-/opt/gonavi-db-lab/hive-1584/auth/private}/overrides/${GONAVI_HIVE_STAGE:?set prepared stage}/hive-site.xml:/hive_custom_conf/hive-site.xml:ro
+      - ${GONAVI_AUTH_PRIVATE_DIR:-/opt/gonavi-db-lab/hive-1584/auth/private}/overrides/${GONAVI_HIVE_STAGE:?set prepared stage}/core-site.xml:/hive_custom_conf/core-site.xml:ro
+    networks:
+      default:
+        aliases: [hive.gonavi.test]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/${GONAVI_HIVE_STAGE_CONTAINER_PORT:?set current phase container port}'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s

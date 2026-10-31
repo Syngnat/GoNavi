@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { resolveSqlDialect } from '../../utils/sqlDialectCore';
-import { getMetadataDialect, usesTableListOverview } from './tableOverviewModel';
+import { getMetadataDialect, parseTableStats, usesTableListOverview } from './tableOverviewModel';
 
 describe('table overview for command-language registry types', () => {
   it('lists tables through DBGetTables instead of information_schema', () => {
@@ -18,6 +18,11 @@ describe('table overview for command-language registry types', () => {
 
   it('uses the table list for MongoDB, which has no information_schema', () => {
     expect(usesTableListOverview('mongodb', 'mongodb')).toBe(true);
+  });
+
+  it('uses the table list for Hive, which has no information_schema', () => {
+    expect(usesTableListOverview('hive', 'hive')).toBe(true);
+    expect(parseTableStats('hive', [{ Table: 'probe_m1' }])).toMatchObject([{ name: 'probe_m1' }]);
   });
 
   it('uses the table list for vector, time-series and search engines without information_schema', () => {

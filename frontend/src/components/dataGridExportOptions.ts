@@ -3,6 +3,7 @@ import {
   resolveDataExportColumns,
   resolveDataExportFileOptions,
 } from './dataExportOptions';
+import { isHiveConnectionType } from '../utils/hiveConnection';
 
 type ColumnCommentMetadata = { comment?: string };
 
@@ -22,9 +23,16 @@ export function buildDataGridBackendExportOptions(
   metadata: DataGridExportMetadata,
 ): DataExportFileOptions {
   const options = resolveDataExportFileOptions(input);
+  // Hive exports need explicit NULL/text fidelity in every built-in format.
+  // Plugin exporters own their own encoding, so they must not inherit it.
+  const hiveLossless =
+    !String(options.format).startsWith('plugin:') && isHiveConnectionType(metadata.dbType)
+      ? { losslessHive: true }
+      : {};
   if (options.format === 'sql') {
     return {
       ...options,
+      ...hiveLossless,
       insertSQLDialect: metadata.dbType,
       insertSQLTargetTable: metadata.hasResolvedInsertSQLTarget ? String(metadata.tableName || '').trim() : '',
       insertSQLColumnTypes: metadata.insertSQLColumnTypes,
@@ -32,12 +40,12 @@ export function buildDataGridBackendExportOptions(
       insertSQLAllowEmptyTargetTable: !metadata.hasResolvedInsertSQLTarget,
     };
   }
-  if (!options.useColumnComments || !['xlsx', 'csv', 'md', 'html'].includes(options.format)) return options;
+  if (!options.useColumnComments || !['xlsx', 'csv', 'md', 'html'].includes(options.format)) return { ...options, ...hiveLossless };
   const columnComments: Record<string, string> = {};
   for (const column of resolveDataExportColumns(options.columns, metadata.displayOutputColumnNames) || []) {
     const meta = metadata.columnMetaMap[column] || metadata.columnMetaMapByLowerName[column.toLowerCase()];
     const comment = String(meta?.comment || '').trim();
     if (comment) columnComments[column] = comment;
   }
-  return { ...options, columnComments };
+  return { ...options, ...hiveLossless, columnComments };
 }

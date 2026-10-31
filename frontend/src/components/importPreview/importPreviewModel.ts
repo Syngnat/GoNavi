@@ -1,4 +1,6 @@
 import * as AppBindings from '../../../wailsjs/go/app/App';
+import type { ConnectionConfig } from '../../types';
+import { isHiveConnectionType } from '../../utils/hiveConnection';
 import {
   type DataImportPreferences,
   DEFAULT_DATA_IMPORT_PREFERENCES,
@@ -16,6 +18,7 @@ export interface PreviewData {
 type ImportParserOptions = Omit<DataImportPreferences, "nullToken" | "sheetName"> & {
   nullToken?: string;
   sheetName?: string;
+  losslessHive?: boolean;
 };
 
 export const previewImportFileWithOptions = (
@@ -33,6 +36,7 @@ export const cancelImportJob = (
 export const buildImportParserOptions = (
   importOptions: DataImportPreferences | undefined,
   continueOnError: boolean,
+  connection?: Pick<ConnectionConfig, 'type' | 'driver'> | null,
 ): ImportParserOptions => {
   const normalized = {
     ...DEFAULT_DATA_IMPORT_PREFERENCES,
@@ -40,6 +44,7 @@ export const buildImportParserOptions = (
     continueOnError,
   };
   return {
+    ...(isHiveConnectionType(connection?.type) || (connection?.type === 'custom' && isHiveConnectionType(connection.driver)) ? { losslessHive: true } : {}),
     continueOnError: normalized.continueOnError,
     conflictPolicy: normalized.conflictPolicy,
     conflictKeyColumns: Array.from(new Set(

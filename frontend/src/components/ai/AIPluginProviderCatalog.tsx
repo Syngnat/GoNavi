@@ -5,6 +5,7 @@ import { usePluginProviderCatalog } from '../../plugins/aiProvider/context';
 import { isPluginAIProviderNamespace } from '../../plugins/aiProvider/identity';
 import { useOptionalI18n } from '../../i18n/provider';
 import { t as translate } from '../../i18n';
+import AIProviderLogo from './AIProviderLogo';
 export function AIPluginProviderCatalog(props: AISettingsProvidersSectionProps) {
   const t = useOptionalI18n()?.t ?? translate; const catalog = usePluginProviderCatalog();
   const [open, setOpen] = useState(false); const [selected, setSelected] = useState<string>();
@@ -14,8 +15,11 @@ export function AIPluginProviderCatalog(props: AISettingsProvidersSectionProps) 
       <Button loading={catalog?.loading} onClick={() => void catalog?.refresh()}>{t('plugin.action.refresh')}</Button></Space>
     {catalog?.error && <Alert type="warning" showIcon message={t(catalog.error)} />}
     <div className="gn-plugin-provider-saved">{saved.map((provider) => {
-      const available = catalog?.find(provider.type)?.available === true;
-      return <div key={provider.id} className="gn-plugin-provider-row"><div><strong>{provider.name || provider.type}</strong><br /><code>{provider.type}</code><br /><span>{provider.model}</span></div>
+      const source = catalog?.find(provider.type);
+      const available = source?.available === true;
+      return <div key={provider.id} className="gn-plugin-provider-row"><div className="gn-plugin-provider-identity">
+        <AIProviderLogo presetKey={provider.type} label={provider.name || provider.type} iconPath={source?.icon} />
+        <div><strong>{provider.name || provider.type}</strong><br /><code>{provider.type}</code><br /><span>{provider.model}</span></div></div>
         <Space wrap><Tag>{t(available ? 'plugin.ai_provider.available' : 'plugin.ai_provider.unavailable')}</Tag>
           <Button onClick={() => props.onEditProvider(provider)}>{t('common.edit')}</Button>
           <Button disabled={!available || props.pendingProviderId === provider.id || props.activeProviderId === provider.id} onClick={() => props.onSetActiveProvider(provider.id)}>{t(props.activeProviderId === provider.id ? 'plugin.ai_provider.active' : 'plugin.ai_provider.use')}</Button>

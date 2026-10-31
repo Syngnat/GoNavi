@@ -7,8 +7,10 @@ const manifestWithoutPanels: Manifest = {
 };
 // Writable data sources are part of the protocol slice; only the read-only effect rules differ.
 const writable: DataSource = { ...valid, readOnly: false };
+// The optional top-level icon is the installed-plugin logo; it stays a plain package path.
+const withIcon: Manifest = { ...manifestWithoutPanels, icon: 'icons/logo.png' };
 // @ts-expect-error Every declaration must explicitly opt into read-only behavior.
 const missingReadOnly: DataSource = { id: 'fixture', name: 'Fixture', dialect: 'sqlite', command: 'database' };
 // @ts-expect-error Only the three negotiated SQL families are supported.
 const unsupportedDialect: DataSource = { ...valid, dialect: 'oracle' };
-void [manifestWithoutPanels, writable, missingReadOnly, unsupportedDialect];
+void [manifestWithoutPanels, writable, withIcon, missingReadOnly, unsupportedDialect];

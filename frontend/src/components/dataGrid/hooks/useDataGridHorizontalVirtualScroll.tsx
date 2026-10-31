@@ -77,6 +77,7 @@ export interface UseDataGridHorizontalVirtualScrollInput {
     tableViewportWidth: DataGridTableMetricsApi['tableViewportWidth'];
     isMacLike: DataGridCoreStateApi['isMacLike'];
     isWindowsLike: DataGridCoreStateApi['isWindowsLike'];
+    tableSurfaceEpoch: DataGridColumnTitlesApi['tableSurfaceEpoch'];
     mergedColumns: DataGridColumnsApi['mergedColumns'];
     measuredHorizontalScrollMetrics: DataGridTableMetricsApi['measuredHorizontalScrollMetrics'];
     floatingScrollbarInset: DataGridCoreStateApi['floatingScrollbarInset'];
@@ -123,7 +124,7 @@ export const useDataGridHorizontalVirtualScroll = ({
     setEnableHiddenColumnMemory, clearTableColumnOrder, clearTableHiddenColumns,
     showCellContextMenu, handleBatchFillToSelected, selectedRowKeys, setSelectedRowKeys,
     selectionColumnMode, selectionColumnWidth, tableColumns, densityParams, tableViewportWidth, isMacLike, isWindowsLike,
-    mergedColumns, measuredHorizontalScrollMetrics, floatingScrollbarInset, isTableSurfaceActive,
+    mergedColumns, measuredHorizontalScrollMetrics, floatingScrollbarInset, isTableSurfaceActive, tableSurfaceEpoch,
     tableHeight, effectiveUiScale, virtualEditingCellForRender, enableVirtual, displayColumnNames,
     useInlineEditableBodyCell, virtualHorizontalElementsRef, tableContainerRef,
     virtualHorizontalPreviewActiveRef, virtualHorizontalMaxScrollRef,
@@ -326,7 +327,7 @@ export const useDataGridHorizontalVirtualScroll = ({
 
         tableContainer.addEventListener('scroll', stopPreviewHeaderScroll, true);
         return () => tableContainer.removeEventListener('scroll', stopPreviewHeaderScroll, true);
-    }, [enableVirtual, isTableSurfaceActive]);
+    }, [enableVirtual, isTableSurfaceActive, tableSurfaceEpoch]);
 
     const readVirtualHorizontalOffset = useCallback((tableContainer: HTMLElement): number => {
         const { holderEl, innerEl, headerEl } = resolveVirtualHorizontalElements(tableContainer);

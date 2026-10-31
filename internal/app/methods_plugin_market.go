@@ -7,7 +7,7 @@ import (
 	"GoNavi-Wails/internal/pluginmarket"
 )
 
-// PluginMarketSettings returns configuration and session presence without secrets.
+// PluginMarketSettings returns the selected source configuration without credentials.
 func (a *App) PluginMarketSettings() connection.QueryResult {
 	return a.marketCall(a.pluginContext(), func(_ context.Context, s *pluginmarket.Service) (any, error) { return s.Settings() })
 }
@@ -22,8 +22,8 @@ func (a *App) pluginMarketConfigureContext(ctx context.Context, baseURL string) 
 		return a.pluginFailure("management_denied")
 	}
 	return a.marketCall(ctx, func(ctx context.Context, s *pluginmarket.Service) (any, error) {
-		// Approval tickets bind the original receipt source, so keychain-backed
-		// source changes must not monopolize local plugin lifecycle controls.
+		// Approval tickets bind the original receipt source, so source changes
+		// must not monopolize local plugin lifecycle controls.
 		return s.Configure(ctx, baseURL)
 	})
 }
@@ -61,30 +61,4 @@ func (a *App) pluginMarketRatingsContext(ctx context.Context, id string) connect
 		}
 		return ratings, err
 	})
-}
-
-// PluginMarketRate creates or replaces this account's rating for the plugin.
-func (a *App) PluginMarketRate(id string, stars int, body, version string) connection.QueryResult {
-	return a.pluginMarketRateContext(a.pluginContext(), id, stars, body, version)
-}
-
-func (a *App) pluginMarketRateContext(ctx context.Context, id string, stars int, body, version string) connection.QueryResult {
-	if !a.pluginManagementAllowed() {
-		return a.pluginFailure("management_denied")
-	}
-	return a.marketCall(ctx, func(ctx context.Context, s *pluginmarket.Service) (any, error) {
-		return s.Rate(ctx, id, stars, body, version)
-	})
-}
-
-// PluginMarketDeleteRating removes only the current account's rating.
-func (a *App) PluginMarketDeleteRating(id string) connection.QueryResult {
-	return a.pluginMarketDeleteRatingContext(a.pluginContext(), id)
-}
-
-func (a *App) pluginMarketDeleteRatingContext(ctx context.Context, id string) connection.QueryResult {
-	if !a.pluginManagementAllowed() {
-		return a.pluginFailure("management_denied")
-	}
-	return a.marketCall(ctx, func(ctx context.Context, s *pluginmarket.Service) (any, error) { return nil, s.DeleteRating(ctx, id) })
 }

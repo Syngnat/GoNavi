@@ -3,11 +3,8 @@
 package deeplink
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"golang.org/x/sys/windows"
@@ -20,8 +17,7 @@ import (
 // window must come forward, even when another build (installed, portable, development) is
 // running as well. Local\ keeps it inside the user's session.
 func wakeEventName(exePath string) string {
-	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(exePath))))
-	return `Local\GoNavi-deeplink-` + hex.EncodeToString(sum[:8])
+	return `Local\GoNavi-deeplink-` + slotHash(exePath)
 }
 
 // SignalRunning wakes the GoNavi that is running from exePath. It reports false when there is

@@ -142,6 +142,9 @@ func listViewNameLookup(dbInst db.Database, config connection.ConnectionConfig, 
 }
 
 func listViewNameLookupWithStatus(dbInst db.Database, config connection.ConnectionConfig, dbName string) (map[string]string, error) {
+	if resolveDDLDBType(config) == "hive" {
+		return listHiveExportViews(db.MetadataContext(dbInst), dbInst, config, dbName)
+	}
 	viewLookup := make(map[string]string)
 	var firstErr error
 	querySucceeded := false
@@ -200,6 +203,9 @@ func buildListViewQueries(config connection.ConnectionConfig, dbName string) []s
 	dbType := resolveDDLDBType(config)
 	escapedDbName := escapeSQLLiteral(dbName)
 	switch dbType {
+	case "hive":
+		// View discovery uses HiveViewProvider, including Hive 1.x and Impala.
+		return nil
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx":
 		queries := []string{
 			fmt.Sprintf(`SELECT TABLE_SCHEMA AS schema_name, TABLE_NAME AS object_name, TABLE_TYPE AS table_type FROM information_schema.tables WHERE TABLE_TYPE='VIEW' AND %s ORDER BY TABLE_NAME`, mysqlMetadataSchemaPredicate("TABLE_SCHEMA", dbName)),

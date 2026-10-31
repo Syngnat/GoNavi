@@ -12,6 +12,7 @@ import (
 )
 
 type diskState struct {
+	Sources  []SourceConfig             `json:"sources"`
 	Version  int                        `json:"version"`
 	BaseURL  string                     `json:"baseUrl"`
 	Installs map[string]installedSource `json:"installs"`

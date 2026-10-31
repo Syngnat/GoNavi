@@ -424,7 +424,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
     resolveMessagePublishTarget, openSchemaVisibilitySettings, supportsConnectionVisibility,
     addSqlLog, refreshV2TableContextMenuStatsRef, sidebarTableMetadataFields,
     sidebarTreeDropPreview, treeDataRef, setSearchValue, mergeExpandedTreeKeys,
-    setSidebarSelectedKeys, selectedNodesRef, scrollSidebarTreeToKey, activeContext, activeTab,
+    setSidebarSelectedKeys, selectedNodesRef, treeContainerRef, scrollSidebarTreeToKey, activeContext, activeTab,
     addTab, clearStaleHostStateOnSelection, closeV2CommandSearch, commandSearchFlatItems,
     connectionIds, queryCapableConnectionIds, findTreeNodeByKeyRef, locateObjectInSidebar,
     loadDatabases, onDoubleClick, publishTitlebarSelectionForNode, setActiveContext,

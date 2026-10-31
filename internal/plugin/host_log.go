@@ -32,6 +32,9 @@ func (m *Manager) bindHostLog(inst *instance, process *rpcProcess) {
 	process.hostDescribe = func(params json.RawMessage) (json.RawMessage, error) {
 		return m.acceptHostDescribe(inst, process, params)
 	}
+	process.hostCapability = func(params json.RawMessage) (json.RawMessage, error) {
+		return m.acceptHostCapability(inst, process, params)
+	}
 }
 
 func (m *Manager) acceptHostLog(inst *instance, process *rpcProcess, params json.RawMessage) (json.RawMessage, error) {

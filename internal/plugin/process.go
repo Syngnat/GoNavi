@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"GoNavi-Wails/internal/logger"
 )
 
 const maxRPCBytes = 1 << 20
@@ -58,26 +60,33 @@ func (p rpcCallPolicy) settleUnsent() {
 }
 
 type rpcProcess struct {
-	cmd           *exec.Cmd
-	tree          *processTree
-	stdin         io.WriteCloser
-	stdout        io.ReadCloser
-	stderr        io.ReadCloser
-	mu            sync.Mutex
-	next          uint64
-	pending       map[uint64]rpcPending
-	terminal      error
-	failed        chan struct{}
-	done          chan struct{}
-	outgoing      chan []byte
-	workers       sync.WaitGroup
-	hostLog       func(json.RawMessage) (json.RawMessage, error)
-	hostDescribe  func(json.RawMessage) (json.RawMessage, error)
-	hostLogWindow time.Time
-	hostLogCount  int
+	cmd            *exec.Cmd
+	tree           *processTree
+	stdin          io.WriteCloser
+	stdout         io.ReadCloser
+	stderr         io.ReadCloser
+	mu             sync.Mutex
+	next           uint64
+	pending        map[uint64]rpcPending
+	terminal       error
+	failed         chan struct{}
+	done           chan struct{}
+	outgoing       chan []byte
+	workers        sync.WaitGroup
+	hostLog        func(json.RawMessage) (json.RawMessage, error)
+	hostDescribe   func(json.RawMessage) (json.RawMessage, error)
+	hostCapability func(json.RawMessage) (json.RawMessage, error)
+	hostLogWindow  time.Time
+	hostLogCount   int
+	stderrTail     []byte
+	stopping       bool
 }
 
-func launchProcess(m Manifest, packageRoot, dataRoot string) (*rpcProcess, error) {
+// pluginStderrTailBytes bounds the diagnostic tail kept for a post-mortem. The stream itself is
+// drained and discarded otherwise, so without this a fault carries no plugin-side evidence.
+const pluginStderrTailBytes = 2048
+
+func launchProcess(m Manifest, packageRoot, dataRoot string, proxyEnvironment func() []string) (*rpcProcess, error) {
 	entry, err := selectEntry(m)
 	if err != nil {
 		return nil, err
@@ -98,7 +107,7 @@ func launchProcess(m Manifest, packageRoot, dataRoot string) (*rpcProcess, error
 	}
 	cmd := exec.Command(executable, args...)
 	cmd.Dir = dataRoot
-	cmd.Env = processEnvironment(packageRoot, dataRoot)
+	cmd.Env = processEnvironment(packageRoot, dataRoot, proxyEnvironment)
 	p := &rpcProcess{cmd: cmd, pending: make(map[uint64]rpcPending), failed: make(chan struct{}), done: make(chan struct{}), outgoing: make(chan []byte, 64)} // Queue bounded to one frame per pending request.
 	if p.stdin, err = cmd.StdinPipe(); err != nil {
 		return nil, err
@@ -153,19 +162,65 @@ func findInterpreter(names []string) (string, error) {
 	}
 	return "", fmt.Errorf("required plugin interpreter is not installed")
 }
-func processEnvironment(packageRoot, dataRoot string) []string {
-	// Only runtime essentials are inherited: no app credentials, RPC tokens, or Node/Python injection variables.
-	allowed := map[string]bool{"PATH": true, "SYSTEMROOT": true, "WINDIR": true, "TEMP": true, "TMP": true, "TMPDIR": true, "LANG": true, "LC_ALL": true}
-	env := make([]string, 0, len(allowed)+3)
+
+// pluginEnvironmentAllowed lists the host process variables a plugin backend
+// inherits. Application credentials, RPC tokens and interpreter injection
+// variables stay excluded. Matching is case-insensitive because Windows variable
+// names are.
+var pluginEnvironmentAllowed = map[string]bool{
+	"PATH": true, "SYSTEMROOT": true, "WINDIR": true,
+	"TEMP": true, "TMP": true, "TMPDIR": true,
+	"LANG": true, "LC_ALL": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true,
+}
+
+// pluginProxyEnvironmentAllowed bounds what the embedding host may inject, so an
+// injected entry can never replace PATH, a credential or any other host variable.
+var pluginProxyEnvironmentAllowed = map[string]bool{
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true,
+}
+
+// processEnvironment merges the host environment with the proxy entries the
+// embedding host injects for this launch. Injected entries win and duplicates
+// collapse into one entry: POSIX getenv answers with the first match, so a plain
+// append would keep the inherited value instead of the configured proxy.
+func processEnvironment(packageRoot, dataRoot string, proxyEnvironment func() []string) []string {
+	env := make([]string, 0, len(pluginEnvironmentAllowed)+len(pluginProxyEnvironmentAllowed)+3)
+	position := make(map[string]int, len(pluginEnvironmentAllowed)+len(pluginProxyEnvironmentAllowed)+3)
+	appendEntry := func(value string, allowed map[string]bool) {
+		key, content, ok := strings.Cut(value, "=")
+		if !ok || key == "" || content == "" || !allowed[strings.ToUpper(key)] {
+			return
+		}
+		upper := strings.ToUpper(key)
+		if previous, exists := position[upper]; exists {
+			env[previous] = value
+			return
+		}
+		position[upper] = len(env)
+		env = append(env, value)
+	}
 	for _, value := range os.Environ() {
-		key, _, ok := strings.Cut(value, "=")
-		if ok && allowed[strings.ToUpper(key)] {
-			env = append(env, value)
+		appendEntry(value, pluginEnvironmentAllowed)
+	}
+	if proxyEnvironment != nil {
+		for _, value := range proxyEnvironment() {
+			appendEntry(value, pluginProxyEnvironmentAllowed)
 		}
 	}
 	return append(env, "GONAVI_PLUGIN_PACKAGE="+packageRoot, "GONAVI_PLUGIN_DATA="+dataRoot, "PYTHONNOUSERSITE=1")
 }
 func (p *rpcProcess) fail(err error) { p.failPending(err, 0) }
+
+// keepStderr retains the newest diagnostic bytes so a later fault can report them.
+func (p *rpcProcess) keepStderr(chunk []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.stderrTail = append(p.stderrTail, chunk...)
+	if len(p.stderrTail) > pluginStderrTailBytes {
+		p.stderrTail = append(p.stderrTail[:0], p.stderrTail[len(p.stderrTail)-pluginStderrTailBytes:]...)
+	}
+}
 
 func (p *rpcProcess) failPending(err error, expectedID uint64) {
 	p.mu.Lock()
@@ -181,12 +236,19 @@ func (p *rpcProcess) failPending(err error, expectedID uint64) {
 	}
 	p.terminal = err
 	close(p.failed)
+	tail := ""
+	if !p.stopping {
+		tail = strings.TrimSpace(string(p.stderrTail))
+	}
 	pending := make([]rpcPending, 0, len(p.pending))
 	for id, call := range p.pending {
 		pending = append(pending, call)
 		delete(p.pending, id)
 	}
 	p.mu.Unlock()
+	if tail != "" {
+		logger.Warnf("plugin diagnostics before failure (%v): %s", err, tail)
+	}
 	// Settlement callbacks never run under the transport lock.
 	for _, call := range pending {
 		call.settle()
@@ -283,6 +345,9 @@ func (p *rpcProcess) removePending(id uint64) {
 func (p *rpcProcess) stop(grace time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
+	p.mu.Lock()
+	p.stopping = true
+	p.mu.Unlock()
 	if p.failure() == nil {
 		p.call(ctx, "plugin.shutdown", struct{}{})
 	}

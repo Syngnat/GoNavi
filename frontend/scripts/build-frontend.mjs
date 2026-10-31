@@ -64,4 +64,5 @@ if (memoryMB < LOW_MEMORY_WARNING_MB) {
 run('tsc', [...heapArgs, resolvePackageBin('typescript', 'tsc')]);
 run('vite build', [...heapArgs, resolvePackageBin('vite', 'vite'), 'build']);
 run('plugin window', [...heapArgs, resolvePackageBin('vite', 'vite'), 'build', '--config', 'vite.plugin-window.config.ts']);
+run('plugin ui', [...heapArgs, resolvePackageBin('vite', 'vite'), 'build', '--config', 'vite.plugin-ui.config.ts']);
 run('pack-dist', [path.join(frontendDir, 'scripts', 'pack-dist.mjs')]);

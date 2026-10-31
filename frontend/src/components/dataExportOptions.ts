@@ -24,6 +24,7 @@ export type DataExportFileOptions = {
   insertSQLColumnTypes?: Record<string, string>;
   insertSQLTargetColumns?: Record<string, string>;
   insertSQLAllowEmptyTargetTable?: boolean;
+  losslessHive?: boolean;
 };
 
 export type DataExportDialogValues = DataExportFileOptions & {

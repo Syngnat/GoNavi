@@ -138,4 +138,31 @@ describe('TitleBarQuickActions', () => {
     expect(onDataSync).toHaveBeenCalledTimes(1);
     expect(onExternalSql).not.toHaveBeenCalled();
   });
+
+  it('keeps a lazy empty menu clickable and requests its entries on the first open', () => {
+    const onMenuOpen = vi.fn();
+    const renderer = create(
+      <TitleBarQuickActions
+        label="Tools"
+        actions={[
+          { key: 'plugin-pages', label: 'Plugins', menu: [], emptyMenuLabel: 'No plugin pages', onMenuOpen },
+          { key: 'plain', label: 'Plain', onClick: vi.fn() },
+        ]}
+      />,
+    );
+
+    // An empty menu still renders as a dropdown; an action without a menu stays a plain button.
+    expect(renderer.root.findAllByProps({ 'data-titlebar-quick-menu': 'plugin-pages' })).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ 'data-titlebar-quick-action': 'plain' })).toHaveLength(1);
+
+    const dropdown = renderer.root
+      .findAll((node) => Array.isArray(node.props.menu?.items))
+      .find((node) => node.props.menu.items.some((item: { key: string }) => item.key === 'plugin-pages-empty'));
+    expect(dropdown?.props.menu.items).toEqual([
+      { key: 'plugin-pages-empty', label: 'No plugin pages', disabled: true },
+    ]);
+    expect(onMenuOpen).not.toHaveBeenCalled();
+    dropdown?.props.onOpenChange(true);
+    expect(onMenuOpen).toHaveBeenCalledTimes(1);
+  });
 });

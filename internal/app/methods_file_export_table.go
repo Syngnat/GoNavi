@@ -109,7 +109,12 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 	}
 
 	dbType := resolveDDLDBType(config)
-	query := buildExportTableSelectQuery(dbType, tableName, options.Columns)
+	queryTable := tableName
+	if dbType == "hive" {
+		schema, name := normalizeMetadataSchemaAndTable(runConfig, dbName, tableName)
+		queryTable = quoteTableIdentByType("hive", schema, name)
+	}
+	query := buildExportTableSelectQuery(dbType, queryTable, options.Columns)
 
 	f, atomicTarget, err := openCancelableExportTarget(webTarget, filename)
 	if err != nil {

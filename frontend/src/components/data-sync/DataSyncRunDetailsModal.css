@@ -4,9 +4,24 @@
   gap: 16px;
   max-height: 70vh;
   overflow: auto;
+  /* 滚到底后不再把滚动传给外层：否则鼠标滚轮会同时滚动弹窗背后的页面。 */
+  overscroll-behavior: contain;
   padding: 4px;
 }
 
 .gn-data-sync-run-details-body > button { align-self: flex-start; }
 .gn-data-sync-run-details-body .gn-data-sync-run-pagination { flex-wrap: wrap; }
 .gn-data-sync-run-details-body .gn-data-sync-run-events__content { min-width: 0; overflow-wrap: anywhere; }
+
+/* 弹窗内的滚动条默认只有 10px 且 thumb 只有 4px 可见，误触率高。
+   这里给弹窗内的滚动容器加宽到 14px、thumb 加粗，命中区域随之外扩。 */
+.gn-data-sync-run-details-body::-webkit-scrollbar,
+.gn-data-sync-run-details-body .gn-data-sync-compare-detail__scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.gn-data-sync-run-details-body::-webkit-scrollbar-thumb,
+.gn-data-sync-run-details-body .gn-data-sync-compare-detail__scroll::-webkit-scrollbar-thumb {
+  border-width: 4px;
+}

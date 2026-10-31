@@ -1,8 +1,10 @@
 import React from 'react';
-import { Spin } from 'antd';
+import { Alert, Spin } from 'antd';
 import type { TabData } from '../types';
 import { useStore } from '../store';
 import { useWorkbenchTabActivation } from './useWorkbenchTabActivation';
+import AIPanelErrorBoundary from './ai/AIPanelErrorBoundary';
+import { t } from '../i18n';
 import '../styles/v2-theme-workbench.css';
 
 const DataViewer = React.lazy(() => import('./DataViewer'));
@@ -32,6 +34,7 @@ const SqlAnalysisWorkbench = React.lazy(() => import('./explain/SqlAnalysisWorkb
 const SqlAuditWorkbench = React.lazy(() => import('./audit/SqlAuditWorkbench'));
 const QueryHistoryWorkbench = React.lazy(() => import('./queryHistory/QueryHistoryWorkbench'));
 const DriverManagerWorkbench = React.lazy(() => import('./DriverManagerWorkbench'));
+const PluginManagerWorkbench = React.lazy(() => import('./pluginManager/PluginManagerWorkbench'));
 const CloudBackupSettings = React.lazy(() => import('./CloudBackupSettings'));
 const SettingsCenterWorkbench = React.lazy(() => import('./settings/SettingsCenterWorkbench'));
 const RequestDiagnosticsWorkbench = React.lazy(() => import('./requestDiagnostics/RequestDiagnosticsWorkbench'));
@@ -39,6 +42,8 @@ const DMLSnapshotWorkbench = React.lazy(() => import('./dmlSnapshot/DMLSnapshotW
 const UserManagementWorkbench = React.lazy(() => import('./userManagement/UserManagementWorkbench'));
 const MessageQueueWorkbench = React.lazy(() => import('./MessageQueueWorkbench'));
 const SessionWorkbench = React.lazy(() => import('./sessionWorkbench/SessionWorkbench'));
+const SessionAgentWorkbench = React.lazy(() => import('./sessionAgent/SessionAgentWorkbench'));
+const PluginPageHost = React.lazy(() => import('../pluginPages/PluginPageHost').then((module) => ({ default: module.PluginPageHost })));
 
 const QueryWorkbenchContent: React.FC<{ tab: TabData; isActive: boolean }> = React.memo(({
   tab,
@@ -185,16 +190,24 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
         onRequestClose={onRequestClose}
       />
     );
+  } else if (tab.type === 'plugin-manager') {
+    content = <PluginManagerWorkbench />;
   } else if (tab.type === 'cloud-backup') {
     content = <CloudBackupSettings />;
   } else if (tab.type === 'settings-center') {
     content = <SettingsCenterWorkbench tab={tab} isActive={isActive} />;
+  } else if (tab.type === 'plugin-page') {
+    content = tab.pluginPage
+      ? <PluginPageHost pluginID={tab.pluginPage.pluginID} pageID={tab.pluginPage.pageID} launch={tab.pluginPage.launch} />
+      : null;
   } else if (tab.type === 'request-diagnostics') {
     content = <RequestDiagnosticsWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'message-queue') {
     content = <MessageQueueWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'session-workbench') {
     content = <SessionWorkbench tab={tab} isActive={isActive} />;
+  } else if (tab.type === 'agent-assets') {
+    content = <SessionAgentWorkbench tab={tab} />;
   } else if (tab.type === 'xxljob-groups' || tab.type === 'xxljob-jobs' || tab.type === 'xxljob-logs') {
     content = <XxlJobWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'jvm-overview') {
@@ -212,6 +225,24 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     return exhaustiveType;
   }
 
+  // 页签内容崩溃只圈在本页签内：页签栏与其他页签继续可用，用户可以
+  // 直接关闭出错的页签，而不是整窗白屏无路可走（用户实测反馈）。
+  const renderTabErrorFallback = (error: Error | null) => (
+    <div
+      role="alert"
+      data-testid="workbench-tab-error"
+      style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'grid', placeItems: 'center', padding: 24 }}
+    >
+      <Alert
+        type="error"
+        showIcon
+        message={t('workbench.tab_error.title')}
+        description={error?.message || t('workbench.tab_error.unknown')}
+        style={{ maxWidth: 560 }}
+      />
+    </div>
+  );
+
   return (
     <React.Suspense
       fallback={(
@@ -223,12 +254,14 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
         </div>
       )}
     >
-      {content}
-      <WorkbenchContentReady
-        key={`${tab.id}:${tab.type}`}
-        marker={`${tab.id}:${tab.type}`}
-        onReady={onContentReady}
-      />
+      <AIPanelErrorBoundary fallback={renderTabErrorFallback}>
+        {content}
+        <WorkbenchContentReady
+          key={`${tab.id}:${tab.type}`}
+          marker={`${tab.id}:${tab.type}`}
+          onReady={onContentReady}
+        />
+      </AIPanelErrorBoundary>
     </React.Suspense>
   );
 });

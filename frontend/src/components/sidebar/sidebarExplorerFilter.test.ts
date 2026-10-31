@@ -5,6 +5,7 @@ import {
   filterV2ExplorerTreeByKind,
   isNacosConnection,
   resolveExplorerFilterFamily,
+  resolveExplorerFilterOrder,
   resolveExplorerFilterReset,
   V2_EXPLORER_FILTER_LABEL_KEYS,
   V2_EXPLORER_FILTER_ORDER,
@@ -217,6 +218,16 @@ describe('sidebarExplorerFilter / 过滤维度表', () => {
     expect(resolveExplorerFilterFamily({ config: { type: 'mqtt' } })).toBeNull();
     expect(resolveExplorerFilterFamily(null)).toBeNull();
     expect(resolveExplorerFilterFamily(undefined)).toBeNull();
+  });
+
+  it('Hive 只显示表/视图筛选，残留的不支持维度复位为 all', () => {
+    const hive = { config: { type: 'hive', host: 'localhost', port: 10000, user: 'gonavi' } };
+    const postgres = { config: { type: 'postgres', host: 'localhost', port: 5432, user: 'gonavi' } };
+    expect(resolveExplorerFilterFamily(hive)).toBe('relational');
+    expect(resolveExplorerFilterOrder('relational', hive)).toEqual(['all', 'tables', 'views']);
+    expect(resolveExplorerFilterReset('relational', 'sequences', hive)).toBe('all');
+    // 其它关系型数据源仍保留未被描述表隐藏的维度。
+    expect(resolveExplorerFilterOrder('relational', postgres)).toContain('routines');
   });
 
   it('只有 nacos 类型被认作 Nacos 连接', () => {

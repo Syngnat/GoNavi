@@ -267,6 +267,9 @@ func dumpTableSQLWithDatabaseContext(
 	includeDatabaseContext bool,
 ) error {
 	dbType := resolveDDLDBType(config)
+	if dbType == "hive" {
+		return dumpHiveTableSQL(exportCtx, w, dbInst, config, dbName, tableName, includeSchema, includeData, includeDatabaseContext)
+	}
 	metadataSchemaName, metadataTableName := normalizeMetadataSchemaAndTable(config, dbName, tableName)
 	ddlSchemaName, ddlTableName := normalizeSchemaAndTableByType(dbType, dbName, tableName)
 	objectKey := normalizeExportObjectKey(config, dbName, tableName)

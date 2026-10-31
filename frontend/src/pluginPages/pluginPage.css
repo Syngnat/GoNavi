@@ -1,0 +1,6 @@
+/* Workbench plugin page surfaces; imported by the page host so a page tab renders
+   correctly even when the settings-center plugin manager stylesheet was never loaded. */
+.plugin-page-status { display: grid; place-items: center; padding: 24px; }
+.plugin-page-host { display: flex; flex-direction: column; gap: 12px; padding: 8px 0; }
+.plugin-page-frame { display: block; width: 100%; flex: 1 1 auto; min-height: 60vh; border: 0; background: var(--gn-bg-panel-2); }
+.gn-v2-app-root[data-background-image="true"] :is(.plugin-page-frame, .plugin-page-host) { background: transparent; }

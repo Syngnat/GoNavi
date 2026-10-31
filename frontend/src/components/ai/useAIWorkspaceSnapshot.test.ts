@@ -12,6 +12,10 @@ import {
   resetAIWorkspaceSnapshotCursor,
   useAIWorkspaceSnapshot,
 } from './useAIWorkspaceSnapshot';
+import {
+  resetDatabaseServerVersionCache,
+  setDatabaseServerVersionQuery,
+} from '../queryEditor/queryEditorServerVersion';
 
 const HookHarness: React.FC<{ enabled?: boolean }> = ({ enabled = true }) => {
   useAIWorkspaceSnapshot({ enabled });
@@ -254,6 +258,40 @@ describe('useAIWorkspaceSnapshot lease renewal', () => {
     }));
     expect(heartbeatSnapshot).toEqual(changedSnapshot);
     expect(heartbeatSnapshot?.capturedAt).toBe(changedSnapshot?.capturedAt);
+  });
+
+  it('does not probe the live server version on a lease renewal', async () => {
+    resetDatabaseServerVersionCache();
+    const versionQuery = vi.fn(async () => ({ success: false, message: 'connection refused' }));
+    setDatabaseServerVersionQuery(versionQuery);
+    useStore.setState({
+      connections: [{ id: 'mysql-240', config: { type: 'mysql', host: '192.168.1.240', port: 3306 } }] as any,
+      activeContext: { connectionId: 'mysql-240', dbName: 'mkefu_location_dev240' },
+    });
+    service.AIGetRunPolicy.mockResolvedValue({
+      schemaVersion: 1,
+      revision: 1,
+      policy: {},
+      runtime: {
+        controlPollInterval: 100_000_000,
+        workspaceSnapshotRenewInterval: 20_000_000,
+        workspaceSnapshotLeaseDuration: 100_000_000,
+        policyWatchInterval: 500_000_000,
+      },
+    });
+
+    await act(async () => {
+      renderer = create(React.createElement(HookHarness));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(versionQuery).toHaveBeenCalledTimes(1);
+
+    await act(async () => { vi.advanceTimersByTime(60); });
+    await act(async () => { await Promise.resolve(); });
+    expect(versionQuery).toHaveBeenCalledTimes(1);
+    resetDatabaseServerVersionCache();
+    setDatabaseServerVersionQuery(null);
   });
 
   it('rebuilds the timer after a policy change event and rejects an invalid runtime tuple to defaults', async () => {

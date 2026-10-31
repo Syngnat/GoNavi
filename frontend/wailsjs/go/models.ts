@@ -560,6 +560,24 @@ export namespace aiservice {
 
 export namespace app {
 	
+	export class AgentIntegration {
+	    kind: string;
+	    dataDir: string;
+	    displayName: string;
+	    addedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentIntegration(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.dataDir = source["dataDir"];
+	        this.displayName = source["displayName"];
+	        this.addedAt = source["addedAt"];
+	    }
+	}
 	export class CloudBackupConnectionSummary {
 	    id: string;
 	    name: string;
@@ -1346,6 +1364,7 @@ export namespace app {
 	
 	
 	export class ExportFileOptions {
+	    losslessHive?: boolean;
 	    pluginExporter?: dataexport.PluginExportSelection;
 	    format: string;
 	    csvEncoding?: string;
@@ -1359,6 +1378,8 @@ export namespace app {
 	    includeDatabaseContext?: boolean;
 	    insertSQLDialect?: string;
 	    insertSQLTargetTable?: string;
+	    insertSQLColumnOrder?: string[];
+	    insertSQLPartitionColumns?: string[];
 	    insertSQLColumnTypes?: Record<string, string>;
 	    insertSQLTargetColumns?: Record<string, string>;
 	    insertSQLAllowEmptyTargetTable?: boolean;
@@ -1369,6 +1390,7 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.losslessHive = source["losslessHive"];
 	        this.pluginExporter = this.convertValues(source["pluginExporter"], dataexport.PluginExportSelection);
 	        this.format = source["format"];
 	        this.csvEncoding = source["csvEncoding"];
@@ -1382,6 +1404,8 @@ export namespace app {
 	        this.includeDatabaseContext = source["includeDatabaseContext"];
 	        this.insertSQLDialect = source["insertSQLDialect"];
 	        this.insertSQLTargetTable = source["insertSQLTargetTable"];
+	        this.insertSQLColumnOrder = source["insertSQLColumnOrder"];
+	        this.insertSQLPartitionColumns = source["insertSQLPartitionColumns"];
 	        this.insertSQLColumnTypes = source["insertSQLColumnTypes"];
 	        this.insertSQLTargetColumns = source["insertSQLTargetColumns"];
 	        this.insertSQLAllowEmptyTargetTable = source["insertSQLAllowEmptyTargetTable"];
@@ -1406,6 +1430,7 @@ export namespace app {
 		}
 	}
 	export class ImportFileOptions {
+	    losslessHive?: boolean;
 	    columnMappings?: Record<string, string>;
 	    jobId?: string;
 	    continueOnError?: boolean;
@@ -1426,6 +1451,7 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.losslessHive = source["losslessHive"];
 	        this.columnMappings = source["columnMappings"];
 	        this.jobId = source["jobId"];
 	        this.continueOnError = source["continueOnError"];
@@ -3893,6 +3919,29 @@ export namespace jvm {
 
 }
 
+export namespace marketfilter {
+	
+	export class Filters {
+	    categories: string[];
+	    platforms: string[];
+	    official: string;
+	    author: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Filters(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.categories = source["categories"];
+	        this.platforms = source["platforms"];
+	        this.official = source["official"];
+	        this.author = source["author"];
+	    }
+	}
+
+}
+
 export namespace mockdata {
 	
 	export class Generator {
@@ -4148,6 +4197,25 @@ export namespace nativewindow {
 	        this.ready = source["ready"];
 	        this.closeSent = source["closeSent"];
 	        this.hidden = source["hidden"];
+	    }
+	}
+
+}
+
+export namespace pluginmarket {
+	
+	export class SourceConfig {
+	    baseUrl: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SourceConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.baseUrl = source["baseUrl"];
+	        this.enabled = source["enabled"];
 	    }
 	}
 
@@ -5164,6 +5232,31 @@ export namespace runharness {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace sessionagent {
+	
+	export class ContentRef {
+	    kind: string;
+	    offset?: number;
+	    len?: number;
+	    relPath?: string;
+	    pointer?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContentRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.offset = source["offset"];
+	        this.len = source["len"];
+	        this.relPath = source["relPath"];
+	        this.pointer = source["pointer"];
+	    }
 	}
 
 }

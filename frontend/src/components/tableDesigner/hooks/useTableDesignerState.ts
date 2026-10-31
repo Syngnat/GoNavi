@@ -174,7 +174,7 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
 
     const isMysqlLikeDialect = (dbType: string): boolean => isMysqlFamilySqlDialect(dbType);
 
-    const isNonRelationalDialect = (dbType: string): boolean => dbType === 'redis' || dbType === 'mongodb' || isElasticsearchFamilyType(dbType);
+    const isNonRelationalDialect = (dbType: string): boolean => dbType === 'hive' || dbType === 'redis' || dbType === 'mongodb' || isElasticsearchFamilyType(dbType);
 
     const lacksAlterForeignKeySupport = (dbType: string): boolean => dbType === 'sqlite' || dbType === 'duckdb' || dbType === 'tdengine';
 

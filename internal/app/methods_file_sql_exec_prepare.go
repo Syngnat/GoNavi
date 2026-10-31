@@ -281,6 +281,9 @@ func resolveSQLFileExecutionProgressPercent(status string, bytesRead, totalSize 
 
 func resolveSQLFileExecutionRunConfig(config connection.ConnectionConfig, dbName string, preamble []byte) connection.ConnectionConfig {
 	runConfig := normalizeRunConfig(config, dbName)
+	if resolveDDLDBType(config) == "hive" && hiveBackupCreatesDatabase(preamble) {
+		runConfig.Database = ""
+	}
 	if strings.EqualFold(strings.TrimSpace(runConfig.Type), "mysql") {
 		_, isGoNaviDatabaseBackup := parseGoNaviMySQLDatabaseBackupPreamble(preamble)
 		if !isGoNaviDatabaseBackup {

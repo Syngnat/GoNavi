@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { DATA_SYNC_WORKBENCH_TEXT_KEYS } from '../components/data-sync/text';
 import { PLUGIN_STATE_KEYS } from '../plugins/stateKeys';
 import { PLUGIN_MARKET_AUTH_KEYS } from '../pluginMarket/authKeys';
+import { PLUGIN_MARKET_CATEGORY_TEXT_KEYS } from '../pluginMarket/catalogFilters';
+import { PLUGIN_MARKET_VERSION_REASON_TEXT_KEYS } from '../pluginMarket/versionsApi';
 import { PLUGIN_DATASOURCE_STATUS_KEYS } from '../plugins/dataSource/presentation';
 import { PLUGIN_EXPORT_ERROR_KEYS } from '../plugins/exporter/result';
 import { messages as legacyMessages } from '../../../shared/i18n/messages';
@@ -41,6 +43,7 @@ const LOCAL_CATALOGS: readonly LocalCatalog[] = [
 // 位于局部词典目录、但实际使用全局翻译器（shared/i18n）的文件，按全局链解析。
 const GLOBAL_TRANSLATOR_FILES: ReadonlySet<string> = new Set([
   `${frontendSrc}/components/data-sync/DataSyncBackgroundNotice.tsx`,
+  `${frontendSrc}/components/data-sync/compareRepairSql.ts`,
 ]);
 
 /**
@@ -50,6 +53,8 @@ const GLOBAL_TRANSLATOR_FILES: ReadonlySet<string> = new Set([
 const DYNAMIC_KEY_SETS: readonly { prefix: string; keys: readonly string[] }[] = [
   { prefix: 'plugin.state.', keys: PLUGIN_STATE_KEYS },
   { prefix: 'plugin.market.auth_', keys: PLUGIN_MARKET_AUTH_KEYS },
+  { prefix: 'plugin.market.category.', keys: PLUGIN_MARKET_CATEGORY_TEXT_KEYS },
+  { prefix: 'plugin.market.versions.', keys: PLUGIN_MARKET_VERSION_REASON_TEXT_KEYS },
   { prefix: 'plugin.datasource.status.', keys: PLUGIN_DATASOURCE_STATUS_KEYS },
   { prefix: 'plugin_export.error.', keys: PLUGIN_EXPORT_ERROR_KEYS },
 ];

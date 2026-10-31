@@ -15,6 +15,7 @@ import (
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/syncjob"
 	"GoNavi-Wails/internal/taskrollback"
+	"GoNavi-Wails/internal/uievents"
 )
 
 const taskRollbackEmptySnapshot = "-- GoNavi task rollback snapshot\n-- no existing objects\n"
@@ -140,8 +141,14 @@ func (a *App) captureTaskRollback(ctx context.Context, req taskRollbackCapture) 
 	return nil
 }
 
-func (a *App) captureSQLFileRollbackPoint(ctx context.Context, job *managedImportJob, config connection.ConnectionConfig, jobID string, policy sqlFileExecutionPolicy) error {
+func (a *App) captureSQLFileRollbackPoint(ctx context.Context, job *managedImportJob, config connection.ConnectionConfig, jobID string, policy sqlFileExecutionPolicy, plan sqlImportRollbackPlan) error {
 	if policy.SkipRollbackSnapshot || strings.TrimSpace(policy.PinDatabase) == "" {
+		return nil
+	}
+	if plan.AdditiveOnly && !plan.WholeDatabase {
+		// 纯 CREATE 脚本只新增对象，不会修改任何已有数据；没有可回滚的数据面，
+		// 直接跳过快照查询/导出，把导入延迟压到连接 + DDL 本身。
+		logger.Infof("SQL 导入仅新增对象，跳过回滚快照：objects=%d", len(plan.Tables))
 		return nil
 	}
 	a.noteRollbackSnapshotStage(job)
@@ -150,7 +157,8 @@ func (a *App) captureSQLFileRollbackPoint(ctx context.Context, job *managedImpor
 		TaskID:        jobID,
 		Config:        config,
 		Database:      policy.PinDatabase,
-		WholeDatabase: true,
+		Tables:        plan.Tables,
+		WholeDatabase: plan.WholeDatabase,
 		AllowCreate:   true,
 	})
 }
@@ -197,9 +205,31 @@ func (a *App) noteRollbackSnapshotStage(job *managedImportJob) {
 	if job == nil || a == nil {
 		return
 	}
+	stage := a.appText("task_rollback.stage.snapshotting", nil)
 	_ = job.update(managedImportJobProgress{
-		Stage:        a.appText("task_rollback.stage.snapshotting", nil),
+		Stage:        stage,
 		ForcePersist: true,
+	})
+	if a.ctx == nil {
+		return
+	}
+	bytesRead := job.job.BytesRead
+	totalBytes := job.job.SourceBytesTotal
+	uievents.Emit(a.ctx, "sqlfile:progress", map[string]interface{}{
+		"jobId":             job.job.ID,
+		"status":            "running",
+		"stage":             stage,
+		"executed":          job.job.Succeeded,
+		"failed":            job.job.Failed,
+		"total":             job.job.Current,
+		"percent":           resolveSQLFileExecutionProgressPercent("running", bytesRead, totalBytes),
+		"bytesRead":         bytesRead,
+		"totalBytes":        totalBytes,
+		"byteProgressKind":  "rawSource",
+		"decodedBytes":      nil,
+		"decodedTotalBytes": nil,
+		"currentSQL":        "",
+		"error":             "",
 	})
 }
 

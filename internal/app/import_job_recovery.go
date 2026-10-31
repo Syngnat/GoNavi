@@ -104,6 +104,7 @@ func (a *App) validateTableImportRecovery(
 	if strings.TrimSpace(targetFingerprint) == "" || targetFingerprint != job.TargetFingerprint {
 		return errImportJobRecoveryTargetChanged
 	}
+	options = effectiveHiveImportOptions(config, options)
 	optionsHash := buildImportFileOptionsHash(options)
 	if strings.TrimSpace(optionsHash) == "" || optionsHash != job.OptionsHash {
 		return errImportJobRecoveryOptionsChanged
@@ -195,6 +196,7 @@ func cloneImportJobTableOptions(options *importjob.TableImportOptions) *importjo
 
 func importJobTableOptionsFromImportFileOptions(options ImportFileOptions) *importjob.TableImportOptions {
 	return cloneImportJobTableOptions(&importjob.TableImportOptions{
+		LosslessHive:       options.LosslessHive,
 		ColumnMappings:     options.ColumnMappings,
 		ContinueOnError:    options.ContinueOnError,
 		Encoding:           options.Encoding,
@@ -214,6 +216,7 @@ func importFileOptionsFromImportJobTableOptions(options *importjob.TableImportOp
 		return ImportFileOptions{}
 	}
 	return ImportFileOptions{
+		LosslessHive:       cloned.LosslessHive,
 		ColumnMappings:     cloned.ColumnMappings,
 		ContinueOnError:    cloned.ContinueOnError,
 		Encoding:           cloned.Encoding,

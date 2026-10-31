@@ -103,7 +103,7 @@ func SupportsWatermarkSyncDialect(dbType string) bool {
 	switch normalizeMigrationDBType(dbType) {
 	case "mysql", "mariadb",
 		"postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb",
-		"sqlserver", "sqlite", "duckdb":
+		"sqlserver", "sqlite", "duckdb", "hive":
 		return true
 	default:
 		return false
@@ -153,6 +153,9 @@ func (s *SyncEngine) RunWatermarkSync(ctx context.Context, request WatermarkSync
 	if err != nil {
 		return failWatermarkSync(result, runCtx, err)
 	}
+	if err := validateHiveWatermarkPreflight(runCtx, plan, sourceDB, targetDB); err != nil {
+		return failWatermarkSync(result, runCtx, err)
+	}
 	applier, ok := targetDB.(db.BatchApplier)
 	if !ok {
 		return failWatermarkSync(result, runCtx, errors.New("watermark 目标驱动不支持 ApplyChanges"))
@@ -165,7 +168,7 @@ func (s *SyncEngine) RunWatermarkSync(ctx context.Context, request WatermarkSync
 	}
 
 	upperQuery := buildWatermarkUpperBoundQuery(plan)
-	upperRows, _, err := querySyncDatabaseContext(runCtx, sourceDB, upperQuery)
+	upperRows, _, err := querySyncTableSnapshotContext(runCtx, sourceDB, plan.sourceType, plan.sourceQueryTable, plan.sourceColumns, upperQuery)
 	if err != nil {
 		return failWatermarkSync(result, runCtx, fmt.Errorf("读取 watermark 固定上界失败: %w", err))
 	}
@@ -199,7 +202,7 @@ func (s *SyncEngine) RunWatermarkSync(ctx context.Context, request WatermarkSync
 		if err != nil {
 			return failWatermarkSync(result, runCtx, err)
 		}
-		sourceRows, _, err := querySyncDatabaseContext(runCtx, sourceDB, pageQuery)
+		sourceRows, _, err := querySyncTableSnapshotContext(runCtx, sourceDB, plan.sourceType, plan.sourceQueryTable, plan.sourceColumns, pageQuery)
 		if err != nil {
 			return failWatermarkSync(result, runCtx, fmt.Errorf("分页读取 watermark 源表失败: %w", err))
 		}
@@ -223,6 +226,9 @@ func (s *SyncEngine) RunWatermarkSync(ctx context.Context, request WatermarkSync
 			return failWatermarkSync(result, runCtx, err)
 		}
 
+		if _, err := snapshotTargetApplier(runCtx, config, targetDB, plan.targetQueryTable, plan.targetColumns, changeSet); err != nil {
+			return failWatermarkSync(result, runCtx, err)
+		}
 		batchInserted := len(changeSet.Inserts)
 		batchUpdated := len(changeSet.Updates)
 		if batchInserted > 0 || batchUpdated > 0 {

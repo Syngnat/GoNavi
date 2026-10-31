@@ -1,0 +1,70 @@
+.plugin-market { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.plugin-market-account { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: var(--gn-bg-panel); border: 1px solid var(--gn-br-2); border-radius: 10px; }
+.plugin-market-source-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.plugin-market-source-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.plugin-market-source-name > .ant-typography { min-width: 0; font-size: 14px; }
+.plugin-market-source-name .ant-tag { flex-shrink: 0; margin-inline-end: 0; }
+.plugin-market-source-info > .ant-typography { font-size: 12px; }
+.plugin-market-account-actions { flex-shrink: 0; }
+.plugin-market-browser { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.plugin-market-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 168px; align-items: center; gap: 12px; }
+.plugin-market-toolbar .ant-input-search { min-width: 0; }
+.plugin-market-summary { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; }
+.plugin-market-summary > .ant-typography { font-size: inherit; }
+.plugin-market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); align-items: stretch; gap: 16px; }
+.plugin-market-grid:empty { display: none; }
+.plugin-market .plugin-market-card { gap: 10px; padding: 20px; border-inline-start: 3px solid var(--gn-br-2); border-radius: 10px; }
+.plugin-market .plugin-market-card[data-official="true"] { border-inline-start-color: var(--gn-accent); }
+.plugin-market-card .plugin-card-header { align-items: flex-start; gap: 8px; }
+.plugin-market-card .plugin-card-header .ant-typography { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-market-card .ant-tag { align-self: flex-start; margin-inline-end: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.plugin-market-card .plugin-market-description { font-size: 13px; line-height: 1.65; min-height: 64px; }
+.plugin-market-card-meta { display: flex; flex-direction: column; gap: 4px; color: var(--gn-fg-3); font-size: 12px; overflow-wrap: anywhere; }
+.plugin-market-card-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--gn-br-1); }
+.plugin-market-metrics { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--gn-fg-3); font-size: 12px; }
+.plugin-market-metrics .ant-rate { font-size: 12px; }
+.plugin-market-metrics .ant-rate-star:not(:last-child) { margin-inline-end: 2px; }
+.plugin-market-card-footer > .ant-btn { flex-shrink: 0; }
+.plugin-market-loading, .plugin-market-empty { display: grid; place-items: center; min-height: 240px; padding: 24px 16px; background: var(--gn-bg-panel); border: 1px dashed var(--gn-br-2); border-radius: 10px; }
+.plugin-market-load-more { align-self: center; min-width: 160px; }
+@media (max-width: 820px) {
+  .plugin-market-account { align-items: flex-start; flex-direction: column; padding: 14px 16px; gap: 12px; }
+  .plugin-market-source-info { width: 100%; }
+  .plugin-market-account-actions { flex-shrink: 1; }
+}
+@media (max-width: 480px) {
+  .plugin-market-toolbar { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .plugin-market-toolbar > .ant-select { width: 100%; }
+  .plugin-market .plugin-market-card { padding: 16px; }
+}
+
+.plugin-market-overview { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel); }
+.plugin-market-overview-text { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.plugin-market-overview-text > .ant-typography-secondary { font-size: 12px; line-height: 1.6; }
+.plugin-market-overview > .ant-space { flex-shrink: 0; }
+.plugin-market-group { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 16px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel-2); }
+.plugin-market-group .plugin-market-account { padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--gn-br-2); border-radius: 0; background: transparent; }
+.plugin-market-group-body { min-width: 0; }
+.plugin-market-group .plugin-market-loading, .plugin-market-group .plugin-market-empty { min-height: 160px; }
+.plugin-market-pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--gn-br-2); }
+.plugin-market-pagination > .ant-typography { font-size: 12px; }
+.plugin-market-page-actions { display: flex; gap: 8px; }
+.plugin-market-source-manager .ant-modal-body { max-height: min(65vh, 640px); overflow-y: auto; overscroll-behavior: contain; padding-inline-end: 4px; }
+.plugin-market-source-manager .ant-typography { margin: 0; }
+.plugin-market-source-row { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--gn-br-2); border-radius: 8px; background: var(--gn-bg-panel-2); }
+.plugin-market-source-row-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.plugin-market-source-row-header label { font-size: 13px; }
+.plugin-market-source-row-header .ant-tag { margin: 0; }
+.plugin-market-source-row-actions { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 820px) {
+ .plugin-market-overview { align-items: flex-start; flex-direction: column; padding: 14px 16px; }
+ .plugin-market-group { padding: 12px; }
+}
+
+.plugin-market-filter-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel); }
+.plugin-market-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; }
+.plugin-market-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.plugin-market-filter-grid > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.plugin-market-filter-grid label, .plugin-market-filter-hint { color: var(--gn-fg-3); font-size: 12px; }
+.plugin-market-filter-grid .ant-select { width: 100%; min-width: 0; }
+@container plugin-manager (max-width: 600px) { .plugin-market-filter-grid { grid-template-columns: minmax(0, 1fr); } }

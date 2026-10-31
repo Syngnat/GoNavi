@@ -1,0 +1,115 @@
+/* 结构化结论展示：正文按普通对话渲染，其余字段收成一行可展开的摘要。 */
+
+.gn-session-agent-structured {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gn-session-agent-structured-label {
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-3);
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  font-size: 12px;
+}
+
+.gn-session-agent-structured-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gn-session-agent-structured-meta-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 6px;
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-3);
+  cursor: pointer;
+  font-family: var(--gn-font-sans);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.gn-session-agent-structured-meta-head:hover {
+  border-color: var(--gn-accent);
+  color: var(--gn-fg-1);
+}
+
+.gn-session-agent-structured-meta-caret {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+
+.gn-session-agent-structured-meta-caret.open {
+  transform: rotate(90deg);
+}
+
+.gn-session-agent-structured-meta-chip {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-2);
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  white-space: nowrap;
+}
+
+.gn-session-agent-structured-meta-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gn-session-agent-structured-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gn-session-agent-structured-meta-key {
+  flex: 0 0 auto;
+  color: var(--gn-fg-3);
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  font-size: 12px;
+}
+
+.gn-session-agent-structured-meta-value {
+  min-width: 0;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.gn-session-agent-structured-meta-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 6px;
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono, var(--gn-font-sans));
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

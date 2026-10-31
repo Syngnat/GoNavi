@@ -52,7 +52,7 @@ func OptionsForDBType(dbType string) ScanOptions {
 		BackslashEscapes: normalized == "mysql" ||
 			normalized == "mariadb" || normalized == "oceanbase" ||
 			normalized == "diros" || normalized == "starrocks" ||
-			normalized == "goldendb" || normalized == "sphinx" || normalized == "tidb",
+			normalized == "goldendb" || normalized == "sphinx" || normalized == "tidb" || normalized == "hive",
 		// 历史默认开启。查询编辑器按用户开关关掉后，'{code1}-{code2}' 按原文执行。
 		QuotedPlaceholders: true,
 		// Oracle 家族（oracle / dameng，yashandb、OceanBase Oracle 协议等在
@@ -88,6 +88,8 @@ func normalizeDBType(dbType string) string {
 		return "postgres"
 	case "doris":
 		return "diros"
+	case "hive2", "apache-hive", "apache_hive":
+		return "hive"
 	case "open_gauss", "open-gauss":
 		return "opengauss"
 	case "gauss_db", "gauss-db":

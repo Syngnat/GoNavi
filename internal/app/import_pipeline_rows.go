@@ -34,6 +34,9 @@ func buildImportInsertQueryWithConflict(
 	}); err != nil {
 		return "", err
 	}
+	if normalizeInsertSQLDialect(dbType) == "hive" {
+		return buildHiveImportInsert(tableName, columns, row, columnTypes)
+	}
 	quotedCols := make([]string, 0, len(columns))
 	values := make([]string, 0, len(columns))
 	usableColumns := make([]string, 0, len(columns))
@@ -198,7 +201,7 @@ func normalizeImportMapRowWithOptions(columns []string, raw map[string]interface
 	row := make(map[string]interface{}, len(columns))
 	for _, column := range columns {
 		if value, ok := raw[column]; ok {
-			if text, isText := value.(string); isText {
+			if text, isText := value.(string); isText && !options.LosslessHive {
 				row[column] = normalizeImportStringValue(text, options)
 			} else {
 				row[column] = value

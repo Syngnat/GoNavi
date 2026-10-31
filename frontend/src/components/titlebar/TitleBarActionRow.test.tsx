@@ -32,12 +32,15 @@ const rowProps = (handlers: ReturnType<typeof createHandlers>, overrides: Partia
 });
 
 /** 与 App 相同的摆放：工具条模式在标题栏之外，标题栏模式内联到品牌区。Host 先于入口行渲染。 */
-const PlacementHarness: React.FC<{ onSqlTools: () => void }> = ({ onSqlTools }) => {
+const PlacementHarness: React.FC<{ onSqlTools: () => void; onPlugin?: () => void }> = ({ onSqlTools, onPlugin }) => {
   const placement = useStore((state) => state.appearance.titlebarActionsPlacement);
   const row = <TitleBarActionRow {...rowProps(createHandlers(), { placement })} />;
   return (
     <>
-      <TitleBarQuickActionsHost label="Tools" actions={[{ key: 'sql-tools', label: 'SQL tools', onClick: onSqlTools }]} />
+      <TitleBarQuickActionsHost label="Tools" actions={[
+        { key: 'sql-tools', label: 'SQL tools', onClick: onSqlTools },
+        ...(onPlugin ? [{ key: 'plugin-window-ssh', label: 'GoNavi SSH', onClick: onPlugin, afterAI: true }] : []),
+      ]} />
       <div className="gn-v2-titlebar">
         <div className="gonavi-titlebar-leading" data-testid="leading">
           <span>GoNavi</span>
@@ -175,6 +178,81 @@ describe('TitleBarActionRow', () => {
 
     await act(async () => { (sqlTools()[0] as HTMLButtonElement).click(); });
     expect(onSqlTools).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps standalone plugin buttons after AI across toolbar and titlebar placement changes', async () => {
+    const onSqlTools = vi.fn();
+    const onPlugin = vi.fn();
+    await render(<PlacementHarness onSqlTools={onSqlTools} onPlugin={onPlugin} />);
+    const assertOrder = () => {
+      const sql = button('[data-titlebar-quick-action="sql-tools"]');
+      const ai = button('[data-gonavi-ai-toolbar-action="true"]');
+      const plugin = button('[data-titlebar-quick-action="plugin-window-ssh"]');
+      expect(sql).not.toBeNull();
+      expect(ai).not.toBeNull();
+      expect(plugin).not.toBeNull();
+      expect(sql.compareDocumentPosition(ai) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(ai.compareDocumentPosition(plugin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const separators = container.querySelectorAll('#gonavi-titlebar-after-ai-actions [role="separator"]');
+      expect(separators).toHaveLength(1);
+      expect(separators[0].classList.contains('gn-titlebar-toolbar-divider')).toBe(true);
+      expect(separators[0].getAttribute('aria-orientation')).toBe('vertical');
+      expect(ai.compareDocumentPosition(separators[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(separators[0].compareDocumentPosition(plugin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(container.querySelectorAll('[data-titlebar-quick-action="plugin-window-ssh"]')).toHaveLength(1);
+    };
+    assertOrder();
+    await act(async () => { useStore.getState().setAppearance({ titlebarActionsPlacement: 'titlebar' }); });
+    assertOrder();
+    expect(button('[data-titlebar-quick-action="plugin-window-ssh"]').closest('[data-testid="leading"]')).not.toBeNull();
+    await act(async () => { useStore.getState().setAppearance({ titlebarActionsPlacement: 'toolbar' }); });
+    assertOrder();
+    await act(async () => { button('[data-titlebar-quick-action="plugin-window-ssh"]').click(); });
+    expect(onPlugin).toHaveBeenCalledTimes(1);
+    expect(onSqlTools).not.toHaveBeenCalled();
+  });
+
+  it.each(['toolbar', 'titlebar'] as const)('shows the AI/plugin divider only while a plugin button is present in %s', async (placement) => {
+    useStore.getState().setAppearance({ titlebarActionsPlacement: placement });
+    const onSqlTools = vi.fn();
+    const onPlugin = vi.fn();
+    const separators = () => container.querySelectorAll('#gonavi-titlebar-after-ai-actions [role="separator"]');
+    await render(<PlacementHarness onSqlTools={onSqlTools} />);
+    expect(separators()).toHaveLength(0);
+    await render(<PlacementHarness onSqlTools={onSqlTools} onPlugin={onPlugin} />);
+    expect(separators()).toHaveLength(1);
+    await render(<PlacementHarness onSqlTools={onSqlTools} />);
+    expect(separators()).toHaveLength(0);
+    expect(container.querySelector('[data-titlebar-quick-action="plugin-window-ssh"]')).toBeNull();
+  });
+
+  it('renders one divider before the first visible plugin and none for hidden actions', async () => {
+    const onPlugin = vi.fn();
+    function Plugins({ visible }: { visible: boolean }) {
+      return <>
+        <TitleBarQuickActionsHost label="Tools" actions={[
+          { key: 'hidden-plugin', label: 'Hidden plugin', afterAI: true, priority: 'secondary' },
+          ...(visible ? [
+            { key: 'plugin-one', label: 'Plugin one', afterAI: true, onClick: onPlugin },
+            { key: 'plugin-two', label: 'Plugin two', afterAI: true, onClick: onPlugin },
+          ] : []),
+        ]} />
+        <TitleBarActionRow {...rowProps(createHandlers())} />
+      </>;
+    }
+    await render(<Plugins visible />);
+    const slot = container.querySelector('#gonavi-titlebar-after-ai-actions')!;
+    expect(slot.querySelectorAll('[role="separator"]')).toHaveLength(1);
+    expect(slot.querySelector('[data-titlebar-quick-action="hidden-plugin"]')).toBeNull();
+    const first = button('[data-titlebar-quick-action="plugin-one"]');
+    const second = button('[data-titlebar-quick-action="plugin-two"]');
+    expect(slot.querySelector('[role="separator"]')!.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => { second.click(); });
+    expect(onPlugin).toHaveBeenCalledTimes(1);
+    await render(<Plugins visible={false} />);
+    expect(slot.querySelectorAll('[role="separator"]')).toHaveLength(0);
+    expect(slot.querySelectorAll('button')).toHaveLength(0);
   });
 
   it('switches the placement from the settings pills', async () => {

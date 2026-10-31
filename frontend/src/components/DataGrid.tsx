@@ -231,6 +231,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       baseData, rowsBeforeClientFilter, renderColumnTitle, selectedRowKeysRef, displayDataRef,
       rowKeyStr, viewMode, ddlModalOpen, setDdlModalOpen, ddlLoading, ddlText, ddlViewLayout,
       setDdlViewLayout, ddlSidebarWidth, ddlSidebarResizePreviewX, isTableSurfaceActive,
+      tableSurfaceEpoch,
       handleOpenTableDdl, handleViewModeChange, handleDdlSidebarResizeStart, resetDdlViewState,
       closeDdlView, handleClosePageFind, handleDataGridRootPointerDownCapture, columnIndexMap,
       updateCellSelection, markCellSelectionDeleteEligible, markCellSelectionUserSelection,
@@ -427,6 +428,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       selectionColumnMode, selectionColumnWidth, tableColumns, densityParams, tableViewportWidth, isMacLike,
       isWindowsLike, mergedColumns, measuredHorizontalScrollMetrics, floatingScrollbarInset,
       isTableSurfaceActive, tableHeight, effectiveUiScale, virtualEditingCellForRender,
+      tableSurfaceEpoch,
       enableVirtual, displayColumnNames, useInlineEditableBodyCell, virtualHorizontalElementsRef,
       tableContainerRef, virtualHorizontalPreviewActiveRef, virtualHorizontalMaxScrollRef,
       virtualHorizontalPostCommitGuardRef, virtualHorizontalPostCommitFrameHandlerRef,
@@ -470,6 +472,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       handleExternalHorizontalScrollPointerRelease,
       handleExternalHorizontalScrollLostPointerCapture, handleSubmitColumnQuickFind,
   } = useDataGridExternalScroll({
+      tableSurfaceEpoch,
       externalScrollSettleRafRef, externalScrollSequenceRef, isExternalScrollbarInteractionActive,
       externalSyncRafRef, pendingExternalScrollLeftRef, externalIdleCommitSchedulerRef,
       virtualHorizontalPreviewActiveRef, horizontalSyncSourceRef, externalHorizontalScrollRef,
@@ -490,7 +493,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       paginationHasKnownTotalPages, paginationTotalPages, paginationV2SummaryText,
       paginationPageText, handlePageSizeChange, handleV2PageStep, aiShortcutLabel,
   } = useDataGridLayoutEffects({
-      isTableSurfaceActive, tableContainerRef, enableVirtual, horizontalSyncSourceRef,
+      isTableSurfaceActive, tableSurfaceEpoch, tableContainerRef, enableVirtual, horizontalSyncSourceRef,
       lastTableScrollLeftRef, externalHorizontalScrollRef, lastExternalScrollLeftRef,
       virtualListItemHorizontalOffsetComposited, isWindowsLike, scheduleVirtualHorizontalWheel,
       pickHorizontalScrollTargets, tableHorizontalWheelRafRef, pendingTableHorizontalDeltaRef,

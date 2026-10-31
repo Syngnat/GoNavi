@@ -7,6 +7,11 @@ import (
 	"GoNavi-Wails/internal/plugin"
 )
 
+// maxPluginProviderIconBytes bounds one package-relative provider icon before it becomes
+// a data URL in the metadata catalog. SVG and other non-raster files are rejected by sniffing.
+// It matches the manifest icon limit so one declaration never passes one reader and fails another.
+const maxPluginProviderIconBytes = 5 << 20
+
 // PluginProviderSnapshot is a metadata-only host policy snapshot.
 type PluginProviderSnapshot struct {
 	Statuses []plugin.Status
@@ -14,12 +19,15 @@ type PluginProviderSnapshot struct {
 	SafeMode bool
 }
 
-// PluginProviderView contains no secret or provider-generated data.
+// PluginProviderView contains no secrets, credentials or executable data. Icon is an
+// optional host-produced bounded raster data URL; all remaining fields are declarations.
 type PluginProviderView struct {
 	Type           string           `json:"type"`
 	PluginID       string           `json:"pluginId"`
 	ID             string           `json:"id"`
 	Name           string           `json:"name"`
+	Icon           string           `json:"icon,omitempty"`
+	DefaultBaseURL string           `json:"defaultBaseUrl,omitempty"`
 	Models         []plugin.AIModel `json:"models"`
 	SupportsTools  bool             `json:"supportsTools"`
 	SupportsImages bool             `json:"supportsImages"`
@@ -42,7 +50,8 @@ func NewPluginFactory(catalogSource func(context.Context) (PluginProviderSnapsho
 	return &PluginFactory{catalogSource: catalogSource, managerSource: managerSource}
 }
 
-// Catalog reads only declaration metadata and preserves disabled entries.
+// Catalog reads declaration metadata plus explicitly declared bounded icons and
+// preserves disabled entries. It never starts a plugin or reads its executable.
 func (f *PluginFactory) Catalog(ctx context.Context) ([]PluginProviderView, error) {
 	if ctx == nil {
 		return nil, ErrPluginProviderUnavailable
@@ -60,6 +69,18 @@ func (f *PluginFactory) Catalog(ctx context.Context) ([]PluginProviderView, erro
 	if err != nil {
 		return nil, ErrPluginProviderUnavailable
 	}
+	var manager *plugin.Manager
+	if f.managerSource != nil {
+	scanIcons:
+		for _, status := range snapshot.Statuses {
+			for _, decl := range status.Manifest.Contributes.AIProviders {
+				if decl.Icon != "" {
+					manager, _ = f.managerSource(ctx)
+					break scanIcons
+				}
+			}
+		}
+	}
 	result := make([]PluginProviderView, 0)
 	for _, status := range snapshot.Statuses {
 		if !pluginProviderPermission(status.Manifest) || status.Generation > 1<<53-1 {
@@ -71,12 +92,32 @@ func (f *PluginFactory) Catalog(ctx context.Context) ([]PluginProviderView, erro
 			if typ == "" {
 				continue
 			}
-			result = append(result, PluginProviderView{Type: typ, PluginID: status.Manifest.ID, ID: decl.ID, Name: decl.Name, Models: append([]plugin.AIModel{}, decl.Models...), SupportsTools: decl.SupportsTools, SupportsImages: decl.SupportsImages, Version: status.Manifest.Version, Digest: status.Digest, Generation: status.Generation, Available: reason == "", State: status.State, Reason: reason})
+			result = append(result, PluginProviderView{Type: typ, PluginID: status.Manifest.ID, ID: decl.ID, Name: decl.Name, DefaultBaseURL: decl.DefaultBaseURL,
+				Icon: pluginProviderIcon(ctx, manager, status.Manifest.ID, decl.Icon), Models: append([]plugin.AIModel{}, decl.Models...),
+				SupportsTools: decl.SupportsTools, SupportsImages: decl.SupportsImages, Version: status.Manifest.Version,
+				Digest: status.Digest, Generation: status.Generation, Available: reason == "", State: status.State, Reason: reason})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Type < result[j].Type })
 	return result, nil
 }
+
+// pluginProviderIcon turns one declared package-relative raster image into a bounded data URL.
+// Missing, oversized, linked or non-raster files are omitted so the UI falls back to the label.
+func pluginProviderIcon(ctx context.Context, manager *plugin.Manager, pluginID, icon string) string {
+	if manager == nil || icon == "" || ctx.Err() != nil {
+		return ""
+	}
+	data, err := manager.ReadPackageFile(pluginID, icon, maxPluginProviderIconBytes)
+	if err != nil {
+		return ""
+	}
+	return providerIconDataURL(data)
+}
+
+// providerIconDataURL reuses the host raster rule so plugin logos and provider icons cannot
+// drift apart: sniff the content, refuse anything that is not a bounded raster image.
+func providerIconDataURL(data []byte) string { return plugin.RasterIconDataURL(data) }
 
 func pluginProviderPermission(m plugin.Manifest) bool {
 	if m.Backend == nil {

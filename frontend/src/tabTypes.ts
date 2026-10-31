@@ -14,7 +14,9 @@ export type WorkbenchTabType =
   | "dml-snapshot"
   | "cloud-backup"
   | "driver-manager"
+  | "plugin-manager"
   | "settings-center"
+  | "plugin-page"
   | "request-diagnostics"
   | "message-queue"
   | "redis-keys"
@@ -43,4 +45,5 @@ export type WorkbenchTabType =
   | "jvm-audit"
   | "jvm-diagnostic"
   | "jvm-monitoring"
-  | "session-workbench";
+  | "session-workbench"
+  | "agent-assets";

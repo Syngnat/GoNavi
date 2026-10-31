@@ -225,7 +225,14 @@ func (a *App) prepareQueryExportDatabase(config connection.ConnectionConfig, dbN
 		return nil, runConfig, options, err
 	}
 	if options.Format == "sql" {
+		if resolveDDLDBType(runConfig) == "hive" && strings.TrimSpace(options.InsertSQLTargetTable) == "" {
+			return nil, runConfig, options, fmt.Errorf("%s", a.appText("hive.backend.error.export_metadata_required", nil))
+		}
 		options.InsertSQLDialect = resolveDDLDBType(runConfig)
+		if options.InsertSQLDialect == "hive" {
+			options.InsertSQLColumnOrder, options.InsertSQLPartitionColumns = nil, nil
+			options.InsertSQLColumnTypes, options.InsertSQLTargetColumns = nil, nil
+		}
 		options.InsertSQLTargetTable = resolveChangeTargetTableName(runConfig, dbName, options.InsertSQLTargetTable)
 		if options.InsertSQLTargetTable != "" {
 			schemaName, pureTableName := normalizeSchemaAndTable(runConfig, dbName, options.InsertSQLTargetTable)
@@ -234,6 +241,7 @@ func (a *App) prepareQueryExportDatabase(config connection.ConnectionConfig, dbN
 			}
 			if defs, colErr := dbInst.GetColumns(schemaName, pureTableName); colErr == nil {
 				options.InsertSQLColumnTypes = buildImportColumnTypeMap(defs)
+				options = withHiveExportColumns(options, defs)
 				options.InsertSQLTargetColumns = make(map[string]string, len(defs))
 				for _, def := range defs {
 					if key := normalizeColumnName(def.Name); key != "" {
@@ -241,6 +249,9 @@ func (a *App) prepareQueryExportDatabase(config connection.ConnectionConfig, dbN
 					}
 				}
 			}
+		}
+		if options.InsertSQLDialect == "hive" && len(options.InsertSQLColumnOrder) == 0 {
+			return nil, runConfig, options, fmt.Errorf("%s", a.appText("hive.backend.error.export_metadata_required", nil))
 		}
 	}
 

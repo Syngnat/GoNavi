@@ -188,7 +188,7 @@ func runtimeSupportsSessionExecer(runtime db.Database) bool {
 
 func dataImportTableSupportsTransactionalBatch(dbType string) bool {
 	switch dbType {
-	case "mysql", "mariadb":
+	case "mysql", "mariadb", "hive":
 		return false
 	default:
 		return true
@@ -216,7 +216,7 @@ func isDataImportMySQLFamilyDialect(dbType string) bool {
 
 func isDataImportSQLDialect(dbType string) bool {
 	switch dbType {
-	case "mysql", "mariadb", "oceanbase", "postgres", "sqlite", "oracle", "sqlserver", "dameng":
+	case "mysql", "mariadb", "oceanbase", "postgres", "sqlite", "oracle", "sqlserver", "dameng", "hive":
 		return true
 	default:
 		return false

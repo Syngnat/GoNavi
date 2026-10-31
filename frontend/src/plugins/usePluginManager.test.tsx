@@ -18,6 +18,36 @@ beforeEach(() => {
 });
 afterEach(() => { if (renderer) act(() => renderer!.unmount()); renderer = undefined; vi.useRealTimers(); });
 describe('plugin lifecycle priority and fencing', () => {
+  it('restores availability after removing a running plugin fails', async () => {
+    host.PluginList.mockResolvedValue(ok([{ ...plugin, state: 'running' }]));
+    host.PluginRemove.mockResolvedValue({ success: false, message: 'disable plugin before removal' });
+    await act(async () => { renderer = create(<Harness />); });
+    await act(async () => { await manager.remove(plugin.manifest.id, false); });
+    expect(manager.error).toContain('disable plugin before removal');
+    expect(manager.plugins[0].state).toBe('running');
+    expect(manager.revoked.has(plugin.manifest.id)).toBe(false);
+    expect(manager.busy[plugin.manifest.id]).toBe(false);
+  });
+  it('does not undo a newer disable when an earlier removal fails', async () => {
+    let rejectRemove: (error: Error) => void = () => {};
+    host.PluginRemove.mockImplementation(() => new Promise((_resolve, reject) => { rejectRemove = reject; }));
+    host.PluginSetEnabled.mockResolvedValue(ok({ ...plugin, state: 'stopping', desiredEnabled: false }));
+    await act(async () => { renderer = create(<Harness />); });
+    let removing: Promise<void>;
+    await act(async () => { removing = manager.remove(plugin.manifest.id, false); });
+    await act(async () => { await manager.setEnabled(plugin.manifest.id, false); });
+    await act(async () => { rejectRemove(new Error('remove failed')); await removing!; });
+    expect(manager.revoked.has(plugin.manifest.id)).toBe(true);
+    expect(manager.error).toBe('');
+  });
+  it('keeps an existing revocation when removal fails', async () => {
+    host.PluginSetEnabled.mockResolvedValue(ok({ ...plugin, state: 'disabled', desiredEnabled: false }));
+    host.PluginRemove.mockRejectedValue(new Error('remove failed'));
+    await act(async () => { renderer = create(<Harness />); });
+    await act(async () => { await manager.setEnabled(plugin.manifest.id, false); });
+    await act(async () => { await manager.remove(plugin.manifest.id, false); });
+    expect(manager.revoked.has(plugin.manifest.id)).toBe(true);
+  });
   it('sends disable while enable is unresolved, immediately revokes UI, and ignores late enable response', async () => {
     let finishEnable: (value: unknown) => void = () => {};
     host.PluginSetEnabled.mockImplementation((_id: string, enabled: boolean) => enabled

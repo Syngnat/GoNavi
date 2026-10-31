@@ -412,6 +412,49 @@ body[data-ui-version="v2"] .gn-table-overview-compact-row:hover {
   background: var(--gn-bg-hover) !important;
 }
 
+/* 选中态：卡片 / 列表 / 紧凑表共用，颜色对齐侧栏树的选中行。 */
+body[data-ui-version="v2"] .gn-v2-table-overview-content {
+  /* 拖选按行进行，整块内容区不参与浏览器原生文字选择（表头、分组标题、
+     行间空白同样会起选区），避免拖过时文字被一起选中。 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card.is-selected,
+body[data-ui-version="v2"] .gn-v2-table-row.is-selected {
+  background: color-mix(in srgb, var(--gn-accent) 12%, var(--gn-bg-panel-2)) !important;
+  border-color: color-mix(in srgb, var(--gn-accent) 55%, var(--gn-br-2)) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gn-accent) 35%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-table-overview-compact-row.is-selected {
+  background: color-mix(in srgb, var(--gn-accent) 12%, var(--gn-bg-panel-2)) !important;
+  box-shadow: inset 2px 0 0 var(--gn-accent);
+}
+
+/* 点击后行会被程序化聚焦（供回车改名），鼠标操作不需要焦点框。 */
+body[data-ui-version="v2"] [data-table-overview-select]:focus {
+  outline: none;
+}
+
+/* 表名就地编辑：撑满名字所在的行内位置，输入框内仍可正常选择文字。 */
+body[data-ui-version="v2"] .gn-table-overview-name-editor {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-table-overview-name-editor .ant-input {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-card.is-selected:hover,
+body[data-ui-version="v2"] .gn-v2-table-row.is-selected:hover,
+body[data-ui-version="v2"] .gn-table-overview-compact-row.is-selected:hover {
+  background: color-mix(in srgb, var(--gn-accent) 18%, var(--gn-bg-panel-2)) !important;
+}
+
 body[data-ui-version="v2"] .gn-table-overview-compact-name,
 body[data-ui-version="v2"] .gn-table-overview-compact-cell {
   padding-top: 4px;

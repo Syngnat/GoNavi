@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,8 +15,10 @@ import (
 )
 
 // PluginWindowHost exposes only the independently supervised window lifecycle.
+// Open carries the host locale and theme ("light"/"dark") so plugin windows
+// can follow the main application appearance.
 type PluginWindowHost interface {
-	Open(context.Context, string) (any, error)
+	Open(ctx context.Context, pluginID, windowKey string, launchContext json.RawMessage, locale, theme string) (any, error)
 	Revoke(string)
 	Close(context.Context) error
 }
@@ -24,8 +27,10 @@ type PluginWindowHost interface {
 type PluginWindowFactory func(context.Context, *plugin.Manager) (PluginWindowHost, error)
 
 type pluginRuntimeState struct {
-	mutationMu   sync.Mutex
-	mu           sync.Mutex
+	mutationMu sync.Mutex
+	mu         sync.Mutex
+	// fetch 持有 github:/npm 远程安装的一次性审批令牌（plugin_fetch_approval.go）。
+	fetch        pluginFetchState
 	initializing chan struct{}
 	manager      *plugin.Manager
 	root         string
@@ -92,7 +97,13 @@ func (a *App) pluginManager(ctx context.Context) (*plugin.Manager, error) {
 		lifetime, stop := context.WithCancel(a.ctx)
 		state.lifetime, state.cancel = lifetime, stop
 		state.mu.Unlock()
-		manager, err := plugin.NewManager(plugin.Options{Root: root, HostVersion: CurrentVersion(), Disabled: pluginEnvEnabled("GONAVI_DISABLE_PLUGINS")})
+		manager, err := plugin.NewManager(plugin.Options{
+			Root:             root,
+			HostVersion:      CurrentVersion(),
+			Disabled:         pluginEnvEnabled("GONAVI_DISABLE_PLUGINS"),
+			HostCapability:   a.pluginHostCapability,
+			ProxyEnvironment: pluginProxyEnvironment,
+		})
 		var windows PluginWindowHost
 		if err == nil {
 			if startErr := manager.Start(lifetime); startErr != nil {
@@ -159,6 +170,7 @@ func (a *App) initializePlugins(ctx context.Context) {
 
 func (a *App) shutdownPlugins() {
 	a.shutdownPluginMarket()
+	a.plugins.fetch.close()
 	if a == nil {
 		return
 	}

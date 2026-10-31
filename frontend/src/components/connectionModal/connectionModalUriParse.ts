@@ -6,6 +6,7 @@ import {
   supportsConnectionParamsForType,
   supportsSSLForType,
 } from "../../utils/connectionTypeCapabilities";
+import { isHiveConnectionType, parseHiveUri } from "../../utils/hiveConnection";
 import { parseRedisUriToFormValues } from "../../utils/redisConnectionUri";
 import {
   findRegistryUriScheme,
@@ -46,6 +47,7 @@ export const parseUriToValues = (
   uriText: string,
   type: string,
 ): Record<string, any> | null => {
+  if (isHiveConnectionType(type)) return parseHiveUri(uriText);
   const trimmedUri = withRegistryUriScheme(type, String(uriText || "").trim());
   if (!trimmedUri) {
     return null;

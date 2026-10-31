@@ -1,3 +1,4 @@
+import { buildHiveQueryPageSQL, buildHiveCountSQL } from './hivePagination';
 import { buildOrderBySQL, buildPaginatedSelectSQL, splitTrailingIsolationClause } from './sql';
 import { findTopLevelKeyword, isSelectStatement, splitSqlTail } from './queryAutoLimit';
 import { resolveSqlDialect } from './sqlDialect';
@@ -141,11 +142,12 @@ const resolveWrappedBaseSql = (dbType: string, baseSql: string): string => {
   return `SELECT * FROM (${base}) AS __gonavi_query_page__`;
 };
 
-export const buildQueryResultCountSql = (baseSql: string, dbType = ''): string => {
+export const buildQueryResultCountSql = (baseSql: string, dbType = '', columns?: readonly string[]): string => {
   const dialect = resolveSqlDialect(dbType || '');
   const mainSql = splitSqlTail(String(baseSql || ''), dialect).main.trim();
   if (!mainSql) return '';
   if (dialect === 'iris') return buildInterSystemsQueryResultCountSql(mainSql);
+  if (dialect === 'hive') return buildHiveCountSQL(mainSql, columns);
   const statement = splitTrailingIsolationClause(mainSql);
   const orderByPos = findTopLevelKeyword(statement.main, 'order by', dialect);
   const countBaseSql = (orderByPos >= 0 ? statement.main.slice(0, orderByPos) : statement.main).trim();
@@ -180,6 +182,7 @@ export const buildQueryResultPageSql = (params: {
   page: number;
   pageSize: number;
   lookahead?: boolean;
+  columns?: readonly string[];
   sortInfo?: Array<{ columnKey: string; order: string; enabled?: boolean }>;
 }): string => {
   const pageSize = normalizePositiveInteger(params.pageSize);
@@ -192,12 +195,14 @@ export const buildQueryResultPageSql = (params: {
     : { main: params.baseSql, tail: '' };
   if (pageSize <= 0) {
     if (dialect === 'iris') return buildInterSystemsQueryResultPageSql(statement.main, orderBySql, 0, 0);
+    if (dialect === 'hive' && orderBySql) return buildHiveQueryPageSQL(statement.main, orderBySql, 0, 0, params.columns);
     if (!orderBySql) return String(params.baseSql || '').trim();
     return `${resolveWrappedBaseSql(dialect, statement.main)}${orderBySql}${statement.tail}`;
   }
   const page = Math.max(1, Math.floor(Number(params.page) || 1));
   const limit = params.lookahead ? pageSize + 1 : pageSize;
   const offset = (page - 1) * pageSize;
+  if (dialect === 'hive') return buildHiveQueryPageSQL(statement.main, orderBySql, limit, offset, params.columns);
   if (dialect === 'iris') {
     return buildInterSystemsQueryResultPageSql(statement.main, orderBySql, limit, offset);
   }

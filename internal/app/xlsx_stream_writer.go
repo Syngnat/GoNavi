@@ -61,6 +61,7 @@ type xlsxExportWriteOptions struct {
 }
 
 type xlsxExportFileWriter struct {
+	losslessHive   bool
 	file           xlsxExportOutputFile
 	tempDir        string
 	budget         *webTransferBudget
@@ -150,6 +151,13 @@ func (w *xlsxExportFileWriter) rotateSheet() error {
 }
 
 func (w *xlsxExportFileWriter) ConsumeRow(row map[string]interface{}) error {
+	if w.losslessHive {
+		values := make([]interface{}, len(w.columns))
+		for i, name := range w.columns {
+			values[i] = row[name]
+		}
+		return w.consumeHiveValues(values)
+	}
 	if w.rowCount >= w.maxRows {
 		if err := w.rotateSheet(); err != nil {
 			return err
@@ -174,6 +182,9 @@ func (w *xlsxExportFileWriter) ConsumeRow(row map[string]interface{}) error {
 }
 
 func (w *xlsxExportFileWriter) ConsumeRowValues(values []interface{}) error {
+	if w.losslessHive {
+		return w.consumeHiveValues(values)
+	}
 	if w.rowCount >= w.maxRows {
 		if err := w.rotateSheet(); err != nil {
 			return err

@@ -40,6 +40,8 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
       /you have an error in your sql syntax/i,
       // Presto / Trino：line 1:8: mismatched input 'FORM'
       /mismatched input/i,
+      // Hive：ParseException line 1:7 cannot recognize input near 'FORM'
+      /cannot recognize input near/i,
     ],
   },
   {
@@ -56,6 +58,9 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
       /object\s+.+does not exist/i,
       // Presto / Trino：Table 'hive.sales.orders' does not exist、Schema / Catalog … does not exist
       /\b(?:table|view|schema|catalog)\s+.+does not exist/i,
+      // Hive：Table not found 'nope'、Database does not exist: nope
+      /\b(?:table|view|database)\s+not\s+found\b/i,
+      /\bdatabase\s+does\s+not\s+exist\b/i,
     ],
   },
   {
@@ -82,6 +87,8 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
       /no such column/i,
       // Presto / Trino：Column 'amount' cannot be resolved
       /column\s+.+cannot be resolved/i,
+      // Hive：Invalid table alias or column reference 'amount'
+      /invalid table alias or column reference/i,
     ],
   },
   {

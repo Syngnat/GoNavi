@@ -27,6 +27,16 @@ describe('titleBarToolBar 布局与设置联动口径', () => {
       .toBeGreaterThanOrEqual(1);
   });
 
+  it('选中项悬停仍用激活底，不被普通 hover 近白底盖住', () => {
+    const activeHover = css.indexOf(
+      ".gn-titlebar-toolbar .gonavi-titlebar-primary-action[data-titlebar-toolbar-item-active='true']:hover",
+    );
+    const genericHover = css.indexOf('.gn-titlebar-toolbar .gonavi-titlebar-primary-action:hover');
+    expect(activeHover).toBeGreaterThan(genericHover);
+    const rule = css.slice(activeHover, css.indexOf('}', activeHover));
+    expect(rule).toContain('background: var(--gn-titlebar-toolbar-active-surface);');
+  });
+
   it('「设置 / 主题」胶囊字号公式带 !important，压过全局 .ant-btn-sm 钉死', () => {
     expect(pillCss).toContain(
       'font-size: calc((var(--gn-font-size-sm, 12px) + 1px) * var(--gn-ui-scale, 1)) !important;',

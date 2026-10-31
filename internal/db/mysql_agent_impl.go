@@ -46,15 +46,20 @@ type mysqlAgentRequest struct {
 	DBName    string                       `json:"dbName,omitempty"`
 	TableName string                       `json:"tableName,omitempty"`
 	Changes   *connection.ChangeSet        `json:"changes,omitempty"`
+	TimeoutMs int64                        `json:"timeoutMs,omitempty"`
+	RowBudget *RowBudgetOptions            `json:"rowBudget,omitempty"`
+	rowBudget *RowBudget
 }
 
 type mysqlAgentResponse struct {
-	ID           int64           `json:"id"`
-	Success      bool            `json:"success"`
-	Error        string          `json:"error,omitempty"`
-	Data         json.RawMessage `json:"data,omitempty"`
-	Fields       []string        `json:"fields,omitempty"`
-	RowsAffected int64           `json:"rowsAffected,omitempty"`
+	ID              int64           `json:"id"`
+	Success         bool            `json:"success"`
+	Error           string          `json:"error,omitempty"`
+	Data            json.RawMessage `json:"data,omitempty"`
+	Fields          []string        `json:"fields,omitempty"`
+	RowsAffected    int64           `json:"rowsAffected,omitempty"`
+	Truncated       bool            `json:"truncated,omitempty"`
+	BudgetExhausted bool            `json:"budgetExhausted,omitempty"`
 }
 
 type mysqlAgentClient struct {
@@ -204,6 +209,9 @@ func (c *mysqlAgentClient) callLocked(req mysqlAgentRequest, out interface{}, fi
 			return fmt.Errorf("解析 MySQL 驱动代理数据失败：%w", err)
 		}
 	}
+	recordOptionalAgentBudgetResponse(optionalAgentRequest{rowBudget: req.rowBudget}, out, optionalAgentResponse{
+		Truncated: resp.Truncated, BudgetExhausted: resp.BudgetExhausted,
+	})
 	return nil
 }
 

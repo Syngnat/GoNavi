@@ -512,6 +512,130 @@ export const createBrowserMockAppMethods = ({
                 data: cloneBrowserMockValue(mockDataRootInfoRef.current),
             };
         },
+
+        // ─── 会话管理（sessionagent）浏览器 mock ───
+        // 虚构 Codex/Claude 会话数据，支撑 Web 模式下的 UI 交互测试。
+        SessionAgentListIntegrations: async () => ({
+            success: true,
+            data: [
+                { kind: 'codex', dataDir: 'C:/mock/.codex', displayName: 'ChatGPT', addedAt: 1730000000 },
+                { kind: 'claude', dataDir: 'C:/mock/.claude', displayName: 'Claude Code', addedAt: 1730000000 },
+            ],
+        }),
+        SessionAgentProviders: async () => ({
+            success: true,
+            data: [
+                { id: 'codex', name: 'ChatGPT' },
+                { id: 'claude', name: 'Claude Code' },
+            ],
+        }),
+        SessionAgentList: async (provider: string, search: string) => {
+            const items = buildMockSessionAgentItems();
+            const filtered = items.filter((item) => {
+                if (provider && item.providerId !== provider) return false;
+                if (!search) return true;
+                const needle = String(search).toLowerCase();
+                return [item.title, item.summary, item.firstMessage, item.projectDir, item.sessionId]
+                    .some((field) => String(field).toLowerCase().includes(needle));
+            });
+            return { success: true, data: { items: filtered, total: filtered.length } };
+        },
+        SessionAgentDetail: async (provider: string, sourcePath: string) => {
+            const item = buildMockSessionAgentItems().find((entry) => entry.sourcePath === sourcePath)
+                ?? buildMockSessionAgentItems()[0];
+            return { success: true, data: buildMockSessionAgentTranscript(item) };
+        },
+        SessionAgentReadPage: async () => ({ success: true, data: { messages: [] } }),
+        SessionAgentBlockContent: async () => ({
+            success: true,
+            data: { text: '（mock）完整内容全文：这里是按需读取的大内容分页结果。'.repeat(6), totalLen: 240, truncated: false },
+        }),
+        SessionAgentExportMarkdown: async () => ({
+            success: true,
+            data: { markdown: '# 会话记录\n\n**用户**：哈喽\n\n**助手**：你好，有什么可以帮你？\n' },
+        }),
+        SessionAgentCopyResume: async (_provider: string, sessionId: string) => ({
+            success: true,
+            data: { command: `codex resume ${sessionId}` },
+        }),
+        SessionAgentDelete: async () => ({ success: true }),
+        SessionAgentRevealPath: async () => ({ success: true, data: { path: 'C:/mock/.codex/sessions' } }),
+        SessionAgentImageDataURL: async () => ({ success: true, data: { dataUrl: 'data:image/png;base64,AAAA' } }),
+        SessionAgentImageInlineDataURL: async () => ({ success: true, data: { dataUrl: 'data:image/png;base64,BBBB' } }),
+        SessionAgentTimeGroups: async () => ({ success: true, data: { groups: {}, total: 0 } }),
     };
     return { mockAppMethods };
+};
+
+// 会话管理 mock 数据：两个厂商、三个项目、覆盖今天/昨天/更早。
+const buildMockSessionAgentItems = () => {
+    const now = Date.now();
+    const day = 86400000;
+    return [
+        {
+            providerId: 'codex', sessionId: 'mock-th-1',
+            title: '哈喽', summary: '好的，命令正常执行了。我刚跑了一下。',
+            firstMessage: '哈喽！帮我看看 CoBot 仓库里 README 的未提交改动。',
+            projectDir: 'E:/Project/GitHub/CoBot',
+            createdAt: now - 2 * 3600000, lastActiveAt: now - 2 * 3600000,
+            sourcePath: 'C:/mock/.codex/sessions/rollout-1.jsonl',
+            resumeCommand: 'codex resume mock-th-1',
+        },
+        {
+            providerId: 'codex', sessionId: 'mock-th-2',
+            title: '启动三个子 agent 测试一下', summary: 'API Error: 503 auth unavailable: no auth available',
+            firstMessage: '启动三个子 agent 测试一下并发能力。',
+            projectDir: 'E:/Project/CodeUp/kunghim-ops',
+            createdAt: now - 4 * day, lastActiveAt: now - 4 * day,
+            sourcePath: 'C:/mock/.codex/sessions/rollout-2.jsonl',
+            resumeCommand: 'codex resume mock-th-2',
+        },
+        {
+            providerId: 'claude', sessionId: 'mock-cl-1',
+            title: '重构数据网格的列宽拖拽', summary: '已完成列宽拖拽与空态处理，提交在 dev 分支。',
+            firstMessage: '帮我重构数据网格的列宽拖拽逻辑。',
+            projectDir: 'E:/Project/GitHub/GoNavi',
+            createdAt: now - 1 * day, lastActiveAt: now - 1 * day,
+            sourcePath: 'C:/mock/.claude/projects/rollout-3.jsonl',
+            resumeCommand: 'claude --resume mock-cl-1',
+        },
+        {
+            providerId: 'claude', sessionId: 'mock-cl-2',
+            title: '检查局域网数据库连接', summary: '连接正常，延迟 3ms。',
+            firstMessage: '检查一下局域网数据库的连接状态。',
+            projectDir: 'E:/Project/CodeUp/kunghim-ops',
+            createdAt: now - 10 * day, lastActiveAt: now - 10 * day,
+            sourcePath: 'C:/mock/.claude/projects/rollout-4.jsonl',
+            resumeCommand: 'claude --resume mock-cl-2',
+        },
+    ];
+};
+
+// 会话详情 mock：两轮对话 + 工具调用/结果（截断触发"展开全文"）。
+const buildMockSessionAgentTranscript = (item: ReturnType<typeof buildMockSessionAgentItems>[number]) => {
+    const base = Date.now() - 2 * 3600000;
+    const messages = [
+        { role: 'user', content: item.firstMessage, ts: base },
+        {
+            role: 'assistant', content: '好的，我来处理这个需求。先看一下当前状态。', ts: base + 60000,
+            blocks: [
+                { type: 'tool_call', toolCall: { id: 'c1', rawName: 'exec', kind: 'shell', title: 'git status', inputPreview: '{"cmd":"git status"}', inputTotalLen: 24 } },
+                { type: 'tool_result', toolResult: { callId: 'c1', status: 'success', preview: 'On branch main\nnothing to commit', totalLen: 2600, truncated: true, full: { kind: 'jsonl', offset: 0, len: 10, pointer: '/payload/output' } } },
+            ],
+        },
+        { role: 'user', content: '现在能执行命令了吗', ts: base + 120000 },
+        {
+            role: 'assistant', content: '可以，命令正常执行了。我刚跑了一下：git status 显示工作区干净。', ts: base + 180000,
+            blocks: [
+                { type: 'thinking', thinking: { text: '（mock）用户在确认命令执行能力。', summary: '确认执行能力' } },
+                { type: 'tool_call', toolCall: { id: 'c2', rawName: 'exec', kind: 'shell', title: 'echo ok', inputPreview: '{"cmd":"echo ok"}' } },
+                { type: 'tool_result', toolResult: { callId: 'c2', status: 'success', preview: 'ok' } },
+            ],
+        },
+    ];
+    const turns = [
+        { turnId: 't1', firstMessageIndex: 0, lastMessageIndex: 1, questionPreview: item.firstMessage.slice(0, 80), ts: base, stepCount: 1, errorCount: 0, hasFinalReply: true, aborted: false },
+        { turnId: 't2', firstMessageIndex: 2, lastMessageIndex: 3, questionPreview: '现在能执行命令了吗', ts: base + 120000, stepCount: 1, errorCount: 0, hasFinalReply: true, aborted: false },
+    ];
+    return { messages, turns, cached: false };
 };

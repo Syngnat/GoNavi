@@ -7,6 +7,7 @@ import { SandboxedHTMLPanel } from '../../plugins/SandboxedHTMLPanel';
 import { usePluginInvocation } from '../../plugins/usePluginInvocation';
 import type { PluginStatus } from '../../plugins/types';
 import { publicPluginCommands } from '../../plugins/dataSource/reservedCommands';
+import { PluginWindowAction } from './PluginWindowAction';
 
 export function PluginCommandsPanel({ plugin, allowed, webRuntime }: { plugin: PluginStatus; allowed: boolean; webRuntime?: boolean }) {
   const { t } = useI18n();
@@ -21,7 +22,7 @@ export function PluginCommandsPanel({ plugin, allowed, webRuntime }: { plugin: P
     catch { setValidationError(true); }
   };
   return <div className="plugin-stack">
-    {plugin.manifest.window && !webRuntime && <Button disabled={!allowed} onClick={() => void invocation.openWindow()}>{t('plugin.action.open_window')}</Button>}
+    {plugin.manifest.window && !webRuntime && <PluginWindowAction disabled={!allowed} onOpen={() => void invocation.openWindow()} />}
     {commands.length > 0 && <Collapse items={[{ key: 'commands', label: t('plugin.commands.title'), children: <div className="plugin-stack">
       <Select aria-label={t('plugin.commands.select')} value={command} onChange={setCommand} options={commands.map((item) => ({ label: item.title, value: item.id }))} />
       <Input.TextArea aria-label={t('plugin.commands.arguments')} value={args} onChange={(event) => setArgs(event.target.value)} maxLength={65536} autoSize={{ minRows: 2, maxRows: 8 }} />

@@ -3,6 +3,7 @@ import { isPluginDataSourceNamespace } from "../../plugins/dataSource/identity";
 import { pluginDataSourceUnavailableReason } from "../../plugins/dataSource/presentation";
 import { pluginDataSourceNewValues } from "./pluginDataSourceForm";
 import { normalizeDriverType } from "../../utils/connectionDriverType";
+import { isAgentConnectionType } from "../../utils/agentConnectionTypes";
 import { t } from "../../i18n";
 import { getConnectionTypeDefaultPort as getDefaultPortByType } from "../../utils/connectionTypeCatalog";
 import { buildDefaultJVMConnectionValues } from "../../utils/jvmConnectionConfig";
@@ -48,6 +49,13 @@ export const useConnectionModalTypeSelect = ({
   refreshDriverStatus,
 }: UseConnectionModalTypeSelectInput) => {
   const handleTypeSelect = (type: string) => {
+    // 智能体类型不进入数据库表单：直接进入检测/添加面板。
+    if (isAgentConnectionType(type)) {
+      setTypeSelectWarning(null);
+      setDbType(type);
+      setStep(2);
+      return;
+    }
     if (isPluginDataSourceNamespace(type)) {
       const reason = pluginDataSourceUnavailableReason(type);
       setTypeSelectWarning(null);

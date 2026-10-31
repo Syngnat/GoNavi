@@ -10,6 +10,7 @@ import {
   type WailsDataSyncApi,
 } from './wailsGateway';
 import { encodeDataSyncJobDefinition } from './wailsDto';
+import { BACKEND_CANCELLED_MESSAGE } from '../../utils/connectionExport';
 
 const NOW = Date.parse('2030-08-08T00:00:20.000Z');
 
@@ -51,6 +52,8 @@ const apiFixture = (
   overrides: Partial<WailsDataSyncApi> = {},
 ): WailsDataSyncApi => ({
   SelectBackupDirectory: vi.fn(async () => success('')),
+  ExportTextFile: vi.fn(async () => success({ path: '/tmp/report.html' })),
+  OpenExportedTextFile: vi.fn(async () => success({ path: '/tmp/report.html' })),
   GetSavedConnections: vi.fn(async () => [
     {
       id: 'source-id',
@@ -888,5 +891,52 @@ describe('real Wails data sync gateway', () => {
       gateway.resetCheckpoint(task.id, task.revision),
     ).rejects.toThrow('current paused task revision');
     expect(api.DataSyncCheckpointReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards rendered text to the export binding and reports the saved path', async () => {
+    const api = apiFixture({
+      ExportTextFile: vi.fn(async () =>
+        success({ path: '/tmp/orders-compare.html' }),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(
+      gateway.exportTextFile('orders-compare', '<html></html>', 'html'),
+    ).resolves.toBe('/tmp/orders-compare.html');
+    expect(api.ExportTextFile).toHaveBeenCalledWith(
+      'orders-compare',
+      '<html></html>',
+      'html',
+    );
+  });
+
+  it('keeps the web download file name when no desktop path comes back', async () => {
+    const api = apiFixture({
+      ExportTextFile: vi.fn(async () => success({ fileName: 'orders-compare.html' })),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(
+      gateway.exportTextFile('orders-compare', '<html></html>', 'html'),
+    ).resolves.toBe('orders-compare.html');
+  });
+
+  it('treats a cancelled text export as a no-op and surfaces other failures', async () => {
+    const cancelled = createWailsDataSyncWorkbenchGateway({
+      api: apiFixture({
+        ExportTextFile: vi.fn(async () => ({ success: false, message: BACKEND_CANCELLED_MESSAGE })),
+      }),
+      now: () => NOW,
+    });
+    await expect(cancelled.exportTextFile('report', 'x', 'html')).resolves.toBeNull();
+
+    const rejected = createWailsDataSyncWorkbenchGateway({
+      api: apiFixture({
+        ExportTextFile: vi.fn(async () => ({ success: false, message: 'disk full' })),
+      }),
+      now: () => NOW,
+    });
+    await expect(rejected.exportTextFile('report', 'x', 'html')).rejects.toThrow('disk full');
   });
 });

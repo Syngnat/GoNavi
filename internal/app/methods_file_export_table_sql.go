@@ -23,7 +23,10 @@ func (a *App) exportSingleTableSQL(ctx context.Context, dbInst db.Database, runC
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	viewLookup := listViewNameLookup(dbInst, runConfig, dbName)
+	viewLookup, err := listExportViewLookup(ctx, dbInst, runConfig, dbName)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	if err := writeSQLDropIfExistsPreamble(
 		w,
 		runConfig,

@@ -32,6 +32,24 @@ func TestManifestValidation(t *testing.T) {
 		{"oversized text", func(m *Manifest) {
 			m.Contributes.Panels = []Panel{{ID: "main", Title: "Panel", Body: UINode{Type: "text", Text: strings.Repeat("x", 20000)}}}
 		}},
+		{"connection action without window", func(m *Manifest) {
+			m.Contributes.ConnectionActions = []ConnectionAction{{ID: "open", Title: "Open", ConnectionTypes: []string{"mongodb"}, Target: LaunchTarget{Type: "window"}}}
+		}},
+		{"connection action invalid type", func(m *Manifest) {
+			m.Window = &Window{Entry: "index.html"}
+			m.Contributes.ConnectionActions = []ConnectionAction{{ID: "open", Title: "Open", ConnectionTypes: []string{"Mongo DB!"}, Target: LaunchTarget{Type: "window"}}}
+		}},
+		{"connection action invalid scope", func(m *Manifest) {
+			m.Window = &Window{Entry: "index.html"}
+			m.Contributes.ConnectionActions = []ConnectionAction{{ID: "open", Title: "Open", ConnectionTypes: []string{"mongodb"}, Scopes: []string{"schema"}, Target: LaunchTarget{Type: "window"}}}
+		}},
+		{"duplicate connection action", func(m *Manifest) {
+			m.Window = &Window{Entry: "index.html"}
+			m.Contributes.ConnectionActions = []ConnectionAction{
+				{ID: "open", Title: "Open", ConnectionTypes: []string{"mongodb"}, Target: LaunchTarget{Type: "window"}},
+				{ID: "open", Title: "Open again", ConnectionTypes: []string{"mongodb"}, Target: LaunchTarget{Type: "window"}},
+			}
+		}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -58,6 +76,15 @@ func TestManifestValidation(t *testing.T) {
 	}
 	if _, err = ParseManifest([]byte(strings.Replace(string(encoded), `"name":`, `"official":true,"name":`, 1))); err == nil {
 		t.Fatal("unknown field accepted")
+	}
+	withAction := basicManifest("test.fixture")
+	withAction.Window = &Window{Entry: "index.html"}
+	withAction.Contributes.ConnectionActions = []ConnectionAction{{
+		ID: "open", Title: "MongoShell", ConnectionTypes: []string{"mongodb"},
+		Scopes: []string{"connection", "database", "collection"}, Target: LaunchTarget{Type: "window"},
+	}}
+	if err := ValidateManifest(withAction); err != nil {
+		t.Fatal(err)
 	}
 }
 func TestSafePackagePaths(t *testing.T) {

@@ -10,6 +10,27 @@ vi.mock('../../i18n/provider', () => ({ useI18n: () => ({ t: (key: string) => ke
 import { PluginLifecycleControls } from './PluginLifecycleControls';
 const plugin: PluginStatus = { manifest: { schemaVersion: 1, apiVersion: 1, id: 'test.hello', name: 'Hello', version: '1.0.0', permissions: [] },
   digest: 'a'.repeat(64), state: 'starting', desiredEnabled: true, generation: 1, installedAt: 'now' };
+describe('single enable-state field', () => {
+  it('shows one state field instead of a requested/actual pair', () => {
+    const view = create(<PluginLifecycleControls plugin={{ ...plugin, state: 'running', desiredEnabled: true }} allowed safeMode={false} busy={false} onEnabled={vi.fn()} onRemove={vi.fn()} />);
+    const tags = view.root.findAllByType('span').filter((node) => node.props.color !== undefined);
+    expect(tags).toHaveLength(1);
+    expect(tags[0].props.children).toBe('plugin.state.enabled');
+    expect(tags[0].props.color).toBe('success');
+    const text = JSON.stringify(view.toJSON());
+    expect(text).not.toContain('plugin.state.desired');
+    expect(text).not.toContain('plugin.state.actual');
+    view.unmount();
+  });
+  it('keeps a fault visible in that same field', () => {
+    const view = create(<PluginLifecycleControls plugin={{ ...plugin, state: 'faulted', desiredEnabled: true }} allowed safeMode={false} busy={false} onEnabled={vi.fn()} onRemove={vi.fn()} />);
+    const tags = view.root.findAllByType('span').filter((node) => node.props.color !== undefined);
+    expect(tags).toHaveLength(1);
+    expect(tags[0].props.children).toBe('plugin.state.faulted');
+    expect(tags[0].props.color).toBe('error');
+    view.unmount();
+  });
+});
 describe('disable control availability', () => {
   it.each(['starting', 'stopping', 'faulted'] as const)('keeps Disable available while %s and busy', (state) => {
     const change = vi.fn();
@@ -18,8 +39,7 @@ describe('disable control availability', () => {
     expect(disable.props.disabled).toBe(false);
     act(() => disable.props.onClick());
     expect(change).toHaveBeenCalledWith(false);
-    expect(JSON.stringify(view.toJSON())).toContain('plugin.state.desired');
-    expect(JSON.stringify(view.toJSON())).toContain('plugin.state.actual');
+    expect(JSON.stringify(view.toJSON())).toContain('plugin.state.switch');
     view.unmount();
   });
   it('lets Enable be used again after a fault when management is idle', () => {

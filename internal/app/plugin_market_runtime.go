@@ -12,9 +12,10 @@ import (
 	"GoNavi-Wails/internal/pluginmarket"
 )
 
-// pluginOfficialMarketURL is release-owned (optional -ldflags -X). A user-selected
-// custom endpoint never becomes official merely by returning official=true.
-var pluginOfficialMarketURL string
+// pluginOfficialMarketURL seeds a fresh install with the official marketplace and
+// stays release-owned: a build may override or clear it with -ldflags -X. A
+// user-selected custom endpoint never becomes official merely by returning official=true.
+var pluginOfficialMarketURL = "https://plugin.gonavi.org"
 
 type pluginMarketRuntimeState struct {
 	mu           sync.Mutex
@@ -61,7 +62,7 @@ func (a *App) marketplace(ctx context.Context) (*pluginmarket.Service, context.C
 		state.initializing = ready
 		epoch := state.epoch
 		state.mu.Unlock()
-		service, err := pluginmarket.NewService(pluginmarket.Options{Root: root, Secrets: a.secretStore, HostVersion: CurrentVersion(), TrustedOfficialURL: pluginOfficialMarketURL, Client: &http.Client{Transport: backgroundGalleryProxyTransport{}}})
+		service, err := pluginmarket.NewService(pluginmarket.Options{Root: root, HostVersion: CurrentVersion(), TrustedOfficialURL: pluginOfficialMarketURL, Client: &http.Client{Transport: backgroundGalleryProxyTransport{}}})
 		state.mu.Lock()
 		if state.closing || state.epoch != epoch || root != filepath.Join(a.configDir, "plugin-market") {
 			err = context.Canceled
@@ -90,13 +91,7 @@ func (a *App) marketCall(parent context.Context, call func(context.Context, *plu
 	if err == nil {
 		return connection.QueryResult{Success: true, Data: value}
 	}
-	code := "market_unavailable"
-	if errors.Is(err, pluginmarket.ErrUnauthenticated) {
-		code = "authentication_required"
-	}
-	if errors.Is(err, pluginmarket.ErrInvalidRequest) || errors.Is(err, pluginmarket.ErrInvalidURL) {
-		code = "invalid_request"
-	}
+	code := marketFailureCode(err)
 	result := a.pluginFailure(code)
 	// A failed refresh may still carry explicitly stale, last-good catalog data.
 	if page, ok := value.(pluginmarket.CatalogPage); ok {

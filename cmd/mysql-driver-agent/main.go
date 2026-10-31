@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,15 +22,19 @@ type mysqlAgentRequest struct {
 	DBName    string                       `json:"dbName,omitempty"`
 	TableName string                       `json:"tableName,omitempty"`
 	Changes   *connection.ChangeSet        `json:"changes,omitempty"`
+	TimeoutMs int64                        `json:"timeoutMs,omitempty"`
+	RowBudget *db.RowBudgetOptions         `json:"rowBudget,omitempty"`
 }
 
 type mysqlAgentResponse struct {
-	ID           int64       `json:"id"`
-	Success      bool        `json:"success"`
-	Error        string      `json:"error,omitempty"`
-	Data         interface{} `json:"data,omitempty"`
-	Fields       []string    `json:"fields,omitempty"`
-	RowsAffected int64       `json:"rowsAffected,omitempty"`
+	ID              int64       `json:"id"`
+	Success         bool        `json:"success"`
+	Error           string      `json:"error,omitempty"`
+	Data            interface{} `json:"data,omitempty"`
+	Fields          []string    `json:"fields,omitempty"`
+	RowsAffected    int64       `json:"rowsAffected,omitempty"`
+	Truncated       bool        `json:"truncated,omitempty"`
+	BudgetExhausted bool        `json:"budgetExhausted,omitempty"`
 }
 
 const (
@@ -127,6 +132,8 @@ func handleRequest(inst **db.MySQLDB, req mysqlAgentRequest) mysqlAgentResponse 
 		if err := (*inst).Ping(); err != nil {
 			return fail(resp, err.Error())
 		}
+	case mysqlAgentMethodQueryReadOnly:
+		return handleMySQLReadOnlyQueryRequest(context.Background(), *inst, req, resp)
 	case mysqlAgentMethodQuery:
 		data, fields, err := (*inst).Query(req.Query)
 		if err != nil {

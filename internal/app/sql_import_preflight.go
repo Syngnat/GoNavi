@@ -70,6 +70,16 @@ func PreflightSQLImportWithOptions(reader io.Reader, options SQLStreamOptions) (
 // allocating another streaming splitter. statementIndex is zero-based.
 func PreflightSQLStatement(stmt, dbType string, statementIndex int) SQLImportPreflightResult {
 	normalizedType := normalizeExplainLexicalDBType(dbType)
+	if normalizedType == "hive" && hiveImportHasVariableSubstitution(stmt) {
+		return SQLImportPreflightResult{Safe: false, Reason: &SQLImportPreflightReason{
+			Code: SQLImportPreflightHiveVariableSubstitution, DBType: normalizedType, StatementIndex: statementIndex,
+		}}
+	}
+	if normalizedType == "hive" && hiveImportTransactionControl(stmt) {
+		return SQLImportPreflightResult{Safe: false, Reason: &SQLImportPreflightReason{
+			Code: SQLImportPreflightHiveTransactionControl, DBType: normalizedType, StatementIndex: statementIndex,
+		}}
+	}
 	if isSQLImportPostgresDialect(normalizedType) && isPostgresCopyFromStdinStatement(stmt) {
 		return SQLImportPreflightResult{
 			Safe: false,
@@ -216,6 +226,11 @@ func findSQLImportClientCommand(statement, dbType string) (SQLImportPreflightRea
 						return SQLImportPreflightSQLPlusCommand, "@"
 					}
 					return SQLImportPreflightSQLPlusCommand, token
+				}
+			case "hive":
+				token := firstSQLImportDirectiveToken(trimmed)
+				if strings.HasPrefix(token, "!") || strings.EqualFold(token, "source") || strings.EqualFold(token, "quit") || strings.EqualFold(token, "exit") {
+					return SQLImportPreflightHiveClientCommand, token
 				}
 			case "sqlite":
 				token := firstSQLImportDirectiveToken(trimmed)

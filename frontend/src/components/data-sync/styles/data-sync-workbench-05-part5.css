@@ -544,6 +544,637 @@
   color: var(--gn-fg-4, #6b7280);
 }
 
+/* 对比结果仪表盘：hero 总数 + KPI + 分布 + 风险色带。数据色只用于条形
+   与色带，文字一律前景色，保持克制。 */
+
+.gn-data-sync-compare-summary {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 20px;
+}
+
+.gn-data-sync-compare-hero {
+  padding: 28px 30px;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 14px;
+  background: var(--gn-bg-panel, #fff);
+}
+
+.gn-data-sync-compare-hero__label {
+  margin: 0 0 4px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12.5px;
+}
+
+.gn-data-sync-compare-hero__value {
+  display: block;
+  color: var(--gn-fg-1, #0c1322);
+  font-size: 56px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.gn-data-sync-compare-hero__note {
+  margin: 10px 0 0;
+  max-width: 760px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 13px;
+}
+
+.gn-data-sync-compare-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.gn-data-sync-compare-kpis > div {
+  min-width: 0;
+  padding: 15px 16px;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 12px;
+  background: var(--gn-bg-panel, #fff);
+}
+
+.gn-data-sync-compare-kpis dt {
+  overflow: hidden;
+  margin: 0 0 6px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-kpis dd {
+  display: block;
+  margin: 0;
+}
+
+.gn-data-sync-compare-kpis dd strong {
+  display: block;
+  color: var(--gn-fg-1, #0c1322);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.gn-data-sync-compare-kpis dd small {
+  display: block;
+  margin-top: 4px;
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 11.5px;
+}
+
+.gn-data-sync-compare-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 24px;
+}
+
+.gn-data-sync-compare-dashboard > :only-child,
+.gn-data-sync-compare-risk {
+  grid-column: 1 / -1;
+}
+
+.gn-data-sync-compare-bars h3,
+.gn-data-sync-compare-risk h3 {
+  margin: 0 0 10px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gn-data-sync-compare-bars__empty {
+  margin: 0;
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 12px;
+}
+
+.gn-data-sync-compare-bars ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gn-data-sync-compare-bars li {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) 86px;
+  align-items: center;
+  gap: 12px;
+}
+
+.gn-data-sync-compare-bars__label {
+  overflow: hidden;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-bars__track {
+  height: 9px;
+  border-radius: 0;
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+  overflow: hidden;
+}
+
+.gn-data-sync-compare-bars__fill {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 70%, transparent);
+}
+
+/* 构成图：一个维度一行，行内按增删改堆叠，2px 间隙分隔，不画边框。 */
+.gn-data-sync-compare-bars--composition .gn-data-sync-compare-bars__track,
+.gn-data-sync-compare-bars__stack {
+  display: flex;
+  height: 12px;
+  gap: 2px;
+  border-radius: 0;
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+  overflow: hidden;
+}
+
+.gn-data-sync-compare-bars__stack {
+  min-width: 0;
+  padding: 0;
+}
+
+.gn-data-sync-compare-bars__stack .gn-data-sync-compare-bars__fill {
+  flex: 0 0 auto;
+}
+
+.gn-data-sync-compare-bars__value {
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-bars li[data-tone='danger'] .gn-data-sync-compare-bars__fill,
+.gn-data-sync-compare-bars__fill[data-tone='danger'],
+.gn-data-sync-compare-risk__legend [data-tone='danger'] .gn-data-sync-compare-risk__dot {
+  background: color-mix(in srgb, var(--gn-danger, #dc2626) 58%, transparent);
+}
+
+.gn-data-sync-compare-bars li[data-tone='warn'] .gn-data-sync-compare-bars__fill,
+.gn-data-sync-compare-bars__fill[data-tone='warn'],
+.gn-data-sync-compare-risk__legend [data-tone='warn'] .gn-data-sync-compare-risk__dot {
+  background: color-mix(in srgb, var(--gn-warn, #d97706) 58%, transparent);
+}
+
+.gn-data-sync-compare-bars li[data-tone='ok'] .gn-data-sync-compare-bars__fill,
+.gn-data-sync-compare-bars__fill[data-tone='ok'],
+.gn-data-sync-compare-risk__legend [data-tone='ok'] .gn-data-sync-compare-risk__dot {
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 58%, transparent);
+}
+
+.gn-data-sync-compare-bars__fill[data-tone='muted'] {
+  background: color-mix(in srgb, var(--gn-fg-5, #9ca3af) 58%, transparent);
+}
+
+/* 色带是整屏唯一的大面积色块，压到 40% 混白，避免抢走 KPI 的注意力。 */
+.gn-data-sync-compare-risk__band [data-tone='danger'] {
+  background: color-mix(in srgb, var(--gn-danger, #dc2626) 42%, var(--gn-bg-panel, #fff));
+}
+
+.gn-data-sync-compare-risk__band [data-tone='warn'] {
+  background: color-mix(in srgb, var(--gn-warn, #d97706) 42%, var(--gn-bg-panel, #fff));
+}
+
+.gn-data-sync-compare-risk__band [data-tone='ok'] {
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 42%, var(--gn-bg-panel, #fff));
+}
+
+.gn-data-sync-compare-risk__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gn-data-sync-compare-risk__head span {
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 11px;
+}
+
+.gn-data-sync-compare-risk__band {
+  display: flex;
+  gap: 2px;
+  height: 26px;
+  margin: 6px 0 16px;
+  border-radius: 4px;
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+  overflow: hidden;
+}
+
+/* 段内直接显示条数，色带自身成为读数而不是纯装饰。 */
+.gn-data-sync-compare-risk__band > span {
+  display: flex;
+  min-width: 34px;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--gn-bg-panel, #fff);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* 黄色段必须用深色字：白字在 #d97706 上对比度不足。 */
+.gn-data-sync-compare-risk__band > span[data-tone='warn'] {
+  color: var(--gn-fg-1, #0c1322);
+}
+
+.gn-data-sync-compare-risk__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gn-data-sync-compare-risk__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gn-fg-4, #6b7280);
+  font-size: 11px;
+}
+
+.gn-data-sync-compare-risk__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.gn-data-sync-compare-risk__legend strong {
+  color: var(--gn-fg-2, #1f2937);
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-data-sync-compare-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border-bottom: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gn-data-sync-compare-filters__tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+}
+
+.gn-data-sync-compare-filters__tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-fg-4, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gn-data-sync-compare-filters__tabs button small {
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-data-sync-compare-filters__tabs button[data-active='true'] {
+  background: var(--gn-bg-panel, #fff);
+  color: var(--gn-fg-1, #0c1322);
+  box-shadow: 0 0 0 0.5px var(--gn-br-2, rgba(15, 23, 42, 0.12));
+}
+
+.gn-data-sync-compare-filters__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 风险 chip：选中态黑底白字反转。注意选择器只认 [data-risk]，
+   分组类按钮不能共用，否则点击会把非风险值塞进风险集合。 */
+.gn-data-sync-compare-chip {
+  padding: 5px 13px;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 20px;
+  background: var(--gn-bg-panel, #fff);
+  color: var(--gn-fg-3, #4b5563);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gn-data-sync-compare-chip[aria-pressed='true'] {
+  border-color: var(--gn-fg-1, #0c1322);
+  background: var(--gn-fg-1, #0c1322);
+  color: var(--gn-bg-panel, #fff);
+}
+
+/* 变更明细表：每行一条结构变更。表头 sticky，三类行用底色区分，
+   让「整表 / 字段 / 索引」一眼可分。 */
+.gn-data-sync-compare-detail__scroll {
+  max-height: 72vh;
+  overflow: auto;
+  /* 滚到底后不把滚动传给外层弹窗。 */
+  overscroll-behavior: contain;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 12px;
+  background: var(--gn-bg-panel, #fff);
+}
+
+/* table-layout: fixed 是必需的：不定宽时内容一长就把「风险」列挤出视野，
+   最关键的列反而看不到。列宽由 <colgroup> 给出。 */
+.gn-data-sync-compare-detail__table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+/* 固定列宽必然截断内容，省略号 + title 让完整值仍可查看。 */
+.gn-data-sync-compare-detail__table thead th,
+.gn-data-sync-compare-detail__table tbody td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-detail thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  background: var(--gn-bg-panel, #fff);
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-detail thead th.num {
+  text-align: right;
+}
+
+.gn-data-sync-compare-detail tbody td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+  color: var(--gn-fg-2, #1f2937);
+  font-size: 12.5px;
+  vertical-align: top;
+}
+
+.gn-data-sync-compare-detail tbody tr:hover td {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+}
+
+.gn-data-sync-compare-detail td.num {
+  color: var(--gn-fg-3, #4b5563);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-detail td.mono {
+  font-family: var(--gn-font-mono, ui-monospace, Menlo, monospace);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.gn-data-sync-compare-detail tr.idx-row td {
+  background: color-mix(in srgb, var(--gn-column-type-index, #6d28d9) 6%, transparent);
+}
+
+.gn-data-sync-compare-detail tr.table-row td {
+  border-top: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-bottom: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  background: color-mix(in srgb, var(--gn-fg-1, #0c1322) 3%, transparent);
+}
+
+.gn-data-sync-compare-detail tr.table-row td:nth-child(4) {
+  font-weight: 600;
+}
+
+.gn-data-sync-compare-detail__group-head td {
+  position: sticky;
+  top: 29px;
+  z-index: 1;
+  padding: 14px 10px 6px;
+  border-bottom: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  background: var(--gn-bg-panel, #fff);
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* 变更类型标签：底色一律 color-mix，深色模式自动跟随。 */
+.gn-data-sync-compare-detail__kind {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 5px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-detail__risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-detail__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.gn-data-sync-compare-detail__risk.t-high .gn-data-sync-compare-detail__dot {
+  background: var(--gn-danger, #dc2626);
+}
+
+.gn-data-sync-compare-detail__risk.t-mid .gn-data-sync-compare-detail__dot {
+  background: var(--gn-warn, #d97706);
+}
+
+.gn-data-sync-compare-detail__risk.t-low .gn-data-sync-compare-detail__dot {
+  background: var(--gn-accent, #15803d);
+}
+
+/* 「分组」只是标签，不是 chip：不要给它加 chip 的内边距，否则它比按钮
+   更矮、基线也不齐。 */
+.gn-data-sync-compare-filters__sep {
+  margin: 0 2px;
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 11.5px;
+  line-height: 1;
+}
+
+/* TEXT 容量降级提示：位置在状态分布之后、风险色带之前。 */
+.gn-data-sync-compare-text-shrink {
+  grid-column: 1 / -1;
+}
+
+.gn-data-sync-compare-text-shrink h3 {
+  margin: 0 0 10px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gn-data-sync-compare-text-shrink__note {
+  margin: 0 0 12px;
+  max-width: 820px;
+  color: var(--gn-fg-4, #6b7280);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.gn-data-sync-compare-text-shrink__tables {
+  margin: 10px 0 0;
+  color: var(--gn-fg-4, #6b7280);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.gn-data-sync-compare-appendix {
+  margin-top: 24px;
+}
+
+.gn-data-sync-compare-appendix h3 {
+  margin: 0 0 10px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 附表标签：与主表同一套 class，只按 data-kind 换配色。 */
+.gn-data-sync-compare-detail__kind[data-kind='attr_default'] {
+  border-color: color-mix(in srgb, var(--gn-info, #0369a1) 30%, transparent);
+  background: color-mix(in srgb, var(--gn-info, #0369a1) 9%, transparent);
+  color: var(--gn-info, #0369a1);
+}
+
+.gn-data-sync-compare-detail__kind[data-kind='attr_comment'] {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+  color: var(--gn-fg-4, #6b7280);
+}
+
+/* 主表标签配色：每行只有一个标签，靠底色区分类别。 */
+.gn-data-sync-compare-detail__kind[data-kind='table_removed'] {
+  background: color-mix(in srgb, var(--gn-danger, #dc2626) 12%, transparent);
+  color: var(--gn-danger, #dc2626);
+  font-weight: 600;
+}
+
+.gn-data-sync-compare-detail__kind[data-kind='column_added'],
+.gn-data-sync-compare-detail__kind[data-kind='index_added'] {
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 10%, transparent);
+  color: var(--gn-accent-2, #166534);
+}
+
+.gn-data-sync-compare-detail__kind[data-kind='column_removed'],
+.gn-data-sync-compare-detail__kind[data-kind='index_removed'] {
+  background: color-mix(in srgb, var(--gn-danger, #dc2626) 10%, transparent);
+  color: var(--gn-danger, #dc2626);
+}
+
+.gn-data-sync-compare-detail__kind[data-kind='column_changed'],
+.gn-data-sync-compare-detail__kind[data-kind='index_changed'] {
+  background: color-mix(in srgb, var(--gn-info, #0369a1) 9%, transparent);
+  color: var(--gn-info, #0369a1);
+}
+
+.gn-data-sync-compare-detail__kind[data-kind='column_renamed'],
+.gn-data-sync-compare-detail__kind[data-kind='index_renamed'] {
+  background: color-mix(in srgb, var(--gn-warn, #d97706) 16%, transparent);
+  color: color-mix(in srgb, var(--gn-warn, #d97706) 78%, var(--gn-fg-1, #0c1322));
+}
+
+/* 索引类行与标签统一用索引紫。 */
+.gn-data-sync-compare-detail__kind[data-kind^='index_'] {
+  border-color: color-mix(in srgb, var(--gn-column-type-index, #6d28d9) 28%, transparent);
+}
+
+@media (max-width: 900px) {
+  .gn-data-sync-compare-detail__table col:nth-child(1) { width: 27%; }
+  .gn-data-sync-compare-detail__table col:nth-child(3) { width: 10%; }
+  .gn-data-sync-compare-detail__table col:nth-child(4) { width: 19%; }
+  .gn-data-sync-compare-detail__table col:nth-child(5) { width: 13%; }
+  .gn-data-sync-compare-detail__table col:nth-child(6) { width: 13%; }
+  .gn-data-sync-compare-detail__table col:nth-child(7) { width: 8%; }
+}
+
+.gn-data-sync-compare-row__index-diffs li[data-kind='changed'] .gn-data-sync-compare-row__diff-kind {
+  color: var(--gn-column-type-index, #6d28d9);
+}
+
+.gn-data-sync-compare-row__index-diffs code {
+  color: var(--gn-column-type-index, #6d28d9);
+  background: color-mix(in srgb, var(--gn-column-type-index, #6d28d9) 10%, transparent);
+}
+
+.gn-data-sync-compare-filters__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.gn-data-sync-compare-filters__search .gn-data-sync-control {
+  width: 200px;
+  min-height: 30px;
+  padding-block: 2px;
+}
+
+.gn-data-sync-compare-filters__count {
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-empty-filter {
+  margin: 0;
+  padding: 14px 0;
+  color: var(--gn-fg-4, #6b7280);
+  font-size: 12px;
+}
+
+.gn-data-sync-compare-panel .gn-data-sync-inline-note[data-tone='ok'] {
+  margin: 0 0 12px;
+  color: var(--gn-accent, #15803d);
+}
+
+.gn-data-sync-compare-panel .gn-data-sync-inline-note[data-tone='error'] {
+  margin: 0 0 12px;
+  color: var(--gn-danger, #dc2626);
+  overflow-wrap: anywhere;
+}
+
 .gn-data-sync-checkpoint-panel {
   margin-top: 24px;
   padding-top: 18px;
@@ -688,3 +1319,38 @@
   .gn-data-sync-editor-column { grid-column: 2; }
 }
 
+
+/* 主表 / 附表切换：附表是补充信息，不该和主表堆在同一屏。 */
+.gn-data-sync-compare-detail-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gn-data-sync-compare-detail-tab {
+  margin-bottom: -1px;
+  padding: 9px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--gn-fg-3, #4b5563);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.gn-data-sync-compare-detail-tab[aria-selected='true'] {
+  border-bottom-color: var(--gn-accent, #15803d);
+  color: var(--gn-fg-1, #0c1322);
+  font-weight: 600;
+}
+
+/* 导出提示里的路径做成可点击链接，长路径要能换行而不是撑破面板。 */
+.gn-data-sync-compare-export-path {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

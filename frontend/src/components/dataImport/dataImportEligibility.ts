@@ -1,4 +1,5 @@
 import type { SavedConnection } from '../../types';
+import { registryAllowsImport } from '../../utils/dataSourceRegistry';
 import {
   isConnectionDataImportRestricted,
   isConnectionStructureEditRestricted,
@@ -13,7 +14,7 @@ export const isEligibleImportConnection = (
 ): boolean => {
   if (mode === 'table') {
     const capabilities = getDataSourceCapabilities(connection.config);
-    return capabilities.supportsCopyInsert
+    return (capabilities.supportsCopyInsert || (capabilities.type === 'hive' && registryAllowsImport(connection.config.type, 'table')))
       && !isConnectionDataImportRestricted(connection.config);
   }
   return !isConnectionDataImportRestricted(connection.config)

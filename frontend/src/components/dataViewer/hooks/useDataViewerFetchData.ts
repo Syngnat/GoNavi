@@ -1,3 +1,4 @@
+import { prepareHiveTablePageSQL, hivePaginationNeedsOrder } from '../hiveDataViewer';
 import { useDataViewerQueryCancellation } from './useDataViewerQueryCancellation';
 import { useCallback } from 'react';
 import { message } from 'antd';
@@ -390,13 +391,20 @@ export const useDataViewerFetchData = ({
         }
         if (!useClickHouseReversePagination) {
             // 大表性能：打开表不阻塞在 COUNT(*)，先通过多取 1 条判断是否还有下一页；总数在后台统计并异步回填。
-            sql = buildPaginatedSelectSQL(dbType, baseSql, orderBySQL, size + 1, offset);
+            sql = dbTypeLower === 'hive' ? '' : buildPaginatedSelectSQL(dbType, baseSql, orderBySQL, size + 1, offset);
         }
     }
 
     const requestStartTime = Date.now();
     let executedSql = sql;
     try {
+        if (dbTypeLower === 'hive') {
+            const baseSql = buildDataViewerBaseSelectSQL(dbType, tableName, whereSQL, editLocatorForQuery);
+            if (hivePaginationNeedsOrder(baseSql, orderBySQL, offset)) message.warning({ key: 'hive-pagination-order', content: tr('hive.pagination.stableOrder') });
+            sql = await prepareHiveTablePageSQL(config, tab.connectionId || '', dbName, tableName, baseSql, orderBySQL, size + 1, offset);
+            if (fetchSeqRef.current !== seq) return;
+            executedSql = sql;
+        }
         const executeDataQuery = (querySql: string, attemptLabel: string) =>
             executeQuery(seq, buildRpcConnectionConfig(config), dbName, querySql, attemptLabel);
 

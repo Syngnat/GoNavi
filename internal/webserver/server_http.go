@@ -134,6 +134,7 @@ func (s *Server) routes() http.Handler {
 	mux.Handle(internalRoutePrefix+"/api/download/", s.requireWebAuth(httpserverlimits.StreamingWriteTimeout(http.HandlerFunc(s.handleWebDownload))))
 	mux.Handle(internalRoutePrefix+"/events", s.requireWebAuth(httpserverlimits.StreamingWriteTimeout(http.HandlerFunc(s.handleEvents))))
 	mux.Handle(internalRoutePrefix+"/web-runtime.js", s.requireWebAuth(http.HandlerFunc(s.handleRuntimeBridge)))
+	mux.Handle(internalRoutePrefix+"/debug/memstats", s.requireWebAuth(http.HandlerFunc(s.handleDebugMemstats)))
 	mux.HandleFunc(internalRoutePrefix+"/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok"))

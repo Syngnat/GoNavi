@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { pluginAPI } from './api';
 import { pluginErrorText } from './apiResult';
 import type { JSONValue } from './types';
+import { useStore } from '../store';
+import { useI18n } from '../i18n/provider';
 
 export function usePluginInvocation(id: string, generation: number, active: boolean) {
+  const { language } = useI18n();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string>('');
   const [error, setError] = useState('');
@@ -26,7 +29,9 @@ export function usePluginInvocation(id: string, generation: number, active: bool
   const openWindow = async () => {
     if (!active) return;
     const token = fence.current;
-    try { await pluginAPI.openWindow(id); }
+    // 复用主程序已解析的语言和主题，使插件窗口跟随当前界面。
+    const { theme } = useStore.getState();
+    try { await pluginAPI.openWindow(id, language, theme); }
     catch (cause) { if (fence.current === token) setError(pluginErrorText(cause)); }
   };
   return { busy, result, error, invoke, openWindow };

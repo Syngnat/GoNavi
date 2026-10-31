@@ -239,6 +239,10 @@ should_include_source_file() {
     cmd/optional-driver-agent/*)
       return 0
       ;;
+    internal/hivesql/*.go)
+      [[ "$driver" == hive ]]
+      return
+      ;;
     internal/datasource/*.go)
       # 描述表加载与档位解析逻辑只影响描述表驱动；历史驱动的指纹不纳入。
       registry_driver_entry_hash "$driver" >/dev/null

@@ -33,6 +33,8 @@ import type { SidebarSearchStateApi } from './useSidebarSearchState';
 import type { SidebarStoreStateApi } from './useSidebarStoreState';
 import type { SidebarTreeViewStateApi } from './useSidebarTreeViewState';
 import type { SidebarProps } from '../Sidebar';
+import { buildAgentTreeNodes } from './sidebarAgentTreeNodes';
+import { useStore } from '../../store';
 
 export interface UseSidebarTitlebarSyncInput {
   connectionReloadSignaturesRef: SidebarSearchStateApi['connectionReloadSignaturesRef'];
@@ -66,6 +68,12 @@ export const useSidebarTitlebarSync = ({
   connectionIds, onTitlebarSnapshotChange, selectedSidebarKeyRef, selectedKeys, treeData,
   selectedNodesRef, connectionStates,
 }: UseSidebarTitlebarSyncInput) => {
+  const agentIntegrations = useStore((state) => state.agentIntegrations);
+  const refreshAgentIntegrations = useStore((state) => state.refreshAgentIntegrations);
+  // 侧栏挂载时拉取一次智能体集成，保证重启后固定分组恢复显示。
+  useEffect(() => {
+    void refreshAgentIntegrations();
+  }, [refreshAgentIntegrations]);
   useEffect(() => {
     const previousSignatures = connectionReloadSignaturesRef.current;
     const nextSignatures: Record<string, string> = {};
@@ -184,9 +192,11 @@ export const useSidebarTitlebarSync = ({
         orderedNodes.push(allSavedQueriesNode);
       }
       const externalSQLRootNode = prev.find((node) => node.type === 'external-sql-root');
-      return externalSQLRootNode ? [...orderedNodes, externalSQLRootNode] : orderedNodes;
+      // 智能体与数据连接同级：直接作为顶层节点插入，不套分组。
+      const nodesWithAgents = [...orderedNodes, ...buildAgentTreeNodes(agentIntegrations)];
+      return externalSQLRootNode ? [...nodesWithAgents, externalSQLRootNode] : nodesWithAgents;
     });
-  }, [connections, connectionTags, sidebarRootOrder, rootSortMode, rootConnectionSortMode, allSavedQueriesNode]);
+  }, [connections, connectionTags, sidebarRootOrder, rootSortMode, rootConnectionSortMode, allSavedQueriesNode, agentIntegrations]);
 
   const handleDuplicateConnection = async (conn: SavedConnection) => {
     if (!conn?.id) return;

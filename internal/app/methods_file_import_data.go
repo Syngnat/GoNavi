@@ -204,6 +204,7 @@ func (a *App) importDataWithProgressOptionsContext(
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.import_file_empty", nil)}
 	}
 	dbType := resolveDDLDBType(config)
+	options = effectiveHiveImportOptions(config, options)
 	schemaName, pureTableName := normalizeSchemaAndTableByType(dbType, dbName, tableName)
 	auditTarget := strings.TrimSpace(tableName)
 	if pureTableName != "" {

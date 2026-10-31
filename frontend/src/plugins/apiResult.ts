@@ -3,7 +3,7 @@ import { t } from '../i18n';
 
 // Backend codes the UI can explain safely. Anything else falls back to a generic message,
 // so a new Go code has to be listed here and in the shared catalogs.
-export const PLUGIN_ERROR_CODES = ['operation_failed', 'management_denied', 'runtime_unavailable', 'invalid_request', 'market_unavailable', 'authentication_required', 'window_unavailable', 'root_busy', 'datasource_write_effect', 'command_reserved', 'plugin_disabled', 'digest_mismatch', 'not_found', 'plugin_busy'] as const;
+export const PLUGIN_ERROR_CODES = ['operation_failed', 'management_denied', 'runtime_unavailable', 'invalid_request', 'market_unavailable', 'authentication_required', 'window_unavailable', 'root_busy', 'datasource_write_effect', 'command_reserved', 'plugin_disabled', 'digest_mismatch', 'not_found', 'path_not_found', 'plugin_busy', 'plugin_enabled', 'spec_invalid', 'release_not_found', 'asset_ambiguous', 'npm_not_found', 'fetch_failed', 'fetch_expired', 'fetch_stale', 'artifact_invalid', 'forbidden', 'conflict', 'auth_unavailable', 'rate_limited', 'server_busy', 'timeout', 'source_changed', 'source_mismatch', 'invalid_response', 'response_too_large', 'redirect_rejected'] as const;
 
 export class PluginAPIError extends Error {
   constructor(public readonly key: string, public readonly detail = '') { super(key); }

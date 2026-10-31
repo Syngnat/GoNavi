@@ -8,6 +8,8 @@ import {
   V2SchemaContextMenuView,
   V2TableContextMenuView,
   V2TableGroupContextMenuView,
+  V2MultiTableContextMenuView,
+  type V2MultiTableContextMenuActionKey,
   type V2DatabaseContextMenuActionKey,
   type V2ConnectionGroupContextMenuActionKey,
   type V2ConnectionContextMenuActionKey,
@@ -21,12 +23,15 @@ import { t } from '../../i18n';
 import { DBQuery } from '../../../wailsjs/go/app/App';
 import { getCaseInsensitiveRawValue, getCaseInsensitiveValue, getMetadataDialect, splitQualifiedName, escapeSQLLiteral, parseSidebarTableRowCount } from './sidebarMetadataLoaders';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { filterPluginConnectionActions, type PluginConnectionActionEntry } from '../../plugins/connectionActions';
+import type { PluginConnectionActionTarget } from './pluginConnectionActionMenu';
 import { registryAllowsImport } from '../../utils/dataSourceRegistry';
 import { isConnectionDataEditRestricted } from '../../utils/connectionReadOnly';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { resolveConnectionIconType } from '../../utils/connectionVisual';
 import { resolveSidebarTreeMetaText } from './sidebarTreeMetaText';
 import { formatSidebarRowCount } from './sidebarHelpers';
+import { resolveMultiTableSelection } from './sidebarTableMultiSelect';
 import { resolvePgTableStatsSql } from '../../utils/dataSourceRegistry/tableStats';
 import { peekTableStatsServerVersion } from './sidebarTableStatsVersion';
 import {
@@ -102,6 +107,8 @@ type SidebarV2ContextMenuOptions = {
   tableSortPreference: Record<string, any>;
   pinnedSidebarTables: any[];
   pinnedSidebarDatabases: string[];
+  /** 当前选中节点引用：右键表时判定是否处于多表选中态。 */
+  selectedNodesRef: React.MutableRefObject<unknown[]>;
   getConnectionNodeForAction: (conn: SavedConnection) => TreeNode;
   buildRuntimeConfig: (conn: any, overrideDatabase?: string, clearDatabase?: boolean) => any;
   extractObjectName: (fullName: string) => string;
@@ -114,8 +121,11 @@ type SidebarV2ContextMenuOptions = {
   openSchemaVisibilitySettings: (node: any) => void;
   supportsConnectionVisibility: (connection: SavedConnection) => boolean;
   resolveMessagePublishTarget: (node: any) => unknown;
+  pluginConnectionActions?: PluginConnectionActionEntry[];
+  runPluginConnectionAction?: (entry: PluginConnectionActionEntry, target: PluginConnectionActionTarget) => void;
   addSqlLog: (log: any) => void;
   handleV2TableContextMenuAction: (node: any, action: V2TableContextMenuActionKey) => void;
+  handleV2MultiTableContextMenuAction: (nodes: any[], action: V2MultiTableContextMenuActionKey) => void;
   handleV2TableGroupContextMenuAction: (node: any, action: V2TableGroupContextMenuActionKey) => void;
   handleV2DatabaseContextMenuAction: (node: any, action: V2DatabaseContextMenuActionKey) => void;
   handleV2ConnectionContextMenuAction: (node: any, action: V2ConnectionContextMenuActionKey) => void;
@@ -252,6 +262,7 @@ export const useSidebarV2ContextMenu = ({
   tableSortPreference,
   pinnedSidebarTables,
   pinnedSidebarDatabases,
+  selectedNodesRef,
   getConnectionNodeForAction,
   buildRuntimeConfig,
   extractObjectName,
@@ -264,8 +275,11 @@ export const useSidebarV2ContextMenu = ({
   openSchemaVisibilitySettings,
   supportsConnectionVisibility,
   resolveMessagePublishTarget,
+  pluginConnectionActions,
+  runPluginConnectionAction,
   addSqlLog,
   handleV2TableContextMenuAction,
+  handleV2MultiTableContextMenuAction,
   handleV2TableGroupContextMenuAction,
   handleV2DatabaseContextMenuAction,
   handleV2ConnectionContextMenuAction,
@@ -349,7 +363,33 @@ export const useSidebarV2ContextMenu = ({
       return buildV2TableStatusSQL({ conn, tableName, extractObjectName });
   };
 
+  const renderV2MultiTableContextMenu = (nodes: any[]) => {
+      const configs = nodes.map((node) => node?.dataRef?.config).filter(Boolean);
+      const supportsTruncate = configs.length > 0 && configs.every((config) => (
+          supportsTableTruncateAction(config?.type, config?.driver)
+      ));
+      const supportsBatchTables = configs.length > 0 && configs.every((config) => (
+          getDataSourceCapabilities(config).supportsSqlQueryExport
+      ));
+      return (
+          <V2MultiTableContextMenuView
+              tableNames={nodes.map((node) => String(node?.dataRef?.tableName || node?.title || '').trim()).filter(Boolean)}
+              supportsTruncate={supportsTruncate}
+              supportsBatchTables={supportsBatchTables}
+              onAction={(action) => {
+                  setContextMenu(null);
+                  handleV2MultiTableContextMenuAction(nodes, action);
+              }}
+          />
+      );
+  };
+
   const renderV2TableContextMenu = (node: any) => {
+      // 多表选中态落在其中一张表上：换用只含批量动作的多表菜单。
+      const multiNodes = resolveMultiTableSelection(node, selectedNodesRef.current as any[]);
+      if (multiNodes) {
+          return renderV2MultiTableContextMenu(multiNodes as any[]);
+      }
       const tableName = String(node?.dataRef?.tableName || node?.title || '').trim();
       const statsKey = getV2TableContextMenuStatsKey(node);
       const stats = v2TableContextMenuStats[statsKey];
@@ -382,6 +422,7 @@ export const useSidebarV2ContextMenu = ({
               supportsBatchTables={dataSourceCapabilities.supportsSqlQueryExport}
               supportsSqlExport={dataSourceCapabilities.supportsSqlQueryExport}
               supportsMockData={dataSourceCapabilities.supportsMockData}
+              pluginActions={buildPluginActions(node, 'collection')}
               onAction={(action) => {
                   setContextMenu(null);
                   handleV2TableContextMenuAction(node, action);
@@ -408,6 +449,21 @@ export const useSidebarV2ContextMenu = ({
       );
   };
 
+  const buildPluginActions = (node: any, scope: 'connection' | 'database' | 'collection') =>
+      filterPluginConnectionActions(pluginConnectionActions ?? [], String(node.dataRef?.config?.type || ''), scope)
+          .map((entry) => ({
+              key: `plugin-connection-action:${entry.pluginID}:${entry.action.id}`,
+              title: entry.action.title,
+              onSelect: () => {
+                  setContextMenu(null);
+                  runPluginConnectionAction?.(entry, {
+                      connectionId: String(node.dataRef?.id || node.key || ''),
+                      database: scope === 'connection' ? undefined : String(node.dataRef?.dbName || node.title || ''),
+                      collection: scope === 'collection' ? String(node.dataRef?.tableName || '') : undefined,
+                  });
+              },
+          }));
+
   const renderV2DatabaseContextMenu = (node: any) => {
       const dialect = getMetadataDialect(node.dataRef as SavedConnection);
       const capabilities = getDataSourceCapabilities((node.dataRef as SavedConnection)?.config);
@@ -430,6 +486,7 @@ export const useSidebarV2ContextMenu = ({
               supportsBatchWorkbench={capabilities.supportsSqlQueryExport}
               supportsRunSqlFile={registryAllowsImport((node.dataRef as SavedConnection)?.config?.type, 'sqlFile')}
               isPinned={isPinned}
+              pluginActions={buildPluginActions(node, 'database')}
               onAction={(action) => {
                   setContextMenu(null);
                   if (action === 'schema-visibility') {
@@ -510,6 +567,7 @@ export const useSidebarV2ContextMenu = ({
                   name: tag.name,
                   selected: tag.id === currentTagId,
               }))}
+              pluginActions={buildPluginActions(node, 'connection')}
               onAction={(action) => {
                   setContextMenu(null);
                   handleV2ConnectionContextMenuAction(node, action);

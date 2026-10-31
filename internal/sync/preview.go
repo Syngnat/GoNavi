@@ -1,11 +1,12 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/db"
 	"context"
 	"fmt"
 	"strings"
+
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
 )
 
 type PreviewRow struct {
@@ -76,7 +77,7 @@ func (s *SyncEngine) preview(config SyncConfig, tableName string, limit int) (Ta
 		return s.previewMongoToRedis(config, tableName, limit)
 	}
 	if hasSourceQuery(config) {
-		return s.previewSourceQuery(config, limit)
+		return s.previewProtectedSourceQuery(config, limit)
 	}
 	if err := ValidateMigrationCapability(config); err != nil {
 		return TableDiffPreview{}, err
@@ -113,7 +114,7 @@ func (s *SyncEngine) preview(config SyncConfig, tableName string, limit int) (Ta
 	db.BindMetadataContext(targetDB, s.context())
 	defer db.ClearMetadataContext(targetDB)
 
-	plan, cols, targetCols, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
+	plan, cols, targetCols, err := s.buildPreflightMigrationPlan(config, tableName, sourceDB, targetDB)
 	if err != nil {
 		return TableDiffPreview{}, err
 	}
@@ -271,7 +272,7 @@ func (s *SyncEngine) preview(config SyncConfig, tableName string, limit int) (Ta
 		return out, nil
 	}
 
-	sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, plan.SourceQueryTable)))
+	sourceRows, _, err := querySyncSourceTableSnapshotContext(s.context(), config, sourceDB, sourceType, plan.SourceQueryTable, cols)
 	if err != nil {
 		return TableDiffPreview{}, fmt.Errorf("读取源表失败: %w", err)
 	}
@@ -284,13 +285,16 @@ func (s *SyncEngine) preview(config SyncConfig, tableName string, limit int) (Ta
 
 	targetRows := make([]map[string]interface{}, 0)
 	if plan.TargetTableExists {
-		targetRows, _, err = querySyncDatabaseContext(s.context(), targetDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, plan.TargetQueryTable)))
+		targetRows, _, err = querySyncTableSnapshotContext(s.context(), targetDB, targetType, plan.TargetQueryTable, targetCols)
 		if err != nil {
 			return TableDiffPreview{}, fmt.Errorf("读取目标表失败: %w", err)
 		}
 	}
 
-	inserts, updates, deletes, _ := diffRowsByKeyColumns(pkColsForCompare, sourceRows, targetRows)
+	inserts, updates, deletes, _, err := diffSyncRowsByKeys(config, targetCols, pkColsForCompare, sourceRows, targetRows)
+	if err != nil {
+		return TableDiffPreview{}, err
+	}
 	out.TotalInserts, out.TotalUpdates, out.TotalDeletes = len(inserts), len(updates), len(deletes)
 	for _, row := range inserts {
 		if len(out.Inserts) < limit {
@@ -349,7 +353,7 @@ func (s *SyncEngine) previewInsertOnlyTable(config SyncConfig, tableName string,
 	if strings.TrimSpace(query) == "" {
 		return TableDiffPreview{}, fmt.Errorf("当前数据源不支持分页预览")
 	}
-	sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, query)
+	sourceRows, _, err := querySyncSourceTableSnapshotContext(s.context(), config, sourceDB, sourceType, plan.SourceQueryTable, cols, query)
 	if err != nil {
 		return TableDiffPreview{}, fmt.Errorf("读取源表失败: %w", err)
 	}

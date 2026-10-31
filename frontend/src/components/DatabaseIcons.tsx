@@ -68,6 +68,9 @@ const DB_DEFAULT_COLORS: Record<string, string> = {
     diros:      '#0050B3',
     starrocks:  '#00A6A6',
     sphinx:     '#2F5D62',
+    // 智能体（数据源类型）沿用各自品牌色：OpenAI 黑 / Anthropic 橙。
+    codex:      '#000000',
+    claude:     '#D97757',
     custom:     '#64748B',
 };
 
@@ -160,6 +163,11 @@ const BRAND_ASSET_CONFIGS: Record<string, BrandAssetConfig> = {
         iconScale: 0.84,
     },
     sphinx: { src: '/db-icons/sphinx.svg' },
+    // 智能体（ChatGPT / Claude Code）也有品牌图标，但它们不在 db-icons/ 下：
+    // ChatGPT 用 db-icons/codex.svg（与 icons/ai/openai.svg 同源），
+    // Claude Code 直接复用 AI 供应商 logo 用的官方图标。
+    codex: { src: '/db-icons/codex.svg', iconScale: 0.82 },
+    claude: { src: '/icons/ai/claudecode.svg', iconScale: 0.9 },
 };
 
 const BRAND_ASSET_TYPES = new Set(Object.keys(BRAND_ASSET_CONFIGS));
@@ -315,6 +323,13 @@ const JVMIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
 const ElasticsearchIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="elasticsearch" size={size} color={color} />
 );
+// 智能体：ChatGPT / Claude Code 的品牌标志。
+const CodexIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
+    <BrandAssetIcon type="codex" size={size} color={color} />
+);
+const ClaudeIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
+    <BrandAssetIcon type="claude" size={size} color={color} />
+);
 
 /** Custom — 数据库圆柱加插头角标：自己接驱动的数据源 */
 const CustomIcon: React.FC<DbIconProps> = ({ size = 16, color }) => {
@@ -373,6 +388,8 @@ const DB_ICON_MAP: Record<string, React.FC<DbIconProps>> = {
     qdrant: QdrantIcon,
     milvus: MilvusIcon,
     elasticsearch: ElasticsearchIcon,
+    codex: CodexIcon,
+    claude: ClaudeIcon,
     custom: CustomIcon,
 };
 

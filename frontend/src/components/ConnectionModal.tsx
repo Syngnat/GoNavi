@@ -442,6 +442,7 @@ const ConnectionModal: React.FC<ConnectionModalProps> = ({ open, onClose, initia
 
   const { renderStep1, renderStep2 } = useConnectionModalSteps({
     onOpenDriverManager,
+    onClose,
     typeSelectWarning,
     setTypeSelectWarning,
     dbTypeQuery,

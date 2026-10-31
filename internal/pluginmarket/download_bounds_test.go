@@ -25,7 +25,7 @@ func TestConcurrentDownloadsAreBoundedBeforeNetworkIO(t *testing.T) {
 			close(release)
 		}
 	}()
-	service, _ := newTestService(t, server.URL, false)
+	service := newTestService(t, server.URL, false)
 	// Each worker sends one completion; none may block cleanup if another assertion fails.
 	done := make(chan error, 4)
 	for i := 0; i < 4; i++ {

@@ -28,19 +28,31 @@ export interface SkillContent {
 export interface AIModel { id: string; name: string; contextWindow: number; maxOutputTokens: number }
 /** Requires ai.providers and an exact backend command; images are not supported in v1. */
 export interface AIProvider {
-  id: string; name: string; command: string; models: AIModel[];
+  id: string; name: string; command: string; icon?: string; models: AIModel[];
   supportsTools: boolean; supportsImages: false;
 }
 /** Requires data.export and a backend command; metadata grants no filesystem access. */
 export interface Exporter { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }
+/** Bounded custom markup for a page; the host renders it only in an opaque-origin sandboxed frame. */
+export interface PageHTML { source: string }
+/** Requires ui.pages and exactly one of body or html; html also requires ui.html-panel. */
+export interface Page { id: string; title: string; body?: UINode; html?: PageHTML }
+/** Requires ui.pages; location is the tools menu and order only reorders entries of one plugin. */
+export interface Navigation { id: string; title: string; page: string; location: 'tools'; order?: number }
+export interface LaunchTarget { type: 'window' | 'page'; page?: string }
+/** Declared connection/database/collection menu entry; the host owns the launch context. */
+export interface ConnectionAction { id: string; title: string; description?: string; connectionTypes: string[]; scopes?: ('connection' | 'database' | 'collection')[]; target: LaunchTarget }
 export interface Manifest {
   schemaVersion: 1; apiVersion: 1; id: string; name: string; version: string;
-  description?: string; author?: string; license?: string; minHostVersion?: string;
+  description?: string; author?: string; license?: string;
+  /** Optional installed-plugin logo: a package-relative raster path; falls back to the first AI provider icon. */
+  icon?: string;
+  minHostVersion?: string;
   permissions: string[];
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
   backend?: { default?: Entry; platforms?: Record<string, Entry> };
-  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body: UINode }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[] };
+  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body: UINode }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
   window?: { entry: string; title?: string; width?: number; height?: number };
   configSchema?: JSONValue;
 }

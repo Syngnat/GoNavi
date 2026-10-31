@@ -1,0 +1,348 @@
+.gonavi-plugin-root {
+  --gonavi-bg: #f6f7f9;
+  --gonavi-panel: #ffffff;
+  --gonavi-panel-alt: #fafafa;
+  --gonavi-border: #e5e7eb;
+  --gonavi-text: #1f2329;
+  --gonavi-text-secondary: #5f6774;
+  --gonavi-accent: #16a34a;
+  --gonavi-accent-soft: #dcfce7;
+  --gonavi-radius: 8px;
+  --gonavi-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --gonavi-font-mono: "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  box-sizing: border-box;
+  min-height: 100%;
+  color: var(--gonavi-text);
+  background: var(--gonavi-bg);
+  font-family: var(--gonavi-font-ui);
+  font-size: 13px;
+}
+
+.gonavi-plugin-root *,
+.gonavi-plugin-root *::before,
+.gonavi-plugin-root *::after {
+  box-sizing: border-box;
+}
+
+.gonavi-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--gonavi-border);
+  border-radius: var(--gonavi-radius);
+  background: var(--gonavi-panel);
+}
+
+.gonavi-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--gonavi-border);
+  background: var(--gonavi-panel-alt);
+}
+
+.gonavi-panel-title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gonavi-panel-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 12px;
+}
+
+.gonavi-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--gonavi-border);
+  background: var(--gonavi-panel-alt);
+}
+
+.gonavi-state {
+  display: flex;
+  min-height: 160px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--gonavi-text-secondary);
+}
+
+.gonavi-data-table .ant-table {
+  font-size: 12px;
+}
+
+.gonavi-data-table .ant-table-cell {
+  padding: 4px 8px !important;
+}
+
+.gonavi-code-editor textarea {
+  font-family: var(--gonavi-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.gonavi-confirm {
+  display: none;
+}
+
+.gonavi-confirm-open {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.36);
+}
+
+.gonavi-confirm-card {
+  width: min(420px, calc(100vw - 48px));
+  padding: 20px;
+  border-radius: var(--gonavi-radius);
+  background: var(--gonavi-panel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.gonavi-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.gonavi-json-viewer {
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--gonavi-border);
+  border-radius: var(--gonavi-radius);
+  background: var(--gonavi-panel-alt);
+}
+
+.gonavi-json-root {
+  margin-bottom: 6px;
+  color: var(--gonavi-text-secondary);
+  font-size: 12px;
+}
+
+.gonavi-json-viewer pre {
+  margin: 0;
+  color: var(--gonavi-text);
+  font-family: var(--gonavi-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gonavi-tree-view {
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--gonavi-border);
+  border-radius: var(--gonavi-radius);
+  background: var(--gonavi-panel);
+}
+
+.gonavi-tree-view .ant-tree {
+  background: transparent;
+  font-size: 12px;
+}
+
+.gonavi-section {
+  padding: 12px 0;
+}
+
+.gonavi-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.gonavi-section-title {
+  margin: 0;
+  color: var(--gonavi-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gonavi-section-description {
+  margin: 3px 0 0;
+  color: var(--gonavi-text-secondary);
+  font-size: 12px;
+}
+
+.gonavi-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gonavi-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--gonavi-border);
+  border-radius: var(--gonavi-radius);
+  background: var(--gonavi-panel);
+}
+
+.gonavi-stat-label,
+.gonavi-stat-hint {
+  color: var(--gonavi-text-secondary);
+  font-size: 12px;
+}
+
+.gonavi-stat-value {
+  color: var(--gonavi-text);
+  font-family: var(--gonavi-font-mono);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.gonavi-stat-success .gonavi-stat-value { color: var(--gonavi-accent); }
+.gonavi-stat-warning .gonavi-stat-value { color: #d97706; }
+.gonavi-stat-danger .gonavi-stat-value { color: #dc2626; }
+
+.gonavi-description-list {
+  display: grid;
+  gap: 8px 20px;
+  margin: 0;
+}
+
+.gonavi-description-columns-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gonavi-description-item {
+  min-width: 0;
+}
+
+.gonavi-description-item dt {
+  color: var(--gonavi-text-secondary);
+  font-size: 12px;
+}
+
+.gonavi-description-item dd {
+  min-height: 18px;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--gonavi-text);
+  font-size: 13px;
+}
+
+.gonavi-mono {
+  font-family: var(--gonavi-font-mono);
+  font-size: 12px !important;
+}
+
+.gonavi-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border-top: 1px solid var(--gonavi-border);
+  color: var(--gonavi-text-secondary);
+  background: var(--gonavi-panel-alt);
+  font-size: 12px;
+}
+
+.gonavi-status-left,
+.gonavi-status-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gonavi-log-view {
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--gonavi-border);
+  border-radius: var(--gonavi-radius);
+  color: var(--gonavi-text);
+  background: var(--gonavi-panel-alt);
+  font-family: var(--gonavi-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gonavi-sql-editor {
+  overflow: hidden;
+  border: 1px solid var(--gonavi-border);
+  border-radius: var(--gonavi-radius);
+  background: var(--gonavi-panel);
+}
+
+.gonavi-sql-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--gonavi-border);
+  background: var(--gonavi-panel-alt);
+}
+
+.gonavi-sql-editor-language {
+  color: var(--gonavi-text-secondary);
+  font-family: var(--gonavi-font-mono);
+  font-size: 11px;
+}
+
+.gonavi-sql-editor textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--gonavi-text);
+  background: var(--gonavi-panel);
+  font-family: var(--gonavi-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+  outline: none;
+}
+
+.gonavi-sql-run {
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #fff;
+  background: var(--gonavi-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gonavi-sql-run:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

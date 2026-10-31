@@ -73,7 +73,7 @@ func TestFixtureProcess(t *testing.T) {
 				continue
 			}
 			emit(request.ID, map[string]int{"apiVersion": 1})
-			if mode == "host-log" || mode == "host-unknown" || mode == "host-describe" {
+			if mode == "host-log" || mode == "host-unknown" || mode == "host-describe" || mode == "host-capability" {
 				fixtureHostCall(reader, writer, mode)
 			}
 			if mode == "flood" {
@@ -123,6 +123,10 @@ func fixtureHostCall(reader *json.Decoder, writer *bufio.Writer, mode string) {
 	if mode == "host-describe" {
 		method = "host.describe"
 		params = map[string]any{}
+	}
+	if mode == "host-capability" {
+		method = "host.capability"
+		params = map[string]any{"method": "app.info", "arguments": map[string]any{}}
 	}
 	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": "log-1", "method": method, "params": params})
 	if err != nil {

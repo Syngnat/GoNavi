@@ -52,3 +52,20 @@ func TestMarketInstallChoosesReplaceOnlyForInstalledPlugins(t *testing.T) {
 		t.Fatalf("error swallowed: %v", err)
 	}
 }
+
+type installedStatusManager struct{ items []plugin.Status }
+
+func (m installedStatusManager) List() []plugin.Status { return m.items }
+
+func TestMarketInstallAlreadyCurrentMatchesIDAndVersion(t *testing.T) {
+	manager := installedStatusManager{items: []plugin.Status{{Manifest: plugin.Manifest{ID: "com.example.plugin", Version: "1.0.1"}}}}
+	if !marketInstallAlreadyCurrent(manager, "com.example.plugin", "1.0.1") {
+		t.Fatal("expected exact installed version to be rejected")
+	}
+	if marketInstallAlreadyCurrent(manager, "com.example.plugin", "1.0.2") {
+		t.Fatal("a different version must remain installable")
+	}
+	if marketInstallAlreadyCurrent(manager, "com.example.other", "1.0.1") {
+		t.Fatal("another plugin id must not match")
+	}
+}

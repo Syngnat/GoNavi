@@ -19,13 +19,13 @@ export interface MarketPlugin {
   artifact?: MarketArtifact;
   sourceId?: string;
 }
-export interface CatalogPage { items: MarketPlugin[]; nextCursor?: string; stale?: boolean; error?: string; cachedAt?: string; sourceId?: string }
+export interface MarketSourceConfig { baseUrl: string; enabled: boolean }
+export interface MarketSource extends MarketSourceConfig { sourceId: string; trustedOfficial: boolean }
+export interface CatalogPage { filterVersion?: number; items: MarketPlugin[]; nextCursor?: string; stale?: boolean; error?: string; cachedAt?: string; sourceId?: string }
 export interface MarketRating { userId: string; pluginId: string; stars: number; body: string; version: string; updatedAt: string }
-export interface MarketSettings { baseUrl: string; authenticated: boolean; sourceId?: string; trustedOfficial?: boolean }
-export interface DeviceLogin { verificationUri: string; userCode: string; deviceCode: string; intervalSeconds: number; expiresIn: number }
-export type LoginStatus = 'pending' | 'authorized' | 'denied' | 'expired';
+export interface MarketSettings { baseUrl: string; sourceId?: string; trustedOfficial?: boolean }
 export type MarketSort = 'updated' | 'rating' | 'downloads';
-export interface MarketInspectionRequest { id: string; version: string; artifactDigest: string; sourceId: string }
+export interface MarketInspectionRequest { id: string; version: string; artifactDigest: string; sourceId: string; sizeBytes?: number }
 export interface MarketInspectionQuote {
   inspection: PluginInspection;
   sourceId: string;

@@ -103,6 +103,7 @@ type importPreviewData struct {
 // directly as database column names. A non-nil map enables explicit source-to-target
 // mapping; entries with an empty target are skipped.
 type ImportFileOptions struct {
+	LosslessHive        bool              `json:"losslessHive,omitempty"`
 	ColumnMappings      map[string]string `json:"columnMappings,omitempty"`
 	JobID               string            `json:"jobId,omitempty"`
 	ContinueOnError     *bool             `json:"continueOnError,omitempty"`

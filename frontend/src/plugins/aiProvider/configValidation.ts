@@ -42,6 +42,6 @@ export function validatePluginProviderConfig(config: AIProviderConfig): void {
     } catch { return fail('base_url'); }
   }
   if (!Number.isFinite(config.temperature) || config.temperature < 0 || config.temperature > 2
-    || (config.contextWindow !== undefined && (!Number.isInteger(config.contextWindow) || config.contextWindow < 0 || (config.contextWindow > 0 && config.contextWindow < 1024) || config.contextWindow > 262144))) return fail('config');
+    || (config.contextWindow !== undefined && (!Number.isInteger(config.contextWindow) || config.contextWindow < 0 || (config.contextWindow > 0 && config.contextWindow < 1024) || config.contextWindow > 8_000_000))) return fail('config');
 }
 export const clearedPluginProviderSettings = { headers: {}, headerRows: [], apiFormat: '', cliPath: '', cliEnv: {}, cliEnvRows: [], effort: '', thinkingIntensity: '', authMode: 'api-key', supportsImages: false, headerTimeoutSeconds: 0, pluginUnsupportedCleared: true };

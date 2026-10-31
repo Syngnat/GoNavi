@@ -28,9 +28,9 @@ export const DATA_SYNC_TASK_STAGES: readonly DataSyncTaskStage[] = [
   'preflight',
 ];
 
+// 对比是整库行为：选完源和目标直接比，表清单由执行期按源库展开，所以只有一步。
 export const DATA_SYNC_COMPARE_STAGES: readonly DataSyncTaskStage[] = [
   'endpoints',
-  'mappings',
 ];
 
 export const dataSyncTaskStages = (

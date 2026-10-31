@@ -1,6 +1,6 @@
 # Local plugin runtime
 
-This package implements the version-one [integration contract](../../docs/plugins/implementation-contract.md). It runs explicitly trusted third-party code out of process. It is a reliability and capability-routing boundary, **not an OS security sandbox**: a plugin still has its user's operating-system privileges.
+This package implements the version-one [integration contract](https://plugin.gonavi.org/docs/implementation-contract). It runs explicitly trusted third-party code out of process. It is a reliability and capability-routing boundary, **not an OS security sandbox**: a plugin still has its user's operating-system privileges.
 
 ## Implemented behavior
 
@@ -12,16 +12,16 @@ This package implements the version-one [integration contract](../../docs/plugin
 - Persistent global generations survive remove/reinstall. InvokeGeneration fences admission and completion. Disable revokes local admissions and request contexts before writing intent, never awaiting plugin cooperation. State remains stopping until reaped. Persistence failure during local disable stops the owner fail-closed.
 - Asynchronous initialization and heartbeat supervision. Crashes, initialization/protocol/heartbeat faults, and command deadlines persist quarantine. Explicit enable retries; there is no automatic crash-restart loop. Missing/incompatible dependencies and cycles block activation without downloading anything.
 - Windows starts suspended, assigns a kill-on-close Job Object, then resumes. Unix uses a dedicated process group. Graceful shutdown gets at most two seconds before tree termination/reaping. Deliberately escaping a Unix process group is outside this non-sandbox guarantee.
-- Declared commands only; explicit Node/Python discovery; missing interpreters fail visibly. Child environment excludes host RPC/auth tokens and injection variables. All plugin-to-host JSON-RPC methods return method-not-found; arbitrary App reflection is never exposed.
+- Declared commands only; explicit Node/Python discovery; missing interpreters fail visibly. Child environment excludes host RPC/auth tokens and injection variables. Only explicitly registered host methods (`host.log`, `host.describe`, `host.capability`) are accepted; arbitrary App reflection is never exposed.
 - Assets require enabled/running state and regular immutable-package files. Traversal, symlinks, and disabled/faulted generations are rejected. Consumers additionally bind their UI capability to a captured generation.
 
 ## Default bounds
 
 | Resource | Limit |
 | --- | --- |
-| Archive / extracted bytes | 256 MiB total, 64 MiB/file |
+| Archive / extracted bytes | No fixed MB cap; entries stream to disk/hash; bounded by 4,096 entries and available disk |
 | Explicit and implicit paths | 4,096; depth 32; path length 1,024 bytes |
-| Manifest / ZIP directory | 1 MiB / 8 MiB; no ZIP64 or multidisk |
+| Manifest / ZIP directory | 1 MiB manifest; ZIP64 accepted; archive/zip validates the directory |
 | Installed records / state | 128 / 32 MiB |
 | UI tree | 512 nodes, depth 16; 32 columns and 500 rows/table |
 | RPC frame / stdout rate | 1 MiB / 256 frames and 8 MiB per second |
@@ -38,4 +38,4 @@ Real subprocess tests cover success, crashes, initialization/heartbeat hangs, ig
 
 The current development host executes Windows tests and go vet. Linux/amd64 and Darwin/arm64 are cross-built, not runtime-tested here. The race detector requires cgo; this host has cgo disabled and no C compiler on PATH.
 
-Not implemented here: host capability gateways, configuration editing/schema evaluation, automatic dependency downloads, cross-process invocation transport, marketplace networking, native UI hosting, OS CPU/memory quotas, or a security sandbox. A second process can change management intent but cannot invoke through the first owner's process: CLI invocation must own the runtime lease or report owner-busy.
+Not implemented here: configuration editing/schema evaluation, automatic dependency downloads, cross-process invocation transport, marketplace networking, native UI hosting, OS CPU/memory quotas, or a security sandbox. Host capability dispatch (`host.capability`) is provided by the embedding application through `Options.HostCapability`; this package only enforces caller binding and frame bounds. A second process can change management intent but cannot invoke through the first owner's process: CLI invocation must own the runtime lease or report owner-busy.

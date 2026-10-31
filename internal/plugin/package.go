@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,8 +16,6 @@ import (
 	"strings"
 )
 
-const maxPackageBytes int64 = 256 << 20
-const maxFileBytes int64 = 64 << 20
 const maxPackageEntries = 4096
 
 type packageFile struct {
@@ -51,6 +51,12 @@ func scanPackage(ctx context.Context, source, destination string) (Inspection, e
 	}
 	info, err := os.Lstat(absolute)
 	if err != nil {
+		// The caller needs to tell "path is gone" apart from a broken package, but the error
+		// must never echo the path: a package source can be private user data. Only the
+		// path-free sentinel is wrapped, other causes keep the opaque message.
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, fmt.Errorf("stat package failed: %w", fs.ErrNotExist)
+		}
 		return result, fmt.Errorf("stat package failed")
 	}
 	scan := &packageScan{ctx: ctx, destination: destination, seen: make(map[string]bool)}
@@ -58,9 +64,6 @@ func scanPackage(ctx context.Context, source, destination string) (Inspection, e
 	case info.IsDir():
 		err = scan.directory(absolute)
 	case info.Mode().IsRegular():
-		if info.Size() > maxPackageBytes {
-			return result, fmt.Errorf("archive exceeds compressed size limit")
-		}
 		format, formatErr := archiveFormat(absolute)
 		if formatErr != nil {
 			return result, formatErr
@@ -122,8 +125,8 @@ func (s *packageScan) entry(name string, dir bool) error {
 	return nil
 }
 func (s *packageScan) file(name string, size int64, r io.Reader) error {
-	if size < 0 || size > maxFileBytes || s.total+size > maxPackageBytes {
-		return fmt.Errorf("package file exceeds size limit")
+	if size < 0 {
+		return fmt.Errorf("package file size is invalid")
 	}
 	if name == manifestName && size > maxManifestBytes {
 		return fmt.Errorf("manifest exceeds size limit")
@@ -160,7 +163,9 @@ func (s *packageScan) file(name string, size int64, r io.Reader) error {
 		}
 	}
 	if copyErr != nil {
-		return fmt.Errorf("read package file failed")
+		// 必须带上原始错误：ctx 取消时 copyErr 是 context.DeadlineExceeded，
+		// 丢掉它调用方就分不清「超时取消」和「磁盘读失败」。
+		return fmt.Errorf("read package file failed: %w", copyErr)
 	}
 	if n != size {
 		return fmt.Errorf("package file changed or has inconsistent size")
@@ -190,8 +195,10 @@ func (s *packageScan) directory(source string) error {
 }
 func (s *packageScan) validateEntries(m Manifest) error {
 	regular := make(map[string]bool, len(s.files))
+	sizes := make(map[string]int64, len(s.files))
 	for _, f := range s.files {
 		regular[f.name] = true
+		sizes[f.name] = f.size
 	}
 	check := func(name string) error {
 		if !regular[name] {
@@ -214,6 +221,24 @@ func (s *packageScan) validateEntries(m Manifest) error {
 	if m.Window != nil {
 		if err := check(m.Window.Entry); err != nil {
 			return err
+		}
+	}
+	if m.Icon != "" {
+		if err := check(m.Icon); err != nil {
+			return err
+		}
+		if sizes[m.Icon] > maxPackageIconBytes {
+			return fmt.Errorf("plugin icon exceeds the %d byte limit", maxPackageIconBytes)
+		}
+	}
+	for _, provider := range m.Contributes.AIProviders {
+		if provider.Icon != "" {
+			if err := check(provider.Icon); err != nil {
+				return err
+			}
+			if sizes[provider.Icon] > maxPackageIconBytes {
+				return fmt.Errorf("ai provider icon exceeds the %d byte limit", maxPackageIconBytes)
+			}
 		}
 	}
 	return s.validateSkillEntries(m)

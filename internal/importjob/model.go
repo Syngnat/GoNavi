@@ -33,6 +33,7 @@ type Checkpoint struct {
 // request. Runtime identifiers and source identity live on Job so a recovery
 // attempt cannot replace either through this persisted recipe.
 type TableImportOptions struct {
+	LosslessHive       bool              `json:"losslessHive,omitempty"`
 	ColumnMappings     map[string]string `json:"columnMappings,omitempty"`
 	ContinueOnError    *bool             `json:"continueOnError,omitempty"`
 	Encoding           string            `json:"encoding,omitempty"`

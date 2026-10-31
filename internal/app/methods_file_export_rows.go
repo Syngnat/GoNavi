@@ -74,6 +74,9 @@ func streamQueryDataForExportWithContext(ctx context.Context, dbInst db.Database
 		ctx = context.Background()
 	}
 
+	if normalize, textNull := hiveExportConsumerMode(consumer); normalize && resolveDDLDBType(config) == "hive" {
+		consumer = &hiveExportConsumer{delegate: consumer, textNull: textNull, tableLabel: hiveExportSourceTable(query, consumer)}
+	}
 	timeout := getExportQueryTimeout(config)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -346,6 +349,10 @@ func formatExportCellText(val interface{}) string {
 	}
 
 	switch v := val.(type) {
+	case hiveExportText:
+		return string(v)
+	case hiveExportJSON:
+		return string(v)
 	case time.Time:
 		return v.Format("2006-01-02 15:04:05")
 	case *time.Time:
@@ -384,6 +391,10 @@ func normalizeExportJSONValue(val interface{}) interface{} {
 	}
 
 	switch v := val.(type) {
+	case hiveExportText:
+		return string(v)
+	case hiveExportJSON:
+		return json.RawMessage(v)
 	case time.Time:
 		return v.Format("2006-01-02 15:04:05")
 	case *time.Time:

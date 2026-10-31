@@ -31,6 +31,15 @@ GoNavi 是 **Wails v2 + Go + React 18** 的跨平台数据源工作台，不是 
 
 Go module：`GoNavi-Wails`。默认集成分支：`dev`。
 
+### 0.1 官方插件仓库约定
+
+GoNavi 官方插件（作者自己把宿主能力拆出来做的插件）**一律不新建仓库，全部落在 `GoNavi-Plugin-Market` 一个仓里**（市场官网 + 上架目录 + 官方插件源码同仓，本地 `D:\Work\CodeRepos\GoNavi-Plugin-Market`）：
+
+- **【强制】** 官方插件源码写该仓 `plugins/<name>/` 目录，复用仓根 `cmd/buildtool` 打包（产物进 `plugin-dist/`，已 gitignore，**禁止提交构建产物与运行态**）。收到"把 X 做成插件"类需求时直接在该仓增目录，禁止 `git init` 任何新插件仓库。
+- **【强制】** 发布 tag 格式 `<插件名>-v<semver>`（如 `nginx-inspector-v1.0.0`），一 Release 一 ZIP；安装引用 `github:Syngnat/GoNavi-Plugin-Market@<tag>` **必须带 tag**（无 tag 解析的是仓库 latest release，会拿到其他插件）。
+- **【强制】** 市场上架条目写该仓 `public/catalog.json`，且必须等 GitHub Release 已建立、artifact 直链可下载后再写（真实 SHA-256 与内容摘要，禁止占位死链）。
+- **【参考】** 第三方插件作者不受此约束：一仓一插件或一仓多插件均可，`github:owner/repo`（latest）是他们的默认模式。
+
 ---
 
 ## 1. 【强制】体积与拆分（本仓库最高优先级）

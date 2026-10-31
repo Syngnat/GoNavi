@@ -610,7 +610,7 @@ describe('QueryEditor external SQL save', () => {
     let immediateCompletion!: Promise<any>;
     await act(async () => {
       // 新建 tab 已按列表首个库补上默认选中，这里再手工切到 main 验证切换链路。
-      const activeToolbar = renderer.root.findAllByType(QueryEditorToolbar).find((toolbar) => toolbar.props.currentDb === 'information_schema');
+      const activeToolbar = renderer.root.findAllByType(QueryEditorToolbar).find((toolbar) => toolbar.props.currentDb === 'main');
       expect(activeToolbar).toBeTruthy();
       activeToolbar!.props.onDatabaseChange('main');
 
@@ -657,10 +657,10 @@ describe('QueryEditor external SQL save', () => {
 
     expect(backendApp.DBGetDatabases).toHaveBeenCalledTimes(1);
     expect(storeState.updateQueryTabDraft).toHaveBeenCalledWith('tab-1', expect.objectContaining({
-      dbName: 'information_schema',
+      dbName: 'main',
     }));
     await vi.waitFor(() => {
-      expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'information_schema');
+      expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'main');
     });
 
     await act(async () => {

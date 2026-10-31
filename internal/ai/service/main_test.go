@@ -19,6 +19,10 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv("GONAVI_LOG_DIR", testLogDir)
 	logger.Init()
 
+	// 预热的 goroutine 会活过用例，并在别的用例换掉包级探测钩子之后继续探测，
+	// 把那些 hook 的断言打成随机失败（expected lookup for opencode, got "zcode"）。
+	localCLICachePrewarmDisabled.Store(true)
+
 	code := m.Run()
 	logger.Close()
 	_ = os.RemoveAll(testLogDir)

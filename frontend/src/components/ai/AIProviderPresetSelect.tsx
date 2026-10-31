@@ -18,6 +18,14 @@ interface PartnerOption {
   promoCode: string;
 }
 
+export interface PluginPresetOption {
+  key: string;
+  label: string;
+  available: boolean;
+  iconSrc?: string;
+  detail?: string;
+}
+
 interface AIProviderPresetSelectProps {
   value?: string | null;
   presets: PresetOption[];
@@ -35,6 +43,9 @@ interface AIProviderPresetSelectProps {
   partnerApplyBaseUrlActionLabel: string;
   partnerVisitActionLabel: string;
   partners?: PartnerOption[];
+  pluginPresets?: PluginPresetOption[];
+  pluginLabel?: string;
+  pluginUnavailableLabel?: string;
   ariaLabel: string;
   onChange: (presetKey: string) => void;
   onOpenPartner?: (url: string) => void;
@@ -45,14 +56,26 @@ interface AIProviderPresetSelectProps {
 const AIProviderPresetSelect: React.FC<AIProviderPresetSelectProps> = ({
   value, presets, canSelect, className, placeholder, disabled, dark, builtinLabel, partnerLabel,
   partnerPromoLabel, partnerPromoCopyingLabel, partnerPromoCopyFailedLabel,
-  partnerPromoCopyActionLabel, partnerApplyBaseUrlActionLabel, partnerVisitActionLabel, partners = [], ariaLabel, onChange,
+  partnerPromoCopyActionLabel, partnerApplyBaseUrlActionLabel, partnerVisitActionLabel, partners = [],
+  pluginPresets = [], pluginLabel = '', pluginUnavailableLabel = '', ariaLabel, onChange,
   onOpenPartner, onCopyPartnerCode, onApplyPartnerBaseUrl,
 }) => {
   const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
   const [activePartnerKey, setActivePartnerKey] = React.useState('');
   const [partnerCopyState, setPartnerCopyState] = React.useState<'idle' | 'copying' | 'error'>('idle');
+  const pluginQuery = search.trim().toLowerCase();
+  const visiblePluginPresets = pluginPresets.filter((preset) => !pluginQuery
+    || preset.label.toLowerCase().includes(pluginQuery)
+    || preset.key.toLowerCase().includes(pluginQuery)
+    || (preset.detail ?? '').toLowerCase().includes(pluginQuery));
   const choosePreset = (preset: PresetOption) => {
     if (!canSelect(preset) && preset.key !== value) return;
+    onChange(preset.key);
+    setOpen(false);
+  };
+  const choosePluginPreset = (preset: PluginPresetOption) => {
+    if (!preset.available) return;
     onChange(preset.key);
     setOpen(false);
   };
@@ -70,6 +93,7 @@ const AIProviderPresetSelect: React.FC<AIProviderPresetSelectProps> = ({
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
+      setSearch('');
       setActivePartnerKey('');
       setPartnerCopyState('idle');
     }
@@ -89,6 +113,7 @@ const AIProviderPresetSelect: React.FC<AIProviderPresetSelectProps> = ({
     popupMatchSelectWidth={false}
     classNames={{ popup: { root: 'gonavi-ai-provider-preset-dropdown' } }}
     optionLabelProp="label"
+    onSearch={(next) => setSearch(next)}
     options={presets.map((preset) => ({
       value: preset.key,
       label: preset.label,
@@ -111,6 +136,28 @@ const AIProviderPresetSelect: React.FC<AIProviderPresetSelectProps> = ({
         <div className="gonavi-ai-provider-preset-col">
           <div className="gonavi-ai-provider-preset-col-title">{builtinLabel}</div>
           {menu}
+          {visiblePluginPresets.length > 0 && <>
+            <div className="gonavi-ai-provider-preset-col-title is-plugin">{pluginLabel}</div>
+            <div className="gonavi-ai-provider-plugin-list">
+              {visiblePluginPresets.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className="gonavi-ai-provider-plugin-option"
+                  data-plugin-provider={preset.key}
+                  disabled={!preset.available}
+                  title={preset.detail}
+                  aria-label={preset.available ? preset.label : preset.label + ' · ' + pluginUnavailableLabel}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choosePluginPreset(preset)}
+                >
+                  <AIProviderLogo presetKey={preset.key} label={preset.label} iconPath={preset.iconSrc} dark={dark} />
+                  <span className="gonavi-ai-provider-plugin-name">{preset.label}</span>
+                  {!preset.available && <span className="gonavi-ai-provider-plugin-unavailable">{pluginUnavailableLabel}</span>}
+                </button>
+              ))}
+            </div>
+          </>}
         </div>
         <div className="gonavi-ai-provider-preset-col is-partner">
           <div className="gonavi-ai-provider-preset-col-title">{partnerLabel}</div>

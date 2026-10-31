@@ -30,6 +30,11 @@ func TestAIProviderDeclarationValidation(t *testing.T) {
 			m.Contributes.AIProviders = append(m.Contributes.AIProviders, m.Contributes.AIProviders[0])
 		}},
 		{"name utf8", func(m *Manifest) { m.Contributes.AIProviders[0].Name = string([]byte{0xff}) }},
+		{"icon svg", func(m *Manifest) { m.Contributes.AIProviders[0].Icon = "icons/provider.svg" }},
+		{"icon absolute", func(m *Manifest) { m.Contributes.AIProviders[0].Icon = "/icons/provider.png" }},
+		{"icon traversal", func(m *Manifest) { m.Contributes.AIProviders[0].Icon = "../provider.png" }},
+		{"icon backslash", func(m *Manifest) { m.Contributes.AIProviders[0].Icon = "icons\\provider.png" }},
+		{"icon limit", func(m *Manifest) { m.Contributes.AIProviders[0].Icon = strings.Repeat("a", 253) + ".png" }},
 		{"name limit", func(m *Manifest) { m.Contributes.AIProviders[0].Name = strings.Repeat("x", 257) }},
 		{"name byte limit", func(m *Manifest) { m.Contributes.AIProviders[0].Name = strings.Repeat("中", 86) }},
 		{"model name byte limit", func(m *Manifest) { m.Contributes.AIProviders[0].Models[0].Name = strings.Repeat("中", 86) }},
@@ -56,6 +61,11 @@ func TestAIProviderDeclarationValidation(t *testing.T) {
 	p.SupportsImages = true
 	if err := ValidateManifest(m); err != nil {
 		t.Fatalf("explicit image capability rejected: %v", err)
+	}
+	m = aiProviderManifest()
+	m.Contributes.AIProviders[0].Icon = "icons/provider.PNG"
+	if err := ValidateManifest(m); err != nil {
+		t.Fatalf("valid raster icon rejected: %v", err)
 	}
 	m = aiProviderManifest()
 	p = &m.Contributes.AIProviders[0]

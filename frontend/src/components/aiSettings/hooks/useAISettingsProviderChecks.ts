@@ -29,13 +29,13 @@ export function useAISettingsProviderChecks(input: UseAISettingsMcpAndPresetsInp
       const result = parseProviderCheckResult(response);
       if (!result) throw new Error(t('ai_settings.message.test_scope_missing'));
       if (plugin && result.success && (result.checkKind !== 'model-response' || !result.modelVerified)) throw new PluginAPIError('plugin.ai_provider.error.unverified');
-      setTestResult(plugin && !result.success ? { ...result, message: t('plugin.ai_provider.error.test_failed') } : result);
+      setTestResult(plugin && !result.success ? { ...result, message: result.message || t('plugin.ai_provider.error.test_failed') } : result);
       setTestStatus(result.success ? 'success' : 'error');
     } catch (cause) {
       const error = cause as { errorFields?: unknown; message?: string };
       if (baseCurrent() && !error?.errorFields && (!plugin || !pin || catalog?.isCurrent(pin))) {
         setTestStatus('error'); setTestResult({ success: false, checkKind: 'none', modelVerified: false,
-          message: cause instanceof PluginAPIError ? t(cause.key) : plugin ? t('plugin.ai_provider.error.test_failed') : error?.message || String(cause) || t('ai_settings.message.test_failed') });
+          message: cause instanceof PluginAPIError ? t(cause.key) : plugin ? error?.message || t('plugin.ai_provider.error.test_failed') : error?.message || String(cause) || t('ai_settings.message.test_failed') });
       }
     } finally { if (baseCurrent()) setProviderTesting(false); }
   };

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-25T15:36:00.315Z",
+  "server": "Apache Hive 4.0.1",
+  "serverImage": "apache/hive:4.0.1@sha256:5194161ef50b80875f937dff04936df047cbe894e9727ab8f0606349345b1bd3",
+  "realm": "GONAVI.TEST",
+  "client": "Windows/amd64 Go 1.25.6 pure-Go HiveDB",
+  "testedProbeSHA256": "2ecadb59f553e11753378a59512c63718f09dd649523b1fe8995af0b0637e5c8",
+  "phases": [
+    {
+      "phase": "binary-gssapi",
+      "file": "binary-gssapi.jsonl",
+      "cases": 6,
+      "successfulQueries": 3,
+      "rejections": 3
+    },
+    {
+      "phase": "http-spnego",
+      "file": "http-spnego.jsonl",
+      "cases": 6,
+      "successfulQueries": 3,
+      "rejections": 3
+    },
+    {
+      "phase": "binary-gssapi-tls",
+      "file": "binary-gssapi-tls.jsonl",
+      "cases": 8,
+      "successfulQueries": 3,
+      "rejections": 5
+    },
+    {
+      "phase": "http-spnego-tls",
+      "file": "http-spnego-tls.jsonl",
+      "cases": 8,
+      "successfulQueries": 3,
+      "rejections": 5
+    }
+  ],
+  "totalCases": 28,
+  "successfulQueries": 12,
+  "expectedRejections": 16,
+  "strictTLS": true,
+  "allPassed": true,
+  "queryProof": [
+    "OpenSession",
+    "GetInfo",
+    "Ping",
+    "SELECT 1",
+    "SELECT logged_in_user() = gonavi",
+    "CloseSession"
+  ],
+  "restoration": {
+    "originalCompose": true,
+    "transport": "binary",
+    "auth": "NONE",
+    "realQueryPassed": true,
+    "elapsedMs": 13629,
+    "authSecretMountRemoved": true,
+    "hadoopAuthentication": "simple",
+    "dataVolume": "gonavi-hive-1584-data",
+    "hiveMemoryBytes": 3221225472,
+    "hiveCPUs": 2,
+    "composeSHA256": "c5208a86af5c1355bd53cc28f9aa2e4069651e1af8621bd163f448b6df545447",
+    "hiveSiteSHA256": "622748cb9770ec9b5165bee633c1bfb508ee89cfa9fd4cbfbe7b8d54c1999fd9"
+  },
+  "limitations": [
+    "HTTP SPNEGO is one-way preemptive; server identity comes from strict TLS",
+    "SASL QOP auth only, not auth-int/auth-conf",
+    "Single realm; cross-realm behavior has not been verified against real realms",
+    "Hive 1/2, Spark Thrift, Impala and production networks are not covered"
+  ],
+  "credentialPolicy": "No credentials, private keys, keytabs, tickets or rendered TLS passwords are included in these artifacts"
+}

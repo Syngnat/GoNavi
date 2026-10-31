@@ -232,8 +232,7 @@ export const useQueryEditorResultReload = ({
             String((config as any).driver || ''),
             { oceanBaseProtocol: String((config as any).oceanBaseProtocol || '') },
         )).toLowerCase();
-        const countSql = buildQueryResultCountSql(target.page.baseSql, normalizedDbType);
-        if (!countSql) return;
+        let countSql = '';
         const sequence = ++resultTotalCountSeqRef.current;
         resultTotalCountRequestsRef.current[resultKey] = { sequence, queryId: '' };
         setResultSets(prev => prev.map(rs =>
@@ -258,6 +257,8 @@ export const useQueryEditorResultReload = ({
         };
 
         try {
+            countSql = buildQueryResultCountSql(target.page.baseSql, normalizedDbType, target.columns);
+            if (!countSql) { finishLoading(); return; }
             let queryId: string;
             try {
                 queryId = await GenerateQueryID();

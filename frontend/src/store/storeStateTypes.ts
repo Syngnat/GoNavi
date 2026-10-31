@@ -22,6 +22,7 @@ import {
   type ShortcutPlatformBinding,
   type ShortcutPlatform,
 } from "../utils/shortcuts";
+import type { AgentIntegrationSummaryView } from "../utils/agentConnectionTypes";
 import type { DataGridDisplaySettings } from "../utils/dataGridDisplay";
 import type { SqlEditorTypographySettings } from "../utils/sqlEditorTypography";
 import type { TitlebarActionsPlacementSettings } from "../utils/titlebarActionsPlacement";
@@ -290,6 +291,13 @@ export interface AppState {
   ) => void;
   clearJVMDiagnosticOutput: (tabId: string) => void;
 
+  agentIntegrations: AgentIntegrationSummaryView[];
+  agentIntegrationsLoading: boolean;
+  /** 已完成过至少一次加载。空列表既可能是「还没加载」也可能是「一个都没
+      添加」，调用方要区分这两种情况时用它。 */
+  agentIntegrationsLoaded: boolean;
+  refreshAgentIntegrations: () => Promise<void>;
+
   addConnection: (conn: SavedConnection) => void;
   updateConnection: (conn: SavedConnection) => void;
   removeConnection: (id: string) => void;
@@ -352,6 +360,8 @@ export interface AppState {
   closeTabsToRight: (id: string) => void;
   closeTabsByConnection: (connectionId: string) => void;
   closeTabsByDatabase: (connectionId: string, dbName: string) => void;
+  /** 关闭智能体已不存在的会话工作台页签（传入当前仍存在的智能体列表）。 */
+  closeStaleAgentAssetsTabs: (liveIntegrationIds: string[]) => void;
   moveTab: (sourceId: string, targetId: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (id: string) => void;

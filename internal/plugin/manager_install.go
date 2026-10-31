@@ -141,7 +141,7 @@ func (m *Manager) Remove(ctx context.Context, id string, purge bool) error {
 			return false, ErrNotFound
 		}
 		if r.DesiredEnabled {
-			return false, fmt.Errorf("disable plugin before removal")
+			return false, ErrEnabled
 		}
 		if r.ActiveGeneration != 0 || (!purge && r.Removing) {
 			return false, ErrBusy

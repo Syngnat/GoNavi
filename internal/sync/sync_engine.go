@@ -1,14 +1,15 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/db"
-	"GoNavi-Wails/internal/logger"
 	"context"
 	"fmt"
 	"math"
 	"strings"
 	"time"
+
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/logger"
 )
 
 const defaultSyncApplyBatchSize = 1000
@@ -221,7 +222,14 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				"current": i + 1,
 				"total":   totalTables,
 			}))
-			defer s.progress(config.JobID, i+1, totalTables, tableName, tableCompletedStage)
+			// Report the completed stage only when the table actually completed: a failed table
+			// reporting "table completed" contradicts the final result and makes the progress bar
+			// claim every table finished.
+			defer func() {
+				if tableFailure == "" {
+					s.progress(config.JobID, i+1, totalTables, tableName, tableCompletedStage)
+				}
+			}()
 
 			plan, cols, targetCols, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
 			if err != nil {
@@ -262,22 +270,15 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 					return
 				}
 			}
-			if syncData && tableMode == "insert_update" && plan.TargetTableExists {
-				if hasEffectiveSyncDataOperation(tableMode, opts) {
-					keyColumns, keyErr := syncKeyColumnsForTable(config, tableName, cols)
-					if keyErr != nil {
-						message := fmt.Sprintf("解析表 %s 的稳定 key 失败: %v", tableName, keyErr)
-						s.appendLog(config.JobID, &result, "warn", message)
-						markTableFailure(message)
-						return
-					}
-					if len(keyColumns) == 0 && !config.ExistingTargetInsertWithoutKey {
-						message := fmt.Sprintf("表 %s 未找到主键或映射稳定 key，无法执行差异同步", tableName)
-						s.appendLog(config.JobID, &result, "warn", message)
-						markTableFailure(message)
-						return
-					}
+			if syncData {
+				if err := validateTableComparisonKeys(config, tableName, plan, cols, opts); err != nil {
+					markTableFailure(err.Error())
+					return
 				}
+			}
+			if err := validateHiveTablePreflight(s.context(), config, targetDB, tableName, plan, cols, targetCols, opts, syncData); err != nil {
+				markTableFailure(err.Error())
+				return
 			}
 			for _, warning := range plan.Warnings {
 				s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("  -> %s", warning))
@@ -515,7 +516,7 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 			}
 
 			s.progress(config.JobID, i, totalTables, tableName, "读取源表数据")
-			sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, sourceQueryTable)))
+			sourceRows, _, err := querySyncSourceTableSnapshotContext(s.context(), config, sourceDB, sourceType, sourceQueryTable, cols)
 			if err != nil {
 				logger.Error(err, "读取源表失败：表=%s", tableName)
 				message := fmt.Sprintf("读取源表 %s 失败: %v", tableName, err)
@@ -541,7 +542,7 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 
 			if requirePK {
 				s.progress(config.JobID, i, totalTables, tableName, "读取目标表数据")
-				targetRows, _, err := querySyncDatabaseContext(s.context(), targetDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable)))
+				targetRows, _, err := querySyncTableSnapshotContext(s.context(), targetDB, targetType, targetQueryTable, targetCols)
 				if err != nil {
 					logger.Error(err, "读取目标表失败：表=%s", tableName)
 					message := fmt.Sprintf("读取目标表 %s 失败: %v", tableName, err)
@@ -550,8 +551,16 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 					return
 				}
 
+				if err := validateHiveComparisonRows(config, targetPKCols, sourceRows, targetRows, targetCols); err != nil {
+					markTableFailure(err.Error())
+					return
+				}
 				s.progress(config.JobID, i, totalTables, tableName, "对比差异")
-				inserts, updates, deletes, _ = diffRowsByKeyColumns(targetPKCols, sourceRows, targetRows)
+				inserts, updates, deletes, _, err = diffSyncRowsByKeys(config, targetCols, targetPKCols, sourceRows, targetRows)
+				if err != nil {
+					markTableFailure(err.Error())
+					return
+				}
 				inserts = filterRowsByKeySelection(targetPKCols, inserts, opts.Insert, opts.SelectedInsertPKs)
 				updates = filterUpdatesByKeySelection(targetPKCols, updates, opts.Update, opts.SelectedUpdatePKs)
 				deletes = filterRowsByKeySelection(targetPKCols, deletes, opts.Delete, opts.SelectedDeletePKs)
@@ -638,28 +647,16 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 			}
 
 			hasChanges := len(changeSet.Inserts) > 0 || len(changeSet.Updates) > 0 || len(changeSet.Deletes) > 0
-			var applier db.BatchApplier
-			if hasChanges {
-				var ok bool
-				applier, ok = targetDB.(db.BatchApplier)
-				if !ok {
-					message := "目标驱动不支持应用数据变更 (ApplyChanges)."
-					s.appendLog(config.JobID, &result, "warn", "  -> "+message)
-					markTableFailure(message)
-					return
-				}
+			applier, err := snapshotTargetApplier(s.context(), config, targetDB, targetQueryTable, targetColsResolved, changeSet)
+			if err != nil {
+				markTableFailure(err.Error())
+				return
 			}
 
 			if tableMode == "full_overwrite" && plan.TargetTableExists {
 				s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("  -> 全量覆盖模式：即将清空目标表 %s", tableName))
 				s.progress(config.JobID, i, totalTables, tableName, "清空目标表")
-				clearSQL := ""
-				if targetType == "mysql" {
-					clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(targetType, targetQueryTable))
-				} else {
-					clearSQL = fmt.Sprintf("DELETE FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable))
-				}
-				if _, err := execSyncDatabaseContext(s.context(), targetDB, clearSQL); err != nil {
+				if err := clearSyncTargetContext(s.context(), targetDB, targetType, targetQueryTable); err != nil {
 					message := fmt.Sprintf("清空目标表失败: %v", err)
 					s.appendLog(config.JobID, &result, "error", "  -> "+message)
 					markTableFailure(message)

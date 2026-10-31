@@ -4,6 +4,7 @@ declare module 'node:fs' {
     toString(encoding?: 'utf8'): string;
   }
 
+  export function existsSync(path: string | URL): boolean;
   export function readdirSync(path: string | URL): string[];
   export function realpathSync(path: string | URL): string;
   export function readFileSync(path: string | URL): FileBuffer;

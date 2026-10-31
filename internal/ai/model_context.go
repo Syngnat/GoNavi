@@ -3,6 +3,9 @@ package ai
 import (
 	"slices"
 	"strings"
+	"sync/atomic"
+
+	"GoNavi-Wails/internal/ai/modelsdev"
 )
 
 // ModelContextProfile 描述某个模型的上下文窗口（单位：token，与 runharness 的窗口口径一致）。
@@ -49,6 +52,56 @@ type modelContextRule struct {
 	any     []string
 	prefix  []string
 	profile ModelContextProfile
+}
+
+// overrideContextTiers 是覆盖窗口时可选的常见档位（降序）：用户可把网关实际
+// 给出的窗口压到更小的一档。
+var overrideContextTiers = []int{contextWindow1M, contextWindow500K, contextWindow258K, contextWindow200K, contextWindow128K}
+
+// modelContextCatalog 是公共模型目录（models.dev）的进程内快照，启动时注入。
+//
+// 规则表优先：它来自 GoNavi 实测过的档位（例如 Claude 的 200K/1M 双档），
+// 命中的模型只用目录把窗口调大、档位只多不少；规则表认不出的模型（网关别名、
+// 反向代理私有名）才由目录给出真实窗口，而不是落在通用的 258K 猜测上。
+var modelContextCatalog atomic.Pointer[modelsdev.Catalog]
+
+// SetModelContextCatalog 注入公共目录；传 nil 表示退回只按规则表解析。
+func SetModelContextCatalog(catalog *modelsdev.Catalog) {
+	modelContextCatalog.Store(catalog)
+}
+
+// catalogContextProfile 用公共目录兜底：档位是「目录窗口 + 更小的常见档位」，
+// 目录没有这个模型或没写窗口时返回 false。
+func catalogContextProfile(model string) (ModelContextProfile, bool) {
+	catalog := modelContextCatalog.Load()
+	if catalog == nil {
+		return ModelContextProfile{}, false
+	}
+	entry, ok := catalog.Lookup(model)
+	if !ok || entry.ContextWindow <= 0 {
+		return ModelContextProfile{}, false
+	}
+	options := []int{entry.ContextWindow}
+	for _, tier := range overrideContextTiers {
+		if tier < entry.ContextWindow {
+			options = append(options, tier)
+		}
+	}
+	return ModelContextProfile{DefaultWindow: entry.ContextWindow, Options: options}, true
+}
+
+// mergeContextProfile 把公共目录的窗口并进规则表结果：默认窗口取两者更大的那个，
+// 档位只多不少（目录窗口作为一个候选档），这样目录比实测档更大时用户仍能选回去，
+// 也不会把规则表里固定的一档模型变成需要选择的模型。
+func mergeContextProfile(curated, cataloged ModelContextProfile) ModelContextProfile {
+	options := append([]int(nil), curated.Options...)
+	if !slices.Contains(options, cataloged.DefaultWindow) {
+		options = append(options, cataloged.DefaultWindow)
+	}
+	slices.Sort(options)
+	options = slices.Compact(options)
+	slices.Reverse(options)
+	return ModelContextProfile{DefaultWindow: max(curated.DefaultWindow, cataloged.DefaultWindow), Options: options}
 }
 
 func fixedContextProfile(window int) ModelContextProfile {
@@ -125,18 +178,28 @@ func modelNameMatches(lower string, rule modelContextRule) bool {
 }
 
 // ResolveModelContextProfile 按模型名解析上下文窗口。
-// 无法识别或模型名为空时给出通用档位，让自定义供应商的模型也能自己选。
+// 顺序是规则表 → 公共目录（models.dev）→ 通用档位：规则表命中的模型用目录把窗口
+// 调大（档位只多不少），认不出的网关别名则由目录给出真实窗口。
 func ResolveModelContextProfile(model string) ModelContextProfile {
 	lower := strings.ToLower(strings.TrimSpace(model))
 	profile := ModelContextProfile{DefaultWindow: UnknownModelContextWindow, Options: unknownModelContextOptions}
 	if lower != "" {
+		matched := false
 		for _, rule := range modelContextRules {
 			if modelNameMatches(lower, rule) {
 				profile = rule.profile
 				if rule.dynamic != nil {
 					profile = rule.dynamic()
 				}
+				matched = true
 				break
+			}
+		}
+		if cataloged, ok := catalogContextProfile(lower); ok {
+			if matched {
+				profile = mergeContextProfile(profile, cataloged)
+			} else {
+				profile = cataloged
 			}
 		}
 	}

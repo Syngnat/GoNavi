@@ -112,6 +112,8 @@ func (a *App) startup(ctx context.Context) {
 	a.initializeDataSyncJobs(ctx)
 	a.initializeCloudBackup(ctx)
 	a.initializePlugins(ctx)
+	// 旧 session-assets 保全链的测试残留数据：从未上线，静默清理。
+	removeLegacySessionAssetsData()
 	logger.Infof("应用启动完成（首次连接保护窗口=%s，最多重试=%d 次）", startupConnectRetryWindow, startupConnectRetryAttempts)
 }
 
@@ -206,6 +208,7 @@ func (a *App) Shutdown() {
 	a.rollbackPendingSQLTransactionsOnShutdown()
 	a.closeSQLAuditStore()
 	a.closeCachedDatabasesForShutdown()
+	releasePluginTunnels()
 	proxytunnel.CloseAllForwarders()
 	// Close all Redis connections
 	CloseAllRedisClients()

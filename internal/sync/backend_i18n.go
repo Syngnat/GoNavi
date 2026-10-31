@@ -78,3 +78,19 @@ func syncWrapError(key string, params map[string]any, cause error) error {
 		cause:   cause,
 	}
 }
+
+func localizedSyncBackendDetailText(key string, err error) string {
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	return localizedSyncBackendText(key, map[string]any{
+		"detail": detail,
+	})
+}
+
+func syncWrapDetailError(key string, err error) error {
+	return syncWrapError(key, map[string]any{
+		"detail": err.Error(),
+	}, err)
+}

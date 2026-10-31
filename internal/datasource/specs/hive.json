@@ -1,0 +1,94 @@
+{
+  "type": "hive",
+  "aliases": [
+    "hive2",
+    "hiveserver2",
+    "hs2",
+    "apache-hive"
+  ],
+  "displayName": "Apache Hive / HiveServer2",
+  "group": "bigdata",
+  "order": 18,
+  "defaultPort": 10000,
+  "wire": "thrift",
+  "dialect": "hive",
+  "ddlDialect": "hive",
+  "objectKind": "table",
+  "protection": true,
+  "excelImport": true,
+  "sqlFileImport": true,
+  "proxyMode": "driver",
+  "versionQuery": "SELECT version()",
+  "sync": {
+    "source": true,
+    "target": true,
+    "model": "relational"
+  },
+  "agent": {
+    "buildTag": "gonavi_hive_driver",
+    "goModule": "github.com/beltran/gohive",
+    "version": "v1.8.1",
+    "sourcePrefixes": [
+      "hive",
+      "registry"
+    ]
+  },
+  "variants": {
+    "auto": true,
+    "default": "auto",
+    "items": [
+      {
+        "id": "hive1",
+        "label": "Hive 1.x / HS2 V6",
+        "descriptionKey": "datasource.variant.hive.hive1",
+        "minServer": "1",
+        "maxServer": "2"
+      },
+      {
+        "id": "hive2",
+        "label": "Hive 2.x / HS2 V8",
+        "descriptionKey": "datasource.variant.hive.hive2",
+        "minServer": "2",
+        "maxServer": "3"
+      },
+      {
+        "id": "hive3",
+        "label": "Hive 3–4 / HS2 V10",
+        "descriptionKey": "datasource.variant.hive.hive3",
+        "minServer": "3"
+      }
+    ]
+  },
+  "ui": {
+    "layout": "hive",
+    "defaultUser": "",
+    "usernameOptional": true,
+    "uriSchemes": [
+      "hive",
+      "hive2",
+      "jdbc:hive2",
+      "http",
+      "https"
+    ],
+    "hiddenObjectGroups": [
+      "materializedViews",
+      "routines",
+      "triggers",
+      "sequences",
+      "events",
+      "packages"
+    ],
+    "ssl": true,
+    "sslCAPath": true,
+    "sslClientCert": true,
+    "connectionParams": true,
+    "pagination": "stream",
+    "quoting": "backtick",
+    "hint": "HiveServer2 / Spark Thrift / Impala",
+    "icon": {
+      "color": "#F1BF29",
+      "text": "H",
+      "scale": 0.72
+    }
+  }
+}

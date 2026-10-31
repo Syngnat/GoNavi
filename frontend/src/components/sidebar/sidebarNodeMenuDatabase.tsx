@@ -11,6 +11,7 @@ import { GnNewQueryIcon } from '../icons/gnIcons';
 import { type SidebarNodeMenuContext, openRedisDbAliasModal } from './sidebarNodeMenuHelpers';
 import type { MenuProps } from 'antd';
 import { registryAllowsImport } from '../../utils/dataSourceRegistry';
+import { buildPluginConnectionActionMenuItems } from './pluginConnectionActionMenu';
 
 export interface BuildDatabaseNodeMenuItemsInput {
   node: any;
@@ -30,6 +31,14 @@ export const buildDatabaseNodeMenuItems = ({ node, context }: BuildDatabaseNodeM
   const supportsSchemaActions = isPostgresSchemaDialect(dialect);
   const supportsSchemaVisibility = capabilities.supportsSecondarySchemaVisibility;
   const canCreateTable = !isStructureOnlyDbType(String(databaseConn?.id || ''));
+  const databaseName = String(node.dataRef?.dbName || node.title || '');
+  const pluginActionItems = buildPluginConnectionActionMenuItems({
+    actions: context.pluginConnectionActions ?? [],
+    connectionType: databaseConn?.config?.type ?? '',
+    scope: 'database',
+    target: { connectionId: databaseConn?.id ?? '', database: databaseName },
+    run: (entry, target) => context.runPluginConnectionAction?.(entry, target),
+  });
   return [
        {
            key: 'copy-database-name',
@@ -85,6 +94,7 @@ export const buildDatabaseNodeMenuItems = ({ node, context }: BuildDatabaseNodeM
            icon: <FileAddOutlined />,
            onClick: () => handleV2DatabaseContextMenuAction(node, 'run-sql')
        }] : []),
+       ...pluginActionItems,
        { type: 'divider' },
        ...(capabilities.supportsRenameDatabase ? [{
            key: 'rename-db',

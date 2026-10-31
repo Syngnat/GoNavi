@@ -126,7 +126,7 @@ func (a *App) preflightBackupJob(ctx context.Context, definition syncjob.JobDefi
 
 func backupSQLSupported(kind string) bool {
 	switch normalizeSQLClassifierDBType(kind) {
-	case "mysql", "mariadb", "oceanbase", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "sqlserver", "oracle", "dameng", "clickhouse", "iris":
+	case "mysql", "mariadb", "oceanbase", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "sqlserver", "oracle", "dameng", "clickhouse", "iris", "hive":
 		return true
 	default:
 		return false

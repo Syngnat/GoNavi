@@ -37,6 +37,7 @@
         "id": "http",
         "name": "HTTP/SSE (configured upstream)",
         "command": "provider",
+        "icon": "icons/provider.png",
         "models": [
           {
             "id": "gpt-4o-mini",

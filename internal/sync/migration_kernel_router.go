@@ -1,10 +1,11 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/db"
 	"fmt"
 	"strings"
+
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
 )
 
 type genericLegacyPlanner struct{}
@@ -109,6 +110,7 @@ func withDistributionClauseTargetGuard(config SyncConfig, plan SchemaMigrationPl
 
 func resolveMigrationPlanner(ctx MigrationBuildContext) MigrationPlanner {
 	planners := []MigrationPlanner{
+		hiveMigrationPlanner{},
 		mysqlToMySQLPlanner{},
 		pgLikeToPGLikePlanner{},
 		clickHouseToClickHousePlanner{},
@@ -169,7 +171,7 @@ func classifyMigrationDataModel(dbType string) MigrationDataModel {
 		return MigrationDataModelRelational
 	case "mongodb":
 		return MigrationDataModelDocument
-	case "clickhouse", "diros", "starrocks", "sphinx":
+	case "clickhouse", "diros", "starrocks", "sphinx", "hive":
 		return MigrationDataModelColumnar
 	case "tdengine", "iotdb":
 		return MigrationDataModelTimeSeries

@@ -9,7 +9,6 @@ import { buildExternalSqlRootMenuItems } from './sidebarNodeMenuExternalSql';
 import { buildSavedQueryMenuItems } from './sidebarNodeMenuSavedQueries';
 import { buildSavedQueryManualGroupMenuItems } from './sidebarNodeMenuSavedQueries';
 import { buildAllSavedQueriesMenuItems } from './sidebarNodeMenuSavedQueries';
-import { buildTableNodeMenuItems } from './sidebarNodeMenuObjects';
 import { buildMessageObjectMenuItems } from './sidebarNodeMenuObjects';
 import { buildMessageNamespaceMenuItems } from './sidebarNodeMenuObjects';
 import { buildDbEventMenuItems } from './sidebarNodeMenuObjects';
@@ -35,6 +34,7 @@ import { buildMaterializedViewsGroupMenuItems } from './sidebarNodeMenuObjectGro
 import { buildViewsGroupMenuItems } from './sidebarNodeMenuObjectGroups';
 import { buildTablesGroupMenuItems } from './sidebarNodeMenuObjectGroups';
 import { buildSchemaGroupMenuItems } from './sidebarNodeMenuObjectGroups';
+import { buildAgentIntegrationMenuItems } from './sidebarNodeMenuAgent';
 export type { SidebarNodeMenuContext } from './sidebarNodeMenuHelpers';
 
 export const buildSidebarNodeMenuItems = (
@@ -124,8 +124,6 @@ export const buildSidebarNodeMenuItems = (
         return buildMessageNamespaceMenuItems({ node, context });
     } else if (node.type === 'message-object') {
         return buildMessageObjectMenuItems({ node, context });
-    } else if (node.type === 'table') {
-        return buildTableNodeMenuItems({ node, context });
     }
 
     if (node.type === 'all-saved-queries') {
@@ -155,6 +153,11 @@ export const buildSidebarNodeMenuItems = (
 
     if (node.type === 'external-sql-file') {
         return buildExternalSqlFileMenuItems({ node, context });
+    }
+
+    // 智能体节点（与数据连接同级）：打开会话管理 / 编辑 / 移除。
+    if (node.type === 'agent-integration') {
+        return buildAgentIntegrationMenuItems({ node, context });
     }
 
     return [];

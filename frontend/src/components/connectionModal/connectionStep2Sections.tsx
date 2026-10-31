@@ -11,6 +11,7 @@ import { ConnectionStep2JvmDetailCards } from "./ConnectionStep2JvmDetailCards";
 import { ConnectionStep2HostFields } from "./ConnectionStep2HostFields";
 import { ConnectionStep2AuthFields } from "./ConnectionStep2AuthFields";
 import { ConnectionModalDriverVariantField } from "./ConnectionModalDriverVariantField";
+import { HiveSettingsPanel } from "./HiveSettingsPanel";
 import { ConnectionModalRegistryParamFields } from "./ConnectionModalRegistryParamFields";
 import { ConnectionStep2ModeFields } from "./ConnectionStep2ModeFields";
 import { ConnectionStep2MongoRedisFields } from "./ConnectionStep2MongoRedisFields";
@@ -368,6 +369,7 @@ export const createConnectionStep2Sections = ({
               onChange={clearConnectionTestResultForChoice}
             />
 
+            <HiveSettingsPanel dbType={dbType} onChange={clearConnectionTestResultForChoice} />
             <ConnectionModalRegistryParamFields dbType={dbType} onChange={clearConnectionTestResultForChoice} />
 
             <ConnectionStep2AuthFields

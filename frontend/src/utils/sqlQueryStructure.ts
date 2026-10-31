@@ -1,7 +1,12 @@
-import { isSqlDashLineCommentStart } from './sqlStatementSelection';
+import { isSqlDashLineCommentStart, supportsSqlHashLineComment } from './sqlStatementSelection';
 
 const isWS = (ch: string) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
-const isWord = (ch: string) => /[A-Za-z0-9_]/.test(ch);
+// `#` 只在「井号不是注释」的方言（达梦/Oracle）里算词字符：
+// 那里 sequence# 是标识符，col#limit 不能把 limit 切出来当关键词；
+// MySQL 系与 ClickHouse 的 `#` 是行注释，词必须在井号处断开
+// （否则 LIMIT#注释 漏识别、SELECT#注释 的 leading keyword 变成 select#）。
+const isWord = (ch: string, dbType = '') => /[A-Za-z0-9_]/.test(ch)
+  || (ch === '#' && !supportsSqlHashLineComment(dbType));
 
 export const getLeadingKeyword = (sql: string, dbType = ''): string => {
   const text = (sql || '').replace(/\r\n/g, '\n');
@@ -35,7 +40,7 @@ export const getLeadingKeyword = (sql: string, dbType = ''): string => {
         inBlockComment = true;
         continue;
       }
-      if (ch === '#') {
+      if (ch === '#' && supportsSqlHashLineComment(dbType)) {
         inLineComment = true;
         continue;
       }
@@ -83,9 +88,9 @@ export const getLeadingKeyword = (sql: string, dbType = ''): string => {
     }
     if (inSingle || inDouble || inBacktick || dollarTag) continue;
     if (isWS(ch)) continue;
-    if (isWord(ch)) {
+    if (isWord(ch, dbType)) {
       let j = i;
-      while (j < text.length && isWord(text[j])) j++;
+      while (j < text.length && isWord(text[j], dbType)) j++;
       return text.slice(i, j).toLowerCase();
     }
     return '';
@@ -136,7 +141,7 @@ export const splitSqlTail = (sql: string, dbType = ''): { main: string; tail: st
         inBlockComment = true;
         continue;
       }
-      if (ch === '#') {
+      if (ch === '#' && supportsSqlHashLineComment(dbType)) {
         inLineComment = true;
         continue;
       }
@@ -185,7 +190,7 @@ const matchesKeyword = (sql: string, start: number, words: string[], dbType: str
     const word = words[i];
     if (sql.slice(pos, pos + word.length).toLowerCase() !== word) return false;
     pos += word.length;
-    if (isWord(sql[pos] || '')) return false;
+    if (isWord(sql[pos] || '', dbType)) return false;
     if (i === words.length - 1) return true;
     const gapStart = pos;
     while (pos < sql.length) {
@@ -235,7 +240,7 @@ export const findTopLevelKeyword = (sql: string, keyword: string, dbType = ''): 
         inBlockComment = true;
         continue;
       }
-      if (ch === '#') {
+      if (ch === '#' && supportsSqlHashLineComment(dbType)) {
         inLineComment = true;
         continue;
       }
@@ -291,9 +296,9 @@ export const findTopLevelKeyword = (sql: string, keyword: string, dbType = ''): 
       continue;
     }
     if (parenDepth !== 0) continue;
-    if (!isWord(ch)) continue;
+    if (!isWord(ch, dbType)) continue;
     const before = i - 1 >= 0 ? text[i - 1] : '';
-    if (before && isWord(before)) continue;
+    if (before && isWord(before, dbType)) continue;
     if (matchesKeyword(text, i, words, dbType)) return i;
   }
   return -1;
@@ -393,10 +398,10 @@ export const findCteBodyStart = (sql: string, dbType: string): number => {
       continue;
     }
     if (parenDepth !== 0) continue;
-    if (!isWord(ch)) continue;
+    if (!isWord(ch, dbType)) continue;
 
     let wordEnd = i;
-    while (wordEnd < text.length && isWord(text[wordEnd])) wordEnd++;
+    while (wordEnd < text.length && isWord(text[wordEnd], dbType)) wordEnd++;
     const word = text.slice(i, wordEnd).toLowerCase();
     if (!skippedLeadingWith && word === 'with') {
       skippedLeadingWith = true;

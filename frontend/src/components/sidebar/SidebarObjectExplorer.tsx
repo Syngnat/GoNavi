@@ -232,6 +232,10 @@ export const SidebarObjectExplorer = ({
               onLoad={setLoadedKeys}
               autoExpandParent={autoExpandParent}
               selectedKeys={selectedKeys}
+              // 多选用于表节点的范围选择（拖选 / Shift）；rc-tree 在 multiple=false 时
+              // 会把 selectedKeys 截成首个 key，多选高亮无法渲染。普通单击由 onSelect
+              // 归一回单选，因此这里开启 multiple 不改变原有单击语义。
+              multiple
               blockNode
               // Expand/collapse animation re-renders the newly revealed rows on every
               // frame (each with a Tooltip) and blocks scroll-to-key until it ends; on

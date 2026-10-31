@@ -22,7 +22,7 @@ func quoteIdentByType(dbType string, ident string) string {
 	}
 
 	switch dbType {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tdengine", "clickhouse":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tdengine", "clickhouse", "hive":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
 	case "kingbase":
 		return db.QuoteKingbaseIdentifier(ident)
@@ -171,6 +171,9 @@ func writeSQLHeaderWithDatabaseBootstrap(
 		}
 	}
 
+	if resolveDDLDBType(config) == "hive" {
+		return writeHiveSQLDatabaseContext(w, dbName, includeDatabaseContext, createDatabase)
+	}
 	if supportsMySQLDatabaseContext(config) && strings.TrimSpace(dbName) != "" {
 		if includeDatabaseContext && createDatabase {
 			if _, err := w.WriteString(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s;\n\n", quoteIdentByType("mysql", dbName))); err != nil {
@@ -238,6 +241,9 @@ func buildSQLDropIfExistsStatementWithDatabaseContext(
 		objectType = "VIEW"
 	}
 	qualifiedObject := quoteTableIdentByType(dbType, schemaName, pureObjectName)
+	if dbType == "hive" && includeDatabaseContext {
+		qualifiedObject = quoteIdentByType(dbType, pureObjectName)
+	}
 	if supportsMySQLDatabaseContext(config) && !includeDatabaseContext {
 		qualifiedObject = quoteIdentByType(dbType, pureObjectName)
 	}

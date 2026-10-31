@@ -39,11 +39,28 @@ func diffMissingColumnNames(sourceCols, targetCols []connection.ColumnDefinition
 // source and the target table.
 type ColumnStructureDiff struct {
 	Column string `json:"column"`
-	// Kind is one of missing_in_target, extra_in_target, type, nullable.
-	Kind   string `json:"kind"`
+	// Kind is one of missing_in_target, extra_in_target, type, nullable, renamed.
+	//
+	// renamed is inferred, not read from metadata: no driver reports a rename,
+	// so it is a pair of one source-only and one target-only column that share
+	// type and nullability. It is only emitted when that pairing is
+	// unambiguous (exactly one candidate on each side); otherwise the two
+	// columns stay reported as missing + extra, which is always true.
+	Kind string `json:"kind"`
+	// Source/Target describe the column payload: the type for type/nullable
+	// diffs, and the column name for renamed diffs.
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
 }
+
+// 列差异 kind 常量。
+const (
+	ColumnDiffMissingInTarget = "missing_in_target"
+	ColumnDiffExtraInTarget   = "extra_in_target"
+	ColumnDiffType            = "type"
+	ColumnDiffNullable        = "nullable"
+	ColumnDiffRenamed         = "renamed"
+)
 
 // diffColumnStructures compares two column sets in BOTH directions.
 //
@@ -100,9 +117,15 @@ func diffColumnStructures(sourceCols, targetCols []connection.ColumnDefinition, 
 		sourceTypeText := normalizeComparableColumnType(sourceType, sourceCol.Type)
 		targetTypeText := normalizeComparableColumnType(targetType, targetCol.Type)
 		if !strings.EqualFold(sourceTypeText, targetTypeText) {
+			// 同族容量缩小单独成一种差异：它不会让建表失败，但存量数据超长
+			// 会被截断，风险等级与「类型不同」不同，不能混在一起。
+			kind := ColumnDiffType
+			if isWithinFamilyCapacityShrink(sourceTypeText, targetTypeText) {
+				kind = ColumnDiffCapacityDegraded
+			}
 			diffs = append(diffs, ColumnStructureDiff{
 				Column: sourceCol.Name,
-				Kind:   "type",
+				Kind:   kind,
 				Source: sourceTypeText,
 				Target: targetTypeText,
 			})
@@ -130,7 +153,99 @@ func diffColumnStructures(sourceCols, targetCols []connection.ColumnDefinition, 
 			Target: describeColumnStructure(targetCol),
 		})
 	}
-	return diffs
+	return foldColumnRenames(diffs, sourceByKey, targetByKey)
+}
+
+// foldColumnRenames 把「一缺一多」收敛成 renamed，但只在配对无歧义时。
+//
+// 没有任何驱动会报告重命名，所以只能从「源端独有 + 目标端独有」里推断。
+// 判据是结构完全相同（类型 + 可空性），且两侧候选各自唯一：一旦源端有两个
+// 同结构的新列、目标端也有两个同结构的旧列，谁改成谁就无从判断，此时保留
+// missing + extra——那是永远成立的陈述，而猜错的重命名会误导用户去改错列。
+func foldColumnRenames(
+	diffs []ColumnStructureDiff,
+	sourceByKey, targetByKey map[string]connection.ColumnDefinition,
+) []ColumnStructureDiff {
+	sourceOnly := make([]connection.ColumnDefinition, 0)
+	targetOnly := make([]connection.ColumnDefinition, 0)
+	for _, diff := range diffs {
+		switch diff.Kind {
+		case ColumnDiffMissingInTarget:
+			if col, ok := sourceByKey[strings.ToLower(strings.TrimSpace(diff.Column))]; ok {
+				sourceOnly = append(sourceOnly, col)
+			}
+		case ColumnDiffExtraInTarget:
+			if col, ok := targetByKey[strings.ToLower(strings.TrimSpace(diff.Column))]; ok {
+				targetOnly = append(targetOnly, col)
+			}
+		}
+	}
+	if len(sourceOnly) == 0 || len(targetOnly) == 0 {
+		return diffs
+	}
+
+	// 结构签名相同的列才可能是一对改名。
+	signature := func(col connection.ColumnDefinition) string {
+		return strings.ToLower(strings.TrimSpace(col.Type)) + "|" +
+			normalizeColumnNullable(col.Nullable)
+	}
+	sourceBySignature := make(map[string][]connection.ColumnDefinition, len(sourceOnly))
+	targetBySignature := make(map[string][]connection.ColumnDefinition, len(targetOnly))
+	for _, col := range sourceOnly {
+		key := signature(col)
+		sourceBySignature[key] = append(sourceBySignature[key], col)
+	}
+	for _, col := range targetOnly {
+		key := signature(col)
+		targetBySignature[key] = append(targetBySignature[key], col)
+	}
+
+	renamed := make(map[string]string, len(sourceOnly))
+	for key, sources := range sourceBySignature {
+		targets := targetBySignature[key]
+		// 只有一对一才敢下结论；一对多/多对多退化为原来的增删。
+		if len(sources) != 1 || len(targets) != 1 {
+			continue
+		}
+		if strings.EqualFold(sources[0].Name, targets[0].Name) {
+			continue
+		}
+		renamed[strings.ToLower(strings.TrimSpace(sources[0].Name))] = targets[0].Name
+	}
+	if len(renamed) == 0 {
+		return diffs
+	}
+
+	folded := make([]ColumnStructureDiff, 0, len(diffs))
+	for _, diff := range diffs {
+		key := strings.ToLower(strings.TrimSpace(diff.Column))
+		if diff.Kind == ColumnDiffMissingInTarget {
+			if targetName, ok := renamed[key]; ok {
+				folded = append(folded, ColumnStructureDiff{
+					Column: diff.Column,
+					Kind:   ColumnDiffRenamed,
+					Source: diff.Column,
+					Target: targetName,
+				})
+				continue
+			}
+		}
+		if diff.Kind == ColumnDiffExtraInTarget {
+			// 已被并进 renamed 的目标列不再单独报「多出」。
+			consumed := false
+			for _, targetName := range renamed {
+				if strings.EqualFold(targetName, diff.Column) {
+					consumed = true
+					break
+				}
+			}
+			if consumed {
+				continue
+			}
+		}
+		folded = append(folded, diff)
+	}
+	return folded
 }
 
 // unsupportedExistingTargetSchemaDiffs leaves only the differences that the
@@ -149,6 +264,11 @@ func unsupportedExistingTargetSchemaDiffs(diffs []ColumnStructureDiff) []ColumnS
 			if normalizeColumnNullable(diff.Source) == "YES" && normalizeColumnNullable(diff.Target) == "NO" {
 				unsupported = append(unsupported, diff)
 			}
+		case ColumnDiffRenamed:
+			// 重命名是推断出来的，不能据此跳过「补列」：如果猜测错了，真正
+			// 需要的 ADD COLUMN 就漏了。写任务一律按不可自动修复处理，让用户
+			// 自己确认是改名还是新增。
+			unsupported = append(unsupported, diff)
 		}
 	}
 	return unsupported

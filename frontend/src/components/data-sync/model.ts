@@ -415,9 +415,59 @@ export type DataSyncRunEvent = {
 /** One column-level structural difference reported by the compare backend. */
 export type DataSyncColumnStructureDiff = {
   column: string;
-  kind: 'missing_in_target' | 'extra_in_target' | 'type' | 'nullable';
+  kind:
+    | 'missing_in_target'
+    | 'extra_in_target'
+    | 'type'
+    | 'nullable'
+    | 'renamed'
+    | 'capacity_degraded';
   source?: string;
   target?: string;
+};
+
+/**
+ * One index-level structural difference. Absent when either endpoint's index
+ * metadata could not be read — "read failed" and "no indexes" are
+ * indistinguishable, and reporting every source index as missing would be
+ * worse than reporting nothing.
+ */
+export type DataSyncIndexStructureDiff = {
+  name: string;
+  kind: 'missing_in_target' | 'extra_in_target' | 'changed' | 'renamed';
+  source?: string;
+  target?: string;
+  columns?: string[];
+  unique?: boolean;
+  indexType?: string;
+};
+
+/** One column attribute difference that cannot block a sync (default/comment). */
+export type DataSyncColumnAttributeDiff = {
+  column: string;
+  kind: 'default' | 'comment';
+  source?: string;
+  target?: string;
+};
+
+/** Per-dimension diff counts the compare dashboard renders directly. */
+export type DataSyncCompareDiffStats = {
+  columns: {
+    missingInTarget: number;
+    extraInTarget: number;
+    typeChanged: number;
+    nullableChanged: number;
+    renamed: number;
+    capacityDegraded: number;
+  };
+  indexes: {
+    missingInTarget: number;
+    extraInTarget: number;
+    changed: number;
+    renamed: number;
+  };
+  /** Set when the whole target table is missing, so rows read as one diff. */
+  targetTableMissing?: boolean;
 };
 
 /** One table's row in a read-only compare result (data or schema). */
@@ -438,6 +488,12 @@ export type DataSyncTableDiffSummary = {
    * type/nullability drift. Populated whenever the target table exists.
    */
   columnDiffs?: DataSyncColumnStructureDiff[];
+  /** Index-level differences; empty whenever index metadata could not be read. */
+  indexDiffs?: DataSyncIndexStructureDiff[];
+  /** Default/comment drift; shown in its own appendix table. */
+  attributeDiffs?: DataSyncColumnAttributeDiff[];
+  /** Pre-aggregated counts for the compare dashboard. */
+  diffStats?: DataSyncCompareDiffStats;
   /** True when the backend compared schema (schema/both content), not just data. */
   hasSchema?: boolean;
   message?: string;
@@ -644,7 +700,7 @@ export const clearDataSyncTargetModeExplicitMarks = (
 const normalizeMetadataName = (value: string): string =>
   value.trim().toLowerCase();
 
-const metadataObjectBaseName = (value: string): string => {
+export const metadataObjectBaseName = (value: string): string => {
   const parts = value.trim().split('.');
   return (parts[parts.length - 1] || '')
     .trim()

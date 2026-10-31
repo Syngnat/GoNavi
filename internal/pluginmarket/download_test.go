@@ -101,7 +101,7 @@ func TestVerifiedArchiveFormatsAndCleanup(t *testing.T) {
 			payload := fixtureArchive(t, format)
 			server, digest, _ := artifactServer(t, payload, nil, nil)
 			defer server.Close()
-			service, _ := newTestService(t, server.URL, false)
+			service := newTestService(t, server.URL, false)
 			path, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 			if err != nil {
 				t.Fatal(err)
@@ -167,7 +167,7 @@ func TestDownloadRejectsUntrustedOrChangedArtifacts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server, digest, hits := artifactServer(t, payload, test.modify, test.download)
 			defer server.Close()
-			service, _ := newTestService(t, server.URL, false)
+			service := newTestService(t, server.URL, false)
 			path, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 			cleanup()
 			assertErrorIs(t, err, test.want)
@@ -193,7 +193,7 @@ func TestDownloadRedirectCancellationAndUnknownFormat(t *testing.T) {
 		defer destination.Close()
 		server, digest, _ := artifactServer(t, payload, nil, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, http.StatusFound) })
 		defer server.Close()
-		service, _ := newTestService(t, server.URL, false)
+		service := newTestService(t, server.URL, false)
 		_, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 		cleanup()
 		assertErrorIs(t, err, ErrRedirect)
@@ -204,7 +204,7 @@ func TestDownloadRedirectCancellationAndUnknownFormat(t *testing.T) {
 	t.Run("cancellation", func(t *testing.T) {
 		server, digest, _ := artifactServer(t, payload, nil, func(w http.ResponseWriter, r *http.Request) { w.(http.Flusher).Flush(); <-r.Context().Done() })
 		defer server.Close()
-		service, _ := newTestService(t, server.URL, false)
+		service := newTestService(t, server.URL, false)
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
 		_, cleanup, err := service.Download(ctx, "publisher.plugin", "1.0.0", digest)
@@ -214,7 +214,7 @@ func TestDownloadRedirectCancellationAndUnknownFormat(t *testing.T) {
 	t.Run("unknown archive", func(t *testing.T) {
 		server, digest, _ := artifactServer(t, []byte("not an archive"), nil, nil)
 		defer server.Close()
-		service, _ := newTestService(t, server.URL, false)
+		service := newTestService(t, server.URL, false)
 		_, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 		cleanup()
 		assertErrorIs(t, err, ErrInvalidResponse)
@@ -224,7 +224,7 @@ func TestDownloadRedirectCancellationAndUnknownFormat(t *testing.T) {
 func TestInstallProvenanceUsesSourceAndCanonicalDigest(t *testing.T) {
 	server, digest, _ := artifactServer(t, fixtureArchive(t, "zip"), nil, nil)
 	defer server.Close()
-	service, secrets := newTestService(t, server.URL, false)
+	service := newTestService(t, server.URL, false)
 	canonical := archiveDigest([]byte("canonical file content digest"))
 	assertErrorIs(t, service.VerifyInstallSource(t.Context(), "publisher.plugin", canonical), ErrSourceMismatch)
 	assertErrorIs(t, service.RecordInstall(t.Context(), "publisher.plugin", "arbitrary-path", canonical), ErrInvalidRequest)
@@ -240,7 +240,7 @@ func TestInstallProvenanceUsesSourceAndCanonicalDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertErrorIs(t, service.VerifyInstallSource(t.Context(), "publisher.plugin", digest), ErrSourceMismatch)
-	restarted, err := NewService(Options{Root: service.root, Secrets: secrets})
+	restarted, err := NewService(Options{Root: service.root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestInstallProvenanceUsesSourceAndCanonicalDigest(t *testing.T) {
 func TestProvenanceRejectsMutatedDownloadAndSurfacesPersistenceError(t *testing.T) {
 	server, digest, _ := artifactServer(t, fixtureArchive(t, "zip"), nil, nil)
 	defer server.Close()
-	service, _ := newTestService(t, server.URL, false)
+	service := newTestService(t, server.URL, false)
 	canonical := strings.Repeat("a", 64)
 	path, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 	if err != nil {

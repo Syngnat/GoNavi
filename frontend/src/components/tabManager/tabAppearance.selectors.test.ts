@@ -11,10 +11,10 @@ const tabAppearanceCss = readFileSync(
 
 const WORKBENCH_ROOT = "body[data-ui-version='v2'] .gn-v2-tab-workbench";
 const UNDERLINE_ROOT =
-  `${WORKBENCH_ROOT}[data-tab-appearance='underline'] .gn-v2-main-tabs .ant-tabs-nav-list`;
-const PILL_ROOT = `${WORKBENCH_ROOT}[data-tab-appearance='pill'] .gn-v2-main-tabs .ant-tabs-nav-list`;
+  `${WORKBENCH_ROOT}[data-tab-appearance='underline'] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-list`;
+const PILL_ROOT = `${WORKBENCH_ROOT}[data-tab-appearance='pill'] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-list`;
 const LEFT_CLOSE_SELECTOR =
-  `${WORKBENCH_ROOT}[data-tab-close-position='left'] .gn-v2-main-tabs .ant-tabs-nav-list .gn-v2-tab-close`;
+  `${WORKBENCH_ROOT}[data-tab-close-position='left'] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-list .gn-v2-tab-close`;
 
 const normalizeSelector = (selector: string) => selector.replace(/'/g, '"');
 

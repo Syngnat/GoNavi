@@ -24,6 +24,7 @@ import type { DataGridProps } from '../../DataGridCore';
 
 export interface UseDataGridLayoutEffectsInput {
     isTableSurfaceActive: DataGridColumnTitlesApi['isTableSurfaceActive'];
+    tableSurfaceEpoch: DataGridColumnTitlesApi['tableSurfaceEpoch'];
     tableContainerRef: DataGridCellEditorStateApi['tableContainerRef'];
     enableVirtual: DataGridColumnsApi['enableVirtual'];
     horizontalSyncSourceRef: DataGridCellEditorStateApi['horizontalSyncSourceRef'];
@@ -76,7 +77,7 @@ export interface UseDataGridLayoutEffectsInput {
 }
 
 export const useDataGridLayoutEffects = ({
-    isTableSurfaceActive, tableContainerRef, enableVirtual, horizontalSyncSourceRef,
+    isTableSurfaceActive, tableSurfaceEpoch, tableContainerRef, enableVirtual, horizontalSyncSourceRef,
     lastTableScrollLeftRef, externalHorizontalScrollRef, lastExternalScrollLeftRef,
     virtualListItemHorizontalOffsetComposited, isWindowsLike, scheduleVirtualHorizontalWheel,
     pickHorizontalScrollTargets, tableHorizontalWheelRafRef, pendingTableHorizontalDeltaRef,
@@ -234,17 +235,26 @@ export const useDataGridLayoutEffects = ({
     }, [
         enableVirtual,
         isTableSurfaceActive,
+        tableSurfaceEpoch,
         isWindowsLike,
         pickHorizontalScrollTargets,
         scheduleVirtualHorizontalWheel,
         virtualListItemHorizontalOffsetComposited,
     ]);
 
+    // DDL 侧栏关闭时表格从 split-main 移回原容器，DOM 是新的但
+    // isTableSurfaceActive 仍为 true；清掉上一轮在途的横向同步来源，
+    // 避免新的原生滚动条事件被当成旧滚动而丢弃。
+    useEffect(() => {
+        horizontalSyncSourceRef.current = '';
+        pendingTableHorizontalDeltaRef.current = 0;
+    }, [tableSurfaceEpoch, horizontalSyncSourceRef, pendingTableHorizontalDeltaRef]);
+
     useDataGridLayoutEffect(() => {
         if (!isTableSurfaceActive) return;
         const rafId = requestAnimationFrame(() => recalculateTableMetrics(containerRef.current));
         return () => cancelAnimationFrame(rafId);
-    }, [isTableSurfaceActive, totalWidth, mergedDisplayData.length, pagination?.total, pagination?.pageSize, recalculateTableMetrics]);
+    }, [isTableSurfaceActive, tableSurfaceEpoch, totalWidth, mergedDisplayData.length, pagination?.total, pagination?.pageSize, recalculateTableMetrics]);
 
     useEffect(() => {
         if (!isTableSurfaceActive || (!horizontalScrollVisible && !virtualListItemHorizontalOffsetComposited)) return;
@@ -255,7 +265,7 @@ export const useDataGridLayoutEffects = ({
                 virtualHorizontalAlignmentRafRef.current = null;
             }
         };
-    }, [horizontalScrollVisible, isTableSurfaceActive, scheduleVirtualHorizontalAlignment, tableRenderData, tableScrollX, virtualEditingCellForRender, virtualListItemHorizontalOffsetComposited]);
+    }, [horizontalScrollVisible, isTableSurfaceActive, tableSurfaceEpoch, scheduleVirtualHorizontalAlignment, tableRenderData, tableScrollX, virtualEditingCellForRender, virtualListItemHorizontalOffsetComposited]);
 
     // 虚拟表列对齐：antd 虚拟表 body 使用 <div>+<td>（非 <table>），
     // 不会自动拉伸列宽到视口。而 header <table> 会被 antd 的 CSS 或 JS
@@ -280,7 +290,7 @@ export const useDataGridLayoutEffects = ({
         syncHeaderWidth();
         const rafId = requestAnimationFrame(syncHeaderWidth);
         return () => { cancelAnimationFrame(rafId); };
-    }, [isTableSurfaceActive, tableScrollX, mergedDisplayData.length]);
+    }, [isTableSurfaceActive, tableSurfaceEpoch, tableScrollX, mergedDisplayData.length]);
 
     useEffect(() => {
         if (!isTableSurfaceActive || !onScrollSnapshotChange) return;
@@ -343,7 +353,7 @@ export const useDataGridLayoutEffects = ({
             boundHorizontalTargets.forEach(target => target.removeEventListener('scroll', emitSnapshot));
             externalScroll?.removeEventListener('scroll', emitSnapshot);
         };
-    }, [horizontalScrollVisible, isTableSurfaceActive, mergedDisplayData.length, onScrollSnapshotChange, pickHorizontalScrollTargets, pickVerticalScrollTarget, scrollSnapshot]);
+    }, [horizontalScrollVisible, isTableSurfaceActive, tableSurfaceEpoch, mergedDisplayData.length, onScrollSnapshotChange, pickHorizontalScrollTargets, pickVerticalScrollTarget, scrollSnapshot]);
 
     useEffect(() => {
         if (!isTableSurfaceActive) return;
@@ -397,7 +407,7 @@ export const useDataGridLayoutEffects = ({
         });
 
         return () => cancelAnimationFrame(rafId);
-    }, [applyVirtualHorizontalOffset, data, enableVirtual, isTableSurfaceActive, mergedDisplayData.length, onScrollSnapshotChange, pickHorizontalScrollTargets, pickVerticalScrollTarget, readVirtualHorizontalOffset, scrollSnapshot]);
+    }, [applyVirtualHorizontalOffset, data, enableVirtual, isTableSurfaceActive, tableSurfaceEpoch, mergedDisplayData.length, onScrollSnapshotChange, pickHorizontalScrollTargets, pickVerticalScrollTarget, readVirtualHorizontalOffset, scrollSnapshot]);
 
     useEffect(() => {
         if (!isTableSurfaceActive) return;
@@ -406,6 +416,7 @@ export const useDataGridLayoutEffects = ({
         if (!(tableContainer instanceof HTMLElement) || !(externalScroll instanceof HTMLDivElement)) return;
 
         let rafId: number | null = null;
+        let bindAttempts = 0;
         let boundTargets: HTMLElement[] = [];
 
         const handleTargetScroll = (event: Event) => {
@@ -443,6 +454,12 @@ export const useDataGridLayoutEffects = ({
                 ? [...nextTargets, headerEl]
                 : nextTargets;
             boundTargets = nextBoundTargets;
+            if (nextBoundTargets.length === 0 && bindAttempts < 3) {
+                bindAttempts += 1;
+                rafId = requestAnimationFrame(bindCurrentTableTargets);
+                return;
+            }
+            bindAttempts = 0;
             // Bind scroll listener on new targets
             nextBoundTargets.forEach(t => t.addEventListener('scroll', handleTargetScroll, { passive: true, capture: true }));
             syncExternalScrollFromTargets(nextTargets);
@@ -475,6 +492,7 @@ export const useDataGridLayoutEffects = ({
         };
     }, [
         isTableSurfaceActive,
+        tableSurfaceEpoch,
         tableScrollX,
         mergedDisplayData.length,
         pickTableToExternalSyncTargets,

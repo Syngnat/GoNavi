@@ -409,6 +409,52 @@ func TestKingbaseGetIndexesParsesStringUniqueAndVisibleRelation(t *testing.T) {
 	}
 }
 
+func TestKingbaseQueryAndColumnsUseVisibleRelationMetadata(t *testing.T) {
+	registerFakeKingbaseDriverOnce.Do(func() { sql.Register(fakeKingbaseDriverName, fakeKingbaseDriver{}) })
+	conn, err := sql.Open(fakeKingbaseDriverName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetMaxOpenConns(1)
+	client := &KingbaseDB{conn: conn}
+	for _, schema := range []string{"", "archive"} {
+		t.Run("schema="+schema, func(t *testing.T) {
+			query := "SELECT name FROM customers LIMIT 101 OFFSET 0"
+			metadataQuery := buildPGLikeColumnsMetadataQuery(schema, "customers")
+			fakeKingbaseStateMu.Lock()
+			fakeKingbaseState.queryErr = nil
+			fakeKingbaseState.queries = nil
+			fakeKingbaseState.queryResults = map[string]fakeKingbaseQueryResult{
+				query:         {columns: []string{"name"}, rows: [][]driver.Value{{"Alice"}}},
+				metadataQuery: {columns: []string{"column_name", "data_type", "comment"}, rows: [][]driver.Value{{"name", "varchar", "customer name"}}},
+			}
+			fakeKingbaseStateMu.Unlock()
+			for _, execute := range []func(string) ([]map[string]interface{}, []string, error){client.Query, func(sql string) ([]map[string]interface{}, []string, error) {
+				return client.QueryContext(context.Background(), sql)
+			}} {
+				rows, fields, err := execute(query)
+				if err != nil || len(rows) != 1 || len(fields) != 1 || fields[0] != "name" {
+					t.Fatalf("query rows=%v fields=%v err=%v", rows, fields, err)
+				}
+				columns, err := client.GetColumns(schema, "customers")
+				if err != nil || len(columns) != 1 || columns[0].Comment != "customer name" {
+					t.Fatalf("columns=%v err=%v", columns, err)
+				}
+			}
+			fakeKingbaseStateMu.Lock()
+			queries := append([]string(nil), fakeKingbaseState.queries...)
+			fakeKingbaseStateMu.Unlock()
+			if len(queries) != 4 || queries[0] != query || queries[1] != metadataQuery || queries[2] != query || queries[3] != metadataQuery {
+				t.Fatalf("unexpected query path: %v", queries)
+			}
+			if schema == "" && !strings.Contains(metadataQuery, "pg_catalog.pg_table_is_visible(c.oid)") {
+				t.Fatal("unqualified metadata must use the connection search_path")
+			}
+		})
+	}
+}
+
 type fakeKingbaseDriver struct{}
 
 func (fakeKingbaseDriver) Open(name string) (driver.Conn, error) {

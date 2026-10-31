@@ -41,7 +41,7 @@ func (s *Service) Download(ctx context.Context, id, version, digest string) (str
 	var artifact Artifact
 	query := url.Values{"platform": {runtime.GOOS + "/" + runtime.GOARCH}}
 	route := "/plugins/" + id + "/versions/" + version + "/artifact"
-	if err = s.requestJSON(ctx, source, http.MethodGet, route, query, nil, &artifact, ""); err != nil {
+	if err = s.requestJSON(ctx, source, http.MethodGet, route, query, nil, &artifact); err != nil {
 		return "", noop, err
 	}
 	if err = validateArtifact(artifact, version); err != nil {
@@ -62,13 +62,7 @@ func (s *Service) Download(ctx context.Context, id, version, digest string) (str
 		return "", noop, err
 	}
 	s.mu.Lock()
-	err = s.checkInstallSourceLocked(source, id)
-	if err == nil && len(s.receipts) >= 32 {
-		err = ErrBusy
-	}
-	if err == nil {
-		s.receipts[path] = downloadReceipt{id: id, version: version, digest: digest, sourceID: source.id, size: artifact.SizeBytes}
-	}
+	err = s.reserveReceiptLocked(source, id, path, downloadReceipt{id: id, version: version, digest: digest, sourceID: source.id, size: artifact.SizeBytes})
 	s.mu.Unlock()
 	if err != nil {
 		removeTemporary(path)
@@ -78,7 +72,7 @@ func (s *Service) Download(ctx context.Context, id, version, digest string) (str
 	cleanup := func() {
 		once.Do(func() {
 			s.mu.Lock()
-			delete(s.receipts, path)
+			s.releaseReceiptLocked(path)
 			s.mu.Unlock()
 			removeTemporary(path)
 		})
@@ -187,24 +181,35 @@ func (s *Service) reserveDownload(source sourceSnapshot, id string) error {
 	if err := s.checkInstallSourceLocked(source, id); err != nil {
 		return err
 	}
-	if s.downloadsInFlight >= 4 || len(s.receipts) >= 32 {
+	owner := s.downloadOwner()
+	if owner != s {
+		owner.mu.Lock()
+		defer owner.mu.Unlock()
+	}
+	if owner.downloadsInFlight >= 4 || len(s.receipts) >= 32 || owner.totalReceipts >= 32 {
 		return ErrBusy
 	}
-	s.downloadsInFlight++
+	owner.downloadsInFlight++
 	return nil
 }
 
 func (s *Service) releaseDownload() {
-	s.mu.Lock()
-	s.downloadsInFlight--
-	s.mu.Unlock()
+	owner := s.downloadOwner()
+	owner.mu.Lock()
+	owner.downloadsInFlight--
+	owner.mu.Unlock()
 }
 
 func (s *Service) checkInstallSourceLocked(source sourceSnapshot, id string) error {
 	if err := s.checkSourceLocked(source); err != nil {
 		return err
 	}
-	if installed, exists := s.state.Installs[id]; exists && installed.SourceID != source.id {
+	owner := s.downloadOwner()
+	if owner != s {
+		owner.mu.Lock()
+		defer owner.mu.Unlock()
+	}
+	if installed, exists := owner.state.Installs[id]; exists && installed.SourceID != source.id {
 		return ErrSourceMismatch
 	}
 	return nil

@@ -11,6 +11,7 @@ import './titleBarActionRow.css';
 
 // Sidebar 通过 portal 注入「数据工作流 / SQL 工具 / 用户管理」的插槽 id。
 export const TITLEBAR_QUICK_ACTIONS_SLOT_ID = 'gonavi-titlebar-quick-actions';
+export const TITLEBAR_AFTER_AI_ACTIONS_SLOT_ID = 'gonavi-titlebar-after-ai-actions';
 
 export interface TitleBarActionRowProps {
   placement: TitlebarActionsPlacement;
@@ -80,6 +81,7 @@ export default function TitleBarActionRow({
         active={aiActive}
         onClick={onToggleAI}
       />
+      <div id={TITLEBAR_AFTER_AI_ACTIONS_SLOT_ID} className="gonavi-titlebar-quick-actions-slot" />
       {trailingSlot}
     </>
   );

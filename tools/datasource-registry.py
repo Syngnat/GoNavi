@@ -121,6 +121,8 @@ def unit_text_tokens(spec: dict, unit: str, build: dict) -> list[str]:
     for name in [spec["type"], *spec.get("aliases", [])]:
         if len(name) >= 5:
             tokens.add(name.lower())
+    if spec["type"] == "hive":
+        tokens.add("internal/hivesql/")
     tokens.update(module.lower() for module in unit_go_modules(spec, unit, build))
     return sorted(tokens)
 

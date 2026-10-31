@@ -37,6 +37,14 @@ func (a *App) preflightDataSyncMappingsWithProgress(ctx context.Context, definit
 		}
 	}
 	// 分母先落定：会话可能建不起来，但「共几张」与连接无关。
+	// 对比是只读的整库行为：映射级校验（逐表读两端列）在千表规模上会串成几分钟，
+	// 而这些差异在运行期本来就会逐表报告。所以对比只保留两端的连通性与能力检查。
+	if definition.Kind == syncjob.JobKindCompare {
+		if progress != nil {
+			progress.Total = 0
+		}
+		return nil
+	}
 	if progress != nil {
 		progress.Total = len(enabled)
 	}
@@ -83,6 +91,9 @@ func (a *App) preflightDataSyncMappingsWithProgress(ctx context.Context, definit
 				mu.Unlock()
 			}
 			issues := a.preflightDataSyncMappingContext(ctx, session, definition, source, target, mapping, columnCache)
+			if !hasPreflightBlocker(issues) {
+				issues = append(issues, a.preflightHiveSyncMapping(ctx, session, definition, source, target, mapping)...)
+			}
 			mu.Lock()
 			completed++
 			results[index] = issues
@@ -173,6 +184,11 @@ func (a *App) preflightDataSyncMappingContext(ctx context.Context, session *meta
 		}
 	}
 	if !targetExists {
+		// 对比是只读任务，目标缺表正是它要发现的差异，不能当阻塞项挡在预检。
+		if definition.Kind == syncjob.JobKindCompare {
+			issues = append(issues, preflightIssue("target_table_missing_compare", DataSyncJobPreflightInfo, "mappings", "target table does not exist; compare reports it as a missing table", mappingID))
+			return issues
+		}
 		if !dataSyncJobMappingCanCreateTarget(definition, mapping, syncengine.ResolveMigrationCapability(source.Config, target.Config)) {
 			issues = append(issues, preflightIssue("target_table_missing", DataSyncJobPreflightBlocker, "mappings", "target table does not exist and this mapping cannot auto-create it", mappingID))
 		} else if err := ensureConnectionAllowsStructureEdit(target.Config, "connection.backend.action.data_sync_structure"); err != nil {

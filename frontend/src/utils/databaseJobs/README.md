@@ -17,7 +17,7 @@
 | 达梦 | SYSJOB 作业代理、兼容 DBMS_JOB | schema 下的作业 | 系统表不可读时尝试同所有者的 USER_*_VIEW；不初始化作业环境 |
 | SQL Server | SQL Server Agent | **msdb** 下的作业 | 实例级目录；显示步骤、跳转、重试及调度原始字段；不重复挂入每个业务库 |
 | PostgreSQL、TimescaleDB | pg_cron、pgAgent | **插件安装所在数据库**下的作业 | 先探测表是否存在；不把执行目标数据库误当作目录所在库；未安装不显示虚假的空作业组 |
-| KingbaseES | KDB_SCHEDULE | 当前数据库下的作业 | 探测 `all_scheduler_jobs` 关系是否可解析（扩展已注册但视图缺失的 PG 兼容模式库按不可用处理）；owner 可能为空，因此不套用 Oracle 所有者过滤；关联程序/调度读取失败保留主体并警告 |
+| KingbaseES | KDB_SCHEDULE | 当前数据库下的作业 | 兼容视图建在 `kdb_schedule` 扩展 schema 下、`search_path` 不含它，故所有引用都带 `kdb_schedule.` 前缀（探测同时兼容旧部署的无前缀写法）；只在 Oracle 兼容模式存在，PG/MySQL 兼容模式仅有 `kdb_schedule.kdb_schedule` 视图、按不可用处理；owner 可能为空，因此不套用 Oracle 所有者过滤；关联程序/调度读取失败保留主体并警告 |
 | openGauss | PG_JOB、PG_JOB_PROC | 当前数据库下的作业 | dbname 使用 current_database() 过滤；较旧版本缺少命名/enable 字段时降级读取基本字段 |
 | GaussDB | PG_JOB、PG_JOB_PROC | 当前数据库下的作业 | 同上，独立来源标识；需要目录读取权限 |
 | OceanBase Oracle 模式 | DBA_SCHEDULER_JOBS | schema 下的作业 | 独立 SQL，不能按 Oracle 方言直接复用；旧版不公开执行内容时明确显示部分定义提示 |

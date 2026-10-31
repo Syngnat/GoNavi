@@ -21,7 +21,16 @@ var _ ChangePreviewTrier = (*OptionalDriverAgentDB)(nil)
 func (d *OptionalDriverAgentDB) TryPreviewChanges(tableName string, changes connection.ChangeSet) ([]string, []string, []string, bool) {
 	client, err := d.requireClient()
 	if err != nil {
+		if normalizeRuntimeDriverType(d.driverType) == "hive" {
+			return []string{hivePreviewUnavailable(err)}, nil, nil, true
+		}
 		return nil, nil, nil, false
+	}
+	if normalizeRuntimeDriverType(d.driverType) == "hive" {
+		changes, err = hiveChangesForAgent(metadataContextFor(d), d, tableName, changes)
+		if err != nil {
+			return []string{hivePreviewUnavailable(err)}, nil, nil, true
+		}
 	}
 	var preview optionalAgentChangePreview
 	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
@@ -29,6 +38,9 @@ func (d *OptionalDriverAgentDB) TryPreviewChanges(tableName string, changes conn
 		TableName: tableName,
 		Changes:   &changes,
 	}, &preview, nil, nil, nil, optionalAgentControlCallTimeout); err != nil || !preview.Supported {
+		if normalizeRuntimeDriverType(d.driverType) == "hive" {
+			return []string{hivePreviewUnavailable(err)}, nil, nil, true
+		}
 		return nil, nil, nil, false
 	}
 	return preview.Deletes, preview.Updates, preview.Inserts, true

@@ -215,7 +215,7 @@ func buildWatermarkRuntimePlan(config SyncConfig, tableName, mode string, batchS
 	if !ok {
 		return plan, fmt.Errorf("watermark 源字段 %s 不存在", requestedWatermark)
 	}
-	if strings.EqualFold(strings.TrimSpace(watermarkDef.Nullable), "YES") {
+	if plan.sourceType != "hive" && strings.EqualFold(strings.TrimSpace(watermarkDef.Nullable), "YES") {
 		return plan, fmt.Errorf("watermark 字段 %s 必须为非 NULL", watermarkColumn)
 	}
 	stableKeys, explicitStableKeys, err := explicitSyncKeyColumnsForTable(config, tableName, sourceCols)
@@ -232,7 +232,7 @@ func buildWatermarkRuntimePlan(config SyncConfig, tableName, mode string, batchS
 	if err != nil {
 		return plan, err
 	}
-	if err := validateNonNullableWatermarkKeys("源", sourceCols, tieColumns); err != nil {
+	if err := validateNonNullableWatermarkKeys("源", sourceCols, tieColumns, plan.sourceType != "hive"); err != nil {
 		return plan, err
 	}
 	targetTieColumns := make([]string, 0, len(tieColumns))
@@ -246,7 +246,7 @@ func buildWatermarkRuntimePlan(config SyncConfig, tableName, mode string, batchS
 		}
 		targetTieColumns = append(targetTieColumns, targetColumn)
 	}
-	if err := validateNonNullableWatermarkKeys("目标", targetCols, targetTieColumns); err != nil {
+	if err := validateNonNullableWatermarkKeys("目标", targetCols, targetTieColumns, plan.targetType != "hive"); err != nil {
 		return plan, err
 	}
 	if mode == "insert_update" && !explicitStableKeys {
@@ -260,13 +260,13 @@ func buildWatermarkRuntimePlan(config SyncConfig, tableName, mode string, batchS
 	return plan, nil
 }
 
-func validateNonNullableWatermarkKeys(side string, columns []connection.ColumnDefinition, keys []string) error {
+func validateNonNullableWatermarkKeys(side string, columns []connection.ColumnDefinition, keys []string, enforceNullable ...bool) error {
 	for _, key := range keys {
 		_, definition, exists := canonicalWatermarkColumn(columns, key)
 		if !exists {
 			return fmt.Errorf("%s表缺少稳定 key 字段 %s", side, key)
 		}
-		if strings.EqualFold(strings.TrimSpace(definition.Nullable), "YES") {
+		if (len(enforceNullable) == 0 || enforceNullable[0]) && strings.EqualFold(strings.TrimSpace(definition.Nullable), "YES") {
 			return fmt.Errorf("%s表稳定 key 字段 %s 必须为非 NULL", side, key)
 		}
 	}

@@ -205,6 +205,14 @@ func TestEnrichCLICommandPATHAddsNvmNodeWhenPATHMisses(t *testing.T) {
 	nvmBin := filepath.Join(nvmDir, "versions", "node", "v24.14.0", "bin")
 	env := EnrichCLICommandPATH([]string{"PATH=/usr/bin:/bin"}, "")
 	got := envValue(env, "PATH")
+	if runtime.GOOS == "windows" {
+		// nvm 的 versions/node/<v>/bin 是 Unix 布局，nvm-windows 走 NVM_SYMLINK，
+		// lookupNvmCLICommand 在 Windows 明确跳过；PATH 里也没有 node，必须原样返回。
+		if got != "/usr/bin:/bin" {
+			t.Fatalf("windows must not prepend an nvm node dir, got %q", got)
+		}
+		return
+	}
 	if !strings.HasPrefix(got, nvmBin+string(os.PathListSeparator)) {
 		t.Fatalf("nvm node bin must be prepended when PATH has no node, got %q", got)
 	}
@@ -247,8 +255,9 @@ func TestLookPathWithOverrideUsesExplicitPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved != "/opt/custom/codex" {
-		t.Fatalf("got %q", resolved)
+	// override 在返回前会过 filepath.Clean，Windows 上期望值是反斜杠形式。
+	if want := filepath.Clean("/opt/custom/codex"); resolved != want {
+		t.Fatalf("got %q, want %q", resolved, want)
 	}
 }
 

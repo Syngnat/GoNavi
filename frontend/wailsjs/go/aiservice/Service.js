@@ -206,6 +206,10 @@ export function AIReadAgentSession(arg1) {
   return window['go']['aiservice']['Service']['AIReadAgentSession'](arg1);
 }
 
+export function AIResolveModelCatalog(arg1) {
+  return window['go']['aiservice']['Service']['AIResolveModelCatalog'](arg1);
+}
+
 export function AISaveMCPServer(arg1) {
   return window['go']['aiservice']['Service']['AISaveMCPServer'](arg1);
 }

@@ -7,7 +7,8 @@ import {
   DeleteOutlined, FolderAddOutlined,
 } from '@ant-design/icons';
 import Modal from '../common/ResizableDraggableModal';
-import type { TreeNode, SidebarNodeMenuContext } from './sidebarNodeMenuHelpers';
+import type { SidebarNodeMenuContext } from './sidebarNodeMenuHelpers';
+import { pruneSavedQueryTreeAfterDelete } from './sidebarSavedQueryTreePrune';
 
 export interface BuildSavedQueryMenuItemsInput {
   node: any;
@@ -120,12 +121,8 @@ export const buildSavedQueryMenuItems = ({ node, context }: BuildSavedQueryMenuI
                           }));
                           throw e;
                       }
-                      // 从树中移除节点
-                      const removeNode = (list: TreeNode[]): TreeNode[] =>
-                          list
-                              .filter(n => !(n.type === 'saved-query' && n.dataRef?.id === q.id))
-                              .map(n => n.children ? { ...n, children: removeNode(n.children) } : n);
-                      const nextTreeData = removeNode(treeDataRef.current);
+                      // 从树中移除节点，并剪掉因此变空的自动分组
+                      const nextTreeData = pruneSavedQueryTreeAfterDelete(treeDataRef.current, q.id);
                       treeDataRef.current = nextTreeData;
                       setTreeData(nextTreeData);
                       message.success(t('sidebar.message.saved_query_deleted'));

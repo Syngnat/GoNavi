@@ -22,9 +22,27 @@ import {
   SIDEBAR_LOCATE_SAVED_QUERIES_EVENT,
 } from '../../utils/sidebarLocate';
 import { useSidebarCommandSearchRunner } from './useSidebarCommandSearchRunner';
-import { MenuProps } from 'antd';
+import { MenuProps, message } from 'antd';
 import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
+import { buildAgentAssetsWorkbenchTab } from '../../utils/agentAssetsTab';
+import {
+  copySidebarMultiTableNames,
+  runSidebarMultiTableDrop,
+  runSidebarMultiTableTruncate,
+} from './sidebarMultiTableActions';
+import { useSidebarTableDragSelect } from './useSidebarTableDragSelect';
+import type { V2MultiTableContextMenuActionKey } from '../V2TableContextMenu';
+import {
+  confirmRemoveAgentIntegration,
+  openAgentIntegrationEditor,
+} from './sidebarAgentIntegrationActions';
 import { getMetadataDialect, shouldHideSchemaPrefix } from './sidebarMetadataLoaders';
+import { t } from '../../i18n';
+import { pluginAPI } from '../../plugins/api';
+import { usePluginConnectionActions } from '../../plugins/usePluginConnectionActions';
+import { openPluginPageTab } from '../../pluginPages/openPluginPageTab';
+import type { PluginPageLaunch } from '../../pluginPages/launch';
+import type { PluginConnectionActionEntry } from '../../plugins/connectionActions';
 import { useSidebarTitleRender } from './useSidebarTitleRender';
 import type { SidebarObjectMenuActionsApi } from './useSidebarObjectMenuActions';
 import type { SidebarSearchStateApi } from './useSidebarSearchState';
@@ -76,6 +94,7 @@ export interface UseSidebarContextMenusInput {
   mergeExpandedTreeKeys: SidebarTreeDataApi['mergeExpandedTreeKeys'];
   setSidebarSelectedKeys: SidebarSearchStateApi['setSidebarSelectedKeys'];
   selectedNodesRef: SidebarSearchStateApi['selectedNodesRef'];
+  treeContainerRef: SidebarTreeViewStateApi['treeContainerRef'];
   scrollSidebarTreeToKey: SidebarTreeDataApi['scrollSidebarTreeToKey'];
   activeContext: SidebarStoreStateApi['activeContext'];
   activeTab: SidebarStoreStateApi['activeTab'];
@@ -190,6 +209,7 @@ export const useSidebarContextMenus = ({
   resolveMessagePublishTarget, openSchemaVisibilitySettings, supportsConnectionVisibility,
   addSqlLog, refreshV2TableContextMenuStatsRef, sidebarTableMetadataFields, sidebarTreeDropPreview,
   treeDataRef, setSearchValue, mergeExpandedTreeKeys, setSidebarSelectedKeys, selectedNodesRef,
+  treeContainerRef,
   scrollSidebarTreeToKey, activeContext, activeTab, addTab, clearStaleHostStateOnSelection,
   closeV2CommandSearch, commandSearchFlatItems, connectionIds, queryCapableConnectionIds,
   findTreeNodeByKeyRef, locateObjectInSidebar, loadDatabases, onDoubleClick,
@@ -223,6 +243,73 @@ export const useSidebarContextMenus = ({
   // the two cannot disagree. See the hook for the reasoning.
   useV2ExplorerFilterReset(activeConnection, v2ExplorerFilter, setV2ExplorerFilter);
 
+  const { actions: pluginConnectionActions } = usePluginConnectionActions();
+  const runPluginConnectionAction = useCallback(async (
+    entry: PluginConnectionActionEntry,
+    target: { connectionId: string; database?: string; collection?: string },
+  ) => {
+    try {
+      const result = await pluginAPI.runConnectionAction(
+        entry.pluginID,
+        entry.action.id,
+        target.connectionId,
+        target.database ?? '',
+        target.collection ?? '',
+      );
+      if (result && typeof result === 'object' && !Array.isArray(result) && result.kind === 'page') {
+        const pageID = typeof result.pageId === 'string' ? result.pageId : '';
+        if (!pageID) return;
+        const rawLaunch = result.launch;
+        const launch = rawLaunch && typeof rawLaunch === 'object' && !Array.isArray(rawLaunch) &&
+          (rawLaunch as Record<string, unknown>).kind === 'connectionAction'
+          ? rawLaunch as unknown as PluginPageLaunch
+          : undefined;
+        openPluginPageTab({
+          pluginID: entry.pluginID,
+          pageID,
+          title: typeof result.title === 'string' && result.title.trim() ? result.title : entry.action.title,
+          instanceKey: [entry.action.id, target.connectionId, target.database ?? '', target.collection ?? ''].join(':'),
+          launch,
+        });
+      }
+    } catch {
+      message.error(t('plugin.connection_actions.failed'));
+    }
+  }, []);
+  // 表节点拖选 / Shift 范围选择：在树容器捕获阶段自处理，不改树的单选与双击链路。
+  useSidebarTableDragSelect({
+      treeContainerRef,
+      setSidebarSelectedKeys,
+      selectedNodesRef,
+      findTreeNodeByKeyRef,
+      treeDataRef,
+  });
+
+  // 多表右键菜单动作：批量能力走批量模块；逐表语义（打开数据）与批量工作台
+  // 入口转发给单表 action 处理器。
+  const multiTableDangerDeps = { buildRuntimeConfig, loadTables, getDatabaseNodeRef };
+  const handleV2MultiTableContextMenuAction = (nodes: any[], action: V2MultiTableContextMenuActionKey) => {
+      switch (action) {
+          case 'open-data':
+              nodes.forEach((node) => handleV2TableContextMenuAction(node, 'open-data'));
+              return;
+          case 'batch-tables':
+              if (nodes[0]) handleV2TableContextMenuAction(nodes[0], 'batch-tables');
+              return;
+          case 'copy-table-name':
+              void copySidebarMultiTableNames(nodes);
+              return;
+          case 'truncate-table':
+              void runSidebarMultiTableTruncate(multiTableDangerDeps, nodes);
+              return;
+          case 'drop-table':
+              void runSidebarMultiTableDrop(multiTableDangerDeps, nodes);
+              return;
+          default:
+              return;
+      }
+  };
+
   const {
       contextMenu,
       setContextMenu,
@@ -241,6 +328,8 @@ export const useSidebarContextMenus = ({
       tableSortPreference,
       pinnedSidebarTables,
       pinnedSidebarDatabases,
+      selectedNodesRef,
+      handleV2MultiTableContextMenuAction,
       getConnectionNodeForAction,
       buildRuntimeConfig,
       extractObjectName,
@@ -253,6 +342,8 @@ export const useSidebarContextMenus = ({
       openSchemaVisibilitySettings,
       supportsConnectionVisibility,
       resolveMessagePublishTarget,
+      pluginConnectionActions,
+      runPluginConnectionAction,
       addSqlLog,
       handleV2TableContextMenuAction,
       handleV2TableGroupContextMenuAction,
@@ -423,6 +514,8 @@ export const useSidebarContextMenus = ({
 
   const getNodeMenuItems = (node: any): MenuProps['items'] => buildSidebarNodeMenuItems(node, {
     addTab,
+    pluginConnectionActions,
+    runPluginConnectionAction,
     getMetadataDialect,
     shouldHideSchemaPrefix,
     openSchemaVisibilitySettings,
@@ -525,6 +618,13 @@ export const useSidebarContextMenus = ({
     openExternalSQLBindingModal,
     openRenameExternalSQLFileModal,
     handleDeleteExternalSQLFile,
+    openAgentWorkbench: (node: any) => {
+      const integration = node?.dataRef;
+      if (!integration) return;
+      addTab(buildAgentAssetsWorkbenchTab(integration));
+    },
+    openAgentIntegrationEditor,
+    removeAgentIntegration: confirmRemoveAgentIntegration,
     extractObjectName,
   });
 

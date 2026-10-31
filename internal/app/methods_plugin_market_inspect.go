@@ -23,7 +23,7 @@ func (a *App) pluginMarketInspectContext(parent context.Context, id, version, di
 	if err != nil {
 		return a.pluginFailure("runtime_unavailable")
 	}
-	return a.marketCall(parent, func(ctx context.Context, s *pluginmarket.Service) (any, error) {
+	return a.marketSourceCall(parent, sourceID, func(ctx context.Context, s *pluginmarket.Service) (any, error) {
 		currentSource, err := s.CurrentSourceID()
 		if err != nil {
 			return nil, err

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,9 +12,13 @@ import (
 
 var rpcMethodPattern = regexp.MustCompile(`"(plugin\.[a-zA-Z]+|host\.[a-zA-Z]+)"`)
 
-// protocol.md is the public contract for plugin authors: a renamed method must fail here first.
+// The public protocol guide is maintained by GoNavi-Plugin-Market. Keep the
+// method table and host implementation in lockstep when both checkouts exist.
 func TestRPCMethodsAreDocumented(t *testing.T) {
-	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "plugins", "protocol.md"))
+	doc, err := os.ReadFile(filepath.Join("..", "..", "..", "GoNavi-Plugin-Market", "docs", "plugins", "protocol.md"))
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("GoNavi-Plugin-Market checkout is not available beside GoNavi")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

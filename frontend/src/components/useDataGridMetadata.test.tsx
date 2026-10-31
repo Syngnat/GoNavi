@@ -122,6 +122,36 @@ describe('useDataGridMetadata execution context', () => {
     expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
   });
 
+  it('does not cache an authoritative empty query projection as table metadata during same-table transitions', async () => {
+    const Snapshot = ({ initial, loading = false }: { initial?: Record<string, { type?: string; comment?: string }>; loading?: boolean }) => {
+      controller = useDataGridMetadata({ connections: [{ id: 'kingbase', config: { type: 'kingbase', host: 'mock.invalid', port: 54321 } }],
+        connectionId: 'kingbase', dbName: 'lab', tableName: 'customers', exportScope: 'queryResult', visibleColumnNames: ['name'],
+        loading, initialColumnMetaMap: initial });
+      return null;
+    };
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [{ name: 'name', type: 'varchar', comment: 'customer name' }] });
+    await act(async () => { renderer = create(<Snapshot initial={{}} />); });
+    expect(controller?.columnMetaMap).toEqual({});
+    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    await act(async () => { renderer?.update(<Snapshot initial={undefined} loading />); });
+    expect(controller?.columnMetaMap).toEqual({});
+    await act(async () => { renderer?.update(<Snapshot initial={undefined} />); });
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+    expect(controller?.columnMetaMap.name.comment).toBe('customer name');
+    await act(async () => { renderer?.update(<Snapshot initial={{}} />); });
+    expect(controller?.columnMetaMap).toEqual({});
+    await act(async () => { renderer?.update(<Snapshot initial={{ name: { type: 'varchar', comment: 'new comment' } }} />); });
+    expect(controller?.columnMetaMap.name.comment).toBe('new comment');
+    await act(async () => { renderer?.update(<Snapshot initial={{}} loading />); });
+    expect(controller?.columnMetaMap).toEqual({});
+  });
+
+  it('keeps the previous non-Kingbase fallback when the supplied map is empty', async () => {
+    await act(async () => { renderer = create(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={{}} />); });
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+    expect(controller?.columnMetaMap).toHaveProperty('public_value');
+  });
+
   it('uses execution-plan metadata without requesting the same table again', async () => {
     const initialColumnMetaMap = {
       id: { type: 'bigint', comment: '', nullable: 'NO', default: '', hasDefault: false, extra: '', key: 'PRI' },
@@ -161,5 +191,22 @@ describe('useDataGridMetadata execution context', () => {
     expect(snapshots).toHaveLength(2);
     expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
     expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
+  });
+
+  it('keeps backfilled metadata when the statement cannot be pinned to a single table', async () => {
+    const snapshots: ReturnType<typeof useDataGridMetadata>[] = [];
+    // 复杂 SQL（JOIN/GROUP BY）定位不到单表，metadata 由执行计划按列名回填后经 initialColumnMetaMap 传入
+    const columns = { name: { type: 'character varying(50)', comment: '客户姓名' } };
+    const MultiTableQuery = () => {
+      snapshots.push(useDataGridMetadata({
+        connections: [], connectionId: 'conn-1', dbName: 'app', tableName: '',
+        exportScope: 'queryResult', visibleColumnNames: ['name'], loading: false,
+        initialColumnMetaMap: columns,
+      }));
+      return null;
+    };
+    await act(async () => { renderer = create(<MultiTableQuery />); });
+    expect(snapshots[0].columnMetaMap).toBe(columns);
+    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
   });
 });

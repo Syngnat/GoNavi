@@ -97,6 +97,24 @@ var desktopOnlyAppMethods = map[string]struct{}{
 	"SelectDatabaseFile":           {},
 	"ImportData":                   {},
 	"ExportSQLAuditFile":           {},
+	// 智能体会话管理是桌面本机文件浏览器：读 ~/.codex、~/.claude 的会话
+	// 正文，还能删源文件。Web 运行时没有桌面语义，不应暴露。
+	"SessionAgentList":                    {},
+	"SessionAgentListIntegrations":        {},
+	"SessionAgentDetect":                  {},
+	"SessionAgentAdd":                     {},
+	"SessionAgentRemove":                  {},
+	"SessionAgentUpdate":                  {},
+	"SessionAgentDetail":                  {},
+	"SessionAgentReadPage":                {},
+	"SessionAgentBlockContent":            {},
+	"SessionAgentExportMarkdown":          {},
+	"SessionAgentCopyResume":              {},
+	"SessionAgentDelete":                  {},
+	"SessionAgentRevealPath":              {},
+	"SessionAgentImageDataURL":            {},
+	"SessionAgentImageInlineDataURL":      {},
+	"SessionAgentTimeGroups":              {},
 }
 
 var desktopOnlyCredentialAppMethods = map[string]struct{}{

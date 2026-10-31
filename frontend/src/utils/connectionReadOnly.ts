@@ -1,3 +1,4 @@
+import { hasUnsafeHiveReadOnlyOperation, isHiveReadOnlySet } from './hiveProtectedSql';
 import type { ConnectionConfig } from "../types";
 import { pluginDataSourceConfigType, parsePluginDataSourceType } from "../plugins/dataSource/identity";
 import { convertMongoShellToJsonCommand } from "./mongodb";
@@ -278,6 +279,8 @@ const resolveConnectionReadOnlyType = (
 };
 
 const isReadOnlySqlStatement = (statement: string, dbType: string): boolean => {
+  if (dbType === 'hive' && hasUnsafeHiveReadOnlyOperation(statement)) return false;
+  if (dbType === 'hive' && isHiveReadOnlySet(statement)) return true;
   const text = stripLeadingSqlComments(statement, dbType);
   if (!text) return true;
   if (hasJobMutationSQL(text, dbType)) return false;

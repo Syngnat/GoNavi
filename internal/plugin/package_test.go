@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -239,12 +238,6 @@ func TestMaliciousArchives(t *testing.T) {
 		f.Close()
 		if _, err = InspectPackage(context.Background(), file); err == nil {
 			t.Fatal("case collision accepted")
-		}
-	})
-	t.Run("size limit", func(t *testing.T) {
-		s := packageScan{ctx: context.Background(), seen: make(map[string]bool)}
-		if err := s.file("huge", maxFileBytes+1, strings.NewReader("")); err == nil {
-			t.Fatal("oversized file accepted")
 		}
 	})
 }

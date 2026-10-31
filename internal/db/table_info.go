@@ -57,6 +57,8 @@ func dispatchTableInfoQuery(ctx context.Context, driverType, dbName, schemaName,
 		return getPostgresFamilyTableInfo(ctx, queryFn, dbName, schemaName, tableName)
 	case "sqlite":
 		return getSQLiteTableInfo(ctx, queryFn)
+	case "hive":
+		return getHiveTableInfo(ctx, queryFn, dbName, schemaName, tableName)
 	default:
 		return TableDetails{}, ErrTableInfoUnsupported
 	}

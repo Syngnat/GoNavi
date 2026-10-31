@@ -249,6 +249,9 @@ func streamCSVImportFile(filePath string, consumer importFileConsumer) error {
 }
 
 func streamCSVImportFileWithOptions(filePath string, consumer importFileConsumer, options ImportFileOptions) error {
+	if options.LosslessHive {
+		return streamHiveCSVImportFile(filePath, consumer, options)
+	}
 	source, err := openImportTextSource(filePath, options.Encoding)
 	if err != nil {
 		return err

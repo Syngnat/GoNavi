@@ -86,7 +86,11 @@ func newPluginTestController(t *testing.T) (*PluginController, *pluginRuntimeFak
 		t.Fatal(err)
 	}
 	runtime := &pluginRuntimeFake{root: root, statuses: []plugin.Status{{Manifest: plugin.Manifest{ID: "test.one", Name: "Fixture", Window: &plugin.Window{Entry: "index.html"}}, State: "running", DesiredEnabled: true, Generation: 1}}}
-	controller, err := newPluginController(runtime, PluginControllerOptions{Assets: fstest.MapFS{"runtime.js": &fstest.MapFile{Data: []byte("window.fixture = true;")}}})
+	controller, err := newPluginController(runtime, PluginControllerOptions{Assets: fstest.MapFS{
+		"runtime.js":   &fstest.MapFile{Data: []byte("window.fixture = true;")},
+		"ui/index.js":  &fstest.MapFile{Data: []byte("export const fixture = true;")},
+		"ui/style.css": &fstest.MapFile{Data: []byte(".gonavi-plugin-root{color:red}")},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,12 +112,12 @@ func newPluginTestController(t *testing.T) (*PluginController, *pluginRuntimeFak
 
 func openPluginTestWindow(t *testing.T, c *PluginController, id string) *pluginWindowEntry {
 	t.Helper()
-	info, err := c.Open(context.Background(), id)
+	_, err := c.Open(context.Background(), id, id, nil, "zh-CN", "dark")
 	if err != nil {
 		t.Fatal(err)
 	}
 	c.mu.Lock()
-	entry := c.windows[info.ID]
+	entry := c.windows[id]
 	c.mu.Unlock()
 	return entry
 }

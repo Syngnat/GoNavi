@@ -106,6 +106,8 @@ export function AIReadAgentRun(arg1:runharness.RunReadRequest):Promise<runharnes
 
 export function AIReadAgentSession(arg1:runharness.SessionReadRequest):Promise<runharness.SessionProjection>;
 
+export function AIResolveModelCatalog(arg1:Array<string>):Promise<Record<string, any>>;
+
 export function AISaveMCPServer(arg1:ai.MCPServerConfig):Promise<void>;
 
 export function AISaveProvider(arg1:ai.ProviderConfig):Promise<void>;

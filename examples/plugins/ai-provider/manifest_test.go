@@ -29,7 +29,7 @@ func TestManifestMatchesExecutable(t *testing.T) {
 		t.Fatal("unexpected extension surface")
 	}
 	declaration := contributes.AIProviders[0]
-	if declaration.ID != "http" || declaration.Command != "provider" || !declaration.SupportsTools || declaration.SupportsImages || !reflect.DeepEqual(declaration.Models, providerModels()) {
+	if declaration.ID != "http" || declaration.Command != "provider" || declaration.Icon != "icons/provider.png" || !declaration.SupportsTools || declaration.SupportsImages || !reflect.DeepEqual(declaration.Models, providerModels()) {
 		t.Fatal("manifest does not match the registered provider")
 	}
 	if err = plugin.ValidateAIProvider(declaration); err != nil {

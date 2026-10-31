@@ -1,0 +1,40 @@
+{
+  "scope": "KDC only, no HiveServer2 connection",
+  "realm": "GONAVI.TEST",
+  "clientOS": "windows/amd64",
+  "network": "127.0.0.1:21188 -> SSH ProxyJump -> Bero loopback11188 -> dedicated MIT KDC88",
+  "credentialStorage": "remote dedicated private directory and local TEMP; not included",
+  "ccacheRequirement": "TGT-only, MIT X-CACHECONF metadata permitted; no cached service tickets",
+  "results": [
+    {
+      "mode": "keytab",
+      "passed": true,
+      "servicePrincipals": [
+        "hive/hive.gonavi.test@GONAVI.TEST",
+        "HTTP/hive.gonavi.test@GONAVI.TEST"
+      ],
+      "unknownServiceRejected": true,
+      "elapsedMs": 5904
+    },
+    {
+      "mode": "password",
+      "passed": true,
+      "servicePrincipals": [
+        "hive/hive.gonavi.test@GONAVI.TEST",
+        "HTTP/hive.gonavi.test@GONAVI.TEST"
+      ],
+      "unknownServiceRejected": true,
+      "elapsedMs": 5483
+    },
+    {
+      "mode": "ccache",
+      "passed": true,
+      "servicePrincipals": [
+        "hive/hive.gonavi.test@GONAVI.TEST",
+        "HTTP/hive.gonavi.test@GONAVI.TEST"
+      ],
+      "unknownServiceRejected": true,
+      "elapsedMs": 3536
+    }
+  ]
+}

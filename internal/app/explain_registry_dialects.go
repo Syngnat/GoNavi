@@ -10,6 +10,7 @@ type registryExplainDialect struct {
 }
 
 var registryExplainDialects = map[string]registryExplainDialect{
+	"hive": {format: connection.ExplainFormatText, parse: parseHiveExplain},
 	// TiDB 不支持 MySQL 的 FORMAT=JSON，输出 id/estRows/task/access object/operator info 表格。
 	"tidb": {format: connection.ExplainFormatTable, parse: func(_, sourceSQL, raw string, text explainText) connection.ExplainResult {
 		return parseTiDBExplain(sourceSQL, raw, text)

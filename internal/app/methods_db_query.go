@@ -150,7 +150,7 @@ func (a *App) dbQueryWithCancel(
 	}
 	lifecycle.markExecuting()
 
-	isReadQuery := auditOptions.source != "database_jobs" && isReadOnlySQLQuery(runConfig.Type, query)
+	isReadQuery := pluginQueryRequiresReadOnlyTransaction(auditOptions.source) || (auditOptions.source != "database_jobs" && isReadOnlySQLQuery(runConfig.Type, query))
 	tryQueryFirst := shouldTryQueryResultFirst(runConfig.Type, query)
 	legacyCancellationUnsupported := false
 
@@ -175,6 +175,13 @@ func (a *App) dbQueryWithCancel(
 	}
 
 	runReadQueryWithMessages := func(inst db.Database) ([]map[string]interface{}, []string, []string, error) {
+		if pluginQueryRequiresReadOnlyTransaction(auditOptions.source) {
+			setRunningQueryCancellable(true)
+			startedAt := time.Now()
+			data, columns, err := executePluginReadOnlyQuery(ctx, inst, query)
+			queryExecutionDuration += time.Since(startedAt)
+			return data, columns, nil, err
+		}
 		if q, ok := inst.(db.QueryMessageExecer); ok {
 			setRunningQueryCancellable(true)
 			startedAt := time.Now()

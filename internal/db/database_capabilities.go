@@ -98,6 +98,14 @@ type TableColumnsBatcher interface {
 	GetColumnsBatch(dbName string, tableNames []string) (map[string][]connection.ColumnDefinition, error)
 }
 
+// TableIndexesBatcher is the index counterpart of TableColumnsBatcher: one round
+// trip for the indexes of several tables in the same schema.
+//
+// 契约与列批量一致：map 以调用方传入的表名为键，未命中的表直接缺席。
+type TableIndexesBatcher interface {
+	GetIndexesBatch(dbName string, tableNames []string) (map[string][]connection.IndexDefinition, error)
+}
+
 // TableRowCounter is an optional metadata interface for drivers that can
 // provide exact table row counts alongside a table list.
 type TableRowCounter interface {

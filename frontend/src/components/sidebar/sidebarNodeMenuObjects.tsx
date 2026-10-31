@@ -5,156 +5,15 @@ import { GnNewQueryIcon } from '../icons/gnIcons';
 import { resolveTableSelectQuery } from '../../utils/objectQueryTemplates';
 import { resolveOptionalSchemaName, type SidebarNodeMenuContext } from './sidebarNodeMenuHelpers';
 import {
-  SendOutlined, EditOutlined, ThunderboltOutlined, CopyOutlined, SaveOutlined, WarningOutlined,
-  DeleteOutlined, ExportOutlined, AppstoreOutlined, EyeOutlined, InboxOutlined, ReloadOutlined,
+  SendOutlined, EditOutlined, ThunderboltOutlined, CopyOutlined, WarningOutlined,
+  DeleteOutlined, EyeOutlined, InboxOutlined, ReloadOutlined,
   PlayCircleOutlined, CodeOutlined,
 } from '@ant-design/icons';
-import { supportsTableTruncateAction } from '../tableDataDangerActions';
 import type { MenuProps } from 'antd';
 import { buildSidebarCopyObjectNameMenuItem } from './sidebarCopyObjectNameMenu';
 import { supportsOracleObjectCompilation } from './oracleObjectCompilation';
 import { openEventManagement, supportsEventManagement } from './sidebarEventManagement';
-
-export interface BuildTableNodeMenuItemsInput {
-  node: any;
-  context: SidebarNodeMenuContext;
-}
-
-export const buildTableNodeMenuItems = ({ node, context }: BuildTableNodeMenuItemsInput): MenuProps['items'] => {
-  const {
-    getMetadataDialect, resolveMessagePublishTarget, addTab, openMessagePublishModal,
-    isStructureOnlyDbType, openDesign, openCreateStarRocksRollup, handleCopyTableName,
-    handleCopyStructure, handleCopyTable, handleExport, setRenameTableTarget, renameTableForm,
-    extractObjectName, setIsRenameTableModalOpen, handleTableDataDangerAction, handleDeleteTable,
-    openExportDialog, openBatchTableWorkbench,
-  } = context;
-  const isStarRocks = getMetadataDialect(node.dataRef as SavedConnection) === 'starrocks';
-  const supportsCopyTable = getDataSourceCapabilities(node.dataRef?.config).supportsCopyTable;
-  const messagePublishTarget = resolveMessagePublishTarget(node);
-  return [
-      {
-          key: 'new-query',
-          label: t('sidebar.menu.new_query'),
-          icon: <GnNewQueryIcon />,
-          onClick: () => {
-             void (async () => {
-                 const tableName = String(node.dataRef?.tableName || '').trim();
-                 const queryTemplate = await resolveTableSelectQuery({
-                     dbType: getMetadataDialect(node.dataRef as SavedConnection),
-                     tableName,
-                     dbName: String(node.dataRef?.dbName || ''),
-                     connectionConfig: node.dataRef?.config,
-                 });
-                 addTab({
-                     id: `query-${Date.now()}`,
-                     title: t('query.new'),
-                     type: 'query',
-                     connectionId: node.dataRef.id,
-                     dbName: node.dataRef.dbName,
-                     schemaName: resolveOptionalSchemaName(node),
-                     query: queryTemplate,
-                 });
-             })();
-          }
-      },
-      ...(messagePublishTarget ? [{
-          key: 'publish-message',
-          label: t('message_publish_modal.title'),
-          icon: <SendOutlined />,
-          onClick: () => openMessagePublishModal(node),
-      }] : []),
-      { type: 'divider' },
-      {
-          key: 'design-table',
-          label: isStructureOnlyDbType(String(node.dataRef?.id || ''))
-            ? t('sidebar.menu.table_structure')
-            : t('sidebar.menu.design_table'),
-          icon: <EditOutlined />,
-          onClick: () => openDesign(node, 'columns', false)
-      },
-      ...(isStarRocks ? [{
-          key: 'new-rollup',
-          label: t('sidebar.v2_table_menu.new_rollup', { keyword: 'Rollup' }),
-          icon: <ThunderboltOutlined />,
-          onClick: () => openCreateStarRocksRollup(node)
-      }] : []),
-      {
-          key: 'copy-table-name',
-          label: t('sidebar.menu.copy_table_name'),
-          icon: <CopyOutlined />,
-          onClick: () => handleCopyTableName(node)
-      },
-      {
-          key: 'copy-structure',
-          label: t('sidebar.menu.copy_table_structure'),
-          icon: <CopyOutlined />,
-          onClick: () => handleCopyStructure(node)
-      },
-      ...(supportsCopyTable ? [{
-          key: 'copy-table',
-          label: t('table_copy.action.label'),
-          icon: <CopyOutlined />,
-          onClick: () => handleCopyTable(node)
-      }] : []),
-      ...(getDataSourceCapabilities(node.dataRef?.config).supportsSqlQueryExport ? [{
-          key: 'backup-table',
-          label: t('sidebar.menu.backup_table_sql'),
-          icon: <SaveOutlined />,
-          onClick: () => handleExport(node, { format: 'sql' })
-      }] : []),
-      {
-          key: 'rename-table',
-          label: t('sidebar.menu.rename_table'),
-          icon: <EditOutlined />,
-          onClick: () => {
-              setRenameTableTarget(node);
-              renameTableForm.setFieldsValue({ newName: extractObjectName(node.dataRef?.tableName || node.title) });
-              setIsRenameTableModalOpen(true);
-          }
-      },
-      {
-          key: 'danger-zone',
-          label: t('sidebar.menu.danger_operations'),
-          icon: <WarningOutlined />,
-          children: [
-              ...(supportsTableTruncateAction(node.dataRef?.config?.type, node.dataRef?.config?.driver) ? [{
-                  key: 'truncate-table',
-                  label: t('sidebar.menu.truncate_table'),
-                  danger: true,
-                  onClick: () => handleTableDataDangerAction(node, 'truncate')
-              }] : []),
-              {
-                  key: 'clear-table',
-                  label: t('sidebar.menu.clear_table'),
-                  danger: true,
-                  onClick: () => handleTableDataDangerAction(node, 'clear')
-              },
-              {
-                  key: 'drop-table',
-                  label: t('sidebar.menu.delete_table'),
-                  icon: <DeleteOutlined />,
-                  danger: true,
-                  onClick: () => handleDeleteTable(node)
-              }
-          ]
-      },
-      {
-          type: 'divider'
-      },
-      {
-          key: 'export',
-          label: t('sidebar.menu.export_table_data'),
-          icon: <ExportOutlined />,
-          onClick: () => openExportDialog(node),
-      },
-      ...(getDataSourceCapabilities(node.dataRef?.config).supportsSqlQueryExport ? [{
-          key: 'batch-tables',
-          label: t('sidebar.action.batch_tables'),
-          icon: <AppstoreOutlined />,
-          onClick: () => openBatchTableWorkbench?.(node),
-      }] : []),
-  ];
-};
+import { buildPluginConnectionActionMenuItems } from './pluginConnectionActionMenu';
 
 export interface BuildMessageObjectMenuItemsInput {
   node: any;
@@ -168,6 +27,17 @@ export const buildMessageObjectMenuItems = ({ node, context }: BuildMessageObjec
   } = context;
   const objectKind = String(node.dataRef?.messageObjectKind || '').trim().toLowerCase();
   const messagePublishTarget = resolveMessagePublishTarget(node);
+  const pluginActionItems = buildPluginConnectionActionMenuItems({
+    actions: context.pluginConnectionActions ?? [],
+    connectionType: node.dataRef?.config?.type ?? '',
+    scope: 'collection',
+    target: {
+      connectionId: String(node.dataRef?.id || ''),
+      database: String(node.dataRef?.dbName || ''),
+      collection: String(node.dataRef?.tableName || ''),
+    },
+    run: (entry, target) => context.runPluginConnectionAction?.(entry, target),
+  });
   return [
       ...(objectKind === 'exchange' ? [] : [{
           key: 'browse-messages',
@@ -181,6 +51,7 @@ export const buildMessageObjectMenuItems = ({ node, context }: BuildMessageObjec
           icon: <InboxOutlined />,
           onClick: () => openMessageQueueWorkbench(node, 'open'),
       },
+      ...pluginActionItems,
       ...(messagePublishTarget ? [{
           key: 'publish-message',
           label: t('message_publish_modal.title'),
@@ -217,6 +88,17 @@ export const buildMessageNamespaceMenuItems = ({ node, context }: BuildMessageNa
     getDatabaseNodeRef,
   } = context;
   const messagePublishTarget = resolveMessagePublishTarget(node);
+  const pluginActionItems = buildPluginConnectionActionMenuItems({
+    actions: context.pluginConnectionActions ?? [],
+    connectionType: node.dataRef?.config?.type ?? '',
+    scope: 'collection',
+    target: {
+      connectionId: String(node.dataRef?.id || ''),
+      database: String(node.dataRef?.dbName || ''),
+      collection: String(node.dataRef?.tableName || ''),
+    },
+    run: (entry, target) => context.runPluginConnectionAction?.(entry, target),
+  });
   return [
       ...(node.type === 'message-namespace' ? [{
           key: 'open-message-workbench',

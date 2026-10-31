@@ -208,3 +208,32 @@ describe('锁竞争错误的语义分类', () => {
     }
   });
 });
+
+describe('Hive SemanticException / ParseException 错误语义', () => {
+  // Hive 编译期错误没有稳定的 SQLSTATE，只能按服务端文案识别；规则由 PR #1587（lska367）贡献。
+  it('把 ParseException 归为 SQL 语法错误', () => {
+    const formatted = formatSqlExecutionError(
+      "HiveServer2 [42000/40000]: Error while compiling statement: FAILED: ParseException line 1:7 cannot recognize input near 'FORM' 't' '<EOF>'",
+    );
+
+    expect(formatted).toContain('Semantic meaning: SQL syntax error');
+  });
+
+  it('把 Table not found 与 Database does not exist 归为对象不存在', () => {
+    const table = formatSqlExecutionError(
+      "HiveServer2 [42S02/10001]: Error while compiling statement: FAILED: SemanticException [Error 10001]: Line 1:14 Table not found 'nope'",
+    );
+    const database = formatSqlExecutionError('HiveServer2 [08S01/1]: Database does not exist: nope');
+
+    expect(table).toContain('Semantic meaning: Table or object does not exist');
+    expect(database).toContain('Semantic meaning: Table or object does not exist');
+  });
+
+  it('把 Invalid table alias or column reference 归为列不存在', () => {
+    const formatted = formatSqlExecutionError(
+      "HiveServer2 [42000/10004]: Error while compiling statement: FAILED: SemanticException [Error 10004]: Line 1:7 Invalid table alias or column reference 'nope'",
+    );
+
+    expect(formatted).toContain('Semantic meaning: Column does not exist');
+  });
+});

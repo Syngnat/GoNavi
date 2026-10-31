@@ -42,12 +42,17 @@ export const pgAgentChildQueries = (id: string): DatabaseJobChildQueries => !isJ
 // KDB_SCHEDULE's owner column is documented as NULL. An Oracle OWNER predicate loses every job.
 // pg_extension registration is not sufficient: PG-compat databases register kdb_schedule without
 // its Oracle-style views, so probe the exact relation the list query resolves instead.
+// The views live in the kdb_schedule schema and search_path does not include it (verified on
+// KingbaseES V009R001C010 and V009R003C018), so every reference must carry the schema prefix.
+export const KINGBASE_SCHEDULER_SCHEMA = 'kdb_schedule';
+export const kingbaseSchedulerRelation = (name: string): string => `${KINGBASE_SCHEDULER_SCHEMA}.${name}`;
+
 export const kingbaseJobListQueries = (): DatabaseJobQueryGroup[] => [{
   kind: 'kingbase-scheduler',
-  queries: ['SELECT job_name, enabled, state, next_run_date AS next_run_at FROM all_scheduler_jobs ORDER BY job_name'],
-  probeQueries: [`SELECT to_regclass(${jobLiteral('all_scheduler_jobs')}) IS NOT NULL AS available`],
+  queries: [`SELECT job_name, enabled, state, next_run_date AS next_run_at FROM ${kingbaseSchedulerRelation('all_scheduler_jobs')} ORDER BY job_name`],
+  probeQueries: [`SELECT to_regclass(${jobLiteral(kingbaseSchedulerRelation('all_scheduler_jobs'))}) IS NOT NULL OR to_regclass(${jobLiteral('all_scheduler_jobs')}) IS NOT NULL AS available`],
 }];
 
 export const kingbaseJobDefinitionQueries = (name: string): string[] => [
-  `SELECT job_name, job_type, job_action AS action, program_name, schedule_name, start_date, repeat_interval, end_date, enabled, state, next_run_date AS next_run_at, comments FROM all_scheduler_jobs WHERE job_name = ${jobLiteral(name)}`,
+  `SELECT job_name, job_type, job_action AS action, program_name, schedule_name, start_date, repeat_interval, end_date, enabled, state, next_run_date AS next_run_at, comments FROM ${kingbaseSchedulerRelation('all_scheduler_jobs')} WHERE job_name = ${jobLiteral(name)}`,
 ];

@@ -1,3 +1,4 @@
+import { buildHivePageSQL } from './hivePagination';
 import { buildOffsetLimitSelectSQL, buildRegistryPaginatedSelectSQL, resolveRegistryQuoting, usesRegistryFlatObjectNames } from './dataSourceRegistry/sqlBehavior';
 import { splitQualifiedNameSegments, stripIdentifierQuotes } from './qualifiedName';
 import { isElasticsearchFamilyType } from './elasticsearchFamily';
@@ -335,6 +336,7 @@ export const buildPaginatedSelectSQL = (
   orderBySQL: string,
   limit: number,
   offset: number,
+  columns?: readonly string[],
 ) => {
   const normalizedType = String(dbType || '').trim().toLowerCase();
   const safeLimit = Math.max(0, Math.floor(Number(limit) || 0));
@@ -345,6 +347,7 @@ export const buildPaginatedSelectSQL = (
   if (!base || safeLimit <= 0) {
     return `${base}${orderBy}`;
   }
+  if (normalizedType === 'hive') return buildHivePageSQL(base, orderBy, safeLimit, safeOffset, columns);
   if (isInterSystemsDialect(normalizedType)) {
     return buildInterSystemsPaginatedSelectSQL(base, orderBy, safeLimit, safeOffset);
   }

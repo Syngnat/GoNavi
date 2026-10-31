@@ -15,7 +15,8 @@ export function decodeInspectionQuote(data: unknown): MarketInspectionQuote {
 }
 export function assertInspectionRequest(request: MarketInspectionRequest): void {
   if (!request.id || !request.version || !/^[a-f0-9]{64}$/.test(request.sourceId)
-    || !/^[a-f0-9]{64}$/i.test(request.artifactDigest)) throw new PluginAPIError('plugin.market.inspection_mismatch');
+    || !/^[a-f0-9]{64}$/i.test(request.artifactDigest)
+    || (request.sizeBytes !== undefined && (!Number.isSafeInteger(request.sizeBytes) || request.sizeBytes <= 0))) throw new PluginAPIError('plugin.market.inspection_mismatch');
 }
 export function assertInspectionQuote(quote: MarketInspectionQuote, request: MarketInspectionRequest, now = Date.now()): void {
   assertInspectionRequest(request);

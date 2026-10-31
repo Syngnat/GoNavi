@@ -221,6 +221,11 @@ export const useAIWorkspaceSnapshot = ({
       // Snapshot publication must never interrupt editor or chat input.
       console.warn('Failed to publish AI workspace snapshot', error);
     }
+    // 续租只延长租约。版本探测会打开数据库连接，失败又不进缓存，
+    // 挂在默认 5 秒续租上就会每隔 5 秒打一次 DBGetServerVersion。
+    if (!needsNewRevision) {
+      return;
+    }
     if (!activeConnectionId) {
       return;
     }

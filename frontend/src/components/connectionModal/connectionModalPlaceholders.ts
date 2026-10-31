@@ -1,10 +1,12 @@
 import { t } from '../../i18n';
+import { isHiveConnectionType } from '../../utils/hiveConnection';
 import { isMySQLCompatibleType, isFileDatabaseType } from '../../utils/connectionTypeCapabilities';
 import { getConnectionTypeDefaultPort as getDefaultPortByType } from '../../utils/connectionTypeCatalog';
 import { getRegistryUriScheme, usesTrinoStyleConnection } from '../../utils/dataSourceRegistry/uriScheme';
 import type { OceanBaseProtocolChoice } from './connectionModalUri';
 
 export const getUriPlaceholder = (dbType: string) => {
+  if (isHiveConnectionType(dbType)) return "jdbc:hive2://127.0.0.1:10000/default;authMode=NONE";
   if (isMySQLCompatibleType(dbType)) {
     const defaultPort = getDefaultPortByType(dbType);
     const scheme =
@@ -96,6 +98,7 @@ export const getConnectionParamsPlaceholder = (
   dbType: string,
   oceanBaseProtocol: OceanBaseProtocolChoice,
 ) => {
+  if (isHiveConnectionType(dbType)) return "session.hive.exec.dynamic.partition=true&fetchSize=1000&pollIntervalMs=200";
   if (dbType === "oceanbase") {
     return oceanBaseProtocol === "oracle"
       ? "PREFETCH_ROWS=5000"

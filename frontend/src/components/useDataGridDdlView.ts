@@ -116,6 +116,8 @@ export interface UseDataGridDdlViewResult {
   ddlSidebarResizePreviewX: number | null;
   ddlRequestSeqRef: React.MutableRefObject<number>;
   isTableSurfaceActive: boolean;
+  /** 表格 DOM 表面代际：视图模式或 DDL 布局变化时递增语义，用于重绑 DOM 监听。 */
+  tableSurfaceEpoch: string;
   handleOpenTableDdl: (options?: { asView?: boolean }) => Promise<void>;
   handleViewModeChange: (nextMode: GridViewMode, options?: { textRecordIndex?: number }) => void;
   handleDdlSidebarResizeStart: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -447,6 +449,7 @@ export const useDataGridDdlView = ({
     ddlSidebarResizePreviewX,
     ddlRequestSeqRef,
     isTableSurfaceActive,
+    tableSurfaceEpoch: `${resolvedViewMode}:${ddlViewLayout}`,
     handleOpenTableDdl,
     handleViewModeChange,
     handleDdlSidebarResizeStart,

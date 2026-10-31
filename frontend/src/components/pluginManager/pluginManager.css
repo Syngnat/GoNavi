@@ -1,31 +1,106 @@
-.plugin-manager { color: var(--gn-fg-1); font-family: var(--gn-font-sans); padding: 4px 0 20px; min-width: 0; }
-.plugin-manager-heading .ant-typography { margin-top: 0; }
+.plugin-manager { color: var(--gn-fg-1); font-family: var(--gn-font-sans); padding: 4px 0 20px; min-width: 0; max-width: 1440px; margin-inline: auto; container: plugin-manager / inline-size; }
+.plugin-manager-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
+.plugin-manager-heading .ant-typography { margin: 0; }
 .plugin-stack, .plugin-ui-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .plugin-toolbar, .plugin-card-header, .plugin-ui-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .plugin-ui-row { justify-content: flex-start; flex-wrap: wrap; }
 .plugin-toolbar > .ant-input, .plugin-toolbar > .ant-input-affix-wrapper { flex: 1; min-width: 100px; }
-.plugin-card { border: 1px solid var(--gn-br-2); border-radius: 8px; background: var(--gn-bg-panel); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.plugin-card { border: 1px solid var(--gn-br-2); border-radius: 8px; background: var(--gn-bg-panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.plugin-card-details { display: flex; flex-direction: column; gap: 12px; padding-top: 10px; border-top: 1px solid var(--gn-br-1); }
 .plugin-card .ant-typography { margin: 0; }
 .plugin-identity, .plugin-break, .plugin-result { font-family: var(--gn-font-mono); overflow-wrap: anywhere; }
 .plugin-identity { color: var(--gn-fg-3); font-size: 12px; }
 .plugin-lifecycle { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; align-items: center; padding-block: 10px; border-block: 1px solid var(--gn-br-1); }
-.plugin-state-rail { display: flex; gap: 16px; align-items: center; }
-.plugin-state-rail > div { display: grid; gap: 4px; }
-.plugin-state-rail > div > span:first-child { color: var(--gn-fg-3); font-size: 12px; }
+.plugin-state-rail { display: flex; gap: 8px; align-items: center; }
+.plugin-state-rail > span { color: var(--gn-fg-3); font-size: 12px; }
 .plugin-state-rail .ant-tag { margin: 0; }
-.plugin-state-arrow { color: var(--gn-fg-4); }
 .plugin-local-install { padding: 16px; background: var(--gn-bg-panel-2); border: 1px dashed var(--gn-br-3); border-radius: 8px; }
 .plugin-permissions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .plugin-embedded-panel { padding-top: 8px; }
+/* 独立窗口是次要动作：靠右的小按钮，不随 .plugin-stack 拉成整行。 */
+.plugin-window-action { display: flex; justify-content: flex-end; }
+.plugin-window-action .ant-btn { display: inline-flex; align-items: center; gap: 6px; padding-inline: 12px; }
+.plugin-page-list { display: flex; flex-direction: column; gap: 6px; }
+.plugin-page-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.plugin-page-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.plugin-page-list-hint { display: block; }
 .plugin-html-frame { display: block; width: 100%; min-height: 480px; border: 1px solid var(--gn-br-2); border-radius: 8px; background: var(--gn-bg-panel-2); }
 .plugin-result { max-height: 280px; overflow: auto; white-space: pre-wrap; margin: 0; padding: 12px; background: var(--gn-bg-panel-2); border-radius: 6px; }
-.plugin-market-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
-.plugin-market-card { border-inline-start: 3px solid var(--gn-br-2); }
-.plugin-market-card[data-official="true"] { border-inline-start-color: var(--gn-accent); }
-.plugin-market-metrics { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--gn-fg-3); font-size: 12px; }
 .plugin-account-code { font-family: var(--gn-font-mono); letter-spacing: 0.14em; font-size: 22px; }
 .plugin-rating { border-top: 1px solid var(--gn-br-1); padding-top: 12px; }
 .plugin-rating-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .plugin-manager button:focus-visible, .plugin-manager a:focus-visible { outline: 2px solid var(--gn-accent); outline-offset: 3px; }
 @media (max-width: 600px) { .plugin-toolbar { flex-wrap: wrap; } .plugin-state-rail { gap: 10px; } .plugin-card { padding: 12px; } }
 @media (prefers-reduced-motion: reduce) { .plugin-manager *, .plugin-manager *::before, .plugin-manager *::after { transition-duration: 0s !important; animation-duration: 0s !important; } }
+
+.plugin-manager > .ant-alert { margin-bottom: 16px; }
+body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav { margin: 0 0 20px !important; border: 0 !important; background: transparent !important; }
+body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav::before { border: 0 !important; }
+.plugin-manager-tabs > .ant-tabs-nav .ant-tabs-nav-list { gap: 4px; padding: 4px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel-2); }
+body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab {
+  width: auto; min-width: 0; max-width: none; margin: 0 !important; padding: 6px 12px !important;
+  border: 1px solid transparent !important; border-radius: 6px !important;
+  background: transparent !important; box-shadow: none !important;
+}
+body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab:hover { background: var(--gn-bg-hover) !important; }
+body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab-active { border-color: var(--gn-br-2) !important; background: var(--gn-bg-panel) !important; }
+body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab::after { display: none !important; }
+.plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab-btn { color: var(--gn-fg-3); text-shadow: none; }
+.plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--gn-accent); }
+.plugin-installed-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; align-items: start; gap: 24px; }
+.plugin-library { min-width: 0; }
+.plugin-installed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(0, min(100%, 340px))); align-items: stretch; justify-content: start; gap: 16px; }
+.plugin-installed-grid:empty { display: none; }
+.plugin-installed-card { padding: 20px; gap: 16px; border-radius: 10px; }
+.plugin-installed-card .plugin-card-header { align-items: flex-start; gap: 8px; }
+.plugin-installed-card .plugin-card-header > div { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.plugin-installed-card .plugin-card-header > .ant-btn { flex-shrink: 0; }
+.plugin-installed-card .plugin-card-header > .plugin-installed-heading { flex-direction: row; align-items: flex-start; gap: 12px; }
+.plugin-installed-heading-text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.plugin-logo { flex: none; display: grid; place-items: center; width: 40px; height: 40px; overflow: hidden; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel-2); }
+.plugin-logo-image { width: 100%; height: 100%; object-fit: contain; }
+.plugin-logo-monogram { color: var(--gn-fg-3); font-size: 16px; font-weight: 600; line-height: 1; }
+.plugin-installed-card .plugin-card-header .ant-typography { font-size: 16px; overflow-wrap: anywhere; }
+.plugin-installed-card .plugin-identity { font-size: 11px; }
+.plugin-installed-card .plugin-installed-version { margin: 0; }
+.plugin-installed-card .plugin-lifecycle { flex-direction: column; align-items: stretch; gap: 14px; padding: 14px 0 0; border-bottom: 0; }
+.plugin-installed-card .plugin-lifecycle > .ant-space { justify-content: flex-end; }
+.plugin-installed-details .plugin-card-details { border: 0; padding: 0; }
+.plugin-installed-details .ant-typography { margin: 0; }
+.plugin-installed-details .ant-drawer-body { min-width: 0; overflow-x: hidden; }
+@container plugin-manager (max-width: 480px) { .plugin-installed-card { padding: 16px; } }
+.plugin-library-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; padding-bottom: 12px; border-bottom: 1px solid var(--gn-br-1); }
+.plugin-library-heading { display: flex; align-items: center; gap: 8px; }
+.plugin-library-heading > .ant-typography { font-size: 15px; }
+.plugin-library-heading > .ant-tag { margin: 0; min-width: 24px; text-align: center; color: var(--gn-fg-3); background: var(--gn-bg-panel-2); border-color: var(--gn-br-2); }
+.plugin-library-state { display: grid; place-items: center; min-height: 300px; padding: 24px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel); }
+.plugin-library-state .ant-empty { margin: 0; max-width: 400px; }
+.plugin-library-state .ant-empty-description { line-height: 1.7; }
+.plugin-installed-layout > .plugin-local-install { min-width: 0; padding: 20px; gap: 16px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel); }
+.plugin-local-install-heading { display: flex; flex-direction: column; gap: 8px; }
+.plugin-local-install-heading > .ant-typography:first-child { font-size: 15px; }
+.plugin-local-install-heading > .ant-typography-secondary { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.plugin-install-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.plugin-install-controls > .ant-input { width: 100%; min-width: 0; }
+.plugin-install-pickers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 12px; border-top: 1px solid var(--gn-br-1); }
+.plugin-install-pickers > .ant-btn { min-width: 0; }
+@container plugin-manager (max-width: 1000px) {
+  .plugin-installed-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .plugin-library-state { min-height: 240px; }
+  .plugin-install-controls { grid-template-columns: minmax(0, 1fr) auto; }
+  .plugin-install-pickers { display: flex; flex-wrap: wrap; }
+}
+@container plugin-manager (max-width: 480px) {
+  .plugin-manager-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav { margin-bottom: 16px !important; }
+  .plugin-installed-layout > .plugin-local-install { padding: 16px; }
+  .plugin-install-controls { grid-template-columns: minmax(0, 1fr); }
+}
+
+.plugin-installed-card .plugin-installed-version-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
+.plugin-installed-card .plugin-update-available { margin: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; color: var(--gn-accent); border-color: var(--gn-br-2); background: var(--gn-bg-panel-2); }
+.plugin-installed-card .plugin-update-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--gn-br-1); }
+.plugin-installed-card .plugin-update-footer > .ant-btn { max-width: 100%; height: auto; padding: 4px 12px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.plugin-installed-card .plugin-update-source { max-width: 100%; color: var(--gn-fg-3); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-package-size { font-variant-numeric: tabular-nums; }
+.plugin-library-header .plugin-library-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }

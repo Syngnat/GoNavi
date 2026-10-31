@@ -123,6 +123,10 @@ const TABLE_LIST_OVERVIEW_DIALECTS = new Set([
     // 消息队列与 Redis：各自的 topic / queue / key 枚举接口就是表概览的数据来源，驱动不接受
     // SQL 元数据查询（Redis 的表清单走后端 DBGetTables 的 ScanKeys 分支）。
     'kafka', 'pulsar', 'rocketmq', 'mqtt', 'rabbitmq', 'redis',
+    // HiveServer2 没有可用的 information_schema；Hive 4 会把 information_schema.tables
+    // 解析成库 information_schema、表 tables，并报 Table not found 'tables'。
+    // 表概览改为走驱动的 GetTables 表名列表。
+    'hive',
 ]);
 
 /** 表概览改用 DBGetTables 表名列表的方言：没有 information_schema 的 TDengine / SQLite / Milvus /

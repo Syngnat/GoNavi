@@ -8,20 +8,22 @@ import (
 )
 
 type sqlInsertExportConsumer struct {
-	w             *bufio.Writer
-	dbType        string
-	quotedTable   string
-	columnTypeMap map[string]string
-	columns       []string
-	quotedCols    []string
-	columnList    string
-	columnTypes   []string
-	targetColumns map[string]string
-	valueBuf      []string
-	rowCount      int64
-	mode          sqlInsertExportMode
-	pendingRows   int
-	statementBuf  strings.Builder
+	w                 *bufio.Writer
+	dbType            string
+	quotedTable       string
+	columnTypeMap     map[string]string
+	columns           []string
+	quotedCols        []string
+	columnList        string
+	columnTypes       []string
+	targetColumns     map[string]string
+	hiveSourceTargets map[string]string
+	hiveLayout        *hiveInsertLayout
+	valueBuf          []string
+	rowCount          int64
+	mode              sqlInsertExportMode
+	pendingRows       int
+	statementBuf      strings.Builder
 }
 
 type sqlInsertExportMode int
@@ -44,6 +46,9 @@ func resolveSQLInsertExportMode(dbType string) sqlInsertExportMode {
 }
 
 func (c *sqlInsertExportConsumer) SetColumns(columns []string) error {
+	if normalizeInsertSQLDialect(c.dbType) == "hive" {
+		return c.setHiveColumns(columns)
+	}
 	c.columns = append([]string(nil), columns...)
 	c.quotedCols = make([]string, 0, len(columns))
 	c.columnTypes = make([]string, len(columns))
@@ -68,6 +73,9 @@ func (c *sqlInsertExportConsumer) SetColumns(columns []string) error {
 }
 
 func (c *sqlInsertExportConsumer) ConsumeRow(row map[string]interface{}) error {
+	if normalizeInsertSQLDialect(c.dbType) == "hive" {
+		return c.consumeHiveRow(row)
+	}
 	for i, column := range c.columns {
 		c.valueBuf[i] = formatImportSQLValue(c.dbType, c.columnTypeMap[normalizeColumnName(column)], row[column])
 	}
@@ -75,6 +83,15 @@ func (c *sqlInsertExportConsumer) ConsumeRow(row map[string]interface{}) error {
 }
 
 func (c *sqlInsertExportConsumer) ConsumeRowValues(values []interface{}) error {
+	if normalizeInsertSQLDialect(c.dbType) == "hive" {
+		row := make(map[string]interface{}, len(c.columns))
+		for i, name := range c.columns {
+			if i < len(values) {
+				row[name] = values[i]
+			}
+		}
+		return c.consumeHiveRow(row)
+	}
 	for i := range c.columns {
 		var value interface{}
 		if i < len(values) {
@@ -191,6 +208,14 @@ func newSQLInsertExportFileWriter(f io.Writer, options ExportFileOptions) (*sqlI
 		quotedTable = quoteQualifiedIdentByType(dialect, targetTable)
 	}
 
+	var hiveLayout *hiveInsertLayout
+	if normalizeInsertSQLDialect(dialect) == "hive" {
+		var err error
+		hiveLayout, err = newHiveInsertLayout(hiveDefsFromExportOptions(options), options.InsertSQLPartitionColumns)
+		if err != nil {
+			return nil, err
+		}
+	}
 	writer := bufio.NewWriterSize(f, 1024*1024)
 	return &sqlInsertExportFileWriter{
 		writer: writer,
@@ -198,6 +223,7 @@ func newSQLInsertExportFileWriter(f io.Writer, options ExportFileOptions) (*sqlI
 			w:             writer,
 			dbType:        dialect,
 			quotedTable:   quotedTable,
+			hiveLayout:    hiveLayout,
 			columnTypeMap: options.InsertSQLColumnTypes,
 			targetColumns: options.InsertSQLTargetColumns,
 		},

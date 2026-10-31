@@ -1,8 +1,31 @@
 import { MONO_FONT_FALLBACK_STACK, UI_FONT_FALLBACK_STACK, type FontFamilyOption } from '../utils/fontFamilies';
 import type { FontInstalled } from './types';
 import { getPrimaryFontFamily } from '../utils/fontFamilyDisplay';
+import { RECOMMENDED_FONTS } from './recommendedCatalog';
 
 export const fontFamilyKey = (family: string): string => family.trim().replace(/\s+/g, ' ').toLowerCase();
+
+// 目录里为字体维护的中文显示名：选择器显示名与画廊保持一致，
+// 存储的 CSS 值仍是系统 family；与原始 family 同名的条目（如 Inter）不进入映射。
+const CATALOG_FAMILY_ALIAS = new Map<string, string>();
+for (const item of RECOMMENDED_FONTS) {
+  const key = fontFamilyKey(item.family);
+  const alias = item.names['zh-CN'] || item.names['en-US'] || '';
+  if (key && alias && key !== fontFamilyKey(alias)) CATALOG_FAMILY_ALIAS.set(key, alias);
+}
+
+const applyCatalogAliases = (options: FontFamilyOption[]): FontFamilyOption[] =>
+  options.map(option => {
+    // 默认项的 label 是 i18n 文案，任何目录别名都不应覆盖它。
+    if (option.labelKey) return option;
+    const alias = CATALOG_FAMILY_ALIAS.get(fontFamilyKey(getPrimaryFontFamily(option.value)));
+    if (!alias) return option;
+    return {
+      ...option,
+      label: alias,
+      keywords: [...(option.keywords ?? []), option.label, alias],
+    };
+  });
 
 export function cssStack(family: string, kind: 'ui' | 'mono'): string {
   const fallback = kind === 'ui' ? UI_FONT_FALLBACK_STACK : MONO_FONT_FALLBACK_STACK;
@@ -47,7 +70,7 @@ export function mergeDownloadedFontOptions(
       result.push(option);
     }
   }
-  return result;
+  return applyCatalogAliases(result);
 }
 
 export function systemHasFamily(families: Array<{ family: string } | string>, name: string): boolean {

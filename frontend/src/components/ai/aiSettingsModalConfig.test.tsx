@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  ATLAS_CLOUD_BASE_URL,
-  ATLAS_CLOUD_DEFAULT_MODEL,
-  ORCAROUTER_BASE_URL,
-  ORCAROUTER_DEFAULT_MODEL,
-  API_ROUTE_BASE_URL,
-  API_ROUTE_DEFAULT_MODEL,
-  CHEAPER_INFERENCE_BASE_URL,
-  CHEAPER_INFERENCE_DEFAULT_MODEL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   XIAOMI_MIMO_DEFAULT_MODEL,
   XIAOMI_MIMO_OPENAI_BASE_URL,
@@ -119,66 +111,6 @@ describe('aiSettingsModalConfig', () => {
     expect(resolveProviderPresetModeKey(preset, provider)).toBe('local-cli');
   });
 
-  it('exposes and recognizes the Atlas Cloud preset', () => {
-    const preset = findPreset('atlascloud');
-
-    expect(preset).toMatchObject({
-      label: 'Atlas Cloud',
-      backendType: 'openai',
-      defaultBaseUrl: ATLAS_CLOUD_BASE_URL,
-      defaultModel: ATLAS_CLOUD_DEFAULT_MODEL,
-    });
-    expect(matchProviderPreset({
-      type: 'openai',
-      baseUrl: ATLAS_CLOUD_BASE_URL,
-    }).key).toBe('atlascloud');
-  });
-
-  it('exposes and recognizes the OrcaRouter preset', () => {
-    const preset = findPreset('orcarouter');
-
-    expect(preset).toMatchObject({
-      label: 'OrcaRouter',
-      backendType: 'openai',
-      defaultBaseUrl: ORCAROUTER_BASE_URL,
-      defaultModel: ORCAROUTER_DEFAULT_MODEL,
-    });
-    expect(matchProviderPreset({
-      type: 'openai',
-      baseUrl: ORCAROUTER_BASE_URL,
-    }).key).toBe('orcarouter');
-  });
-
-  it('exposes and recognizes the Cheaper Inference preset', () => {
-    const preset = findPreset('cheaperinference');
-
-    expect(preset).toMatchObject({
-      label: 'Cheaper Inference',
-      backendType: 'openai',
-      defaultBaseUrl: CHEAPER_INFERENCE_BASE_URL,
-      defaultModel: CHEAPER_INFERENCE_DEFAULT_MODEL,
-    });
-    expect(matchProviderPreset({
-      type: 'openai',
-      baseUrl: CHEAPER_INFERENCE_BASE_URL,
-    }).key).toBe('cheaperinference');
-  });
-
-  it('exposes and recognizes the API Route preset', () => {
-    const preset = findPreset('api-route');
-
-    expect(preset).toMatchObject({
-      label: 'API Route',
-      backendType: 'openai',
-      defaultBaseUrl: API_ROUTE_BASE_URL,
-      defaultModel: API_ROUTE_DEFAULT_MODEL,
-    });
-    expect(matchProviderPreset({
-      type: 'openai',
-      baseUrl: `  ${API_ROUTE_BASE_URL}/  `,
-    }).key).toBe('api-route');
-  });
-
   it('exposes Xiaomi MiMo with current official endpoints and model', () => {
     const preset = findPreset('xiaomi-mimo');
 
@@ -281,9 +213,11 @@ describe('aiSettingsModalConfig', () => {
       readOnly: true,
       defaultModel: 'gonavi-sql',
     });
-    expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(true);
-    expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(true);
-    expect(PROVIDER_PRESETS.some((item) => item.key === 'cheaperinference')).toBe(true);
+    // 第三方供应商改由插件提供，宿主不再内置这些预设
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'cheaperinference')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'api-route')).toBe(false);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'xiaomi-mimo')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'codex')).toBe(false);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'claude-subscription')).toBe(false);

@@ -5,9 +5,10 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "predev": "npm run build:plugin-window",
+    "predev": "npm run build:plugin-window && npm run build:plugin-ui",
     "dev": "vite",
     "build:plugin-window": "vite build --config vite.plugin-window.config.ts",
+    "build:plugin-ui": "vite build --config vite.plugin-ui.config.ts",
     "dev:plugin-window": "vite build --watch --config vite.plugin-window.config.ts",
     "build": "node scripts/build-frontend.mjs",
     "preview": "vite preview",
@@ -44,6 +45,7 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@types/react-resizable": "^3.0.8",

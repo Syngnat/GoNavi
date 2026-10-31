@@ -13,6 +13,11 @@ describe('isolated plugin protocol', () => {
       expect(() => parseIdentity(bad)).toThrow('invalid_identity');
     }
   });
+  it('carries an optional frozen launch context', () => {
+    const identity = parseIdentity({ pluginId: 'test.one', generation: 3, title: 'Fixture', context: { connectionId: 'c1', readOnly: true } });
+    expect(identity.context).toEqual({ connectionId: 'c1', readOnly: true });
+    expect(Object.isFrozen(identity.context)).toBe(true);
+  });
   it('measures UTF-8 bytes, not only JavaScript code units', () => {
     expect(boundedJSON({ ok: true })).toBe('{"ok":true}');
     expect(() => boundedJSON('界'.repeat(maxJSONBytes / 2))).toThrow('payload_too_large');

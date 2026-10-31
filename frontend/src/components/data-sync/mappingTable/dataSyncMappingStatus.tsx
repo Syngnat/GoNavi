@@ -1,5 +1,6 @@
 import React from 'react';
 import { taskKindCanCreateTarget } from '../modelTaskKinds';
+import { compareTargetObjectName } from '../dataSyncCompareTargets';
 import type { DataSyncTableMapping, DataSyncTaskKind, DataSyncObjectMetadata } from '../model';
 import type { DataSyncWorkbenchTextKey, DataSyncWorkbenchTranslate } from '../text';
 import type { DataSyncMetadataResult } from '../useDataSyncMetadata';
@@ -8,19 +9,25 @@ export const normalizeName = (value: string): string => value.trim().toLowerCase
 
 type MappingTargetStatus = 'exists' | 'create' | 'missing' | 'pending';
 
+// 对比只读：目标缺表照样要能跑，所以不要求目标名存在、也不要求目标表已存在。
+const compareReady = (mapping: DataSyncTableMapping, targetState: MappingTargetStatus): boolean =>
+  Boolean(mapping.sourceObject.trim() && targetState !== 'pending');
+
 export const mappingReady = (
   mapping: DataSyncTableMapping,
   taskKind: DataSyncTaskKind,
   targetState: MappingTargetStatus,
 ): boolean =>
-  Boolean(
-    (taskKind === 'querySink' || mapping.sourceObject.trim()) &&
-      mapping.targetObject.trim() &&
-      targetState !== 'pending' &&
-      (mapping.targetMode !== 'existing_only' || targetState === 'exists') &&
-      (!['reconcile', 'cdc'].includes(taskKind) || mapping.keyColumns.length > 0) &&
-      (taskKind !== 'cdc' || mapping.fields.length > 0),
-  );
+  taskKind === 'compare'
+    ? compareReady(mapping, targetState)
+    : Boolean(
+        (taskKind === 'querySink' || mapping.sourceObject.trim()) &&
+          mapping.targetObject.trim() &&
+          targetState !== 'pending' &&
+          (mapping.targetMode !== 'existing_only' || targetState === 'exists') &&
+          (!['reconcile', 'cdc'].includes(taskKind) || mapping.keyColumns.length > 0) &&
+          (taskKind !== 'cdc' || mapping.fields.length > 0),
+      );
 
 export const ObjectMetadataStatus: React.FC<{
   side: 'source' | 'target';
@@ -61,20 +68,26 @@ export { taskKindCanCreateTarget };
 export const targetHintKey = (
   targetState: MappingTargetStatus,
   taskKind: DataSyncTaskKind,
-): DataSyncWorkbenchTextKey =>
-  targetState === 'missing' && !taskKindCanCreateTarget(taskKind)
+): DataSyncWorkbenchTextKey => {
+  if (targetState === 'missing' && taskKind === 'compare') {
+    return 'mapping.target_hint.missing_compare';
+  }
+  return targetState === 'missing' && !taskKindCanCreateTarget(taskKind)
     ? 'mapping.target_hint.missing_requires_existing'
     : `mapping.target_hint.${targetState}`;
+};
 
 export const targetStatus = (
   mapping: DataSyncTableMapping,
   targetObjects: DataSyncMetadataResult<DataSyncObjectMetadata>,
 ): MappingTargetStatus => {
   if (targetObjects.status !== 'ready') return 'pending';
+  // 目标名留空时按源对象同名比对（对比任务的目标缺表场景），否则永远判成缺失。
+  const targetObject = compareTargetObjectName(mapping);
   const exists = targetObjects.items.some(
     (object) =>
       object.kind !== 'view' &&
-      normalizeName(object.name) === normalizeName(mapping.targetObject),
+      normalizeName(object.name) === normalizeName(targetObject),
   );
   if (exists) return 'exists';
   if (mapping.targetObject.trim() && mapping.targetMode === 'create_or_reuse') {

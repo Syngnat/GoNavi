@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -70,7 +69,7 @@ func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *age
 		}
 
 		var req agentRequest
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
+		if err := decodeAgentRequestJSON([]byte(line), &req); err != nil {
 			_ = responseWriter.write(agentResponse{
 				ID:      req.ID,
 				Success: false,

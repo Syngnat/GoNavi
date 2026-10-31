@@ -36,6 +36,16 @@ func pluginHTTPFixture(t *testing.T) (*plugin.Manager, *PluginFactory) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build actual SDK example: %v %s", err, output)
 	}
+	if err = os.Mkdir(filepath.Join(source, "icons"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	icon, err := os.ReadFile(filepath.Join(examples, "ai-provider", "icons", "provider.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(source, "icons", "provider.png"), icon, 0600); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(filepath.Join(examples, "ai-provider", "gonavi.plugin.json"))
 	if err != nil {
 		t.Fatal(err)

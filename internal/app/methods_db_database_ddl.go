@@ -73,6 +73,11 @@ func buildCreateDatabaseQuery(dbType string, dbName string, charset string, coll
 		return fmt.Sprintf(`CREATE DATABASE "%s"`, escaped), nil
 	case "sqlserver":
 		return fmt.Sprintf("CREATE DATABASE %s", quoteIdentByType(dbType, dbName)), nil
+	case "hive":
+		if charset != "" || collation != "" {
+			return "", fmt.Errorf("hive does not support database charset or collation options")
+		}
+		return fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", quoteIdentByType(dbType, dbName)), nil
 	case "tdengine", "clickhouse", "starrocks":
 		return fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", quoteIdentByType(dbType, dbName)), nil
 	case "sphinx":
@@ -280,7 +285,7 @@ func (a *App) DropDatabase(config connection.ConnectionConfig, dbName string) (r
 		sql       string
 	)
 	switch dbType {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "tdengine", "clickhouse":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "tdengine", "clickhouse", "hive":
 		runConfig = config
 		runConfig.Database = ""
 		if dbType == "clickhouse" && strings.EqualFold(strings.TrimSpace(config.Type), "custom") {

@@ -1,15 +1,18 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/db"
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/hivesql"
 )
 
 type pagedDiffCounts struct {
@@ -31,6 +34,10 @@ type pagedDiffPage struct {
 	Updates []pagedUpdateDiff
 	Deletes []map[string]interface{}
 	Same    int
+	// SourceOffset is the 0-based position of this page's first source row inside the table or
+	// query result. OnRowError receives it as the row index, so both paging paths and the
+	// direct-import path agree on what an error row's index refers to.
+	SourceOffset int
 }
 
 func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tableIndex, totalTables int, tableName string, sourceDB db.Database, targetDB db.Database, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, opts TableOptions, sourceType, targetType, applyTableName, pkCol string) (bool, pagedDiffCounts, error) {
@@ -65,23 +72,24 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 	s.progress(config.JobID, tableIndex, totalTables, tableName, "分页对比数据")
 
 	applied := pagedDiffCounts{}
-	rowIndexBase := 0
+	// Inserts are source rows and stay keyed by the source column name; updates and deletes are
+	// applied to the target and carry the target-side name, so each filter reads its own side.
+	targetPKCol := pagedTargetName(pagedColumnNames(targetCols), pkCol)
 	handled, _, err := scanTableDiffInPagesContextWithBatchSize(s.context(), sourceDB, targetDB, sourceType, targetType, plan, sourceCols, targetCols, pkCol, targetColSet, opts.Delete, pageSize, func(page pagedDiffPage) error {
 		changeSet := connection.ChangeSet{
 			Inserts: filterRowsByPKSelection(pkCol, page.Inserts, opts.Insert, opts.SelectedInsertPKs),
-			Updates: filterPagedUpdatesByPKSelection(pkCol, page.Updates, opts.Update, opts.SelectedUpdatePKs),
-			Deletes: filterRowsByPKSelection(pkCol, page.Deletes, opts.Delete, opts.SelectedDeletePKs),
+			Updates: filterPagedUpdatesByPKSelection(targetPKCol, page.Updates, opts.Update, opts.SelectedUpdatePKs),
+			Deletes: filterRowsByPKSelection(targetPKCol, page.Deletes, opts.Delete, opts.SelectedDeletePKs),
 		}
 		changeSet.Inserts = filterInsertRows(changeSet.Inserts, targetColSet)
 		changeSet.Updates = filterUpdateRows(changeSet.Updates, targetColSet)
 		if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
 			return nil
 		}
-		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, rowIndexBase)
+		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, page.SourceOffset)
 		applied.Inserts += committed.Inserts
 		applied.Updates += committed.Updates
 		applied.Deletes += committed.Deletes
-		rowIndexBase += len(changeSet.Inserts) + len(changeSet.Updates) + len(changeSet.Deletes)
 		return err
 	})
 	if err != nil {
@@ -125,12 +133,27 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 	if len(targetLookupCols) == 0 {
 		return false, pagedDiffCounts{}, nil
 	}
+	targetNames := pagedColumnNames(targetCols)
+	targetPKCol := pagedTargetName(targetNames, pkCol)
 
 	totals := pagedDiffCounts{}
+	// Once a page has written to the target, giving up must not report handled=false: the caller
+	// would discard these counts and re-run the table through the snapshot path, reporting only
+	// the second pass while the already committed rows silently stay counted as zero.
+	applied := false
+	fallback := func(cause error) (bool, pagedDiffCounts, error) {
+		if applied {
+			if cause == nil {
+				cause = errors.New("分页差异同步在已提交部分页面后无法继续")
+			}
+			return true, totals, cause
+		}
+		return false, pagedDiffCounts{}, nil
+	}
 	for offset := 0; ; offset += pageSize {
 		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceReadCols, pkCol, pageSize, offset)
 		if strings.TrimSpace(query) == "" {
-			return false, pagedDiffCounts{}, nil
+			return fallback(nil)
 		}
 		sourceRows, _, err := querySyncDatabaseContext(ctx, sourceDB, query)
 		if err != nil {
@@ -143,17 +166,23 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 		pkValues := collectPKValues(sourceRows, pkCol)
 		targetRows := make([]map[string]interface{}, 0)
 		if len(pkValues) > 0 {
-			targetQuery := buildPKInSelectQuery(targetType, plan.TargetQueryTable, targetLookupCols, pkCol, pkValues)
+			targetQuery := buildPKInSelectQuery(targetType, plan.TargetQueryTable, targetLookupCols, targetPKCol, pkValues)
 			if strings.TrimSpace(targetQuery) == "" {
-				return false, pagedDiffCounts{}, nil
+				return fallback(nil)
 			}
 			targetRows, _, err = querySyncDatabaseContext(ctx, targetDB, targetQuery)
 			if err != nil {
 				return true, totals, fmt.Errorf("按主键读取目标表失败(offset=%d): %w", offset, err)
 			}
 		}
+		// A target key that is not unique makes the derived UPDATE hit several rows at once and
+		// the Same/delete accounting wrong; the same guard exists on the source-query paging path.
+		if err := validatePagedUniqueKeys(targetRows, targetPKCol, map[string]struct{}{}, "target"); err != nil {
+			return true, totals, err
+		}
 
-		page := diffSourcePageByPK(pkCol, sourceRows, targetRows)
+		page := diffSourcePageByPK(pkCol, targetPKCol, targetNames, sourceRows, targetRows)
+		page.SourceOffset = offset
 		totals.Inserts += len(page.Inserts)
 		totals.Updates += len(page.Updates)
 		totals.Same += page.Same
@@ -162,18 +191,22 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 				return true, totals, err
 			}
 		}
+		applied = true
 		if len(sourceRows) < pageSize {
 			break
 		}
 	}
 
 	if includeDeletes {
+		// Delete rows exist only on the target, so they report their own run-wide ordinal rather
+		// than pretending to be a source row position.
+		deleteOrdinal := 0
 		lastPK, hasLastPK := interface{}(nil), false
-		targetPKCols := []connection.ColumnDefinition{{Name: pkCol}}
+		targetPKCols := []connection.ColumnDefinition{{Name: targetPKCol}}
 		for {
-			query := buildKeysetPagedTableQuery(targetType, plan.TargetQueryTable, targetPKCols, pkCol, lastPK, hasLastPK, pageSize)
+			query := buildKeysetPagedTableQuery(targetType, plan.TargetQueryTable, targetPKCols, targetPKCol, lastPK, hasLastPK, pageSize)
 			if strings.TrimSpace(query) == "" {
-				return false, pagedDiffCounts{}, nil
+				return fallback(nil)
 			}
 			targetRows, _, err := querySyncDatabaseContext(ctx, targetDB, query)
 			if err != nil {
@@ -183,18 +216,20 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 				break
 			}
 
-			nextLastPK, ok := lastValidPKValue(targetRows, pkCol)
+			nextLastPK, ok := lastValidPKValue(targetRows, targetPKCol)
 			if !ok {
 				break
 			}
 			lastPK, hasLastPK = nextLastPK, true
 
-			pkValues := collectPKValues(targetRows, pkCol)
+			// Delete keys are applied to the target, so they carry the target-side column name;
+			// the reverse lookup into the source still uses the source-side name.
+			pkValues := collectPKValues(targetRows, targetPKCol)
 			sourcePKRows := make([]map[string]interface{}, 0)
 			if len(pkValues) > 0 {
 				sourceQuery := buildPKInSelectQuery(sourceType, plan.SourceQueryTable, targetPKCols, pkCol, pkValues)
 				if strings.TrimSpace(sourceQuery) == "" {
-					return false, pagedDiffCounts{}, nil
+					return fallback(nil)
 				}
 				sourcePKRows, _, err = querySyncDatabaseContext(ctx, sourceDB, sourceQuery)
 				if err != nil {
@@ -205,22 +240,23 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 			sourcePKSet := buildPKSet(sourcePKRows, pkCol)
 			deletes := make([]map[string]interface{}, 0)
 			for _, row := range targetRows {
-				pkKey, ok := pkValueKey(row[pkCol])
+				pkKey, ok := pkValueKey(row[targetPKCol])
 				if !ok {
 					continue
 				}
 				if _, exists := sourcePKSet[pkKey]; exists {
 					continue
 				}
-				deletes = append(deletes, map[string]interface{}{pkCol: row[pkCol]})
+				deletes = append(deletes, map[string]interface{}{targetPKCol: row[targetPKCol]})
 			}
 			if len(deletes) > 0 {
 				totals.Deletes += len(deletes)
 				if consume != nil {
-					if err := consume(pagedDiffPage{Deletes: deletes}); err != nil {
+					if err := consume(pagedDiffPage{Deletes: deletes, SourceOffset: deleteOrdinal}); err != nil {
 						return true, totals, err
 					}
 				}
+				deleteOrdinal += len(deletes)
 			}
 			if len(targetRows) < pageSize {
 				break
@@ -231,13 +267,38 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 	return true, totals, nil
 }
 
-func diffSourcePageByPK(pkCol string, sourceRows, targetRows []map[string]interface{}) pagedDiffPage {
+// pagedColumnNames maps a lower-cased source column name to the target-side name, so rows read
+// from the target (keyed by its own casing) are matched correctly when the two sides differ only
+// by case — otherwise every column looks changed and the whole table is rewritten each run.
+func pagedColumnNames(targetCols []connection.ColumnDefinition) map[string]string {
+	names := make(map[string]string, len(targetCols))
+	for _, col := range targetCols {
+		name := strings.TrimSpace(col.Name)
+		if name == "" {
+			continue
+		}
+		names[strings.ToLower(name)] = name
+	}
+	return names
+}
+
+func pagedTargetName(names map[string]string, sourceColumn string) string {
+	if target, ok := names[strings.ToLower(strings.TrimSpace(sourceColumn))]; ok {
+		return target
+	}
+	return sourceColumn
+}
+
+func diffSourcePageByPK(pkCol, targetPKCol string, targetNames map[string]string, sourceRows, targetRows []map[string]interface{}) pagedDiffPage {
 	targetMap := make(map[string]map[string]interface{}, len(targetRows))
 	for _, row := range targetRows {
-		pkKey, ok := pkValueKey(row[pkCol])
+		pkKey, ok := pkValueKey(row[targetPKCol])
 		if !ok {
 			continue
 		}
+		// A duplicate target key would silently overwrite the earlier row and turn the update
+		// into a multi-row write; the caller validates uniqueness before paging, so this only
+		// keeps the last one as a defensive fallback.
 		targetMap[pkKey] = row
 	}
 
@@ -259,11 +320,12 @@ func diffSourcePageByPK(pkCol string, sourceRows, targetRows []map[string]interf
 		changes := make(map[string]interface{})
 		changedColumns := make([]string, 0)
 		for key, value := range sourceRow {
-			if fmt.Sprintf("%v", value) == fmt.Sprintf("%v", targetRow[key]) {
+			targetKey := pagedTargetName(targetNames, key)
+			if fmt.Sprintf("%v", value) == fmt.Sprintf("%v", targetRow[targetKey]) {
 				continue
 			}
-			changes[key] = value
-			changedColumns = append(changedColumns, key)
+			changes[targetKey] = value
+			changedColumns = append(changedColumns, targetKey)
 		}
 		if len(changes) == 0 {
 			page.Same++
@@ -272,7 +334,7 @@ func diffSourcePageByPK(pkCol string, sourceRows, targetRows []map[string]interf
 		sort.Strings(changedColumns)
 		page.Updates = append(page.Updates, pagedUpdateDiff{
 			UpdateRow: connection.UpdateRow{
-				Keys:   map[string]interface{}{pkCol: sourceRow[pkCol]},
+				Keys:   map[string]interface{}{targetPKCol: sourceRow[pkCol]},
 				Values: changes,
 			},
 			Source:         sourceRow,
@@ -414,7 +476,14 @@ func pkValueKey(value interface{}) (string, bool) {
 	if value == nil {
 		return "", false
 	}
-	key := strings.TrimSpace(fmt.Sprintf("%v", value))
+	// Do not trim: 'a' and 'a ' are different VARCHAR keys in MySQL/PostgreSQL, and trimming
+	// merges them into one key (one row is re-inserted, the other is never deleted). Byte
+	// slices are rendered as their string content so a driver returning []byte still matches
+	// one returning string for the same column.
+	key := fmt.Sprintf("%v", value)
+	if raw, ok := value.([]byte); ok {
+		key = string(raw)
+	}
 	if key == "" || key == "<nil>" {
 		return "", false
 	}
@@ -619,6 +688,9 @@ func syncDialectEscapesBackslash(dbType string) bool {
 // 转义 JSON）在 MySQL/ClickHouse 等目标上会被解释成别的字符串，导致 IN 列表匹配不到，
 // 于是源端存在的行先被判为需要插入、随后又被判为需要删除并真的从目标删掉。
 func quoteSyncSQLString(dbType string, value string) string {
+	if normalizeMigrationDBType(dbType) == "hive" {
+		return hivesql.QuoteString(value)
+	}
 	if syncDialectEscapesBackslash(dbType) {
 		value = strings.ReplaceAll(value, `\`, `\\`)
 	}

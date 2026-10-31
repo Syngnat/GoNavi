@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	plugin "github.com/Syngnat/GoNavi/sdk/go"
@@ -77,6 +79,12 @@ func buildPackage(ctx context.Context, opts options) error {
 	if err := os.Mkdir(filepath.Join(output, "bin"), 0700); err != nil {
 		return err
 	}
+	// AI provider icons are package-relative assets, not compiled binaries; copy
+	// every declared icon before the final manifest is inspected by the host or
+	// the market. The source tree itself is never a valid package.
+	if err := copyDeclaredAIProviderIcons(manifest, filepath.Dir(opts.manifest), output); err != nil {
+		return err
+	}
 	if err := writeCapturedSkills(ctx, output, documents); err != nil {
 		return err
 	}
@@ -100,6 +108,56 @@ func buildPackage(ctx context.Context, opts options) error {
 	}
 	if _, err := fmt.Fprintln(os.Stdout, output); err != nil {
 		return err
+	}
+	return nil
+}
+
+// copyDeclaredAIProviderIcons preserves the manifest's package-relative icon
+// files. Icons are validated as bounded regular files, never followed through
+// symlinks, and kept inside the manifest directory.
+func copyDeclaredAIProviderIcons(manifest plugin.Manifest, manifestDir, output string) error {
+	if manifest.Contributes == nil {
+		return nil
+	}
+	for _, provider := range manifest.Contributes.AIProviders {
+		icon := strings.TrimSpace(provider.Icon)
+		if icon == "" {
+			continue
+		}
+		relative := filepath.FromSlash(icon)
+		if !filepath.IsLocal(relative) {
+			return fmt.Errorf("ai provider icon must stay inside the package: %q", icon)
+		}
+		source := filepath.Join(manifestDir, relative)
+		info, err := os.Lstat(source)
+		if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 64<<10 {
+			return fmt.Errorf("ai provider icon is not a regular file within 64 KiB: %q", icon)
+		}
+		destination := filepath.Join(output, relative)
+		if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
+			return err
+		}
+		in, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			in.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, in)
+		closeErr := out.Close()
+		openCloseErr := in.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if openCloseErr != nil {
+			return openCloseErr
+		}
 	}
 	return nil
 }

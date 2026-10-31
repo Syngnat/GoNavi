@@ -177,7 +177,8 @@ func ValidateDefinition(input JobDefinition) error {
 	if definition.Kind != JobKindQuerySink && definition.SourceQuery != "" {
 		return errors.New("sourceQuery is only supported by query sink jobs")
 	}
-	if len(definition.Mappings) == 0 {
+	// 对比是整库行为：用户只选两端，映射由执行期按源库全部表展开。
+	if len(definition.Mappings) == 0 && definition.Kind != JobKindCompare {
 		return errors.New("at least one table mapping is required")
 	}
 	if definition.Kind == JobKindQuerySink && len(definition.Mappings) != 1 {

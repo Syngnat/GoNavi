@@ -13,9 +13,6 @@ describe('AIProviderLogo', () => {
     expect(PRESET_ICON_SLUG.grok).toBe('grok');
     expect(PRESET_ICON_SLUG['claude-subscription']).toBe('claudecode');
     expect(PRESET_ICON_SLUG['qwen-bailian']).toBe('alibabacloud');
-    expect(PRESET_ICON_SLUG.atlascloud).toBe('atlascloud');
-    expect(PRESET_ICON_SLUG.orcarouter).toBe('orcarouter');
-    expect(PRESET_ICON_SLUG.cheaperinference).toBe('cheaperinference');
     expect(PRESET_ICON_SLUG.zhipu).toBe('zhipu');
     expect(PRESET_ICON_SLUG.moonshot).toBe('moonshot');
     expect(PRESET_ICON_SLUG['xiaomi-mimo']).toBe('xiaomimimo');
@@ -55,13 +52,6 @@ describe('AIProviderLogo', () => {
     expect(renderToStaticMarkup(<AIProviderLogo presetKey="custom" label="Custom" dark />)).not.toContain('invert');
   });
 
-  it('renders the API Route mark without inverting its colors', () => {
-    const markup = renderToStaticMarkup(<AIProviderLogo presetKey="api-route" label="API Route" dark />);
-    expect(markup).toContain('/icons/ai/api-route.png');
-    expect(markup).not.toContain('invert');
-    expect(readFileSync(new URL('../../../public/icons/ai/api-route.png', import.meta.url)).subarray(1, 4).toString()).toBe('PNG');
-  });
-
   it('falls back to the first letter when there is no asset', () => {
     const markup = renderToStaticMarkup(<AIProviderLogo presetKey="unknown-provider" label="Kimi" />);
     expect(markup).toContain('is-fallback');
@@ -69,10 +59,10 @@ describe('AIProviderLogo', () => {
     expect(markup).not.toContain('/icons/ai/');
   });
 
-  it('adapts the monochrome Atlas mark in dark mode without recoloring Kimi', () => {
-    const atlas = renderToStaticMarkup(<AIProviderLogo presetKey="atlascloud" label="Atlas Cloud" dark />);
+  it('adapts the monochrome OpenAI mark in dark mode without recoloring Kimi', () => {
+    const openai = renderToStaticMarkup(<AIProviderLogo presetKey="openai" label="OpenAI" dark />);
     const kimi = renderToStaticMarkup(<AIProviderLogo presetKey="moonshot" label="Kimi" dark />);
-    expect(atlas).toContain('filter:invert(1)');
+    expect(openai).toContain('filter:invert(1)');
     expect(kimi).not.toContain('filter:invert(1)');
   });
 

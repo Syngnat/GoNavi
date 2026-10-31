@@ -200,9 +200,30 @@ export const useTableOverviewTableActions = ({
       message.success(shouldPin ? t('table_overview.message.pinned') : t('table_overview.message.unpinned'));
   }, [connection?.id, pinnedSidebarTables, schemaName, setSidebarTablePinned, t, tab.dbName]);
 
-  const handleRenameTable = useCallback((tableName: string) => {
+  // 改名提交（校验 + 生产库确认 + 调用 + 刷新），Modal 流程与表名就地编辑共用。
+  const commitTableRename = useCallback(async (tableName: string, rawNewName: string): Promise<boolean> => {
+      const trimmed = rawNewName.trim();
+      if (!trimmed) { message.error(t('table_overview.validation.table_name_required')); return false; }
+      if (trimmed === tableName) { message.warning(t('table_overview.validation.table_name_unchanged')); return false; }
       const config = buildConfig();
-      if (!config) return;
+      if (!config) return false;
+      if (!await confirmProductionMutation(
+          connection,
+          t('connection.production_risk.action.execute_sql'),
+          [tab.dbName, `${tableName} -> ${trimmed}`].filter(Boolean).join(' / '),
+          t,
+      )) return false;
+      const res = await RenameTable(buildRpcConnectionConfig(config) as any, tab.dbName || '', tableName, trimmed);
+      if (res.success) {
+          await loadData();
+          message.success(t('table_overview.message.rename_table_success'));
+          return true;
+      }
+      message.error(t('table_overview.message.rename_table_failed', { detail: res.message }));
+      return false;
+  }, [buildConfig, connection, loadData, t, tab.dbName]);
+
+  const handleRenameTable = useCallback((tableName: string) => {
       let newName = tableName;
       Modal.confirm({
           title: t('table_overview.modal.rename_table.title'),
@@ -219,23 +240,10 @@ export const useTableOverviewTableActions = ({
           onOk: async () => {
               const trimmed = newName.trim();
               if (!trimmed) { message.error(t('table_overview.validation.table_name_required')); return Promise.reject(); }
-              if (trimmed === tableName) { message.warning(t('table_overview.validation.table_name_unchanged')); return; }
-              if (!await confirmProductionMutation(
-                  connection,
-                  t('connection.production_risk.action.execute_sql'),
-                  [tab.dbName, `${tableName} -> ${trimmed}`].filter(Boolean).join(' / '),
-                  t,
-              )) return;
-              const res = await RenameTable(buildRpcConnectionConfig(config) as any, tab.dbName || '', tableName, trimmed);
-              if (res.success) {
-                  await loadData();
-                  message.success(t('table_overview.message.rename_table_success'));
-              } else {
-                  message.error(t('table_overview.message.rename_table_failed', { detail: res.message }));
-              }
+              await commitTableRename(tableName, trimmed);
           },
       });
-  }, [buildConfig, connection, loadData, schemaName, t, tab.dbName]);
+  }, [commitTableRename, t]);
 
   const openCreateStarRocksRollup = useCallback((tableName: string) => {
       if (!connection) return;
@@ -492,7 +500,7 @@ export const useTableOverviewTableActions = ({
   return {
     textPrimary, textSecondary, textMuted, accentColor, containerBg, toggleSort, sortMenuItems,
     hasKnownTableSize, getCombinedTableSize, maxCombinedSize, renderToolbarSummary,
-    renderV2OverviewTableContextMenu,
+    renderV2OverviewTableContextMenu, commitTableRename,
   };
 };
 

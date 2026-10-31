@@ -28,6 +28,7 @@ export type TabSliceState = Pick<AppState,
   | 'closeTabsToRight'
   | 'closeTabsByConnection'
   | 'closeTabsByDatabase'
+  | 'closeStaleAgentAssetsTabs'
   | 'moveTab'
   | 'closeAllTabs'
   | 'setActiveTab'
@@ -485,6 +486,48 @@ export const createTabSlice = (set: StoreSet, _get: StoreGet): TabSliceState => 
           newTabs,
           nextActiveTabId,
           nextFallbackContext,
+        ),
+        detachedWorkbenchWindows: state.detachedWorkbenchWindows.filter(
+          (windowState) => keptIds.has(windowState.tabId),
+        ),
+        detachedQueryResultWindows: state.detachedQueryResultWindows.filter(
+          (windowState) => keptIds.has(windowState.sourceQueryTabId),
+        ),
+      };
+    }),
+
+  // 智能体会话工作台页签绑在智能体上（tab.agentIntegrationId）。智能体
+  // 被移除后页签要跟着关掉——留着只会是一个「暂无会话记录」的空页面。
+  // liveIntegrationIds 是当前仍然存在的智能体列表。
+  closeStaleAgentAssetsTabs: (liveIntegrationIds) =>
+    set((state) => {
+      const live = new Set(
+        (Array.isArray(liveIntegrationIds) ? liveIntegrationIds : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      );
+      const newTabs = state.tabs.filter(
+        (tab) =>
+          tab.type !== "agent-assets" ||
+          live.has(String(tab.agentIntegrationId || "").trim()),
+      );
+      if (newTabs.length === state.tabs.length) return state;
+      const activeStillExists = state.activeTabId
+        ? newTabs.some((t) => t.id === state.activeTabId)
+        : false;
+      const nextActiveTabId = activeStillExists
+        ? state.activeTabId
+        : newTabs.length > 0
+          ? newTabs[newTabs.length - 1].id
+          : null;
+      const keptIds = new Set(newTabs.map((tab) => tab.id));
+      return {
+        tabs: newTabs,
+        activeTabId: nextActiveTabId,
+        activeContext: resolveActiveContextForTabId(
+          newTabs,
+          nextActiveTabId,
+          state.activeContext,
         ),
         detachedWorkbenchWindows: state.detachedWorkbenchWindows.filter(
           (windowState) => keptIds.has(windowState.tabId),

@@ -17,6 +17,8 @@ describe('digest and permission install consent', () => {
     const view = create(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install} />);
     let modal = view.root.findByProps({ 'data-component': 'modal' });
     expect(modal.props.okButtonProps.disabled).toBe(true);
+    expect(modal.props.styles.body).toMatchObject({ overflowY: 'auto' });
+    expect(modal.props.styles.body.maxHeight).toContain('100vh');
     await act(async () => { await modal.props.onOk(); });
     expect(install).not.toHaveBeenCalled();
     const descriptions = view.root.findByProps({ 'data-component': 'descriptions' });

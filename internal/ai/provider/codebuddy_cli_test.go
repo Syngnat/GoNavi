@@ -523,18 +523,31 @@ printf '%s\n' "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tex
 	}
 }
 
+// writeFakeCodeBuddyScript 造一个假的 codebuddy 可执行文件。
+//
+// POSIX 上直接放带执行位的脚本；Windows 上必须经 Git Bash 运行，因此写一个 .cmd
+// 包装。这里有两处平台差异：cmd.exe 按 OEM 代码页读 .cmd，非 ASCII 目录会被读成
+// 乱码，所以 Windows 只用带空格的 ASCII 目录；bash 也不认反斜杠，脚本路径要转成
+// POSIX 形式。
 func writeFakeCodeBuddyScript(t *testing.T, content string) string {
 	t.Helper()
 	tempRoot := t.TempDir()
-	dir := filepath.Join(tempRoot, "包含 空格")
+	dirName := "包含 空格"
+	if runtime.GOOS == "windows" {
+		dirName = "with space"
+	}
+	dir := filepath.Join(tempRoot, dirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("failed to create fake CodeBuddy directory: %v", err)
 	}
 
 	if runtime.GOOS == "windows" {
-		bashPath, err := resolveClaudeCodeGitBashPath(os.Environ(), runtime.GOOS, exec.LookPath, fileExists)
+		bashPath, err := resolveCodeBuddyGitBashPath(os.Environ(), runtime.GOOS, exec.LookPath, fileExists)
 		if err != nil {
 			t.Fatalf("failed to resolve git bash for fake codebuddy command: %v", err)
+		}
+		if bashPath == "" {
+			t.Skip("fake CodeBuddy CLI needs Git Bash on Windows; none detected")
 		}
 
 		scriptPath := filepath.Join(dir, "codebuddy.sh")
@@ -543,7 +556,7 @@ func writeFakeCodeBuddyScript(t *testing.T, content string) string {
 		}
 
 		wrapperPath := filepath.Join(tempRoot, "codebuddy.cmd")
-		wrapper := "@echo off\r\n\"" + bashPath + "\" \"" + scriptPath + "\" %*\r\n"
+		wrapper := "@echo off\r\n\"" + bashPath + "\" \"" + filepath.ToSlash(scriptPath) + "\" %*\r\n"
 		if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
 			t.Fatalf("failed to write fake codebuddy wrapper: %v", err)
 		}

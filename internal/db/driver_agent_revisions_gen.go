@@ -36,6 +36,7 @@ func init() {
 		"gbase8c":       "src-bf76118076fd55ac",
 		"gbase8s":       "src-388bf81a7fc10e87",
 		"greptimedb":    "src-4e86d44b261672ba",
+		"hive":          "src-6613a527bea7244e",
 		"influxdb":      "src-64b6cd7c6af487d3",
 		"kwdb":          "src-d4dd9d7c8491b7e0",
 		"meilisearch":   "src-11d58641ef95bc17",

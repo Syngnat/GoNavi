@@ -1,0 +1,7 @@
+private
+state
+*.keytab
+*.key
+*.jks
+*.p12
+*.password

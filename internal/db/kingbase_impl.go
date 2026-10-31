@@ -512,11 +512,9 @@ func (k *KingbaseDB) GetTables(dbName string) ([]string, error) {
 }
 
 func (k *KingbaseDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	// Kingbase doesn't have "SHOW CREATE TABLE".
-	// We can try pg_dump logic or use a query to reconstruction.
-	// A simple approach is just returning basic info or "Not Supported".
-	// Or we can query information_schema to build it.
-	return "SHOW CREATE TABLE not directly supported in Kingbase/Postgres via SQL", nil
+	// 建表语句由 pg_catalog 自行拼装（见 kingbase_ddl.go）：Kingbase 各版本/兼容模式
+	// 都没有可依赖的 tabledef 函数，sys_get_tabledef 在 V9R3 MySQL 兼容版不存在、V9R1 返回空。
+	return k.buildKingbaseCreateTableStatement(dbName, tableName)
 }
 
 func (k *KingbaseDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {

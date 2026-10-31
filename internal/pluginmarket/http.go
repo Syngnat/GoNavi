@@ -17,7 +17,7 @@ func apiURL(source sourceSnapshot, route string, query url.Values) string {
 	return target
 }
 
-func (s *Service) requestJSON(ctx context.Context, source sourceSnapshot, method, route string, query url.Values, body, target any, token string) error {
+func (s *Service) requestJSON(ctx context.Context, source sourceSnapshot, method, route string, query url.Values, body, target any) error {
 	var data []byte
 	var err error
 	if body != nil {
@@ -36,9 +36,6 @@ func (s *Service) requestJSON(ctx context.Context, source sourceSnapshot, method
 	request.Header.Set("Accept", "application/json")
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
-	}
-	if token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	response, err := s.client.Do(request)
 	if err != nil {
@@ -76,27 +73,4 @@ func responseError(status int, data []byte) error {
 		code = envelope.Code
 	}
 	return &APIError{StatusCode: status, Code: code}
-}
-
-func (s *Service) authenticatedToken(source sourceSnapshot) (string, error) {
-	s.mu.Lock()
-	authGeneration := s.authGeneration
-	err := s.checkSourceLocked(source)
-	s.mu.Unlock()
-	if err != nil {
-		return "", err
-	}
-	token, err := s.loadToken(source.id)
-	if err != nil {
-		return "", err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err = s.checkSourceLocked(source); err != nil {
-		return "", err
-	}
-	if authGeneration != s.authGeneration {
-		return "", ErrUnauthenticated
-	}
-	return token.AccessToken, nil
 }

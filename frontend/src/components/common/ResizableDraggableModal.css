@@ -188,6 +188,8 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* 弹窗内容滚到底后不把滚动传给背后的页面。 */
+  overscroll-behavior: contain;
 }
 
 .gn-embedded-modal-footer {

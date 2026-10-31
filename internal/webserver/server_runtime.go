@@ -151,6 +151,8 @@ func (s *SharedRuntime) routes() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok"))
 	})
+	// 鉴权由调用方的进程级令牌统一负责（同本 mux 上其余路由）。
+	mux.Handle(internalRoutePrefix+"/debug/memstats", http.HandlerFunc(s.server.handleDebugMemstats))
 
 	fileServer := http.FileServer(http.FS(s.server.assets))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

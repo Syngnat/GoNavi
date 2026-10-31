@@ -9,4 +9,9 @@ describe('manifest parse', () => {
     expect(() => parseManifest({ ...base, contributes: { aiProviders: [{ id: 'chat', name: 'Chat', command: 'ask', supportsTools: false, supportsImages: false, models: [{ id: 'm', name: 'M', contextWindow: 1024, maxOutputTokens: 1, [name]: true }] }] } })).toThrow(/^unknown manifest field$/);
     expect(() => parseManifest({ ...base, description: '文'.repeat(400000) })).toThrow(/^manifest exceeds size limit$/);
   });
+
+  it('accepts the optional top-level plugin icon', () => {
+    expect(parseManifest({ ...base, icon: 'icons/logo.png' }).icon).toBe('icons/logo.png');
+    expect(parseManifest(base).icon).toBeUndefined();
+  });
 });

@@ -10,13 +10,14 @@ import (
 )
 
 const (
-	bootstrapFileName              = "storage_root.json"
-	bootstrapLockFileName          = bootstrapFileName + ".lock"
-	sharedStorageLockFileName      = ".gonavi-storage-write.lock"
-	configuredLogFileName          = "gonavi.log"
-	savedQueryDirectoryName        = "saved_queries"
-	savedQueryDirectoryProbePrefix = ".gonavi-saved-query-"
-	agentDataDirectoryProbePrefix  = ".gonavi-agent-data-"
+	bootstrapFileName                 = "storage_root.json"
+	bootstrapLockFileName             = bootstrapFileName + ".lock"
+	sharedStorageLockFileName         = ".gonavi-storage-write.lock"
+	configuredLogFileName             = "gonavi.log"
+	savedQueryDirectoryName           = "saved_queries"
+	savedQueryDirectoryProbePrefix    = ".gonavi-saved-query-"
+	agentDataDirectoryProbePrefix     = ".gonavi-agent-data-"
+	sessionAssetsDirectoryName        = "session-assets"
 )
 const dataRootEnvName = "GONAVI_DATA_ROOT"
 
@@ -31,6 +32,16 @@ var (
 // stores so their read-modify-write operations cannot overwrite each other.
 func AcquireFileLock(path string) (*bootstrapFileLock, error) {
 	return acquireBootstrapFileLock(path)
+}
+
+// ErrFileLockHeld 表示非阻塞加锁时目标文件已被其他持有者锁定。
+var ErrFileLockHeld = errors.New("file lock is held by another process")
+
+// TryAcquireFileLock 以非阻塞方式获取排他文件锁：锁被占用时立即返回
+// ErrFileLockHeld 而不是等待，供长持有锁的服务快速失败并向用户展示
+// 占用状态。
+func TryAcquireFileLock(path string) (*bootstrapFileLock, error) {
+	return tryAcquireBootstrapFileLock(path)
 }
 
 // AtomicReplaceFile replaces target with source using the platform-specific
@@ -101,10 +112,10 @@ func SetActiveRootErrorDetail(err error) error {
 }
 
 type bootstrapConfig struct {
-	DataRoot            string `json:"dataRoot,omitempty"`
-	LogDirectory        string `json:"logDirectory,omitempty"`
-	SavedQueryDirectory string `json:"savedQueryDirectory,omitempty"`
-	AgentDataDirectory  string `json:"agentDataDirectory,omitempty"`
+	DataRoot               string `json:"dataRoot,omitempty"`
+	LogDirectory           string `json:"logDirectory,omitempty"`
+	SavedQueryDirectory    string `json:"savedQueryDirectory,omitempty"`
+	AgentDataDirectory     string `json:"agentDataDirectory,omitempty"`
 }
 
 func readBootstrapConfig() (bootstrapConfig, error) {
@@ -127,7 +138,8 @@ func writeBootstrapConfig(cfg bootstrapConfig) error {
 	cfg.LogDirectory = strings.TrimSpace(cfg.LogDirectory)
 	cfg.SavedQueryDirectory = strings.TrimSpace(cfg.SavedQueryDirectory)
 	cfg.AgentDataDirectory = strings.TrimSpace(cfg.AgentDataDirectory)
-	if cfg.DataRoot == "" && cfg.LogDirectory == "" && cfg.SavedQueryDirectory == "" && cfg.AgentDataDirectory == "" {
+	if cfg.DataRoot == "" && cfg.LogDirectory == "" && cfg.SavedQueryDirectory == "" &&
+		cfg.AgentDataDirectory == "" {
 		if err := os.Remove(BootstrapPath()); err != nil && !os.IsNotExist(err) {
 			return err
 		}

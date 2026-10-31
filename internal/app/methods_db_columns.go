@@ -76,6 +76,14 @@ func (a *App) DBGetColumns(config connection.ConnectionConfig, dbName string, ta
 		logger.Error(err, "DBGetColumns 获取列定义失败：%s 表=%s.%s schema=%s pureTable=%s", formatConnSummary(runConfig), dbName, tableName, schemaName, pureTableName)
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	if len(columns) == 0 {
+		// 列定义返回空几乎总是「schema 推断不对或代理会话异常」，而不是表真的没有列。
+		// 一旦把空结果写进 45s 的元数据缓存，用户看到的就是「刚才表头还有类型和注释，
+		// 现在又没了，过一会儿自己又回来」——这类间歇问题无法复现，只能靠日志定位。
+		// 因此空结果不留缓存，并留下可检索的告警，便于对照当时使用的 schema。
+		a.metadataCacheDelete(columnsMetaKey)
+		logger.Warnf("DBGetColumns 返回空列定义，已跳过缓存：%s 表=%s.%s schema=%q pureTable=%s", formatConnSummary(runConfig), dbName, tableName, schemaName, pureTableName)
+	}
 	return connection.QueryResult{Success: true, Data: ensureNonNilSlice(columns)}
 }
 

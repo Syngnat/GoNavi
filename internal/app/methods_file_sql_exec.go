@@ -226,6 +226,16 @@ func (a *App) executeSQLFileWithStatementLimitPolicyContextWithPolicy(parent con
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	rollbackPlan, rollbackPlanErr := planSQLImportRollbackFile(filePath, resolveDDLDBType(config), maxStatementBytes)
+	if rollbackPlanErr != nil {
+		logger.Warnf("SQL 导入回滚面分析失败，回退整库快照：%s", rollbackPlanErr.Error())
+		rollbackPlan = sqlImportRollbackPlan{WholeDatabase: true}
+	}
+	fastCreateBatch := rollbackPlanErr == nil &&
+		rollbackPlan.AdditiveOnly &&
+		!continueOnError &&
+		policy.TransactionMode == sqlFileTransactionModeOff &&
+		sourceIdentity.Size <= sqlFileBatchMaxBytes
 	defer func() {
 		if finishErr := managedJob.finish(managedImportJobFinishFromResult(result)); finishErr != nil && result.Success {
 			result = connection.QueryResult{Success: false, Message: finishErr.Error(), Data: result.Data}
@@ -369,7 +379,7 @@ func (a *App) executeSQLFileWithStatementLimitPolicyContextWithPolicy(parent con
 			}
 		}
 	}
-	if err := a.captureSQLFileRollbackPoint(ctx, managedJob, config, jobID, policy); err != nil {
+	if err := a.captureSQLFileRollbackPoint(ctx, managedJob, config, jobID, policy, rollbackPlan); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	if containsMySQLGTIDPurged {
@@ -478,6 +488,7 @@ func (a *App) executeSQLFileWithStatementLimitPolicyContextWithPolicy(parent con
 		DBType:            resolveDDLDBType(runConfig),
 		MaxStatementBytes: maxStatementBytes,
 		ContinueOnError:   continueOnError,
+		BatchCreateOnly:   fastCreateBatch,
 		TransactionMode:   policy.TransactionMode,
 		StatementGuard:    policy.StatementGuard,
 		SkipStatement:     policy.SkipStatement,

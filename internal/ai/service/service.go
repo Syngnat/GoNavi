@@ -35,6 +35,8 @@ type Service struct {
 	secretStore        secretstore.SecretStore
 	configChanged      func()
 	localizer          *i18n.Localizer
+	// modelCatalog 是 models.dev 公共目录的懒加载状态，见 service_model_catalog.go。
+	modelCatalog modelCatalogHolder
 	// configLoadMu serializes the persisted-config read and guards configLoadedDir,
 	// so a binding call that arrives while startup is still loading never reads a
 	// half-applied snapshot and never loads the file twice.
@@ -198,7 +200,7 @@ func NewServiceWithSecretStore(store secretstore.SecretStore) *Service {
 		store = secretstore.NewUnavailableStore("secret store unavailable")
 	}
 	// 外部客户端探测放在后台预热，避免这 1s 量级的代价落在设置页打开的同步路径上。
-	go prewarmLocalCLICommandCache()
+	startLocalCLICachePrewarm()
 	return &Service{
 		providers:    make([]ai.ProviderConfig, 0),
 		safetyLevel:  ai.PermissionReadOnly,

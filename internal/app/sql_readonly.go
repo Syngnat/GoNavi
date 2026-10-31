@@ -4,10 +4,21 @@ import (
 	"GoNavi-Wails/internal/ai"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/esconsole"
+	"GoNavi-Wails/internal/hivesql"
 )
 
 func isReadOnlySQLQuery(dbType string, query string) bool {
 	switch normalizeSQLClassifierDBType(dbType) {
+	case "hive":
+		if hiveQueryMayRunExternalCode(query) {
+			return false
+		}
+		if keyword, _ := nextSQLKeyword(query, 0); keyword == "select" || keyword == "with" {
+			return hivesql.ValidateReadOnlySourceQuery(query) == nil
+		}
+		if isHiveSettingReadQuery(query) {
+			return true
+		}
 	case "redis":
 		return redisCommandOperation(parseRedisCommand(query)) == ai.SQLOpQuery
 	case "mongodb":

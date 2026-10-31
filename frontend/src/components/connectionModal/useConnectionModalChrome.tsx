@@ -14,6 +14,7 @@ import {
   CloseOutlined,
 } from "@ant-design/icons";
 import { getDbDefaultColor, getDbIcon } from "../DatabaseIcons";
+import { isAgentConnectionType } from "../../utils/agentConnectionTypes";
 import React from "react";
 import type { ConnectionModalStateApi } from "./useConnectionModalState";
 import type { ConnectionModalTypeCatalogApi } from "./useConnectionModalTypeCatalog";
@@ -64,6 +65,10 @@ export const useConnectionModalChrome = ({
 }: UseConnectionModalChromeInput) => {
   const getFooter = () => {
     if (step === 1) {
+      return null;
+    }
+    // 智能体检测/添加面板自带动作区，不渲染保存/测试页脚。
+    if (isAgentConnectionType(dbType)) {
       return null;
     }
     const typeName = dbTypes.find((t) => t.key === dbType)?.name || dbType;
@@ -208,13 +213,17 @@ export const useConnectionModalChrome = ({
     return (
       <div className="gn-conn-studio-header" data-connection-step={step}>
         <div className="gn-conn-studio-header-left">
-          <div
-            className="gn-conn-studio-type-badge"
-            style={pickerStep ? undefined : { background: getDbDefaultColor(dbType) }}
-            aria-hidden="true"
-          >
-            {pickerStep ? <PlusOutlined /> : getDbIcon(dbType, "#ffffff", 28)}
-          </div>
+          {/* 智能体类型没有数据库品牌图标，徽标只会渲染成一个白底白图的
+              空方块；品牌图标在面板正文里已经有了，这里不重复展示。 */}
+          {isAgentConnectionType(dbType) ? null : (
+            <div
+              className="gn-conn-studio-type-badge"
+              style={pickerStep ? undefined : { background: getDbDefaultColor(dbType) }}
+              aria-hidden="true"
+            >
+              {pickerStep ? <PlusOutlined /> : getDbIcon(dbType, "#ffffff", 28)}
+            </div>
+          )}
           <div className="gn-conn-studio-heading">
             <div className="gn-conn-studio-title">{title}</div>
             {pickerStep ? (

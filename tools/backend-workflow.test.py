@@ -45,13 +45,13 @@ class BackendWorkflowTest(unittest.TestCase):
         self.assertIn("npm test -- src/plugins --maxWorkers=2 --minWorkers=1", block)
         self.assertIn("npm test -- src/i18n/keyResolution.test.ts --maxWorkers=1 --minWorkers=1", block)
 
-    def test_marketplace_postgres_and_plugin_races_are_configured(self):
+    def test_marketplace_contract_and_plugin_races_are_configured(self):
         workflow = (ROOT / ".github/workflows/backend-tests.yml").read_text(encoding="utf-8")
         block = re.search(r"(?ms)^  marketplace-contract:\n(.*?)(?=^  [\w-]+:|\Z)", workflow)
         self.assertIsNotNone(block)
-        self.assertIn("image: postgres:16", block.group(1))
-        self.assertIn("gonavi_market_test", block.group(1))
-        self.assertIn("go test -race ./internal/plugin ./internal/pluginmarket ./internal/market", block.group(1))
+        self.assertIn("go test -race ./internal/plugin ./internal/pluginmarket -count=1 -timeout=10m", block.group(1))
+        self.assertNotIn("./internal/market", block.group(1))
+        self.assertNotIn("postgres:", block.group(1))
         self.assertIn("go test -race ./internal/db -run '^TestPluginDatabase'", block.group(1))
         self.assertIn("go test -race ./internal/ai/provider -run '^TestPlugin'", block.group(1))
         self.assertIn("go test -race ./internal/dataexport -run '^TestPlugin'", block.group(1))
@@ -60,6 +60,12 @@ class BackendWorkflowTest(unittest.TestCase):
     def test_app_and_root_builds_select_installed_webkit(self):
         workflow = (ROOT / ".github/workflows/backend-tests.yml").read_text(encoding="utf-8")
         self.assertEqual(missing_webkit_tag(workflow), [], "Linux app/root tests must select webkit2_41")
+
+    def test_hive_protocol_suite_is_portable_and_not_hidden_by_lite_build(self):
+        workflow = (ROOT / ".github/workflows/backend-tests.yml").read_text(encoding="utf-8")
+        self.assertIn("go test -tags gonavi_hive_driver ./internal/db/ ./internal/hivesql/ ./cmd/optional-driver-agent/ -count=1", workflow)
+        self.assertIn("go test -tags gonavi_hive_driver ./internal/db/ ./internal/hivesql/ ./cmd/optional-driver-agent/ -run Hive", workflow)
+        self.assertIn("run: npm test -- src/utils/hive", workflow)
 
     def test_detects_driver_command_even_with_narrow_test_filter(self):
         workflow = "  full:\n    run: go test -tags gonavi_duckdb_driver ./internal/app/ -run DuckDB\n"

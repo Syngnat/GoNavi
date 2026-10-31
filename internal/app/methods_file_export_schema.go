@@ -99,7 +99,10 @@ func (a *App) ExportSchemaSQLWithOptions(
 		}
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	viewLookup := listViewNameLookup(dbInst, runConfig, dbName)
+	viewLookup, err := listExportViewLookup(exportCtx, dbInst, runConfig, dbName)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	filteredTables := filterExportObjectsBySchema(runConfig, dbName, tables, safeSchemaName)
 	filteredViews := filterExportViewLookupBySchema(runConfig, dbName, viewLookup, safeSchemaName)
 	objects := buildExportObjectOrder(runConfig, dbName, filteredTables, filteredViews, true)

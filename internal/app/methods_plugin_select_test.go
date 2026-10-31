@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
@@ -50,15 +51,27 @@ func TestPluginPackageDialogDirectory(t *testing.T) {
 }
 
 func TestPluginPackageDialogFiltersPreferArchives(t *testing.T) {
-	filters := pluginPackageDialogFilters("Plugin package", "All files")
-	if len(filters) != 2 {
-		t.Fatalf("filters = %d, want 2", len(filters))
+	filters := pluginPackageDialogFilters("Plugin package")
+	if len(filters) != 1 {
+		t.Fatalf("filters = %d, want 1", len(filters))
 	}
-	if filters[0].Pattern != "*.zip;*.tgz;*.tar.gz" {
+	if filters[0].Pattern != "*.zip;*.tgz;*.gz" {
 		t.Fatalf("archive pattern = %q", filters[0].Pattern)
 	}
-	if filters[1].Pattern != "*.*" {
-		t.Fatalf("all-files pattern = %q", filters[1].Pattern)
+}
+
+// macOS maps each token to UTType(filenameExtension:) and inserts the result into the
+// panel's content types. A nil result is inserted as nil and aborts the process, so every
+// token must be a bare extension: one leading "*." and a dot-free remainder.
+func TestPluginPackageDialogFiltersUseBareExtensions(t *testing.T) {
+	for _, filter := range pluginPackageDialogFilters("Plugin package") {
+		for _, token := range strings.Split(filter.Pattern, ";") {
+			extension := strings.TrimPrefix(token, "*.")
+			if extension == token || extension == "" || strings.Contains(extension, ".") ||
+				strings.ContainsAny(extension, "*?[]/\\ ") {
+				t.Fatalf("pattern token %q is not a bare extension", token)
+			}
+		}
 	}
 }
 

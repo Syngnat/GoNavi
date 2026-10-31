@@ -51,7 +51,8 @@ describe('DataSyncRunHistory compare output', () => {
       content: 'both',
       tables: [{
         table: 'orders',
-        canSync: false,
+        canSync: true,
+        targetTableExists: true,
         inserts: 0,
         updates: 0,
         deletes: 0,
@@ -106,11 +107,11 @@ describe('DataSyncRunHistory compare output', () => {
       />,
     );
 
+    // 明细改成「每条变更一行」后，列差异由表格承载：变更类型标签 + 对象名。
+    expect(markup).toContain('data-data-sync-compare-detail="true"');
     expect(markup).toContain('目标缺失');
+    expect(markup).toContain('new_column');
     expect(markup).not.toContain('目标表缺失 1 个字段：new_column');
-    expect(markup).toContain('gn-data-sync-compare-row__schema-counts');
-    expect(markup).toContain('gn-data-sync-compare-row__data-counts');
-    expect(markup).toContain('data-data-sync-compare-field="true"');
     expect(markup).toContain('返回运行记录');
     expect(markup).toContain('查看每次比对的状态和结果');
     expect(markup).not.toContain('data-data-sync-error-rows');
@@ -127,7 +128,7 @@ describe('DataSyncRunHistory compare output', () => {
     expect(markup).not.toContain('>started<');
     expect(markup).not.toContain('>running<');
     expect(markup).toContain('data-data-sync-run-events="true"');
-    expect(markup.match(/varchar\(255\)/g)).toHaveLength(1);
+    expect(markup).toContain('varchar(255)');
   });
 
   it('keeps identical tables on one compact row instead of zeroed count tiles', () => {
@@ -204,9 +205,9 @@ describe('DataSyncRunHistory compare output', () => {
       />,
     );
 
-    expect(markup).toContain('data-status="same"');
-    expect(markup).toContain('data-data-sync-compare-same-count="true"');
-    expect(markup).toContain(`共 ${(1240).toLocaleString()} 行`);
+    // 相同的表不产生任何变更条目，明细区只出空态，不出现 0/0/0 的假行。
+    expect(markup).toContain('data-data-sync-compare-empty-filter="true"');
+    expect(markup).not.toContain('data-data-sync-compare-detail="true"');
     expect(markup).not.toContain('gn-data-sync-compare-row__data-counts');
     expect(markup).not.toContain('gn-data-sync-compare-row__endpoints');
   });

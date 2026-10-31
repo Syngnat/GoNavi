@@ -1,5 +1,4 @@
 import { Button } from 'antd';
-import { PluginManagerPanel } from '../../components/pluginManager/PluginManagerPanel';
 import { isToolCenterGroupKey } from '../settingsCenterPanes';
 import Modal from '../../components/common/ResizableDraggableModal';
 import SecurityUpdateSettingsModal from '../../components/SecurityUpdateSettingsModal';
@@ -45,7 +44,7 @@ export const createToolCenterPaneRenderer = ({
       return null;
     }
 
-    if (activeSettingsCenterPane.key === 'plugins') return <PluginManagerPanel />;
+    // 插件管理不在此渲染：它作为独立工作台 Tab 打开（SETTINGS_WORKBENCH_TAB_BUILDERS.plugins）。
 
     if (activeSettingsCenterPane.key.startsWith('data-root')) {
       const dataDirectorySection = activeSettingsCenterPane.key === 'data-root-agent'

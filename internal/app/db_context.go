@@ -221,7 +221,7 @@ func normalizeSchemaAndTable(config connection.ConnectionConfig, dbName string, 
 
 func shouldPreserveQuotedTableSegment(dbType string) bool {
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tidb", "sqlite", "clickhouse", "tdengine":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tidb", "sqlite", "clickhouse", "tdengine", "hive":
 		return true
 	default:
 		return false

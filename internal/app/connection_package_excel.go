@@ -64,7 +64,7 @@ var connectionExcelColumns = []connectionExcelColumnSpec{
 }
 
 var connectionExcelTypeValues = []string{
-	"mysql", "mariadb", "diros", "starrocks", "sphinx", "clickhouse", "trino",
+	"mysql", "mariadb", "diros", "starrocks", "sphinx", "clickhouse", "trino", "hive",
 	"postgres", "sqlserver", "iris", "cache", "sqlite", "duckdb", "oracle",
 	"oceanbase", "dameng", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "goldendb",
 	"mongodb", "redis", "elasticsearch",

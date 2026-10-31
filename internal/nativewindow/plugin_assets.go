@@ -2,12 +2,14 @@ package nativewindow
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	htmlparser "golang.org/x/net/html"
@@ -66,20 +68,6 @@ func (c *PluginController) serveAsset(w http.ResponseWriter, r *http.Request, en
 		http.NotFound(w, r)
 		return
 	}
-	limit := int64(pluginMaxAssetBytes)
-	html := strings.HasPrefix(contentType, "text/html")
-	if html {
-		limit = pluginMaxHTMLBytes
-	}
-	if info.Size() > limit {
-		pluginHTTPError(w, http.StatusRequestEntityTooLarge, "asset_too_large")
-		return
-	}
-	payload, err := readPluginBytes(file, limit)
-	if err != nil {
-		pluginHTTPError(w, http.StatusRequestEntityTooLarge, "asset_too_large")
-		return
-	}
 	if entry.life.Err() != nil {
 		pluginHTTPError(w, http.StatusGone, "window_revoked")
 		return
@@ -88,12 +76,24 @@ func (c *PluginController) serveAsset(w http.ResponseWriter, r *http.Request, en
 		pluginHTTPError(w, http.StatusGone, "generation_revoked")
 		return
 	}
-	if html {
-		payload = injectPluginRuntime(payload)
-	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Security-Policy", pluginContentSecurityPolicy())
-	writePluginBody(w, payload)
+	if strings.HasPrefix(contentType, "text/html") {
+		c.mu.Lock()
+		preferences, revision := c.preferencesLocked(entry)
+		c.mu.Unlock()
+		payload, err := json.Marshal(pluginBootstrap{PluginID: entry.info.PluginID, Generation: entry.info.Generation, Title: entry.title, Preferences: preferences, PreferencesRevision: revision})
+		if err != nil {
+			pluginHTTPError(w, http.StatusInternalServerError, "invalid_preferences")
+			return
+		}
+		writeInjectedPluginHTML(w, file, payload)
+		return
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	if _, err := io.Copy(w, file); err != nil {
+		return
+	}
 }
 
 func readPluginBytes(reader io.Reader, limit int64) ([]byte, error) {
@@ -105,6 +105,22 @@ func readPluginBytes(reader io.Reader, limit int64) ([]byte, error) {
 		return nil, errors.New("plugin payload exceeds limit")
 	}
 	return payload, nil
+}
+
+// writeInjectedPluginHTML streams the page with the bridge runtime injected
+// before any plugin script. It reads only a bounded prefix to find <head>, then
+// copies the rest from disk; there is no fixed MB ceiling on the page.
+func writeInjectedPluginHTML(w io.Writer, file *os.File, bootstrap []byte) {
+	prefix, _ := io.ReadAll(io.LimitReader(file, 64<<10))
+	offset := pluginRuntimeOffset(prefix)
+	if offset < 0 || offset > len(prefix) {
+		offset = 0
+	}
+	script := []byte(`<script>window.__gonaviPluginBootstrap=` + string(bootstrap) + `;window.gonaviHostPrefs=window.__gonaviPluginBootstrap.preferences;</script><script src="` + pluginBridgePrefix + `runtime.js"></script>`)
+	_, _ = w.Write(prefix[:offset])
+	_, _ = w.Write(script)
+	_, _ = w.Write(prefix[offset:])
+	_, _ = io.Copy(w, file)
 }
 
 func injectPluginRuntime(html []byte) []byte {

@@ -315,8 +315,8 @@ describe('QueryEditor external SQL save', () => {
     const connectionParams = new URLSearchParams(String(executionConfig?.connectionParams || ''));
     expect(connectionParams.get('application_name')).toBe('gonavi');
     expect(connectionParams.get('search_path')).toBe('"sales","public"');
-    const locatorColumnsCall = backendApp.DBGetColumns.mock.calls.find((call) => call[2] === 'users');
-    const locatorIndexesCall = backendApp.DBGetIndexes.mock.calls.find((call) => call[2] === 'users');
+    const locatorColumnsCall = backendApp.DBGetColumns.mock.calls.find((call) => call[2] === 'sales.users');
+    const locatorIndexesCall = backendApp.DBGetIndexes.mock.calls.find((call) => call[2] === 'sales.users');
     expect(new URLSearchParams(String(locatorColumnsCall?.[0]?.connectionParams || '')).get('search_path'))
       .toBe('"sales","public"');
     expect(new URLSearchParams(String(locatorIndexesCall?.[0]?.connectionParams || '')).get('search_path'))

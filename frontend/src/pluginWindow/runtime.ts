@@ -1,4 +1,5 @@
 import { createPluginBridge } from './bridge';
+import { createPreferenceReceiver } from './preferences';
 import { startPluginHeartbeat } from './heartbeat';
 import { newPluginRequestID, type PluginWindowBridge } from './protocol';
 
@@ -10,8 +11,15 @@ declare global {
 // imported by the host entrypoint; the native child injects it before entry JS.
 if (!Object.prototype.hasOwnProperty.call(window, 'gonaviPlugin')) {
   const fetcher = globalThis.fetch.bind(globalThis);
-  const bridge = createPluginBridge(fetcher, newPluginRequestID);
+  let stopped = false;
+  let stopHeartbeat = () => {};
+  const apply = createPreferenceReceiver();
+  const receive = (value: unknown) => { if (!stopped) apply(value); };
+  receive(window.__gonaviPluginBootstrap);
+  delete window.__gonaviPluginBootstrap;
+  const stop = () => { stopped = true; stopHeartbeat(); };
+  const bridge = createPluginBridge(fetcher, newPluginRequestID, receive, stop);
   Object.defineProperty(window, 'gonaviPlugin', { value: bridge, writable: false, configurable: false });
-  const stopHeartbeat = startPluginHeartbeat(fetcher);
-  globalThis.addEventListener('pagehide', stopHeartbeat, { once: true });
+  stopHeartbeat = startPluginHeartbeat(fetcher, receive);
+  globalThis.addEventListener('pagehide', stop, { once: true });
 }

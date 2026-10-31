@@ -19,6 +19,8 @@ func (c *PluginController) processSpec(entry *pluginWindowEntry, status plugin.S
 		"PARENT_PID": strconv.Itoa(os.Getpid()), "PROFILE": entry.profile, "TITLE": entry.title,
 		"WIDTH":  strconv.Itoa(pluginWindowDimension(status.Manifest.Window.Width, 960, 320, 3840)),
 		"HEIGHT": strconv.Itoa(pluginWindowDimension(status.Manifest.Window.Height, 720, 240, 2160)),
+		// 宿主外观镜像：子进程把它注入插件 entry HTML，插件窗口据此跟随语言/主题。
+		"LOCALE": sanitizeHostPref(entry.locale), "THEME": sanitizeHostPref(entry.theme),
 	}
 	for key, value := range values {
 		env = append(env, pluginEnvPrefix+key+"="+value)

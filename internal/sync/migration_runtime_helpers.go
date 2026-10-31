@@ -1,9 +1,10 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
 	"fmt"
 	"strings"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 func syncContentAllowsSchemaChanges(content string) bool {
@@ -18,6 +19,9 @@ func syncContentAllowsSchemaChanges(content string) bool {
 func supportsAutoAddColumnsForPair(sourceType string, targetType string) bool {
 	source := normalizeMigrationDBType(sourceType)
 	target := normalizeMigrationDBType(targetType)
+	if isHiveMigrationPair(source, target) {
+		return supportsHiveMigrationPair(source, target)
+	}
 	if isMySQLLikeWritableTargetType(target) {
 		if isMySQLCoreType(source) {
 			return true
@@ -58,6 +62,9 @@ func hasNativeAddColumnPath(source, target string) bool {
 func buildAddColumnSQLForPair(sourceType string, targetType string, targetQueryTable string, sourceCol connection.ColumnDefinition, lengthTarget ...*characterLengthTarget) (string, []string, error) {
 	source := normalizeMigrationDBType(sourceType)
 	target := normalizeMigrationDBType(targetType)
+	if isHiveMigrationPair(source, target) {
+		return buildHiveAddColumnSQL(source, target, targetQueryTable, sourceCol)
+	}
 	// 原生路径直接用源方言类型；其余组合先把列归一为 MySQL 中间表示，并把
 	// 分派用的 source 一起改成 mysql，否则 oracle->dameng 会落到 default 报错，
 	// postgres->kingbase 会把归一后的 tinyint(1) 直接用于 PG 类 DDL。

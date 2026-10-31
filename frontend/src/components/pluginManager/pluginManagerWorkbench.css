@@ -1,0 +1,23 @@
+.gn-plugin-manager-workbench {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 16px 16px;
+  background: var(--gn-bg-app);
+  color: var(--gn-fg-1);
+}
+
+.gn-plugin-manager-workbench-body {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 820px) {
+  .gn-plugin-manager-workbench {
+    padding: 10px 12px 12px;
+  }
+}

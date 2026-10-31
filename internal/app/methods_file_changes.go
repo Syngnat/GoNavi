@@ -21,6 +21,9 @@ func (a *App) ApplyChanges(config connection.ConnectionConfig, dbName, tableName
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
+	if resolveDDLDBType(config) == "hive" {
+		return a.applyHiveChanges(config, dbName, tableName, dbInst, changes)
+	}
 	if applier, ok := dbInst.(db.BatchApplier); ok && runtimeSupportsBatchApply(dbInst) {
 		targetTableName := resolveChangeTargetTableName(config, dbName, tableName)
 		preview := buildChangePreview(dbInst, config, targetTableName, changes)

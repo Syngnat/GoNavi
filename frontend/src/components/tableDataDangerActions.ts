@@ -106,6 +106,7 @@ export const resolveTableDataActionDBType = (type: string, driver?: string): str
 export const supportsTableTruncateAction = (type: string, driver?: string): boolean => {
   if (getDataSourceSpec(type)?.ui?.objectStatements?.truncateTable) return true;
   switch (resolveTableDataActionDBType(type, driver)) {
+    case 'hive':
     case 'mysql':
     case 'goldendb':
     case 'mariadb':
@@ -132,6 +133,7 @@ export const supportsTableTruncateAction = (type: string, driver?: string): bool
 export const supportsTableClearAction = (type: string, driver?: string): boolean => {
   if (getDataSourceSpec(type)?.ui?.objectStatements?.clearTable) return true;
   switch (resolveTableDataActionDBType(type, driver)) {
+    case 'hive':
     case 'mysql':
     case 'goldendb':
     case 'mariadb':

@@ -75,3 +75,27 @@ describe('on-demand font library options', () => {
     expect(labels).toEqual(['UI Sans', 'Go Mono']);
   });
 });
+
+describe('font gallery display aliases in selectors', () => {
+  it('relabels a matching family with the catalog display name without touching the value', () => {
+    const base = [{ value: '"Noto Sans SC", sans-serif', label: 'Noto Sans SC' }];
+    const options = mergeDownloadedFontOptions(base, [], 'ui');
+    const aliased = options.find(option => option.value === base[0].value);
+    expect(aliased?.label).toBe('思源黑体 Noto Sans SC');
+    expect(aliased?.keywords).toContain('Noto Sans SC');
+    expect(aliased?.keywords).toContain('思源黑体 Noto Sans SC');
+  });
+
+  it('leaves unmatched families and i18n default options untouched', () => {
+    const base = [
+      {
+        value: '"Noto Sans SC", sans-serif', label: '默认界面字体',
+        labelKey: 'app.theme.font_family.default_ui_option', isDefault: true,
+      },
+      { value: '"Microsoft YaHei", sans-serif', label: 'Microsoft YaHei' },
+    ];
+    const options = mergeDownloadedFontOptions(base, [], 'ui');
+    expect(options[0].label).toBe('默认界面字体');
+    expect(options[1].label).toBe('Microsoft YaHei');
+  });
+});

@@ -4,6 +4,7 @@ const keys: Record<string, string> = {
   cache_unavailable: 'plugin.market.error.cache_unavailable',
   request_failed: 'plugin.backend.error.market_unavailable',
   invalid_response: 'plugin.market.error.invalid_response',
+  filters_unsupported: 'plugin.market.filters_unsupported',
   response_too_large: 'plugin.market.error.response_too_large',
   redirect_rejected: 'plugin.market.error.redirect_rejected',
   canceled: 'plugin.market.error.canceled',
@@ -12,6 +13,10 @@ const keys: Record<string, string> = {
   rate_limited: 'plugin.market.error.busy',
   server_busy: 'plugin.market.error.busy',
   http_error: 'plugin.backend.error.market_unavailable',
+  auth_unavailable: 'plugin.backend.error.auth_unavailable',
+  forbidden: 'plugin.backend.error.forbidden',
+  not_found: 'plugin.backend.error.not_found',
+  authentication_required: 'plugin.backend.error.authentication_required',
 };
 export function marketErrorText(code: string): string {
   return t(Object.prototype.hasOwnProperty.call(keys, code) ? keys[code] : 'plugin.backend.error.market_unavailable');

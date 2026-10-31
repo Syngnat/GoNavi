@@ -15,12 +15,23 @@ func (s *Service) Catalog(ctx context.Context, query, order, cursor string) (Cat
 	if err != nil {
 		return CatalogPage{}, err
 	}
+	return s.fetchCatalogPage(ctx, values, false)
+}
+
+func (s *Service) fetchCatalogPage(ctx context.Context, values url.Values, filtered bool) (CatalogPage, error) {
 	source, err := s.snapshot()
 	if err != nil {
 		return CatalogPage{Items: []Item{}, Error: errorCode(err)}, err
 	}
+	return s.fetchCatalogPageFrom(ctx, source, values, filtered)
+}
+
+func (s *Service) fetchCatalogPageFrom(ctx context.Context, source sourceSnapshot, values url.Values, filtered bool) (CatalogPage, error) {
 	var page CatalogPage
-	err = s.requestJSON(ctx, source, http.MethodGet, "/plugins", values, nil, &page, "")
+	err := s.requestJSON(ctx, source, http.MethodGet, "/plugins", values, nil, &page)
+	if err == nil && filtered && page.FilterVersion != 1 {
+		err = ErrFiltersUnsupported
+	}
 	if err == nil {
 		err = validatePage(&page, source)
 	}
@@ -54,8 +65,9 @@ func (s *Service) catalogQuery(query, order, cursor string) (url.Values, error) 
 	if order != "updated" && order != "rating" && order != "downloads" {
 		return nil, ErrInvalidRequest
 	}
+	// Discovery includes newer-host releases; the runtime still enforces manifest compatibility.
 	return url.Values{"q": {query}, "sort": {order}, "cursor": {cursor}, "limit": {"24"},
-		"hostVersion": {s.hostVersion}, "platform": {runtime.GOOS + "/" + runtime.GOARCH}}, nil
+		"platform": {runtime.GOOS + "/" + runtime.GOARCH}}, nil
 }
 
 // Detail fetches a published entry without pretending that unavailable details are a successful empty result.
@@ -68,7 +80,7 @@ func (s *Service) Detail(ctx context.Context, id string) (Item, error) {
 		return Item{}, err
 	}
 	var item Item
-	if err = s.requestJSON(ctx, source, http.MethodGet, "/plugins/"+id, nil, nil, &item, ""); err != nil {
+	if err = s.requestJSON(ctx, source, http.MethodGet, "/plugins/"+id, nil, nil, &item); err != nil {
 		return Item{}, err
 	}
 	if err = validateItem(&item, source); err != nil {
@@ -93,7 +105,7 @@ func (s *Service) Ratings(ctx context.Context, id string) ([]Rating, error) {
 		return nil, err
 	}
 	var ratings []Rating
-	if err = s.requestJSON(ctx, source, http.MethodGet, "/plugins/"+id+"/ratings", nil, nil, &ratings, ""); err != nil {
+	if err = s.requestJSON(ctx, source, http.MethodGet, "/plugins/"+id+"/ratings", nil, nil, &ratings); err != nil {
 		return nil, err
 	}
 	if ratings == nil || len(ratings) > 1000 {
@@ -108,56 +120,6 @@ func (s *Service) Ratings(ctx context.Context, id string) ([]Rating, error) {
 		return nil, err
 	}
 	return ratings, nil
-}
-
-// Rate creates or replaces the authenticated account's rating through the service's authorization policy.
-func (s *Service) Rate(ctx context.Context, id string, stars int, body, version string) (Rating, error) {
-	if !validID(id) || stars < 1 || stars > 5 || len(body) > 4000 || (version != "" && !validVersion(version)) {
-		return Rating{}, ErrInvalidRequest
-	}
-	source, err := s.snapshot()
-	if err != nil {
-		return Rating{}, err
-	}
-	token, err := s.authenticatedToken(source)
-	if err != nil {
-		return Rating{}, err
-	}
-	request := struct {
-		Stars   int    `json:"stars"`
-		Body    string `json:"body"`
-		Version string `json:"version"`
-	}{Stars: stars, Body: body, Version: version}
-	var rating Rating
-	if err = s.requestJSON(ctx, source, http.MethodPut, "/plugins/"+id+"/rating", nil, request, &rating, token); err != nil {
-		return Rating{}, err
-	}
-	if !validRating(rating, id) {
-		return Rating{}, ErrInvalidResponse
-	}
-	if err = s.checkSource(source); err != nil {
-		return Rating{}, err
-	}
-	return rating, nil
-}
-
-// DeleteRating deletes only the current authenticated account's rating.
-func (s *Service) DeleteRating(ctx context.Context, id string) error {
-	if !validID(id) {
-		return ErrInvalidRequest
-	}
-	source, err := s.snapshot()
-	if err != nil {
-		return err
-	}
-	token, err := s.authenticatedToken(source)
-	if err != nil {
-		return err
-	}
-	if err = s.requestJSON(ctx, source, http.MethodDelete, "/plugins/"+id+"/rating", nil, nil, nil, token); err != nil {
-		return err
-	}
-	return s.checkSource(source)
 }
 
 func validatePage(page *CatalogPage, source sourceSnapshot) error {

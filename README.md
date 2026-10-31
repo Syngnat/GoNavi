@@ -251,7 +251,7 @@ To connect a custom OpenAI-compatible model service, add a provider in GoNavi's 
 | | |
 |---|---|
 | **Built-in** | MySQL · GoldenDB · PostgreSQL · Oracle · Redis · Chroma · Qdrant · Milvus · RocketMQ · MQTT · Kafka · RabbitMQ |
-| **Optional** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · Dameng · Kingbase · HighGo · Vastbase · OpenGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · TiDB · CockroachDB · KWDB · TimescaleDB · GBase 8a · GBase 8c · GBase 8s · YashanDB · Firebird · QuestDB · GreptimeDB · InfluxDB · Presto · OpenSearch · Weaviate · Meilisearch · Typesense · etcd · ZooKeeper · Custom Driver/DSN |
+| **Optional** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · Dameng · Kingbase · HighGo · Vastbase · OpenGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Hive · Trino · Elasticsearch · TiDB · CockroachDB · KWDB · TimescaleDB · GBase 8a · GBase 8c · GBase 8s · YashanDB · Firebird · QuestDB · GreptimeDB · InfluxDB · Presto · OpenSearch · Weaviate · Meilisearch · Typesense · etcd · ZooKeeper · Custom Driver/DSN |
 
 <details>
 <summary><b>Full capability matrix</b></summary>
@@ -290,6 +290,7 @@ To connect a custom OpenAI-compatible model service, add a provider in GoNavi's 
 | Time-series | TDengine | Optional driver agent | Time-series schema browsing and querying |
 | Time-series | Apache IoTDB | Optional driver agent | Storage group / device / timeseries browsing and querying |
 | Columnar Analytics | ClickHouse | Optional driver agent | Analytical query, object browsing, SQL execution |
+| Data Warehouse | [Hive / HiveServer2](HIVE_SUPPORT.md) | Optional driver agent | Apache Hive / Spark Thrift / Impala, partitions and complex values, import/export, bidirectional sync, Kerberos |
 | Federated Query | Trino | Optional driver agent | Cross-source SQL via multiple catalogs, `catalog.schema` browsing, SQL execution |
 | Search | Elasticsearch | Optional driver agent | Index browsing, mapping inspection, guarded REST console, JSON DSL / query_string search |
 | Relational | TiDB | Optional driver agent | MySQL-compatible querying, TiDB execution plans, data editing, sync / migration |

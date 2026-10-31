@@ -1,4 +1,5 @@
 import type { ConnectionConfig } from "../../types";
+import { isHiveConnectionType, buildHiveUri, normalizeHiveConnectionParams, getHiveDefaultPort, hiveFamily, hiveTransport, readHiveParams } from "../../utils/hiveConnection";
 import { isPluginDataSourceNamespace } from "../../plugins/dataSource/identity";
 import { buildPluginDataSourceConfig } from "./pluginDataSourceForm";
 import { resolveConnectionDatabaseValue } from "./connectionModalNamespace";
@@ -258,7 +259,9 @@ export const buildConnectionConfig = async ({
   const type = String(mergedValues.type || "").toLowerCase();
   const defaultPort = type === "pulsar"
     ? getPulsarDefaultPort(!!mergedValues.useSSL)
-    : getDefaultPortByType(type);
+    : isHiveConnectionType(type)
+      ? getHiveDefaultPort(hiveFamily(readHiveParams(mergedValues.connectionParams)), hiveTransport(readHiveParams(mergedValues.connectionParams)))
+      : getDefaultPortByType(type);
   const selectedOceanBaseProtocol =
     type === "oceanbase"
       ? normalizeOceanBaseProtocolValue(mergedValues.oceanBaseProtocol)
@@ -369,7 +372,7 @@ export const buildConnectionConfig = async ({
   let redisSentinelUser = "";
   let redisSentinelPassword = "";
   const savePassword =
-    type === "mongodb" ? mergedValues.savePassword !== false : true;
+    (type === "mongodb" || isHiveConnectionType(type)) ? mergedValues.savePassword !== false : true;
 
   if (isMySQLCompatibleType(type) && selectedOceanBaseProtocol !== "oracle") {
     const replicas =
@@ -689,7 +692,7 @@ export const buildConnectionConfig = async ({
       })
     : undefined;
 
-  return {
+  const config: ConnectionConfig = {
     type: mergedValues.type,
     host: primaryHost,
     port: Number(primaryPort || 0),
@@ -745,4 +748,9 @@ export const buildConnectionConfig = async ({
     mongoReplicaUser: mongoReplicaUser,
     mongoReplicaPassword: keepPassword ? mongoReplicaPassword : "",
   };
+  if (isHiveConnectionType(type)) {
+    config.connectionParams = normalizeHiveConnectionParams(config.connectionParams);
+    config.uri = buildHiveUri(config);
+  }
+  return config;
 };

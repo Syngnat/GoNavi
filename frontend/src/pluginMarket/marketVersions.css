@@ -1,0 +1,6 @@
+.market-version-section{display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--gn-br-2);border-radius:10px;background:var(--gn-bg-panel-2)}
+.market-version-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.market-version-select{width:100%}
+.market-version-option{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.market-version-option .ant-tag{margin-inline-end:0}
+.market-version-reason{font-size:12px;color:var(--gn-fg-3)}

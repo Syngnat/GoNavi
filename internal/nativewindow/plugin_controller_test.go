@@ -61,7 +61,7 @@ func TestPluginWindowProcessHealthRequiresDocumentHeartbeat(t *testing.T) {
 			entry := openPluginTestWindow(t, c, "test.one")
 			if mode == "stalled" {
 				response := servePluginTest(c, entry, http.MethodPost, pluginBridgePrefix+"heartbeat", `{"sequence":1}`)
-				if response.Code != http.StatusNoContent {
+				if response.Code != http.StatusOK {
 					t.Fatal(response.Body.String())
 				}
 				replay := servePluginTest(c, entry, http.MethodPost, pluginBridgePrefix+"heartbeat", `{"sequence":1}`)
@@ -106,7 +106,7 @@ func TestPluginWindowOpenFailureAndShutdown(t *testing.T) {
 		profile = spec.directory
 		return nil, errors.New("fixture launch failure")
 	}
-	if _, err := c.Open(context.Background(), "test.one"); err == nil {
+	if _, err := c.Open(context.Background(), "test.one", "test.one", nil, "zh-CN", "dark"); err == nil {
 		t.Fatal("launch failure hidden")
 	}
 	if _, err := os.Stat(profile); !os.IsNotExist(err) {
@@ -121,7 +121,7 @@ func TestPluginWindowOpenFailureAndShutdown(t *testing.T) {
 	if err := c.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Open(context.Background(), "test.one"); err == nil {
+	if _, err := c.Open(context.Background(), "test.one", "test.one", nil, "zh-CN", "dark"); err == nil {
 		t.Fatal("closed controller reopened")
 	}
 }
@@ -135,4 +135,139 @@ func TestPluginWindowCloseCallerDeadlineDoesNotStopReaping(t *testing.T) {
 		t.Fatalf("Close = %v", err)
 	}
 	awaitPluginDone(t, entry.done)
+}
+
+func TestPluginWindowCloseWaitsForTrackedTeardown(t *testing.T) {
+	c, _ := newPluginTestController(t)
+	entered := make(chan struct{})
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	c.onWindowClosed = func(ctx context.Context, info PluginWindowInfo) {
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > pluginTeardownTimeout {
+			t.Error("teardown context has no bounded deadline")
+		}
+		if ctx.Err() != nil || info.Generation != 1 {
+			t.Errorf("window exit canceled cleanup too early: info=%+v err=%v", info, ctx.Err())
+		}
+		// Taking the controller mutex proves callbacks are invoked outside it.
+		c.mu.Lock()
+		closing := c.windowIDs[info.ID].closing
+		c.mu.Unlock()
+		if !closing {
+			t.Error("teardown lost its closing fence")
+		}
+		close(entered)
+		<-ctx.Done()
+		close(canceled)
+		<-release
+	}
+	entry := openPluginTestWindow(t, c, "test.one")
+	entry.process.(*pluginProcessFake).exit()
+	awaitPluginDone(t, entered)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := c.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close reported completed cleanup while callback was blocked: %v", err)
+	}
+	awaitPluginDone(t, canceled)
+	select {
+	case <-entry.done:
+		t.Fatal("caller deadline released the teardown fence")
+	default:
+	}
+	close(release)
+	released = true
+	awaitPluginDone(t, entry.done)
+	if err := c.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPluginWindowLaunchFailureTeardownIsTracked(t *testing.T) {
+	c, _ := newPluginTestController(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	var info PluginWindowInfo
+	c.onWindowClosed = func(ctx context.Context, closedInfo PluginWindowInfo) {
+		info = closedInfo
+		close(entered)
+		<-ctx.Done()
+		<-release
+	}
+	c.startProcess = func(pluginProcessSpec) (pluginProcess, error) {
+		return nil, errors.New("fixture launch failure")
+	}
+	// One result permits the opening goroutine to exit after a failed assertion.
+	opened := make(chan error, 1)
+	go func() {
+		_, err := c.Open(context.Background(), "test.one", "test.one", nil, "", "")
+		opened <- err
+	}()
+	awaitPluginDone(t, entered)
+	if info.PluginID != "test.one" || info.Generation != 1 || info.PID != 0 {
+		t.Fatalf("failed launch lost its registered identity: %+v", info)
+	}
+	if _, err := c.Open(context.Background(), "test.one", "test.one", nil, "", ""); err == nil {
+		t.Fatal("failed launch permitted reopen before cleanup")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := c.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close did not track failed-launch cleanup: %v", err)
+	}
+	close(release)
+	released = true
+	if err := <-opened; err == nil || !strings.Contains(err.Error(), "fixture launch failure") {
+		t.Fatalf("Open lost launch failure: %v", err)
+	}
+	if err := c.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	count := len(c.windows)
+	c.mu.Unlock()
+	if count != 0 {
+		t.Fatal("failed-launch cleanup leaked a closing fence")
+	}
+}
+
+func TestPluginWindowCloseJoinsCanceledTeardown(t *testing.T) {
+	c, _ := newPluginTestController(t)
+	entered := make(chan struct{})
+	canceled := make(chan struct{})
+	c.onWindowClosed = func(ctx context.Context, info PluginWindowInfo) {
+		close(entered)
+		<-ctx.Done()
+		close(canceled)
+	}
+	entry := openPluginTestWindow(t, c, "test.one")
+	entry.process.(*pluginProcessFake).exit()
+	awaitPluginDone(t, entered)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := c.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-canceled:
+	default:
+		t.Fatal("Close succeeded before the lifecycle-canceled teardown returned")
+	}
+	select {
+	case <-entry.done:
+	default:
+		t.Fatal("Close succeeded before window cleanup completed")
+	}
 }

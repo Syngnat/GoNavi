@@ -36,6 +36,10 @@ func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		pluginHTTPError(w, http.StatusGone, "window_revoked")
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, pluginBridgePrefix+"ui/") {
+		c.serveUIAsset(w, r)
+		return
+	}
 	switch r.URL.Path {
 	case pluginBridgePrefix + "bootstrap":
 		if !pluginMethod(w, r, http.MethodGet) {
@@ -44,8 +48,9 @@ func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		// A document reload starts a fresh JavaScript sequence, not a new process.
 		c.mu.Lock()
 		entry.heartbeatSequence = 0
+		preferences, revision := c.preferencesLocked(entry)
 		c.mu.Unlock()
-		writePluginJSON(w, pluginBootstrap{PluginID: entry.info.PluginID, Generation: entry.info.Generation, Title: entry.title})
+		writePluginJSON(w, pluginBootstrap{PluginID: entry.info.PluginID, Generation: entry.info.Generation, Title: entry.title, Context: entry.context, Preferences: preferences, PreferencesRevision: revision})
 	case pluginBridgePrefix + "runtime.js":
 		if !pluginMethod(w, r, http.MethodGet) {
 			return
@@ -56,6 +61,8 @@ func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		c.serveHeartbeat(w, r, entry)
 	case pluginBridgePrefix + "invoke":
 		c.serveInvoke(w, r, entry)
+	case pluginBridgePrefix + "capability":
+		c.serveCapability(w, r, entry)
 	case pluginBridgePrefix + "cancel":
 		c.serveCancel(w, r, entry)
 	case pluginBridgePrefix + "close":
@@ -85,7 +92,7 @@ func (c *PluginController) authorize(r *http.Request) *pluginWindowEntry {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry := c.windows[r.Header.Get(pluginWindowHeader)]
+	entry := c.windowIDs[r.Header.Get(pluginWindowHeader)]
 	if entry == nil || subtle.ConstantTimeCompare([]byte(entry.token), []byte(r.Header.Get(pluginTokenHeader))) != 1 {
 		return nil
 	}
@@ -109,12 +116,13 @@ func (c *PluginController) serveHeartbeat(w http.ResponseWriter, r *http.Request
 		entry.heartbeat = time.Now()
 		entry.heartbeatSequence = heartbeat.Sequence
 	}
+	preferences, revision := c.preferencesLocked(entry)
 	c.mu.Unlock()
 	if !accepted {
 		pluginHTTPError(w, http.StatusConflict, "stale_heartbeat")
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writePluginJSON(w, pluginBootstrap{PluginID: entry.info.PluginID, Generation: entry.info.Generation, Title: entry.title, Preferences: preferences, PreferencesRevision: revision})
 }
 
 func pluginMethod(w http.ResponseWriter, r *http.Request, method string) bool {

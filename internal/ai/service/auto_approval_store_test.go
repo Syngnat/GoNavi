@@ -2,6 +2,7 @@ package aiservice
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -70,7 +71,8 @@ func TestAutoApprovalSurvivesARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows 只有只读位，0o600 无从体现，权限断言只对类 Unix 有意义。
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("settings file mode = %v, want 0600", info.Mode().Perm())
 	}
 }

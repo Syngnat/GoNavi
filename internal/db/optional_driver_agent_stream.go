@@ -98,6 +98,9 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(requestID int64, req o
 			if err := consumer.SetColumns(columns); err != nil {
 				return c.drainAbandonedStream(req.ID, err)
 			}
+			if err := consumeHiveStreamDefinitions(resp.Data, consumer); err != nil {
+				return c.drainAbandonedStream(req.ID, err)
+			}
 		case optionalAgentChunkRows:
 			if len(columns) == 0 {
 				return c.drainAbandonedStream(req.ID, fmt.Errorf("%s 驱动代理流式响应缺少列信息", driverDisplayName(c.driver)))

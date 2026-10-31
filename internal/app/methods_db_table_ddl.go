@@ -34,7 +34,7 @@ func (a *App) RenameTable(config connection.ConnectionConfig, dbName string, old
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "clickhouse":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "clickhouse", "hive":
 	default:
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.table_rename_unsupported", map[string]interface{}{"dbType": dbType})}
 	}
@@ -94,7 +94,7 @@ func (a *App) DropTable(config connection.ConnectionConfig, dbName string, table
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "tdengine", "clickhouse":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "tdengine", "clickhouse", "hive":
 	default:
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.table_drop_unsupported", map[string]interface{}{"dbType": dbType})}
 	}
@@ -137,7 +137,7 @@ func (a *App) DropView(config connection.ConnectionConfig, dbName string, viewNa
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "clickhouse":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "clickhouse", "hive":
 	default:
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.view_drop_unsupported", map[string]any{"dbType": dbType})}
 	}
@@ -253,7 +253,7 @@ func (a *App) RenameView(config connection.ConnectionConfig, dbName string, oldN
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "clickhouse":
 		newQualified := quoteTableIdentByType(dbType, schemaName, newName)
 		sql = fmt.Sprintf("RENAME TABLE %s TO %s", oldQualified, newQualified)
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "hive":
 		sql = fmt.Sprintf("ALTER VIEW %s RENAME TO %s", oldQualified, newQuoted)
 	case "sqlserver":
 		oldFullName := schemaName + "." + pureOldName

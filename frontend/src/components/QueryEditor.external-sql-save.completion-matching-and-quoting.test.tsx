@@ -935,6 +935,59 @@ describe('QueryEditor external SQL save', () => {
     });
   });
 
+  it.each(['', 't.'])('quotes special Dameng fields after typing %sfir', async (qualifier) => {
+    autoFetchState.visible = true;
+    storeState.connections[0].config.type = 'dameng';
+    storeState.connections[0].config.database = 'DEV';
+    const columns = [
+      { name: 'first_change# FCHG', type: 'VARCHAR' },
+      { name: 'FIRST_CASE# FCHG', type: 'VARCHAR' },
+      { name: 'next_change#', type: 'VARCHAR' },
+      { name: 'quote"field', type: 'VARCHAR' },
+      { name: 'ORDINARY_COLUMN', type: 'VARCHAR' },
+    ];
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'DEV' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Table: 'test$test' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({
+      success: true,
+      data: columns.map((column) => ({ ...column, tableName: 'test$test' })),
+    });
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: columns });
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => {
+        renderer = create(<QueryEditor tab={createTab({ query: '', dbName: 'DEV' })} />);
+        for (let index = 0; index < 16; index += 1) await Promise.resolve();
+      });
+      const provider = findSqlCompletionProvider();
+      expect(provider).toBeTruthy();
+      const cases = [
+        ['fir', 'first_change# FCHG', '"first_change# FCHG"'],
+        ['fir', 'FIRST_CASE# FCHG', '"FIRST_CASE# FCHG"'],
+        ['nex', 'next_change#', '"next_change#"'],
+        ['quo', 'quote"field', '"quote""field"'],
+        ['ord', 'ORDINARY_COLUMN', 'ordinary_column'],
+      ];
+      for (const [fragment, field, expected] of cases) {
+        const prefix = `SELECT ${qualifier}${fragment}`;
+        editorState.value = `${prefix} FROM "test$test" t`;
+        editorState.latestOnChange?.(editorState.value);
+        const result = await provider.provideCompletionItems(
+          editorState.editor.getModel(),
+          { lineNumber: 1, column: prefix.length + 1 },
+        );
+        const suggestion = result.suggestions.find((item: { label: string }) => item.label === field);
+        expect(suggestion, `${qualifier}${fragment}: ${field}`).toBeTruthy();
+        expect(suggestion.insertText, `${qualifier}${fragment}: ${field}`).toBe(expected);
+        const inserted = editorState.value.slice(0, suggestion.range.startColumn - 1)
+          + suggestion.insertText + editorState.value.slice(suggestion.range.endColumn - 1);
+        expect(inserted).toBe(`SELECT ${qualifier}${expected} FROM "test$test" t`);
+      }
+    } finally {
+      await act(async () => { renderer?.unmount(); });
+    }
+  });
+
   it('quotes uppercase postgres table names in FROM completion insert text', async () => {
     let renderer!: ReactTestRenderer;
     autoFetchState.visible = true;

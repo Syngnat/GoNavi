@@ -313,4 +313,22 @@
   .gn-data-sync-compare-row__data-counts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .gn-data-sync-compare-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gn-data-sync-compare-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gn-data-sync-compare-filters__search {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .gn-data-sync-compare-filters__search .gn-data-sync-control {
+    width: auto;
+    flex: 1;
+  }
 }

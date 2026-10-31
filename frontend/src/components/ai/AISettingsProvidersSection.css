@@ -733,6 +733,27 @@ body[data-ui-version] .gonavi-ai-provider-form-popup .ant-select-item-option-sel
 .gonavi-ai-provider-preset-col.is-partner { border-left: 1px solid var(--provider-line, #e8eeeb); }
 .gonavi-ai-provider-preset-col-title { padding: 6px 8px 8px; font-size: 11px; color: var(--provider-muted, #6b7280); }
 .gonavi-ai-provider-partner-list { display: grid; gap: 6px; padding: 0 2px; }
+.gonavi-ai-provider-preset-col-title.is-plugin { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--provider-line, #e8eeeb); }
+.gonavi-ai-provider-plugin-list { display: grid; gap: 4px; padding: 0 2px; }
+.gonavi-ai-provider-plugin-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gonavi-ai-provider-plugin-option:hover:not(:disabled),
+.gonavi-ai-provider-plugin-option:focus-visible:not(:disabled) { background: var(--provider-hover, rgba(0, 0, 0, 0.04)); }
+.gonavi-ai-provider-plugin-option:disabled { opacity: 0.55; cursor: not-allowed; }
+.gonavi-ai-provider-plugin-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gonavi-ai-provider-plugin-unavailable { margin-left: auto; font-size: 11px; color: var(--provider-muted, #6b7280); }
 .gonavi-ai-provider-partner-option {
   display: flex;
   align-items: center;

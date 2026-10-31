@@ -12,6 +12,9 @@ services:
       GONAVI_WEB_ADDR: 0.0.0.0:34116
       GONAVI_WEB_PASSWORD: ${GONAVI_WEB_PASSWORD:-}
       GONAVI_WEB_PLUGIN_MANAGEMENT: ${GONAVI_WEB_PLUGIN_MANAGEMENT:-0}
+      # Go 堆内存软上限：GC 在逼近该值时更积极回收，压低常驻 RSS。
+      # 大量连接元数据或频繁大结果集导出的部署请通过 .env 调大。
+      GOMEMLIMIT: ${GONAVI_WEB_GOMEMLIMIT:-112MiB}
     volumes:
       - type: bind
         source: ${GONAVI_HOST_DATA_ROOT}

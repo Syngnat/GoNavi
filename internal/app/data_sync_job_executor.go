@@ -25,6 +25,10 @@ type dataSyncMappingCursor struct {
 
 const dataSyncWatermarkStateVersion = 1
 
+// errDataSyncWatermarkCheckpointStale marks a checkpoint written for another plan revision.
+// It is not an execution failure: the window simply restarts from the beginning.
+var errDataSyncWatermarkCheckpointStale = errors.New("watermark checkpoint plan hash does not match the current task")
+
 type dataSyncWatermarkState struct {
 	Version  int                                    `json:"version"`
 	Mappings map[string]syncbackend.WatermarkCursor `json:"mappings"`
@@ -45,7 +49,16 @@ func (executor appDataSyncJobExecutor) executeWatermarkJob(
 	}
 	state, sequence, err := decodeDataSyncWatermarkState(request.Checkpoint, definition, definitionHash)
 	if err != nil {
-		return syncjob.ExecutionOutcome{Resumable: true}, err
+		// A checkpoint written for a different plan revision can never be replayed, and resume is
+		// rejected by the lineage check as well. Treat it as stale: start a fresh window instead of
+		// failing every future run until someone pauses the task and clears the checkpoint by hand.
+		if errors.Is(err, errDataSyncWatermarkCheckpointStale) {
+			_ = reporter.Emit(syncjob.RunEventLog, "watermark checkpoint was written for a different task plan; starting a fresh window", mustJSON(map[string]interface{}{"level": "warn"}))
+			state = dataSyncWatermarkState{Version: dataSyncWatermarkStateVersion, Mappings: make(map[string]syncbackend.WatermarkCursor)}
+			sequence = 0
+		} else {
+			return syncjob.ExecutionOutcome{Resumable: true}, err
+		}
 	}
 	outcome := syncjob.ExecutionOutcome{Resumable: true}
 	for index, mapping := range mappings {
@@ -184,9 +197,18 @@ func (executor appDataSyncJobExecutor) executeWatermarkMappingWithRetry(
 			outcome.Resumable = false
 			return outcome, nil
 		}
-		runErr := errors.New(result.Message)
 		if result.OutcomeUnknown {
-			return syncjob.ExecutionOutcome{Resumable: false}, db.MarkWriteOutcomeUnknown(runErr)
+			// Keep the batches this run already confirmed so the failed record does not under-report
+			// writes; only resumability is dropped, because replaying an unknown outcome is unsafe.
+			outcome.Resumable = false
+			return outcome, db.MarkWriteOutcomeUnknown(errors.New(result.Message))
+		}
+		// A deterministic failure (missing table, unknown column, unsupported dialect) cannot
+		// improve by replaying the same window; stop immediately instead of burning the retry
+		// budget and the backoff schedule.
+		runErr := dataSyncExecutionError(result.Message)
+		if dataSyncJobMappingErrorIsPermanent(runErr) {
+			return outcome, runErr
 		}
 		if result.Cancelled || ctx.Err() != nil || attempt == maxAttempts {
 			if ctx.Err() != nil {
@@ -221,7 +243,7 @@ func decodeDataSyncWatermarkState(checkpoint *syncjob.Checkpoint, definition syn
 		return state, 0, errors.New("checkpoint type is incompatible with watermark execution")
 	}
 	if !secureTextEqual(checkpoint.SchemaHash, definitionHash) {
-		return state, 0, errors.New("watermark checkpoint plan hash does not match the current task")
+		return state, 0, errDataSyncWatermarkCheckpointStale
 	}
 	if err := json.Unmarshal(checkpoint.Cursor, &state); err != nil {
 		return state, 0, fmt.Errorf("decode watermark checkpoint: %w", err)
@@ -318,11 +340,19 @@ func executeDataSyncMappingWithRetry(ctx context.Context, definition syncjob.Job
 		maxAttempts = 1
 	}
 	backoff := time.Duration(definition.Options.RetryBackoffMillis) * time.Millisecond
+	// A retry re-executes the whole mapping; batches the previous attempt already committed are
+	// skipped by the diff on replay and would never be counted again, so their rows are carried
+	// forward instead of being replaced by the last attempt's numbers.
+	committed := syncjob.ExecutionOutcome{}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return syncjob.ExecutionOutcome{Resumable: true}, err
 		}
 		result, err := operation()
+		result.RowsInserted += committed.RowsInserted
+		result.RowsUpdated += committed.RowsUpdated
+		result.RowsDeleted += committed.RowsDeleted
+		result.RowsFailed += committed.RowsFailed
 		if err == nil {
 			return result, nil
 		}
@@ -336,6 +366,7 @@ func executeDataSyncMappingWithRetry(ctx context.Context, definition syncjob.Job
 		if attempt == maxAttempts || ctx.Err() != nil {
 			return result, err
 		}
+		committed = result
 		_ = reporter.Emit(syncjob.RunEventLog, fmt.Sprintf("mapping attempt %d failed; retrying", attempt), mustJSON(map[string]interface{}{
 			"level":   "warn",
 			"attempt": attempt,
@@ -362,6 +393,21 @@ func executeDataSyncMappingWithRetry(ctx context.Context, definition syncjob.Job
 
 func dataSyncJobMappingRetrySafe(definition syncjob.JobDefinition) bool {
 	return !strings.EqualFold(strings.TrimSpace(definition.Options.SyncMode), "insert_only")
+}
+
+// errDataSyncExecutionFailed gives a failed run a stable identity. The sync engine reports
+// failures as text, so the original error object no longer exists here; wrapping the message
+// with a sentinel keeps errors.Is usable, and a message that matches the permanent-failure
+// patterns is marked permanent so the manager can pause the task instead of replaying a
+// definition that can never succeed.
+var errDataSyncExecutionFailed = errors.New("data sync execution failed")
+
+func dataSyncExecutionError(message string) error {
+	err := fmt.Errorf("%s: %w", message, errDataSyncExecutionFailed)
+	if dataSyncJobMappingErrorIsPermanent(errors.New(message)) {
+		return syncjob.MarkPermanentExecutionError(err)
+	}
+	return err
 }
 
 // dataSyncJobMappingErrorIsPermanent recognizes errors that can never improve
@@ -405,11 +451,15 @@ func (executor appDataSyncJobExecutor) executeOneMapping(ctx context.Context, ru
 		return syncjob.ExecutionOutcome{Message: analysis.Message}, nil
 	}
 	result := engine.RunSyncContext(ctx, config)
+	// RowsSkipped counts rows the run deliberately isolated under errorPolicy=skip_row. They are
+	// already recorded one by one in data_sync_error_rows, so folding them into RowsFailed would
+	// misreport a policy-driven skip as a failure: it marks the run partial and, for incremental
+	// snapshots, keeps the resume checkpoint that the next scheduled run would then consume from
+	// its end index. Genuine failures abort the mapping and surface through the error below.
 	outcome := syncjob.ExecutionOutcome{
 		RowsInserted: int64(result.RowsInserted),
 		RowsUpdated:  int64(result.RowsUpdated),
 		RowsDeleted:  int64(result.RowsDeleted),
-		RowsFailed:   int64(result.RowsSkipped),
 		Message:      result.Message,
 		Resumable:    !result.Success && !result.OutcomeUnknown && !strings.EqualFold(strings.TrimSpace(config.Mode), "insert_only"),
 	}
@@ -420,7 +470,7 @@ func (executor appDataSyncJobExecutor) executeOneMapping(ctx context.Context, ru
 		if result.Cancelled && ctx.Err() != nil {
 			return outcome, ctx.Err()
 		}
-		return outcome, errors.New(result.Message)
+		return outcome, dataSyncExecutionError(result.Message)
 	}
 	return outcome, nil
 }
@@ -483,7 +533,7 @@ func buildDataSyncJobEngineConfig(definition syncjob.JobDefinition, runID string
 		// 缺失的目标表由运行前的补建步骤建好（prepareDataSyncTargetTables），数据阶段只写已有表。
 		config.TargetTableStrategy = "existing_only"
 		config.CreateIndexes = false
-		}
+	}
 	needsExplicitProjection := dataSyncJobMappingNeedsExplicitProjection(definition, mapping)
 	if definition.Kind == syncjob.JobKindReconcile && !needsExplicitProjection {
 		// 本可自动建表的映射遇到已存在的目标表时，用户预期仍是「把源数据灌进去」，
@@ -515,6 +565,10 @@ func buildDataSyncJobEngineConfig(definition syncjob.JobDefinition, runID string
 		if strings.EqualFold(strings.TrimSpace(definition.Options.Content), "schema") {
 			config.AutoAddColumns = definition.AutoAddColumnsEnabled()
 		}
+	}
+	if definition.Kind == syncjob.JobKindCompare {
+		// 只读对比：目标缺表要按整表差异返回，不能沿用写任务的缺表早退。
+		config.CompareOnly = true
 	}
 	return config, nil
 }

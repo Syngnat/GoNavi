@@ -195,7 +195,7 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 		if next == nil {
 			return fail(resp, "驱动代理初始化失败")
 		}
-		if err := next.Connect(config); err != nil {
+		if err := connectAgentDatabase(requestCtx, next, config); err != nil {
 			return failWithSSHHostKeyTrust(resp, err)
 		}
 		runtimeState.inst = next
@@ -223,10 +223,10 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 		if !ok {
 			return fail(resp, fmt.Sprintf("当前数据源（%s）不支持 SQL 编辑器托管事务", strings.TrimSpace(agentDriverType)))
 		}
-		openCtx := context.Background()
+		openCtx := requestCtx
 		var cancel context.CancelFunc
 		if req.TimeoutMs > 0 {
-			openCtx, cancel = context.WithTimeout(context.Background(), time.Duration(req.TimeoutMs)*time.Millisecond)
+			openCtx, cancel = context.WithTimeout(requestCtx, time.Duration(req.TimeoutMs)*time.Millisecond)
 			defer cancel()
 		}
 		session, err := provider.OpenSessionExecer(openCtx)
@@ -265,6 +265,9 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 		return fail(resp, "connection not open")
 	}
 
+	if method == agentMethodQueryReadOnly {
+		return handleReadOnlyQueryRequest(requestCtx, runtimeState, req, resp)
+	}
 	if session, ok, err := runtimeState.session(req.SessionID); err != nil {
 		return fail(resp, err.Error())
 	} else if ok {
@@ -303,14 +306,14 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 			if len(req.Args) > 0 {
 				affected, err := execStatementWithArgsOptionalTimeout(requestCtx, session, req.Query, req.Args, req.TimeoutMs)
 				if err != nil {
-					return fail(resp, err.Error())
+					return failWithWriteOutcome(resp, err)
 				}
 				resp.RowsAffected = affected
 				break
 			}
 			affected, err := execStatementWithOptionalTimeout(requestCtx, session, req.Query, req.TimeoutMs)
 			if err != nil {
-				return fail(resp, err.Error())
+				return failWithWriteOutcome(resp, err)
 			}
 			resp.RowsAffected = affected
 		case agentMethodCommitTransaction, agentMethodRollbackTransaction:
@@ -333,6 +336,9 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 		return resp
 	}
 
+	if hiveResponse, handled := handleHiveAgentRequest(requestCtx, runtimeState, req, resp); handled {
+		return hiveResponse
+	}
 	switch method {
 	case agentMethodPing:
 		if err := runtimeState.inst.Ping(); err != nil {
@@ -372,14 +378,14 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 		if len(req.Args) > 0 {
 			affected, err := execWithArgsOptionalTimeout(requestCtx, runtimeState.inst, req.Query, req.Args, req.TimeoutMs)
 			if err != nil {
-				return fail(resp, err.Error())
+				return failWithWriteOutcome(resp, err)
 			}
 			resp.RowsAffected = affected
 			break
 		}
 		affected, err := execWithOptionalTimeout(requestCtx, runtimeState.inst, req.Query, req.TimeoutMs)
 		if err != nil {
-			return fail(resp, err.Error())
+			return failWithWriteOutcome(resp, err)
 		}
 		resp.RowsAffected = affected
 	case agentMethodElasticsearchConsole:
@@ -539,20 +545,7 @@ func handleRequestWithContext(requestCtx context.Context, runtimeState *agentRun
 	case agentMethodPreviewChanges:
 		return handlePreviewChanges(runtimeState.inst, req, resp)
 	case agentMethodApplyChanges:
-		if req.Changes == nil {
-			return fail(resp, "变更集为空")
-		}
-		applier, ok := runtimeState.inst.(interface {
-			ApplyChanges(tableName string, changes connection.ChangeSet) error
-		})
-		if !ok {
-			return fail(resp, "当前驱动不支持 ApplyChanges")
-		}
-		if err := applier.ApplyChanges(req.TableName, *req.Changes); err != nil {
-			resp = fail(resp, err.Error())
-			resp.OutcomeUnknown = db.IsWriteOutcomeUnknown(err)
-			return resp
-		}
+		return handleAgentApplyChanges(requestCtx, runtimeState.inst, req, resp)
 	default:
 		return fail(resp, "不支持的方法")
 	}
@@ -678,10 +671,11 @@ func handleStreamRequest(requestCtx context.Context, runtimeState *agentRuntime,
 	}
 
 	streamWriter := newAgentStreamResponseWriter(writer, req.ID)
+	streamSink := hiveAgentStreamSink(streamWriter)
 	if session, ok, err := runtimeState.session(req.SessionID); err != nil {
 		return writer.write(fail(resp, err.Error()))
 	} else if ok {
-		if err := streamStatementWithOptionalTimeout(requestCtx, session, req.Query, req.TimeoutMs, streamWriter); err != nil {
+		if err := streamStatementWithOptionalTimeout(requestCtx, session, req.Query, req.TimeoutMs, streamSink); err != nil {
 			_ = streamWriter.finish()
 			return writer.write(fail(resp, err.Error()))
 		}
@@ -695,7 +689,7 @@ func handleStreamRequest(requestCtx context.Context, runtimeState *agentRuntime,
 		return nil
 	}
 
-	if err := streamDatabaseWithOptionalTimeout(requestCtx, runtimeState.inst, req.Query, req.TimeoutMs, streamWriter); err != nil {
+	if err := streamDatabaseWithOptionalTimeout(requestCtx, runtimeState.inst, req.Query, req.TimeoutMs, streamSink); err != nil {
 		_ = streamWriter.finish()
 		return writer.write(fail(resp, err.Error()))
 	}

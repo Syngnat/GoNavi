@@ -1,5 +1,6 @@
 import { isPreferencePage, type PreferencePage } from '../components/settings/preferences/preferencePages';
-export type ToolCenterGroupKey = 'config' | 'workflow' | 'workspace' | 'plugins';
+// 插件管理不进设置中心：作为独立工作台 Tab（utils/pluginManagerTab）从标题栏打开。
+export type ToolCenterGroupKey = 'config' | 'workflow' | 'workspace';
 export type ToolCenterPaneKey =
   | 'data-root'
   | 'data-root-application'
@@ -7,7 +8,6 @@ export type ToolCenterPaneKey =
   | 'data-root-saved-queries'
   | 'security-update'
   | 'drivers'
-  | 'plugins'
   | 'snippet-settings';
 
 export type SettingsCenterGroupKey = PreferencePage | 'preferences' | 'services' | ToolCenterGroupKey | 'about' | 'brand-icon';
@@ -29,7 +29,7 @@ export type SettingsCenterPaneState = {
 };
 
 export const isToolCenterGroupKey = (group: SettingsCenterGroupKey): group is ToolCenterGroupKey => (
-  group === 'config' || group === 'workflow' || group === 'workspace' || group === 'plugins'
+  group === 'config' || group === 'workflow' || group === 'workspace'
 );
 
 export const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroupKey): SettingsCenterPaneState | null => {
@@ -41,8 +41,6 @@ export const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroup
       return { key: 'proxy', group };
     case 'config':
       return { key: 'data-root-application', group };
-    case 'plugins':
-      return { key: 'plugins', group };
     case 'workspace':
       return { key: 'snippet-settings', group };
     case 'about':

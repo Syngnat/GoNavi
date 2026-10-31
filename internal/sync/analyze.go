@@ -1,12 +1,13 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/db"
-	"GoNavi-Wails/internal/logger"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
+
+	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/logger"
 )
 
 type TableDiffSummary struct {
@@ -24,16 +25,27 @@ type TableDiffSummary struct {
 	// ColumnDiffs carries every column-level structural difference, in both
 	// directions and including type/nullability drift. MissingColumns stays for
 	// backward compatibility but only covers source columns absent downstream.
-	ColumnDiffs        []ColumnStructureDiff `json:"columnDiffs,omitempty"`
-	Message            string                `json:"message,omitempty"`
-	HasSchema          bool                  `json:"hasSchema,omitempty"`
-	TargetTableExists  bool                  `json:"targetTableExists,omitempty"`
-	PlannedAction      string                `json:"plannedAction,omitempty"`
-	Warnings           []string              `json:"warnings,omitempty"`
-	UnsupportedObjects []string              `json:"unsupportedObjects,omitempty"`
-	UnmigratedIndexes  []UnmigratedIndex     `json:"unmigratedIndexes,omitempty"`
-	IndexesToCreate    int                   `json:"indexesToCreate,omitempty"`
-	IndexesSkipped     int                   `json:"indexesSkipped,omitempty"`
+	ColumnDiffs []ColumnStructureDiff `json:"columnDiffs,omitempty"`
+	// IndexDiffs carries index-level structural differences. It stays empty
+	// when either endpoint's index metadata could not be read, because a read
+	// failure is indistinguishable from "no indexes" and would otherwise
+	// report every source index as missing downstream.
+	IndexDiffs []IndexStructureDiff `json:"indexDiffs,omitempty"`
+	// AttributeDiffs carries default/comment drift: it cannot block a sync but
+	// silently changes what lands in the target, so it gets its own section.
+	AttributeDiffs []ColumnAttributeDiff `json:"attributeDiffs,omitempty"`
+	// DiffStats pre-aggregates the per-dimension counts the compare dashboard
+	// needs, so the UI never re-derives them from two differently-shaped lists.
+	DiffStats          *TableDiffStats   `json:"diffStats,omitempty"`
+	Message            string            `json:"message,omitempty"`
+	HasSchema          bool              `json:"hasSchema,omitempty"`
+	TargetTableExists  bool              `json:"targetTableExists,omitempty"`
+	PlannedAction      string            `json:"plannedAction,omitempty"`
+	Warnings           []string          `json:"warnings,omitempty"`
+	UnsupportedObjects []string          `json:"unsupportedObjects,omitempty"`
+	UnmigratedIndexes  []UnmigratedIndex `json:"unmigratedIndexes,omitempty"`
+	IndexesToCreate    int               `json:"indexesToCreate,omitempty"`
+	IndexesSkipped     int               `json:"indexesSkipped,omitempty"`
 }
 
 type SyncAnalyzeResult struct {
@@ -172,7 +184,12 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 		return true
 	}
 
+	// 只读结构对比走并发扫描：每表只有元数据往返，串行在千表规模上不可用。
+	compareSchemaScan := config.CompareOnly && !syncData
 	for i, tableName := range config.Tables {
+		if compareSchemaScan {
+			break
+		}
 		if err := s.contextError(); err != nil {
 			recordCancellation(err)
 			break
@@ -194,7 +211,7 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 				HasSchema: syncSchema,
 			}
 
-			plan, cols, targetCols, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
+			plan, cols, targetCols, err := s.buildPreflightMigrationPlan(config, tableName, sourceDB, targetDB)
 			if err != nil {
 				recordCancellation(err)
 				summary.Message = err.Error()
@@ -231,6 +248,42 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 				if len(summary.ColumnDiffs) > summary.SchemaDiffCount {
 					summary.SchemaDiffCount = len(summary.ColumnDiffs)
 				}
+				if config.CompareOnly {
+					summary.AttributeDiffs = diffColumnAttributes(cols, targetCols)
+					// 索引差异只在只读对比里采集：写任务的结构计划会自行生成建索引
+					// 语句，额外的索引比对既慢又没有展示位。
+					summary.IndexDiffs = compareTableIndexes(
+						sourceDB,
+						targetDB,
+						plan.SourceSchema,
+						plan.SourceTable,
+						plan.TargetSchema,
+						plan.TargetTable,
+					)
+				}
+				summary.DiffStats = buildTableDiffStats(
+					summary.ColumnDiffs,
+					summary.IndexDiffs,
+					false,
+				)
+			}
+
+			// 对比是只读任务：目标缺表本身就是它最该报告的差异。把源列全部标成
+			// missing_in_target 后返回，前端据此渲染「整表缺表」并生成 CREATE TABLE；
+			// 这里不能落到下面的 cannot_sync 早退，否则对比会被整表判成无法执行。
+			if !plan.TargetTableExists && config.CompareOnly {
+				summary.CanSync = true
+				summary.MissingColumns, summary.ColumnDiffs = compareMissingTargetColumns(cols)
+				summary.SchemaDiffCount = len(summary.ColumnDiffs)
+				if summary.SchemaDiffCount == 0 {
+					// 源列读不到（受限账号/同义词）时也要标成差异，否则整表会被当成一致。
+					summary.SchemaDiffCount = 1
+				}
+				summary.Message = localizedSyncBackendText("data_sync.plan.target_missing_compare", map[string]any{"count": len(summary.MissingColumns)})
+				// 目标整表不存在时索引差异没有意义：索引会随建表一起生成。
+				summary.DiffStats = buildTableDiffStats(summary.ColumnDiffs, nil, true)
+				result.Tables = append(result.Tables, summary)
+				return
 			}
 
 			if !plan.TargetTableExists && !plan.AutoCreate {
@@ -238,7 +291,9 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 				result.Tables = append(result.Tables, summary)
 				return
 			}
-			if plan.TargetTableExists && syncContentAllowsSchemaChanges(config.Content) {
+			// 只读对比不存在「能不能自动修复」的问题：类型/可空性漂移本身就是它要报告的
+			// 差异，不能沿用写任务那句「只支持补齐缺失字段」把整表判成无法比较。
+			if plan.TargetTableExists && syncContentAllowsSchemaChanges(config.Content) && !config.CompareOnly {
 				unsupportedDiffs := unsupportedExistingTargetSchemaDiffs(summary.ColumnDiffs)
 				if len(unsupportedDiffs) > 0 {
 					summary.Message = "存在当前不支持自动修复的结构差异（" + summarizeColumnStructureDiffs(unsupportedDiffs) + "）；当前仅支持补齐目标缺失字段"
@@ -294,7 +349,7 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 				return
 			}
 			if !counted {
-				sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, plan.SourceQueryTable)))
+				sourceRows, _, err := querySyncSourceTableSnapshotContext(s.context(), config, sourceDB, sourceType, plan.SourceQueryTable, cols)
 				if err != nil {
 					recordCancellation(err)
 					summary.Message = localizedSyncBackendDetailText("data_sync.backend.error.read_source_table_failed", err)
@@ -371,7 +426,7 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 				return
 			}
 
-			sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, plan.SourceQueryTable)))
+			sourceRows, _, err := querySyncSourceTableSnapshotContext(s.context(), config, sourceDB, sourceType, plan.SourceQueryTable, cols)
 			if err != nil {
 				recordCancellation(err)
 				summary.Message = localizedSyncBackendDetailText("data_sync.backend.error.read_source_table_failed", err)
@@ -386,7 +441,7 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 					return
 				}
 			}
-			targetRows, _, err := querySyncDatabaseContext(s.context(), targetDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, plan.TargetQueryTable)))
+			targetRows, _, err := querySyncTableSnapshotContext(s.context(), targetDB, targetType, plan.TargetQueryTable, targetCols)
 			if err != nil {
 				recordCancellation(err)
 				summary.Message = localizedSyncBackendDetailText("data_sync.backend.error.read_target_table_failed", err)
@@ -394,7 +449,12 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 				return
 			}
 
-			inserts, updates, deletes, same := diffRowsByKeyColumns(comparisonPKCols, sourceRows, targetRows)
+			inserts, updates, deletes, same, err := diffSyncRowsByKeys(config, targetCols, comparisonPKCols, sourceRows, targetRows)
+			if err != nil {
+				summary.Message = err.Error()
+				result.Tables = append(result.Tables, summary)
+				return
+			}
 			summary.Inserts, summary.Updates, summary.Deletes, summary.Same = len(inserts), len(updates), len(deletes), same
 
 			summary.CanSync = true
@@ -406,6 +466,10 @@ func (s *SyncEngine) analyze(config SyncConfig) SyncAnalyzeResult {
 		if cancelled {
 			break
 		}
+	}
+
+	if compareSchemaScan {
+		result.Tables = append(result.Tables, s.scanCompareSchemaTables(config, sourceDB, targetDB, totalTables)...)
 	}
 
 	if cancelled || recordCancellation(nil) {
@@ -430,7 +494,7 @@ func firstNonEmpty(values ...string) string {
 // summarizeColumnStructureDiffs renders a per-kind tally so the compare row
 // states what actually diverged instead of only counting missing columns.
 func summarizeColumnStructureDiffs(diffs []ColumnStructureDiff) string {
-	counts := make(map[string]int, 4)
+	counts := make(map[string]int, 5)
 	for _, diff := range diffs {
 		counts[diff.Kind]++
 	}
@@ -446,6 +510,9 @@ func summarizeColumnStructureDiffs(diffs []ColumnStructureDiff) string {
 	}
 	if n := counts["nullable"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("%d 个字段可空性不同", n))
+	}
+	if n := counts["renamed"]; n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个字段疑似重命名", n))
 	}
 	if len(parts) == 0 {
 		return ""

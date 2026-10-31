@@ -1,11 +1,12 @@
 package sync
 
 import (
-	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/db"
 	"context"
 	"fmt"
 	"strings"
+
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
 )
 
 type sourceQuerySyncContext struct {
@@ -26,28 +27,15 @@ func hasSourceQuery(config SyncConfig) bool {
 	return strings.TrimSpace(config.SourceQuery) != ""
 }
 
-func localizedSyncBackendDetailText(key string, err error) string {
-	detail := ""
-	if err != nil {
-		detail = err.Error()
-	}
-	return localizedSyncBackendText(key, map[string]any{
-		"detail": detail,
-	})
-}
-
-func syncWrapDetailError(key string, err error) error {
-	return syncWrapError(key, map[string]any{
-		"detail": err.Error(),
-	}, err)
-}
-
 func validateSourceQuerySyncConfig(config SyncConfig) (string, error) {
 	sourceQuery := strings.TrimSpace(config.SourceQuery)
 	if sourceQuery == "" {
 		return "", syncTextError("data_sync.backend.validation.source_query_required", nil)
 	}
 
+	if err := validateHiveSourceQuerySQL(config); err != nil {
+		return "", err
+	}
 	content := strings.ToLower(strings.TrimSpace(config.Content))
 	if content != "" && content != "data" {
 		return "", syncTextError("data_sync.backend.validation.query_mode_data_only", nil)
@@ -121,6 +109,9 @@ func loadSourceQuerySyncContextWithContext(runCtx context.Context, config SyncCo
 	}
 
 	targetType, targetSchema, targetTable, targetQueryTable := resolveTargetQueryTable(config, tableName)
+	if err := validateHiveQueryPreflight(runCtx, config, targetDB, tableName, syncConfiguredTableOptions(config, tableName)); err != nil {
+		return sourceQuerySyncContext{}, err
+	}
 	targetCols, err := targetDB.GetColumns(targetSchema, targetTable)
 	if err != nil {
 		return sourceQuerySyncContext{}, syncWrapDetailError("data_sync.backend.error.load_target_columns_failed", err)
@@ -132,6 +123,9 @@ func loadSourceQuerySyncContextWithContext(runCtx context.Context, config SyncCo
 		return sourceQuerySyncContext{}, syncTextError("data_sync.backend.error.target_table_columns_missing", map[string]any{
 			"table": tableName,
 		})
+	}
+	if err := validateHiveTargetTypeSupport(config.TargetConfig, targetCols, false); err != nil {
+		return sourceQuerySyncContext{}, err
 	}
 	projection, err := projectionForSourceQuery(config)
 	if err != nil {
@@ -153,7 +147,7 @@ func loadSourceQuerySyncContextWithContext(runCtx context.Context, config SyncCo
 	}
 
 	if needSourceRows {
-		sourceRows, _, err := querySyncDatabaseContext(runCtx, sourceDB, strings.TrimSpace(config.SourceQuery))
+		sourceRows, _, err := querySyncSourceQueryContext(runCtx, config, sourceDB, targetCols, projection)
 		if err != nil {
 			return sourceQuerySyncContext{}, syncWrapDetailError("data_sync.backend.error.execute_source_query_failed", err)
 		}
@@ -175,17 +169,14 @@ func loadSourceQuerySyncContextWithContext(runCtx context.Context, config SyncCo
 	}
 
 	if needTargetRows {
-		targetRows, _, err := querySyncDatabaseContext(runCtx, targetDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable)))
+		targetRows, _, err := querySyncTableSnapshotContext(runCtx, targetDB, targetType, targetQueryTable, targetCols)
 		if err != nil {
 			return sourceQuerySyncContext{}, syncWrapDetailError("data_sync.backend.error.read_target_table_failed", err)
 		}
 		ctx.TargetRows = targetRows
 	}
 	if requirePK {
-		if err := validateSourceQueryUniqueKeyRows(ctx.SourceRows, ctx.PKColumns, "source query result"); err != nil {
-			return sourceQuerySyncContext{}, err
-		}
-		if err := validateSourceQueryUniqueKeyRows(ctx.TargetRows, ctx.PKColumns, "target table"); err != nil {
+		if err := validateQueryComparisonRows(config, ctx.TargetCols, ctx.PKColumns, ctx.SourceRows, ctx.TargetRows); err != nil {
 			return sourceQuerySyncContext{}, err
 		}
 	}
@@ -381,8 +372,7 @@ func (s *SyncEngine) analyzeSourceQuery(config SyncConfig) SyncAnalyzeResult {
 		return result
 	}
 	if !requiresComparisonKey {
-		sourceType := resolveMigrationDBType(config.SourceConfig)
-		sourceCount, counted, err := countSourceQueryRowsForSyncContext(s.context(), sourceDB, sourceType, config.SourceQuery)
+		sourceCount, counted, err := countValidatedSourceQueryRows(s.context(), config, sourceDB, ctx.TargetCols)
 		if err != nil {
 			if s.contextError() != nil {
 				return cancelledResult(&summary)
@@ -394,7 +384,7 @@ func (s *SyncEngine) analyzeSourceQuery(config SyncConfig) SyncAnalyzeResult {
 			return result
 		}
 		if !counted {
-			sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, strings.TrimSpace(config.SourceQuery))
+			sourceRows, _, err := queryValidatedSourceQuerySnapshot(s.context(), config, sourceDB, ctx.TargetCols)
 			if err != nil {
 				summary.Message = localizedSyncBackendDetailText("data_sync.backend.error.execute_source_query_failed", err)
 				result.Tables = append(result.Tables, summary)
@@ -458,7 +448,12 @@ func (s *SyncEngine) analyzeSourceQuery(config SyncConfig) SyncAnalyzeResult {
 		return result
 	}
 
-	inserts, updates, deletes, same := diffRowsByKeyColumns(ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+	inserts, updates, deletes, same, err := diffSyncRowsByKeys(config, ctx.TargetCols, ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+	if err != nil {
+		summary.Message = err.Error()
+		result.Tables = append(result.Tables, summary)
+		return result
+	}
 	if s.contextError() != nil {
 		return cancelledResult(&summary)
 	}
@@ -645,7 +640,10 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 		return TableDiffPreview{}, err
 	}
 
-	inserts, updates, deletes, _ := diffRowsByKeyColumns(ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+	inserts, updates, deletes, _, err := diffSyncRowsByKeys(config, ctx.TargetCols, ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+	if err != nil {
+		return TableDiffPreview{}, err
+	}
 	if err := s.contextError(); err != nil {
 		return TableDiffPreview{}, err
 	}
@@ -765,6 +763,8 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		return s.fail(config.JobID, totalTables, result, localizedSyncBackendDetailText("data_sync.backend.error.connect_source_failed", err))
 	}
 	defer sourceDB.Close()
+	db.BindMetadataContext(sourceDB, s.context())
+	defer db.ClearMetadataContext(sourceDB)
 	if err := s.contextError(); err != nil {
 		return s.fail(config.JobID, totalTables, result, err.Error())
 	}
@@ -773,16 +773,13 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		return s.fail(config.JobID, totalTables, result, localizedSyncBackendDetailText("data_sync.backend.error.connect_target_failed", err))
 	}
 	defer targetDB.Close()
+	db.BindMetadataContext(targetDB, s.context())
+	defer db.ClearMetadataContext(targetDB)
 	if err := s.contextError(); err != nil {
 		return s.fail(config.JobID, totalTables, result, err.Error())
 	}
 
-	opts := TableOptions{Insert: true, Update: true, Delete: false}
-	if config.TableOptions != nil {
-		if configured, ok := config.TableOptions[tableName]; ok {
-			opts = configured
-		}
-	}
+	opts := syncConfiguredTableOptions(config, tableName)
 	if !hasEffectiveSyncDataOperation(tableMode, opts) {
 		if tableMode == "insert_update" {
 			s.appendLog(config.JobID, &result, "info", fmt.Sprintf("目标表 %s 未选择数据变更，按无变更处理", tableName))
@@ -793,8 +790,7 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		return s.fail(config.JobID, totalTables, result, fmt.Sprintf("目标表 %s 在 %s 模式下未启用有效数据操作，已拒绝执行", tableName, tableMode))
 	}
 
-	needTargetRows := tableMode == "insert_update"
-	requirePK := tableMode == "insert_update"
+	needTargetRows, requirePK := tableMode == "insert_update", tableMode == "insert_update"
 	ctx, err := loadSourceQuerySyncContextWithContext(s.context(), config, sourceDB, targetDB, false, false, requirePK)
 	if err != nil {
 		return s.fail(config.JobID, totalTables, result, err.Error())
@@ -841,7 +837,10 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 	}
 	result.RowsSkipped += ctx.SkippedRows
 	if tableMode == "insert_update" {
-		inserts, updates, deletes, _ = diffRowsByKeyColumns(ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+		inserts, updates, deletes, _, err = diffSyncRowsByKeys(config, ctx.TargetCols, ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+		if err != nil {
+			return s.fail(config.JobID, totalTables, result, err.Error())
+		}
 		inserts = filterRowsByKeySelection(ctx.PKColumns, inserts, opts.Insert, opts.SelectedInsertPKs)
 		updates = filterUpdatesByKeySelection(ctx.PKColumns, updates, opts.Update, opts.SelectedUpdatePKs)
 		deletes = filterRowsByKeySelection(ctx.PKColumns, deletes, opts.Delete, opts.SelectedDeletePKs)
@@ -863,22 +862,14 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		Deletes: deletes,
 	}, ctx.TargetCols)
 	hasChanges := len(changeSet.Inserts) > 0 || len(changeSet.Updates) > 0 || len(changeSet.Deletes) > 0
-	var applier db.BatchApplier
-	if hasChanges {
-		var ok bool
-		applier, ok = targetDB.(db.BatchApplier)
-		if !ok {
-			return s.fail(config.JobID, totalTables, result, "目标驱动不支持应用数据变更 (ApplyChanges)")
-		}
+	applier, err := snapshotTargetApplier(s.context(), config, targetDB, ctx.TargetQueryTable, ctx.TargetCols, changeSet)
+	if err != nil {
+		return s.fail(config.JobID, totalTables, result, err.Error())
 	}
 
 	if tableMode == "full_overwrite" {
 		s.progress(config.JobID, 0, totalTables, tableName, "清空目标表")
-		clearSQL := fmt.Sprintf("DELETE FROM %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
-		if ctx.TargetType == "mysql" {
-			clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
-		}
-		if _, err := execSyncDatabaseContext(s.context(), targetDB, clearSQL); err != nil {
+		if err := clearSyncTargetContext(s.context(), targetDB, ctx.TargetType, ctx.TargetQueryTable); err != nil {
 			return s.fail(config.JobID, totalTables, result, "清空目标表失败: "+err.Error())
 		}
 	}

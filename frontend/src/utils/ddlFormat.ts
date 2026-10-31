@@ -15,6 +15,8 @@ const resolveDdlFormatterLanguage = (
     return 'plsql';
   }
   switch (normalized) {
+    case 'hive':
+      return 'hive';
     case 'duckdb':
       return 'duckdb';
     case 'sqlite':

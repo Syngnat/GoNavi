@@ -62,6 +62,7 @@ func buildImportFileOptionsHash(options ImportFileOptions) string {
 		conflictPolicy = importConflictPolicyStop
 	}
 	return hashImportJobContract(struct {
+		LosslessHive       bool              `json:"losslessHive,omitempty"`
 		ColumnMappings     map[string]string `json:"columnMappings,omitempty"`
 		ContinueOnError    bool              `json:"continueOnError"`
 		Encoding           string            `json:"encoding,omitempty"`
@@ -73,6 +74,7 @@ func buildImportFileOptionsHash(options ImportFileOptions) string {
 		ConflictPolicy     string            `json:"conflictPolicy,omitempty"`
 		ConflictKeyColumns []string          `json:"conflictKeyColumns,omitempty"`
 	}{
+		LosslessHive:       options.LosslessHive,
 		ColumnMappings:     options.ColumnMappings,
 		ContinueOnError:    continueOnError,
 		Encoding:           encoding,

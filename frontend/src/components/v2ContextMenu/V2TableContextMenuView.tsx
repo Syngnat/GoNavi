@@ -25,6 +25,7 @@ import {
   primaryShortcut,
   renderV2ContextMenuItems,
   V2ContextMenuHeader,
+  V2TableContextMenuItem,
   type V2TableContextMenuItemConfig,
 } from './v2ContextMenuPrimitives';
 import { resolveV2TableContextMenuMeta, type V2TableContextMenuStats } from './v2TableContextMenuMeta';
@@ -71,6 +72,7 @@ export const V2TableContextMenuView: React.FC<{
   supportsSqlExport?: boolean;
   // 生成模拟数据：关系型数据源且连接没有禁止编辑/导入数据。
   supportsMockData?: boolean;
+  pluginActions?: { key: string; title: string; onSelect: () => void }[];
   onAction?: (action: V2TableContextMenuActionKey) => void;
 }> = ({
   tableName,
@@ -85,6 +87,7 @@ export const V2TableContextMenuView: React.FC<{
   supportsBatchTables = true,
   supportsSqlExport = true,
   supportsMockData = false,
+  pluginActions = [],
   onAction,
 }) => {
   const renderItems = (items: V2TableContextMenuItemConfig[]) => renderV2ContextMenuItems(
@@ -139,6 +142,12 @@ export const V2TableContextMenuView: React.FC<{
           { action: 'new-query', icon: <GnNewQueryIcon />, title: t('sidebar.menu.new_query') },
           ...(supportsMessagePublish ? [{ action: 'publish-message' as const, icon: <SendOutlined />, title: t('message_publish_modal.title') }] : []),
         ])}
+
+        {pluginActions.length > 0 && <>
+          <div className="gn-v2-context-menu-section-title">{t('plugin.connection_actions.menu')}</div>
+          {pluginActions.map((item) => <V2TableContextMenuItem key={item.key}
+            item={{ action: item.key, icon: <CodeOutlined />, title: item.title }} onAction={() => item.onSelect()} />)}
+        </>}
 
         <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.metadata_section')}</div>
         {renderItems([

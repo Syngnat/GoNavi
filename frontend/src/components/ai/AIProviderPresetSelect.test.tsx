@@ -122,4 +122,37 @@ describe('AIProviderPresetSelect', () => {
     expect(onApplyPartnerBaseUrl).toHaveBeenCalledWith('https://api.hualong.online/v1', '華龍算力');
     expect(onOpenPartner).not.toHaveBeenCalled();
   });
+
+  it('lists installed plugin providers in a plugin group and only adds available ones', async () => {
+    const onChange = vi.fn();
+    const props = {
+      value: null,
+      presets: [{ key: 'openai', label: 'OpenAI' }],
+      canSelect: () => true,
+      builtinLabel: '内置支持',
+      partnerLabel: '赞助商',
+      ...partnerCopy,
+      ariaLabel: '供应商',
+      onChange,
+      pluginPresets: [
+        { key: 'plugin:example.ai:chat', label: 'Native provider · example.ai', available: true, iconSrc: 'data:image/png;base64,iVBORw0KGgo=' },
+        { key: 'plugin:example.ai:offline', label: 'Offline · example.ai', available: false },
+      ],
+      pluginLabel: '插件提供方',
+      pluginUnavailableLabel: '不可用',
+    };
+    const markup = renderToStaticMarkup(<AIProviderPresetSelect {...props} />);
+    expect(markup).toContain('插件提供方');
+    expect(markup).toContain('data-plugin-provider="plugin:example.ai:chat"');
+    expect(markup).toContain('data-plugin-provider="plugin:example.ai:offline"');
+    expect(markup).toContain('src="data:image/png;base64,iVBORw0KGgo="');
+    expect(markup).toContain('不可用');
+
+    const renderer = create(<AIProviderPresetSelect {...props} />);
+    await act(async () => { renderer.root.findByProps({ 'data-plugin-provider': 'plugin:example.ai:chat' }).props.onClick(); });
+    expect(onChange).toHaveBeenCalledWith('plugin:example.ai:chat');
+    onChange.mockClear();
+    act(() => renderer.root.findByProps({ 'data-plugin-provider': 'plugin:example.ai:offline' }).props.onClick());
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

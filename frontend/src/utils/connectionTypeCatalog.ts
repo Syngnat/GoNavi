@@ -137,6 +137,14 @@ export const CONNECTION_TYPE_GROUPS: ConnectionTypeCatalogGroup[] = withRegistry
     ],
   },
   {
+    labelKey: 'connection_modal.step1.group.agent',
+    label: 'Agents',
+    items: [
+      { key: 'codex', name: 'ChatGPT' },
+      { key: 'claude', name: 'Claude Code' },
+    ],
+  },
+  {
     labelKey: 'connection_modal.step1.group.other',
     label: 'Other',
     items: [
@@ -244,6 +252,10 @@ export const getConnectionTypeHint = (
   switch (String(type || '').trim().toLowerCase()) {
     case 'jvm':
       return translateCatalogCopy(translate, 'connection_modal.step1.hint.jvm', 'JMX / Endpoint / Agent');
+    case 'codex':
+      return translateCatalogCopy(translate, 'connection_modal.step1.hint.codex', 'Browse local ChatGPT (Codex) sessions');
+    case 'claude':
+      return translateCatalogCopy(translate, 'connection_modal.step1.hint.claude', 'Browse local Claude Code sessions');
     case 'custom':
       return translateCatalogCopy(translate, 'connection_modal.step1.hint.custom', 'Custom driver and DSN');
     case 'redis':

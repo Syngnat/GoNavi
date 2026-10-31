@@ -141,6 +141,7 @@ export const SQL_AUDIT_SOURCES = [
   'user_management',
   'ai_action',
   'sql_analysis',
+  'plugin_page',
   'application_api',
   'audit_control',
 ] as const;

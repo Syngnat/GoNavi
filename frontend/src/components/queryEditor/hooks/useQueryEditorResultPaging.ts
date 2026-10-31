@@ -1,4 +1,5 @@
 import { message } from 'antd';
+import { hivePaginationNeedsOrder } from '../../../utils/hivePagination';
 import type { GridSortInfoItem } from '../../../utils/dataGridSort';
 import { canUseQueryEditorDatabaseContext } from '../queryEditorLazyTablesCache';
 import { resolveSqlDialect } from '../../../utils/sqlDialect';
@@ -71,17 +72,7 @@ export const useQueryEditorResultPaging = ({
         const normalizedDbType = String(resolveSqlDialect(dbType, driver, {
             oceanBaseProtocol: String((config as any).oceanBaseProtocol || ''),
         })).toLowerCase();
-        const pageSql = buildQueryResultPageSql({
-            baseSql: target.page.baseSql,
-            dbType: normalizedDbType,
-            driver,
-            oceanBaseProtocol: String((config as any).oceanBaseProtocol || ''),
-            page: safePage,
-            pageSize: safePageSize,
-            lookahead: true,
-            sortInfo: sortInfoOverride || target.sortInfo || [],
-        });
-
+        if (normalizedDbType === 'hive' && hivePaginationNeedsOrder(target.page.baseSql, (sortInfoOverride || target.sortInfo || []).length ? 'ORDER BY' : '', (safePage - 1) * safePageSize)) message.warning({ key: 'hive-pagination-order', content: translate('hive.pagination.stableOrder') });
         const runSeq = ++runSeqRef.current;
         const isCurrentRun = () => runSeqRef.current === runSeq;
         let runQueryId = '';
@@ -89,6 +80,17 @@ export const useQueryEditorResultPaging = ({
         setLoading(true);
 
         try {
+            const pageSql = buildQueryResultPageSql({
+                baseSql: target.page.baseSql,
+                dbType: normalizedDbType,
+                driver,
+                oceanBaseProtocol: String((config as any).oceanBaseProtocol || ''),
+                page: safePage,
+                pageSize: safePageSize,
+                lookahead: true,
+                columns: target.columns,
+                sortInfo: sortInfoOverride || target.sortInfo || [],
+            });
             setResultSets(prev => prev.map(rs =>
                 rs.key === resultKey && rs.page
                     ? { ...rs, page: { ...rs.page, loading: true } }

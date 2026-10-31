@@ -1,7 +1,18 @@
 import { boundedJSON, isRecord } from './jsonBoundary';
+import { MANIFEST_JSON_LIMITS } from './decode';
 import type { UINode } from './types';
 
 export const UI_LIMITS = { depth: 16, nodes: 512, rows: 500, columns: 32, children: 128, bytes: 8 * 1024 * 1024, cellBytes: 256 * 1024 } as const;
+// UI_LIMITS.depth counts nodes, while each node costs two JSON levels (node object plus its
+// children array), so a body nested to the 16-node host limit already reaches depth 32; the
+// arguments and table cells inside a node are arbitrary JSON bounded only by the manifest envelope.
+// Reusing that envelope keeps this renderer check from rejecting a body decodeManifest accepted.
+// UI_LIMITS.bytes is this renderer's own ceiling, not a tighter one: 512 nodes at the 16 KiB node
+// text cap already reaches 8 MiB, and any body that arrives here was already bounded to the 1 MiB
+// manifest envelope by decodeManifest, so the byte budget never rejects a decoded body.
+// Every JSON value needs at least one byte, so matching values to bytes keeps the count
+// from becoming a tighter gate for a table's 500 x 32 cells.
+export const UI_JSON_LIMITS = { bytes: UI_LIMITS.bytes, text: UI_LIMITS.cellBytes, depth: MANIFEST_JSON_LIMITS.depth, values: UI_LIMITS.bytes } as const;
 const common = ['type', 'text', 'title'];
 const allowed: Record<UINode['type'], string[]> = {
   text: common, alert: common, column: [...common, 'children'], row: [...common, 'children'],
@@ -9,7 +20,7 @@ const allowed: Record<UINode['type'], string[]> = {
 };
 const invalid = (): never => { throw new Error('plugin.ui.invalid_schema'); };
 export function validateUINode(value: unknown, commands: ReadonlySet<string>): UINode {
-  boundedJSON(value, UI_LIMITS.bytes, UI_LIMITS.cellBytes);
+  boundedJSON(value, UI_JSON_LIMITS.bytes, UI_JSON_LIMITS.text, UI_JSON_LIMITS.depth, UI_JSON_LIMITS.values);
   let count = 0;
   const visit = (node: unknown, depth: number): void => {
     if (++count > UI_LIMITS.nodes || depth > UI_LIMITS.depth || !isRecord(node)) return invalid();

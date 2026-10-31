@@ -28,8 +28,18 @@ func (d *OptionalDriverAgentDB) ensureKingbaseSearchPath(config connection.Conne
 
 	schemas, err := d.listKingbaseSchemas(ctx)
 	if err != nil || len(schemas) == 0 {
+		// 代理刚启动或正忙时，第一次探测可能超时。search_path 决定未限定表名能不能查到，
+		// 探测失败会让这一次连接上的 `select * from 表` 间歇性「找不到表/查不到列」，
+		// 所以失败后立刻重试一次，而不是把这次连接留成半可用状态。
+		retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer retryCancel()
+		schemas, err = d.listKingbaseSchemas(retryCtx)
+	}
+	if err != nil || len(schemas) == 0 {
 		if err != nil {
-			logger.Warnf("人大金仓驱动代理探测 schema 失败：%v", err)
+			logger.Warnf("人大金仓驱动代理探测 schema 失败（已重试一次）：%v", err)
+		} else {
+			logger.Warnf("人大金仓驱动代理探测 schema 为空（已重试一次），本次连接沿用服务端默认 search_path")
 		}
 		return
 	}

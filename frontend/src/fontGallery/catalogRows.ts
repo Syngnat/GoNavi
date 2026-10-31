@@ -1,7 +1,6 @@
-import { fontFamilyKey, systemHasFamily } from './options';
+import { fontFamilyKey } from './options';
 import { RECOMMENDED_FONTS } from './recommendedCatalog';
-import type { FontEntry, FontInstalled } from './types';
-import type { InstalledFontFamily } from '../utils/fontFamilies';
+import type { FontEntry } from './types';
 
 export interface CatalogRow {
   id: string;
@@ -14,11 +13,7 @@ export interface CatalogRow {
   remote?: FontEntry;
 }
 
-export function buildFontCatalogRows(
-  entries: FontEntry[],
-  systemFamilies: InstalledFontFamily[],
-  installed: FontInstalled[],
-): CatalogRow[] {
+export function buildFontCatalogRows(entries: FontEntry[]): CatalogRow[] {
   const rows: CatalogRow[] = [];
   const seenIds = new Set<string>();
   const seenFamilies = new Set<string>();
@@ -27,9 +22,7 @@ export function buildFontCatalogRows(
     if (seenIds.has(row.id) || seenFamilies.has(key)) return;
     seenIds.add(row.id);
     seenFamilies.add(key);
-    // 本机已有字体不再重复推荐；保留下载记录以便管理/删除。
-    const downloaded = installed.some(item => fontFamilyKey(item.entry.family) === key);
-    if (!downloaded && systemHasFamily(systemFamilies, row.family)) return;
+    // 本机已装字体保持可见，由面板标为「系统已安装」，避免静默消失导致用户困惑。
     rows.push(row);
   };
   const fromEntry = (entry: FontEntry): CatalogRow => ({

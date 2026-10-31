@@ -248,7 +248,7 @@
 | | |
 |---|---|
 | **内置** | MySQL · GoldenDB · PostgreSQL · Oracle · Redis · Chroma · Qdrant · Milvus · RocketMQ · MQTT · Kafka · RabbitMQ |
-| **可选** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · 达梦 · 人大金仓 · 瀚高 · 海量 · openGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · TiDB · CockroachDB · KWDB · TimescaleDB · GBase 8a · GBase 8c · GBase 8s · 崖山 · Firebird · QuestDB · GreptimeDB · InfluxDB · Presto · OpenSearch · Weaviate · Meilisearch · Typesense · etcd · ZooKeeper · Custom Driver/DSN |
+| **可选** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · 达梦 · 人大金仓 · 瀚高 · 海量 · openGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Hive · Trino · Elasticsearch · TiDB · CockroachDB · KWDB · TimescaleDB · GBase 8a · GBase 8c · GBase 8s · 崖山 · Firebird · QuestDB · GreptimeDB · InfluxDB · Presto · OpenSearch · Weaviate · Meilisearch · Typesense · etcd · ZooKeeper · Custom Driver/DSN |
 
 <details>
 <summary><b>完整能力矩阵</b></summary>
@@ -287,6 +287,7 @@
 | 时序 | TDengine | 可选驱动代理 | 时序库表浏览、查询分析 |
 | 时序 | Apache IoTDB | 可选驱动代理 | Storage Group / Device / Timeseries 浏览与查询 |
 | 列式分析 | ClickHouse | 可选驱动代理 | 分析查询、对象浏览、SQL 执行 |
+| 数据仓库 | [Hive / HiveServer2](HIVE_SUPPORT.md) | 可选驱动代理 | Apache Hive / Spark Thrift / Impala、分区与复杂类型、导入导出、双向同步、Kerberos |
 | 联邦查询 | Trino | 可选驱动代理 | 跨多数据源联邦 SQL、`catalog.schema` 浏览、SQL 执行 |
 | 搜索 | Elasticsearch | 可选驱动代理 | 索引浏览、Mapping 检查、受控 REST 控制台、JSON DSL / query_string 查询 |
 | 关系型 | TiDB | 可选驱动代理 | 兼容 MySQL 的查询、TiDB 执行计划、数据编辑、同步与迁移 |

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useOptionalI18n } from '../i18n/provider';
 import { useStore } from '../store';
 import TitleBarQuickActions, { type TitleBarQuickAction } from './TitleBarQuickActions';
-import { TITLEBAR_QUICK_ACTIONS_SLOT_ID } from './titlebar/TitleBarActionRow';
+import { TITLEBAR_AFTER_AI_ACTIONS_SLOT_ID, TITLEBAR_QUICK_ACTIONS_SLOT_ID } from './titlebar/TitleBarActionRow';
 import { resolveTitlebarQuickActionShortLabel } from './titlebar/titlebarShortLabels';
 
 interface TitleBarQuickActionsHostProps {
@@ -44,29 +44,34 @@ export default function TitleBarQuickActionsHost({
   const [, refreshSlots] = useReducer((count: number) => count + 1, 0);
   const quickTarget = findSlot(TITLEBAR_QUICK_ACTIONS_SLOT_ID);
   const aboutTarget = findSlot(ABOUT_SLOT_ID);
+  const afterAITarget = findSlot(TITLEBAR_AFTER_AI_ACTIONS_SLOT_ID);
   useLayoutEffect(() => {
-    if (findSlot(TITLEBAR_QUICK_ACTIONS_SLOT_ID) !== quickTarget || findSlot(ABOUT_SLOT_ID) !== aboutTarget) {
+    if (findSlot(TITLEBAR_QUICK_ACTIONS_SLOT_ID) !== quickTarget || findSlot(ABOUT_SLOT_ID) !== aboutTarget ||
+      findSlot(TITLEBAR_AFTER_AI_ACTIONS_SLOT_ID) !== afterAITarget) {
       refreshSlots();
     }
   });
   if (!quickTarget) {
     return null;
   }
-  if (!aboutTarget || !trailingActions?.length) {
-    return createPortal(
-      <TitleBarQuickActions label={label} actions={actions} trailingActions={trailingActions} />,
-      quickTarget,
-    );
-  }
+  const beforeAI = afterAITarget ? actions.filter((action) => !action.afterAI) : actions;
+  const afterAI = afterAITarget ? actions
+    .filter((action) => action.afterAI && action.priority !== 'secondary')
+    .map((action, index) => ({ ...action, dividerBefore: index === 0 })) : [];
+  const separateTrailing = !!aboutTarget && !!trailingActions?.length;
   return (
     <>
       {createPortal(
-        <TitleBarQuickActions label={label} actions={actions} />,
+        <TitleBarQuickActions label={label} actions={beforeAI} trailingActions={separateTrailing ? undefined : trailingActions} />,
         quickTarget,
       )}
-      {createPortal(
-        <TitleBarQuickActions label={label} actions={trailingActions} />,
-        aboutTarget,
+      {afterAITarget && afterAI.length > 0 && createPortal(
+        <TitleBarQuickActions label={label} actions={afterAI} />,
+        afterAITarget,
+      )}
+      {separateTrailing && createPortal(
+        <TitleBarQuickActions label={label} actions={trailingActions!} />,
+        aboutTarget!,
       )}
     </>
   );

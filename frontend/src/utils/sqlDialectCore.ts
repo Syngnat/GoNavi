@@ -276,7 +276,7 @@ export const appendTableAlias = (tableName: string, alias: string, dbType: strin
 };
 
 export const isBacktickIdentifierDialect = (dbType: string): boolean => (
-  isMysqlFamilyDialect(dbType) || ['clickhouse', 'tdengine', 'iotdb'].includes(resolveSqlDialect(dbType))
+  isMysqlFamilyDialect(dbType) || ['clickhouse', 'tdengine', 'iotdb', 'hive'].includes(resolveSqlDialect(dbType))
 );
 
 const stripIdentifierQuotes = (part: string, dbType = ''): string => {

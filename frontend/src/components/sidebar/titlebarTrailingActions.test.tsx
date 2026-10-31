@@ -4,6 +4,7 @@ import { buildTitlebarTrailingActions } from './titlebarTrailingActions';
 
 const t = (key: string) => ({
   'app.tools.entry.drivers.title': 'Drivers',
+  'plugin.manager.title': 'Plugins',
   'app.settings.group.about.title': 'About',
   'app.native_menu.about': 'About GoNavi',
   'app.about.action.check_updates': 'Check for Updates',
@@ -57,9 +58,30 @@ describe('titlebar trailing actions', () => {
     expect(onOpenSettingsNavigation).toHaveBeenCalledWith({ group: 'workspace', action: 'drivers' });
   });
 
-  it('leaves both entries to the native menu bar on macOS', () => {
-    expect(build({ hideAbout: true, hideDrivers: true })).toEqual([]);
-    expect(build({ hideAbout: true }).map((action) => action.key)).toEqual(['drivers']);
-    expect(build({ hideDrivers: true }).map((action) => action.key)).toEqual(['about-go-navi']);
+  it('sits the plugins entry between drivers and about and opens its workbench tab on click', () => {
+    const onOpenSettingsNavigation = vi.fn();
+    const actions = build({ onOpenSettingsNavigation });
+
+    expect(actions.map((action) => action.key)).toEqual(['drivers', 'plugins', 'about-go-navi']);
+    const plugins = actions.find((action) => action.key === 'plugins')!;
+    expect(plugins.label).toBe('Plugins');
+    expect(plugins.active).toBe(false);
+    plugins.onClick?.();
+    expect(onOpenSettingsNavigation).toHaveBeenCalledWith({ group: 'workspace', action: 'plugins' });
+  });
+
+  it('lights the plugins entry while the plugin manager workbench tab is active', () => {
+    const buildPlugins = (pluginManagerTabActive?: boolean) => build({ pluginManagerTabActive })
+      .find((action) => action.key === 'plugins')!;
+
+    expect(buildPlugins(true).active).toBe(true);
+    expect(buildPlugins(false).active).toBe(false);
+    expect(build().find((action) => action.key === 'plugins')!.active).toBe(false);
+  });
+
+  it('keeps the plugins entry in the titlebar on macOS; only drivers and about move to the native menu', () => {
+    expect(build({ hideAbout: true, hideDrivers: true }).map((action) => action.key)).toEqual(['plugins']);
+    expect(build({ hideAbout: true }).map((action) => action.key)).toEqual(['drivers', 'plugins']);
+    expect(build({ hideDrivers: true }).map((action) => action.key)).toEqual(['plugins', 'about-go-navi']);
   });
 });

@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"time"
+
+	"GoNavi-Wails/internal/buildversion"
+	"GoNavi-Wails/internal/logger"
 )
 
 func (m *Manager) prepareOwnerState(ctx context.Context) error {
@@ -60,7 +63,7 @@ func (m *Manager) reconcile(ctx context.Context) {
 			continue
 		}
 		reason := dependencyReason(r, state.Records)
-		if r.Manifest.MinHostVersion != "" && (!validVersion(m.opts.HostVersion) || !versionAtLeast(m.opts.HostVersion, r.Manifest.MinHostVersion)) {
+		if r.Manifest.MinHostVersion != "" && !buildversion.SatisfiesMinimum(m.opts.HostVersion, r.Manifest.MinHostVersion) {
 			reason = "plugin requires a newer compatible host version"
 		}
 		if reason != "" {
@@ -172,7 +175,7 @@ func (m *Manager) activate(inst *instance) error {
 		if err = privateDirectory(dataRoot); err != nil {
 			return err
 		}
-		process, launchErr := launchProcess(r.Manifest, root, dataRoot)
+		process, launchErr := launchProcess(r.Manifest, root, dataRoot, m.opts.ProxyEnvironment)
 		if launchErr != nil {
 			return launchErr
 		}
@@ -232,6 +235,7 @@ func (m *Manager) monitor(inst *instance) error {
 	ticker := time.NewTicker(m.opts.HeartbeatInterval)
 	defer ticker.Stop()
 	misses := 0
+	var lastErr error
 	for {
 		select {
 		case <-inst.ctx.Done():
@@ -244,11 +248,18 @@ func (m *Manager) monitor(inst *instance) error {
 			cancel()
 			if err == nil {
 				misses = 0
+				lastErr = nil
 				continue
 			}
 			misses++
+			lastErr = err
+			logger.Warnf("plugin %s: heartbeat miss %d/%d: %v", inst.record.Manifest.ID, misses, m.opts.MissedHeartbeats, err)
 			if misses >= m.opts.MissedHeartbeats {
-				return fmt.Errorf("plugin heartbeat budget exhausted")
+				// The last ping error is the only evidence of why the budget ran out: a
+				// timeout, a saturated transport and a dying process all look identical
+				// once only the counter survives. Keep it in the chain and in the log.
+				logger.Warnf("plugin %s: heartbeat budget exhausted after %d misses: %v", inst.record.Manifest.ID, misses, lastErr)
+				return fmt.Errorf("plugin heartbeat budget exhausted: %w", lastErr)
 			}
 		}
 	}
@@ -260,6 +271,9 @@ func (m *Manager) quarantine(inst *instance, cause error) {
 	if len(message) > 1024 {
 		message = message[:1024]
 	}
+	// A quarantined record survives restarts and only the persisted message reaches the card,
+	// so the log has to carry the same cause or the fault becomes unreproducible later.
+	logger.Warnf("plugin %s: quarantined generation %d: %s", inst.record.Manifest.ID, inst.record.Generation, message)
 	// Persist before cleanup: a crash during shutdown must not produce a boot loop. A dropped
 	// quarantine is worse: the next reconcile restarts the plugin, the fault repeats, and the
 	// unguarded stop path finally parks the record in a bogus disabled state. updateRecord

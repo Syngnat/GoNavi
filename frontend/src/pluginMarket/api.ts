@@ -1,11 +1,10 @@
 import {
   PluginMarketSettings, PluginMarketConfigure, PluginMarketCatalog, PluginMarketDetail,
-  PluginMarketRatings, PluginMarketRate, PluginMarketDeleteRating, PluginMarketLogin,
-  PluginMarketPollLogin, PluginMarketLogout, PluginMarketInstall, PluginMarketInspect, PluginMarketCancelInspection,
+  PluginMarketRatings, PluginMarketInstall, PluginMarketInspect, PluginMarketCancelInspection,
 } from '../../wailsjs/go/app/App';
 import { pluginResult, ignoreResult } from '../plugins/apiResult';
 import { isRecord } from '../plugins/jsonBoundary';
-import { decodeSettings, decodeMarketPlugin, decodeRatings, decodeRating, decodeLogin, decodeLoginStatus } from './decode';
+import { decodeSettings, decodeMarketPlugin, decodeRatings } from './decode';
 import type { MarketSort } from './types';
 import { marketCatalogResult } from './catalogResult';
 import { marketInstallResult } from './installResult';
@@ -17,11 +16,6 @@ export const marketAPI = {
   catalog: (query: string, sort: MarketSort, cursor: string) => marketCatalogResult(PluginMarketCatalog(query, sort, cursor)),
   detail: (id: string) => pluginResult(PluginMarketDetail(id), decodeMarketPlugin),
   ratings: (id: string) => pluginResult(PluginMarketRatings(id), decodeRatings),
-  rate: (id: string, stars: number, body: string, version: string) => pluginResult(PluginMarketRate(id, stars, body, version), decodeRating),
-  deleteRating: (id: string) => pluginResult(PluginMarketDeleteRating(id), ignoreResult),
-  login: () => pluginResult(PluginMarketLogin(), decodeLogin),
-  pollLogin: (code: string) => pluginResult(PluginMarketPollLogin(code), decodeLoginStatus),
-  logout: () => pluginResult(PluginMarketLogout(), ignoreResult),
   inspect: async (id: string, version: string, artifactDigest: string, sourceId: string) => {
     const data = await pluginResult(PluginMarketInspect(id, version, artifactDigest, sourceId), (value) => value);
     try { return decodeInspectionQuote(data); }

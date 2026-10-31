@@ -153,7 +153,7 @@ func main() {
 			defer releaseSingleInstance()
 		}
 	}
-	deepLinks := &deepLinkWaker{activator: primaryActivator}
+	deepLinks := &deepLinkWaker{activator: primaryActivator, exePath: executablePath}
 	defer startDeepLinks(executablePath, deepLinks)()
 	// Clear WebView2 processes left behind by an earlier exit before this
 	// process creates its own browser, then arm a reaper for the next exit.
@@ -172,6 +172,8 @@ func main() {
 	// OnStartup in a goroutine, so the AI panel can read the provider list before
 	// InitializeLifecycle has run and would otherwise be told nothing is configured.
 	aiservice.PreloadConfig(aiService)
+	// models.dev 公共目录在后台预热：设置页第一次打开模型区时不必等网络。
+	aiservice.WarmModelCatalog(aiService)
 	agentTools, agentToolsErr := newDesktopAgentToolCatalog(application, aiService)
 	if agentToolsErr != nil {
 		logger.Warnf("初始化 AI Agent 工具目录失败：%v", agentToolsErr)
@@ -265,6 +267,8 @@ func main() {
 				// emit gonavi:frontend-ready into an empty event bus.
 				wailsRuntime.EventsOn(ctx, startupFrontendReadyEvent, func(...interface{}) {
 					startupGate.markFrontendReady()
+					// 市场网站唤起的冷启动链接：前端就绪后补发给插件安装面板。
+					go deepLinks.dispatchPendingLink()
 				})
 				// 显示回调与兜底定时器都在 OnStartup 绑定：OnDomReady 依赖 WebView
 				// 成功导航，页面加载失败时不会触发，绑定放在那里会让窗口一直隐藏。
@@ -435,7 +439,11 @@ func runSpecialMode(args []string) (bool, error) {
 	case "web-server", "--web-server":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		return true, webserver.Run(ctx, assets, args[1:])
+		// 前端资产解到临时目录用 page cache 承载，省去约 27 MB 常驻堆；
+		// 失败时内部回退内存 FS，release 在服务退出后清理临时目录。
+		assetFS, releaseWebAssets := webServerAssets()
+		defer releaseWebAssets()
+		return true, webserver.Run(ctx, assetFS, args[1:])
 	case "detached-window", nativewindow.DetachedWindowArgument:
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

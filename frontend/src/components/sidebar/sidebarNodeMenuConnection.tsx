@@ -17,6 +17,7 @@ import { buildElasticsearchConsoleTemplates } from '../../utils/elasticsearchCon
 import { isElasticsearchFamilyType } from '../../utils/elasticsearchFamily';
 import { GnNewQueryIcon } from '../icons/gnIcons';
 import { registryAllowsImport } from '../../utils/dataSourceRegistry';
+import { buildPluginConnectionActionMenuItems } from './pluginConnectionActionMenu';
 
 export interface BuildConnectionNodeMenuItemsInput {
   isRedis: boolean;
@@ -37,6 +38,14 @@ export const buildConnectionNodeMenuItems = ({ isRedis, refreshConnectionResourc
     buildConnectionRootQueryTabTitle, setTargetConnection, setIsCreateDbModalOpen,
     openMessageQueueWorkbench, openMessagePublishModal, handleRunSQLFile,
   } = context;
+  const pluginActionItems = buildPluginConnectionActionMenuItems({
+    actions: context.pluginConnectionActions ?? [],
+    connectionType: conn?.config?.type ?? '',
+    scope: 'connection',
+    target: { connectionId: conn?.id ?? String(node.key ?? '') },
+    run: (entry, target) => context.runPluginConnectionAction?.(entry, target),
+  });
+
   // Redis connection menu
   if (isRedis) {
       return [
@@ -306,6 +315,7 @@ export const buildConnectionNodeMenuItems = ({ isRedis, refreshConnectionResourc
                icon: <FileAddOutlined />,
                onClick: () => handleRunSQLFile(node)
            }] : []),
+           ...pluginActionItems,
            ]),
        ] : []),
        { type: 'divider' },

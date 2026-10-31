@@ -18,6 +18,7 @@ import {
   resolveNacosServicesDoubleClickAction,
 } from '../sidebarV2Utils';
 import { t } from '../../i18n';
+import { buildAgentAssetsWorkbenchTab } from '../../utils/agentAssetsTab';
 import { GnFieldsIcon, GnIndexIcon, GnLinkIcon } from '../icons/gnIcons';
 import { renderSidebarObjectIcon } from './sidebarObjectIcons';
 import { useSidebarTreeLoaders } from './useSidebarTreeLoaders';
@@ -25,6 +26,7 @@ import { resolveDataSourceType } from '../../utils/dataSourceCapabilities';
 import { isConnectionStructureEditRestricted } from '../../utils/connectionReadOnly';
 import { message } from 'antd';
 import { tryOpenSidebarObjectNode } from './sidebarOpenObjectNode';
+import { resolvePlainClickSelectedKeys } from './sidebarTableMultiSelect';
 import { buildOptionalSchemaContext } from './sidebarRootHelpers';
 import { useSidebarObjectActions } from './useSidebarObjectActions';
 import React from 'react';
@@ -245,7 +247,7 @@ export const useSidebarTreeEvents = ({
       }), selectedSidebarKeyRef.current);
   };
 
-  const onSelect = (keys: React.Key[], info: any) => {
+  const onSelect = (selectedKeysFromTree: React.Key[], info: any) => {
       if (info?.node?.type === 'v2-table-section' || info?.node?.type === 'v2-database-section') {
           return;
       }
@@ -255,6 +257,12 @@ export const useSidebarTreeEvents = ({
       if (isTreeDragging) {
           return;
       }
+      // 树为多选（表节点范围选择需要），普通单击在这里归一回单个节点：
+      // 带 Shift / Cmd / Ctrl 时保留多选结果。
+      const nativeEvent = info?.nativeEvent;
+      const hasModifier = !!(nativeEvent?.shiftKey || nativeEvent?.metaKey || nativeEvent?.ctrlKey);
+      const normalizedKeys = resolvePlainClickSelectedKeys(selectedKeysFromTree, info?.node?.key, hasModifier);
+      const keys: React.Key[] = (normalizedKeys ?? selectedKeysFromTree) as React.Key[];
       setSidebarSelectedKeys(keys);
       selectedNodesRef.current = info.selectedNodes || [];
 
@@ -311,6 +319,10 @@ export const useSidebarTreeEvents = ({
           setActiveContext({ connectionId: dataRef.id, dbName: '' });
       }
 
+      if (type === 'agent-integration') {
+          addTab(buildAgentAssetsWorkbenchTab(dataRef));
+          return;
+      }
       if (type === 'folder-columns') openDesign(info.node, 'columns', false);
       else if (type === 'folder-indexes') openDesign(info.node, 'indexes', false);
       else if (type === 'folder-fks') openDesign(info.node, 'foreignKeys', false);

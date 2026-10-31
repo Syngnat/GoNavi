@@ -20,6 +20,44 @@ func TestParseAcceptsOnlyTheSignInLinkTheGatewayPageSends(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsTheMarketInstallLink(t *testing.T) {
+	for raw, want := range map[string]Link{
+		"gonavi://plugin/install?spec=github%3Aowner%2Frepo":      {Action: ActionPluginInstall, Spec: "github:owner/repo"},
+		"gonavi://plugin/install?spec=github%3Aowner%2Frepo%40v1": {Action: ActionPluginInstall, Spec: "github:owner/repo@v1"},
+		"gonavi://plugin/install?spec=%40scope%2Fpkg%401.2.3":     {Action: ActionPluginInstall, Spec: "@scope/pkg@1.2.3"},
+		"gonavi://plugin/install?id=com.gonavi.sql-insights":      {Action: ActionPluginInstall, PluginID: "com.gonavi.sql-insights"},
+		"gonavi://plugin/install?spec=github%3Aa%2Fb&id=c.d":      {Action: ActionPluginInstall, Spec: "github:a/b", PluginID: "c.d"},
+		"GoNavi://Plugin/install?spec=redis-inspector":            {Action: ActionPluginInstall, Spec: "redis-inspector"},
+	} {
+		got, ok := Parse(raw)
+		if !ok || got != want {
+			t.Errorf("Parse(%q) = %+v, %v; want %+v", raw, got, ok, want)
+		}
+	}
+}
+
+func TestParseRefusesBrokenInstallLinks(t *testing.T) {
+	for _, raw := range []string{
+		"gonavi://plugin",                                          // no path
+		"gonavi://plugin/other",                                    // unknown subpath
+		"gonavi://plugin/install/extra",                            // deeper path
+		"gonavi://plugin/install",                                  // nothing to install
+		"gonavi://plugin/install?spec=",                            // empty spec
+		"gonavi://plugin/install?spec=%00",                         // NUL
+		"gonavi://plugin/install?spec=x%20y",                       // space
+		`gonavi://plugin/install?spec=C%3A%5Cevil%2Fx`,             // a local path: backslashes never survive
+		"gonavi://plugin/install?spec=<script>",                    // shell/HTML punctuation
+		"gonavi://plugin/install?spec=" + strings.Repeat("a", 201), // oversize
+		"gonavi://plugin/install?id=a%2Fb",                         // an id has no separators
+		"gonavi://evil.example/plugin/install?spec=x",              // a foreign host is not the market
+		"gonavi://plugin:8080/install?spec=x",                      // ports are never allowed
+	} {
+		if link, ok := Parse(raw); ok {
+			t.Errorf("Parse(%q) accepted: %+v", raw, link)
+		}
+	}
+}
+
 func TestParseRefusesEverythingElse(t *testing.T) {
 	for _, raw := range []string{
 		"", "gonavi:", "gonavi://", "gonavi://other-action", "gonavi://ai-login/extra", "gonavi://ai-login/../x",

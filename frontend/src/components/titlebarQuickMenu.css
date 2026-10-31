@@ -4,3 +4,7 @@ body[data-ui-version="v2"] .gn-v2-titlebar-about-dropdown .gn-v2-action-menu-sur
   width: 180px;
   min-width: 0;
 }
+
+/* Plugin logos fill the existing toolbar icon slot, not the 40px installed-card frame. */
+.plugin-toolbar-logo { display: inline-flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
+.plugin-toolbar-logo > img, .plugin-toolbar-logo > svg { display: block; width: 100%; height: 100%; object-fit: contain; }

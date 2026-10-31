@@ -15,7 +15,7 @@ func TestDownloadSourceIDDetectsSourceSwitchBackAroundDownload(t *testing.T) {
 	if digestA != digestB {
 		t.Fatal("fixture must serve identical archive bytes from both sources")
 	}
-	service, _ := newTestService(t, sourceA.URL, false)
+	service := newTestService(t, sourceA.URL, false)
 	before, err := service.Settings()
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestDownloadSourceIDAcceptsOnlyLiveReceiptsFromSameService(t *testing.T) {
 	payload := fixtureArchive(t, "zip")
 	server, digest, _ := artifactServer(t, payload, nil, nil)
 	defer server.Close()
-	service, secrets := newTestService(t, server.URL, false)
+	service := newTestService(t, server.URL, false)
 	path, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestDownloadSourceIDAcceptsOnlyLiveReceiptsFromSameService(t *testing.T) {
 			}
 		})
 	}
-	restarted, err := NewService(Options{Root: service.root, Secrets: secrets})
+	restarted, err := NewService(Options{Root: service.root})
 	if err != nil {
 		t.Fatal(err)
 	}

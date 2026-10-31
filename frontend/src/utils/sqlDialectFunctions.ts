@@ -1,4 +1,5 @@
 import { t as translate } from '../i18n';
+import { resolveHiveFunctions } from './hiveSqlDialect';
 import {
   type SqlFunctionCompletion,
   resolveSqlDialect,
@@ -278,6 +279,7 @@ export const resolveSqlFunctions = (
   serverVersion?: string | null,
 ): SqlFunctionCompletion[] => {
   const dialect = resolveSqlDialect(dbType);
+  if (dialect === 'hive') return resolveHiveFunctions();
   const resolved = (() => {
     if (dialect === 'starrocks') return mergeFunctions([...COMMON_FUNCTIONS, ...MYSQL_FUNCTIONS, ...STARROCKS_FUNCTIONS]);
     if (isMysqlFamilyDialect(dialect)) return mergeFunctions([...COMMON_FUNCTIONS, ...MYSQL_FUNCTIONS]);

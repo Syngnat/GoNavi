@@ -1,0 +1,210 @@
+/* 会话索引：轻量分组头与可扫描的任务行。 */
+.gn-session-agent-group {
+  margin-bottom: 22px;
+}
+
+.gn-session-agent-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 4px;
+  color: var(--gn-fg-2);
+}
+
+.gn-session-agent-group-icon {
+  flex: 0 0 auto;
+  color: var(--gn-fg-3);
+  font-size: 13px;
+}
+
+.gn-session-agent-group-name {
+  flex: 0 0 auto;
+  color: var(--gn-fg-1);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.gn-session-agent-group-path {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--gn-fg-3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-session-agent-group-count {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--gn-fg-3);
+  font-size: 11px;
+}
+
+.gn-session-agent-group-body {
+  overflow: hidden;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 10px;
+  background: var(--gn-bg-panel);
+}
+
+.gn-session-agent-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  padding: 17px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--gn-br-1);
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-fg-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.gn-session-agent-row:last-child {
+  border-bottom: 0;
+}
+
+.gn-session-agent-row:hover {
+  background: var(--gn-bg-hover);
+}
+
+.gn-session-agent-row.is-selected {
+  background: var(--gn-bg-selected);
+}
+
+.gn-session-agent-row-main {
+  display: block;
+  min-width: 0;
+}
+
+.gn-session-agent-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gn-session-agent-session-title {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--gn-fg-1);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-session-agent-row:hover .gn-session-agent-session-title {
+  color: var(--gn-accent);
+}
+
+.gn-session-agent-session-preview {
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--gn-fg-3);
+  font-size: 12px;
+  line-height: 1.55;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-session-agent-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  color: var(--gn-fg-3);
+  font-size: 11px;
+}
+
+.gn-session-agent-row-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--gn-fg-3);
+}
+
+.gn-session-agent-row-arrow {
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.gn-session-agent-row:hover .gn-session-agent-row-arrow {
+  color: var(--gn-accent);
+  transform: translateX(2px);
+}
+
+.gn-session-agent-time-cell {
+  flex: 0 0 auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gn-session-agent-listpage-pager {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.gn-session-agent-fork-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+  border: 0 !important;
+  color: var(--gn-fg-3) !important;
+  background: var(--gn-bg-active) !important;
+  font-size: 10px !important;
+  line-height: 17px;
+}
+
+.gn-session-agent-group-date {
+  flex: 0 0 auto;
+  color: var(--gn-fg-3);
+  font-size: 11px;
+}
+
+.gn-session-agent-avatar {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--gn-accent-soft);
+  font-size: 13px;
+}
+
+.gn-session-agent-avatar.is-claude {
+  color: var(--gn-warn);
+  background: var(--gn-warn-soft);
+}
+
+.gn-session-agent-avatar.is-codex {
+  color: var(--gn-accent);
+}
+
+/* 旧双栏拖拽样式保留给可能存在的持久化布局，不在新版详情中渲染。 */
+.gn-session-agent-list-resize {
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  border-radius: 3px;
+}
+
+@media (max-width: 840px) {
+  .gn-session-agent-group-path {
+    display: none;
+  }
+
+  .gn-session-agent-row {
+    gap: 10px;
+    padding: 15px;
+  }
+}

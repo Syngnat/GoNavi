@@ -52,6 +52,9 @@ jobs:
           node ../../frontend/node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
           node ../../frontend/node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM test/manifest-types.ts
           node ../../frontend/node_modules/vitest/vitest.mjs run --config vitest.config.mjs
+      - name: Test Hive connection dialect and pagination
+        working-directory: frontend
+        run: npm test -- src/utils/hive src/components/connectionModal/Hive src/components/dataViewer/hive --maxWorkers=2 --minWorkers=1
       - name: Build frontend
         working-directory: frontend
         run: npm run build
@@ -111,6 +114,22 @@ jobs:
       - name: Run message queue driver tests
         run: go test -tags gonavi_kafka_driver,gonavi_rocketmq_driver,gonavi_pulsar_driver ./internal/db/ -count=1 -timeout=30m
 
+      # HiveServer2 implementations are excluded from the lite/default build.
+      - name: Run HiveServer2 protocol and family tests
+        env:
+          CGO_ENABLED: 0
+        run: go test -tags gonavi_hive_driver ./internal/db/ ./internal/hivesql/ ./cmd/optional-driver-agent/ -count=1 -timeout=15m
+
+      - name: Test Hive authentication fixture safety
+        run: |
+          go test -tags gonavi_hive_driver ./testdata/hive/auth/probe -count=1
+          python3 -B -m unittest discover -s testdata/hive/auth -p test_render_hive_auth.py
+
+      - name: Run Hive lifecycle and value race tests
+        env:
+          CGO_ENABLED: 1
+        run: go test -race -tags gonavi_hive_driver ./internal/db/ ./internal/hivesql/ -run Hive -count=1 -timeout=15m
+
       # The default suite excludes native SQL Server files used by driver-agent builds.
       - name: Run SQL Server driver tests
         run: go test -tags gonavi_sqlserver_driver ./internal/db/ -count=1 -timeout=30m
@@ -119,20 +138,6 @@ jobs:
     name: Plugin and marketplace contract tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: gonavi
-          POSTGRES_PASSWORD: gonavi_ci_only
-          POSTGRES_DB: gonavi_market_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U gonavi -d gonavi_market_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      GONAVI_MARKET_TEST_POSTGRES: postgres://gonavi:gonavi_ci_only@127.0.0.1:5432/gonavi_market_test?sslmode=disable
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -140,8 +145,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
-      - name: Test real PostgreSQL transactions and plugin races
-        run: go test -race ./internal/plugin ./internal/pluginmarket ./internal/market -count=1 -timeout=10m
+      - name: Test plugin and marketplace client races
+        run: go test -race ./internal/plugin ./internal/pluginmarket -count=1 -timeout=10m
       - name: Test datasource adapter lifecycle races
         run: go test -race ./internal/db -run '^TestPluginDatabase' -count=1 -timeout=5m
       - name: Test plugin AI provider streaming races
@@ -191,6 +196,11 @@ jobs:
 
       - name: Test plugin datasource adapter and host integration
         run: go test ./internal/db ./internal/app ./internal/mcpserver ./internal/ai/provider ./internal/ai/service ./internal/dataexport -run '^TestPlugin' -count=1 -timeout=5m
+
+      - name: Test HiveServer2 portable protocol implementation
+        env:
+          CGO_ENABLED: 0
+        run: go test -tags gonavi_hive_driver ./internal/db/ ./internal/hivesql/ ./cmd/optional-driver-agent/ -run Hive -count=1 -timeout=10m
 
       - name: Test optional driver-agent cleanup
         run: go test ./internal/db -run '^TestOptionalDriverAgentUnresponsiveProcessIsReapedAfterTimeout$' -count=1

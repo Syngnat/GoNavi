@@ -211,7 +211,7 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 		b.WriteString(fmt.Sprintf("类型=%s 路径=%s 超时=%ds", config.Type, path, timeoutSeconds))
 	} else {
 		b.WriteString(fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
-			config.Type, config.Host, config.Port, dbName, config.User, timeoutSeconds))
+			config.Type, connectionLogHost(config.Host), config.Port, dbName, config.User, timeoutSeconds))
 	}
 
 	if len(config.Hosts) > 0 {

@@ -99,6 +99,25 @@ describe('useDataGridDdlView i18n', () => {
     expect(messageApi.error).toHaveBeenCalledWith('ORA-31603: object "USERS" not found');
   });
 
+  it('changes the table surface epoch when DDL opens and closes', async () => {
+    backendApp.DBShowCreateTable.mockResolvedValueOnce({
+      success: true,
+      data: 'CREATE TABLE users (id int)',
+    });
+    renderHook();
+
+    expect(controller?.tableSurfaceEpoch).toBe('table:bottom');
+    await act(async () => {
+      await controller?.handleOpenTableDdl({ asView: true });
+    });
+    expect(controller?.tableSurfaceEpoch).toBe('ddl:bottom');
+
+    act(() => {
+      controller?.closeDdlView();
+    });
+    expect(controller?.tableSurfaceEpoch).toBe('table:bottom');
+  });
+
   it('honors an explicit text row when opening from the row number', () => {
     const setTextRecordIndex = vi.fn();
     renderHook({

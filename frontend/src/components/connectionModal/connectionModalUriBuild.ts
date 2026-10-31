@@ -6,6 +6,7 @@ import {
   isPostgresCompatibleSSLType,
   supportsConnectionParamsForType,
 } from "../../utils/connectionTypeCapabilities";
+import { isHiveConnectionType, buildHiveUri } from "../../utils/hiveConnection";
 import { buildRedisUriFromValues } from "../../utils/redisConnectionUri";
 import {
   getRegistryExtraHostsParam,
@@ -41,6 +42,7 @@ export const buildUriFromValues = (values: any) => {
   const type = String(values.type || "")
     .trim()
     .toLowerCase();
+  if (isHiveConnectionType(type)) return buildHiveUri(values);
   const defaultPort = type === "pulsar"
     ? getPulsarDefaultPort(!!values.useSSL)
     : getDefaultPortByType(type);

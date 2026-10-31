@@ -14,6 +14,7 @@ import type { DataGridPageFindApi } from './useDataGridPageFind';
 import type { DataGridColumnsApi } from './useDataGridColumns';
 import type { DataGridHorizontalVirtualScrollApi } from './useDataGridHorizontalVirtualScroll';
 import type { DataGridCoreStateApi } from './useDataGridCoreState';
+import type { DataGridColumnTitlesApi } from './useDataGridColumnTitles';
 
 export interface UseDataGridExternalScrollInput {
     externalScrollSettleRafRef: DataGridCellEditorStateApi['externalScrollSettleRafRef'];
@@ -54,6 +55,7 @@ export interface UseDataGridExternalScrollInput {
     resolveColumnQuickFindTarget: DataGridPageFindApi['resolveColumnQuickFindTarget'];
     translateDataGrid: DataGridCoreStateApi['translateDataGrid'];
     horizontalScrollVisible: DataGridHorizontalVirtualScrollApi['horizontalScrollVisible'];
+    tableSurfaceEpoch: DataGridColumnTitlesApi['tableSurfaceEpoch'];
 }
 
 export const useDataGridExternalScroll = ({
@@ -71,6 +73,7 @@ export const useDataGridExternalScroll = ({
     scheduleSyncExternalScrollFromTargets, highlightColumnQuickFindTarget, columnQuickFindText,
     setColumnQuickFindText, resolveColumnQuickFindTarget, translateDataGrid,
     horizontalScrollVisible,
+    tableSurfaceEpoch,
 }: UseDataGridExternalScrollInput) => {
     const scheduleExternalHorizontalScrollSettle = useCallback((syncSequence: number) => {
         if (externalScrollSettleRafRef.current !== null) {
@@ -437,7 +440,7 @@ export const useDataGridExternalScroll = ({
             virtualHorizontalPreviewActiveRef.current = false;
             horizontalSyncSourceRef.current = '';
         };
-    }, [clearExternalScrollbarInteraction, finishExternalScrollbarDrag, horizontalScrollVisible]);
+    }, [clearExternalScrollbarInteraction, finishExternalScrollbarDrag, horizontalScrollVisible, tableSurfaceEpoch]);
     return {
         applyExternalScrollToTableTargets, handleExternalHorizontalScrollPointerDown,
         handleExternalHorizontalScrollPointerRelease,

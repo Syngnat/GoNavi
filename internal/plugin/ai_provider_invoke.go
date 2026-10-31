@@ -120,7 +120,7 @@ func decodeAIInvocation(raw json.RawMessage, providerID string) (aiInvocation, e
 	default:
 		return empty, fmt.Errorf("unsupported ai provider operation")
 	}
-	if err := validateAIObject(raw, fields); err != nil {
+	if err := validateAIObject(raw, fields, nil); err != nil {
 		return empty, err
 	}
 	if header.ProtocolVersion != 1 || header.ProviderID != providerID || !aiRequestIDPattern.MatchString(header.RequestID) {
@@ -230,7 +230,7 @@ func (m *Manager) admitAIInvocation(lease aiInvocationLease, control bool) error
 }
 
 func sameAIProvider(left, right AIProvider) bool {
-	if left.ID != right.ID || left.Name != right.Name || left.Command != right.Command || left.SupportsTools != right.SupportsTools || left.SupportsImages != right.SupportsImages || len(left.Models) != len(right.Models) {
+	if left.ID != right.ID || left.Name != right.Name || left.Command != right.Command || left.Icon != right.Icon || left.SupportsTools != right.SupportsTools || left.SupportsImages != right.SupportsImages || len(left.Models) != len(right.Models) {
 		return false
 	}
 	for index, model := range left.Models {

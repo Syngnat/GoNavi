@@ -45,10 +45,7 @@ func (a *App) selectPluginPackagePath(currentPath string, directory bool) connec
 		selection, err = runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 			Title:            a.appText("plugin.backend.dialog.select_package_file", nil),
 			DefaultDirectory: defaultDir,
-			Filters: pluginPackageDialogFilters(
-				a.appText("plugin.backend.filter.plugin_package", nil),
-				a.appText("file.backend.filter.all_files", nil),
-			),
+			Filters:         pluginPackageDialogFilters(a.appText("plugin.backend.filter.plugin_package", nil)),
 		})
 	}
 	if err != nil {
@@ -68,13 +65,18 @@ func (a *App) selectPluginPackagePath(currentPath string, directory bool) connec
 	return connection.QueryResult{Success: true, Data: map[string]interface{}{"path": selection}}
 }
 
-// pluginPackageDialogFilters offers the archive formats the package scanner
-// accepts plus an explicit all-files entry, because filters can hide a package
-// whose extension differs from its actual content.
-func pluginPackageDialogFilters(archiveName, allFilesName string) []runtime.FileFilter {
+// pluginPackageDialogFilters offers the archive formats the package scanner accepts.
+//
+// Every semicolon-separated token becomes a UTType that Wails inserts into the panel's
+// content types. UTType(filenameExtension:) returns nil for anything that is not a bare
+// extension, and Wails then sends addObject:nil to an NSMutableArray, which raises an
+// Objective-C exception and terminates the process before Go can return an error. So a
+// dotted token ("tar.gz") or a wildcard entry ("*.*") must never appear here: ".gz" already
+// matches "*.tar.gz" because macOS compares the last path extension, and InspectPackage —
+// not the filter — decides whether the bytes are really a package.
+func pluginPackageDialogFilters(archiveName string) []runtime.FileFilter {
 	return []runtime.FileFilter{
-		{DisplayName: archiveName, Pattern: "*.zip;*.tgz;*.tar.gz"},
-		{DisplayName: allFilesName, Pattern: "*.*"},
+		{DisplayName: archiveName, Pattern: "*.zip;*.tgz;*.gz"},
 	}
 }
 

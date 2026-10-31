@@ -1,6 +1,7 @@
 package nativewindow
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func TestPluginAssetsUseManagerResolverAndInjectStandaloneRuntime(t *testing.T) 
 		t.Fatal(response.Body.String())
 	}
 	html := response.Body.String()
-	if !strings.Contains(html, pluginBridgePrefix+"runtime.js") || strings.Contains(html, "window.go") || strings.Contains(html, entry.token) {
+	if !strings.Contains(html, pluginBridgePrefix+"runtime.js") || strings.Contains(html, "window.go.") || strings.Contains(html, entry.token) {
 		t.Fatal("unsafe runtime injection")
 	}
 	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "connect-src 'self'") {
@@ -30,19 +31,16 @@ func TestPluginAssetsUseManagerResolverAndInjectStandaloneRuntime(t *testing.T) 
 	}
 }
 
-func TestPluginAssetsRejectTraversalExecutableAndOversize(t *testing.T) {
-	c, runtime := newPluginTestController(t)
+func TestPluginAssetsRejectTraversalAndExecutable(t *testing.T) {
+	c, _ := newPluginTestController(t)
 	entry := openPluginTestWindow(t, c, "test.one")
-	if err := os.WriteFile(filepath.Join(runtime.root, "huge.html"), []byte(strings.Repeat("x", pluginMaxHTMLBytes+1)), 0600); err != nil {
-		t.Fatal(err)
-	}
 	cases := []struct {
 		path   string
 		status int
 	}{
 		{pluginAssetPrefix + "../secret.html", 400}, {pluginAssetPrefix + "%2e%2e/secret.html", 400},
 		{pluginAssetPrefix + "C:/secret.html", 400}, {pluginAssetPrefix + "bin.exe", 403},
-		{pluginAssetPrefix + "huge.html", 413}, {pluginAssetPrefix + "missing.html", 404},
+		{pluginAssetPrefix + "missing.html", 404},
 	}
 	for _, test := range cases {
 		t.Run(test.path, func(t *testing.T) {
@@ -84,5 +82,18 @@ func TestPluginAssetNamesAndLimits(t *testing.T) {
 	}
 	if got, err := readPluginBytes(strings.NewReader("1234"), 4); err != nil || string(got) != "1234" {
 		t.Fatal("exact payload limit rejected")
+	}
+}
+
+func TestPluginAssetsHaveNoFixedMegabyteCap(t *testing.T) {
+	c, runtime := newPluginTestController(t)
+	entry := openPluginTestWindow(t, c, "test.one")
+	payload := bytes.Repeat([]byte("x"), (9<<20)+17)
+	if err := os.WriteFile(filepath.Join(runtime.root, "large.js"), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := servePluginTest(c, entry, http.MethodGet, pluginAssetPrefix+"large.js", "")
+	if response.Code != http.StatusOK || response.Body.Len() != len(payload) {
+		t.Fatalf("large asset status=%d bytes=%d want=%d", response.Code, response.Body.Len(), len(payload))
 	}
 }

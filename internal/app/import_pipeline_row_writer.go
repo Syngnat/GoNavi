@@ -50,6 +50,8 @@ type importRowColumnValidator interface {
 }
 
 type importColumnTypeLookup struct {
+	columnOrder               []string
+	partitionColumns          []string
 	byExactName               map[string]string
 	byFoldedName              map[string][]string
 	nullableByExactName       map[string]string
@@ -83,6 +85,10 @@ func newImportColumnTypeLookup(columns []connection.ColumnDefinition) importColu
 				lookup.databaseValueByFoldedName[foldedName],
 				importColumnUsesDatabaseValue(column),
 			)
+		}
+		lookup.columnOrder = append(lookup.columnOrder, name)
+		if strings.EqualFold(strings.TrimSpace(column.Extra), "partition") {
+			lookup.partitionColumns = append(lookup.partitionColumns, name)
 		}
 		lookup.byExactName[name] = strings.TrimSpace(column.Type)
 		lookup.nullableByExactName[name] = strings.TrimSpace(column.Nullable)
@@ -237,7 +243,7 @@ func (w *importDatabaseRowWriter) ApplyBatchContext(ctx context.Context, rows []
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	changes := connection.ChangeSet{Inserts: normalizeImportRowsForTargetColumns(rows, w.columnTypes)}
+	changes := connection.ChangeSet{Inserts: w.normalizeRowsForImport(rows)}
 	if contextApplier, ok := w.applier.(db.BatchApplierContext); ok {
 		return contextApplier.ApplyChangesContext(ctx, w.tableName, changes)
 	}
@@ -266,14 +272,14 @@ func (w *importDatabaseRowWriter) ApplyOneWithOutcomeContext(ctx context.Context
 		return importRowApplySucceeded, err
 	}
 	if w.applier != nil && w.conflictPolicy == importConflictPolicyStop {
-		changes := connection.ChangeSet{Inserts: []map[string]interface{}{normalizeImportRowForTargetColumns(row, w.columnTypes)}}
+		changes := connection.ChangeSet{Inserts: w.normalizeRowsForImport([]map[string]interface{}{row})}
 		var err error
 		if contextApplier, ok := w.applier.(db.BatchApplierContext); ok {
 			err = contextApplier.ApplyChangesContext(ctx, w.tableName, changes)
 		} else {
 			err = w.applier.ApplyChanges(w.tableName, changes)
 		}
-		return importRowApplySucceeded, err
+		return importRowApplySucceeded, w.preserveHiveWriteOutcome(ctx, err)
 	}
 	query, err := buildImportInsertQueryWithConflict(
 		w.dbType,

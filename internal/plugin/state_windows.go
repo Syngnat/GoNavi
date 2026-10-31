@@ -57,8 +57,11 @@ func replaceStateFile(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	// Antivirus/indexing handles can transiently deny replacement even though our readers share deletion.
-	deadline := time.Now().Add(250 * time.Millisecond)
+	// Antivirus/indexing handles can transiently deny replacement even though our readers share
+	// deletion. The hold lasts until the scanner closes its handle, which on a loaded CI runner
+	// can take well over a quarter second, so the budget has to cover a real scan rather than a
+	// scheduler hiccup; the retry still gives up and reports the OS error.
+	deadline := time.Now().Add(time.Second)
 	for {
 		err = windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 		if err == nil {
@@ -67,7 +70,7 @@ func replaceStateFile(source, destination string) error {
 		if (!errors.Is(err, windows.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION)) || time.Now().After(deadline) {
 			return err
 		}
-		timer := time.NewTimer(5 * time.Millisecond)
+		timer := time.NewTimer(10 * time.Millisecond)
 		<-timer.C
 		timer.Stop()
 	}

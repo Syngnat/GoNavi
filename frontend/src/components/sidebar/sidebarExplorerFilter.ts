@@ -23,6 +23,7 @@ import type { SidebarTreeNode } from '../sidebarV2Utils';
 import { t } from '../../i18n';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { getDataSourceSpec } from '../../utils/dataSourceRegistry';
 import { resolveDatabaseJobDialect } from '../../utils/databaseJobs/jobCapabilities';
 import type { SavedConnection } from '../../types';
 
@@ -69,14 +70,28 @@ export const V2_EXPLORER_FILTER_ORDER: Record<ExplorerFilterFamily, V2ExplorerFi
 
 export type ExplorerFilterFamily = 'relational' | 'nacos';
 
+/** 描述表声明隐藏的对象分组对应的筛选页签；整组隐藏时不再显示永远为空的页签。 */
+const V2_EXPLORER_FILTER_HIDDEN_GROUPS: Partial<Record<V2ExplorerFilter, string[]>> = {
+  views: ['views', 'materializedViews'],
+  sequences: ['sequences'],
+  routines: ['routines'],
+  packages: ['packages'],
+  events: ['events'],
+};
+
 export const resolveExplorerFilterOrder = (
   family: ExplorerFilterFamily | null,
   connection?: { config?: SavedConnection['config'] } | null,
 ): V2ExplorerFilter[] => {
   if (!family) return [];
-  return V2_EXPLORER_FILTER_ORDER[family].filter((key) => (
-    key !== 'jobs' || !connection || resolveDatabaseJobDialect(connection.config) !== null
-  ));
+  const hiddenGroups = new Set(getDataSourceSpec(connection?.config?.type)?.ui?.hiddenObjectGroups ?? []);
+  return V2_EXPLORER_FILTER_ORDER[family].filter((key) => {
+    if (key === 'jobs' && connection && resolveDatabaseJobDialect(connection.config) === null) {
+      return false;
+    }
+    const groups = V2_EXPLORER_FILTER_HIDDEN_GROUPS[key];
+    return !groups || !groups.every((group) => hiddenGroups.has(group));
+  });
 };
 
 /**
@@ -99,6 +114,9 @@ export const resolveExplorerFilterFamily = (
 ): ExplorerFilterFamily | null => {
   if (isNacosConnection(connection)) return 'nacos';
   if (!connection) return null;
+  // Hive 没有通用 structure designer（schema.supported=false），但仍支持表和视图的
+  // 对象筛选；不能因为 schema designer 不可用就把整排筛选页签隐藏成空白。
+  if (getDataSourceSpec(connection.config?.type)?.dialect === 'hive') return 'relational';
   return getDataSourceCapabilities(connection.config).supportsRelationalObjectKindFilter
     ? 'relational'
     : null;

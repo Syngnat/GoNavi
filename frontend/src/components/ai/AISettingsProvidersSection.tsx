@@ -13,6 +13,7 @@ import { applyKeyOrder, applyPresetOrder, movePresetWithinGroup } from './provid
 import { AIProviderSortableGroup, AIProviderSortableItem } from './AIProviderSortable';
 import { passThroughHintTooltip } from '../common/tooltipTiming';
 import { useAIProviderLayout, workspaceClassName } from './useAIProviderLayout';
+import { useProviderModelCatalogLabels } from '../aiSettings/hooks/useProviderModelCatalogLabels';
 import './AISettingsProvidersSection.css';
 import { getProviderEndpointType, getProviderEndpointTypes, type ProviderEndpointType } from '../../utils/aiProviderEndpoints';
 import { t as catalogTranslate } from '../../i18n/catalog';
@@ -33,7 +34,7 @@ import type { ai } from '../../../wailsjs/go/models';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import AIProviderLogo from './AIProviderLogo';
 import { BuiltinAICard } from './BuiltinAICard';
-import AIProviderPresetSelect from './AIProviderPresetSelect';
+import AIProviderPresetSelect, { type PluginPresetOption } from './AIProviderPresetSelect';
 import AIProviderKeyValueRows from './AIProviderKeyValueRows';
 import AISettingsProviderTestResult from './AISettingsProviderTestResult';
 
@@ -103,6 +104,7 @@ export interface AISettingsProvidersSectionProps {
   isEditing: boolean;
   form: FormInstance;
   providerPresets: AISettingsProviderPresetOption[];
+  pluginPresets?: PluginPresetOption[];
   watchedPresetKey?: string;
   watchedApiFormat?: string;
   loading: boolean;
@@ -152,6 +154,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   isEditing,
   form,
   providerPresets,
+  pluginPresets = [],
   watchedPresetKey,
   watchedApiFormat,
   loading,
@@ -450,7 +453,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   };
   React.useEffect(() => () => { upstreamRequestRef.current += 1; }, []);
   const removedModelSet = new Set<string>(watchedRemovedModels);
-  const modelOptions = buildProviderModelOptions(
+  const modelOptions = useProviderModelCatalogLabels(buildProviderModelOptions(
     modelCatalog?.models,
     upstreamModels,
     [watchedModel, watchedInlineCompletionModel, activeCLICapability?.defaultModel,
@@ -458,7 +461,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     usesLocalCLI ? [] : activePresetConnection?.models,
     watchedCustomModels,
     watchedDisabledModels,
-  ).filter((option) => !removedModelSet.has(option.value));
+  ).filter((option) => !removedModelSet.has(option.value)));
   const disabledModels = new Set<string>(watchedDisabledModels);
   const enabledModelOptions = modelOptions.filter((option) => !disabledModels.has(option.value));
   const activeCatalogModel = String(watchedModel || modelCatalog?.defaultModel || '').trim();
@@ -615,6 +618,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
         className="gonavi-ai-provider-add gonavi-ai-provider-add-preset-select"
         value={isEditing ? presetKeyFromForm : null}
         presets={providerPresets}
+        pluginPresets={isEditing ? [] : pluginPresets}
+        pluginLabel={copy('plugin.ai_provider.label')}
+        pluginUnavailableLabel={copy('plugin.ai_provider.unavailable')}
         canSelect={(preset) => {
           const full = providerPresets.find((item) => item.key === preset.key);
           return full ? canSelectPreset(full, editingProvider?.id) && (!hiddenKeys.has(full.key) || full.key === presetKeyFromForm) : false;

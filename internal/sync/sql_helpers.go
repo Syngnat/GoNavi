@@ -5,6 +5,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/hivesql"
 )
 
 func selectedSyncDatabase(selected string, fallback string) string {
@@ -92,6 +93,8 @@ func quoteIdentByType(dbType string, ident string) string {
 	switch normalizeMigrationDBType(dbType) {
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "clickhouse", "tdengine":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
+	case "hive":
+		return hivesql.QuoteIdentifier(ident)
 	case "kingbase":
 		return db.QuoteKingbaseIdentifier(ident)
 	case "sqlserver":
@@ -109,6 +112,9 @@ func quoteQualifiedIdentByType(dbType string, ident string) string {
 	}
 
 	normalizedType := normalizeMigrationDBType(dbType)
+	if normalizedType == "hive" {
+		return hivesql.QuoteTable(raw)
+	}
 	if normalizedType == "kingbase" {
 		schema, table := db.SplitKingbaseQualifiedName(raw)
 		if table == "" {
@@ -168,6 +174,15 @@ func normalizeSchemaAndTable(dbType string, dbName string, tableName string) (st
 	}
 
 	normalizedType := normalizeMigrationDBType(dbType)
+	if normalizedType == "hive" {
+		parts, err := hivesql.SplitTable(rawTable)
+		if err == nil && len(parts) == 2 {
+			return parts[0], parts[1]
+		}
+		if err == nil && len(parts) == 1 {
+			return rawDB, parts[0]
+		}
+	}
 	switch normalizedType {
 	case "sqlserver", "duckdb":
 		return rawDB, rawTable
@@ -207,6 +222,15 @@ func normalizeSchemaAndTableWithDefaultSchema(dbType string, dbName string, defa
 	}
 
 	rawTable := strings.TrimSpace(tableName)
+	if normalizeMigrationDBType(dbType) == "hive" && rawTable != "" {
+		parts, err := hivesql.SplitTable(rawTable)
+		if err == nil && len(parts) == 2 {
+			return parts[0], parts[1]
+		}
+		if err == nil && len(parts) == 1 {
+			return rawDefaultSchema, parts[0]
+		}
+	}
 	if rawTable == "" {
 		switch normalizeMigrationDBType(dbType) {
 		case "sqlserver", "duckdb":
@@ -230,7 +254,7 @@ func normalizeSchemaAndTableWithDefaultSchema(dbType string, dbName string, defa
 	}
 
 	switch normalizeMigrationDBType(dbType) {
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "iris":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "iris", "hive":
 		return rawDefaultSchema, rawTable
 	default:
 		return normalizeSchemaAndTable(dbType, dbName, tableName)
@@ -309,7 +333,7 @@ func splitSyncTableQualifier(tableName string) (string, string) {
 
 func shouldUseQualifiedSyncApplyTable(config connection.ConnectionConfig) bool {
 	switch resolveMigrationDBType(config) {
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "oracle", "dameng", "iris", "duckdb":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "oracle", "dameng", "iris", "duckdb", "hive":
 		return true
 	case "oceanbase":
 		return isOceanBaseOracleSyncConnection(config)
@@ -351,7 +375,7 @@ func qualifiedNameForQuery(dbType string, schema string, table string, original 
 			return rawTable
 		}
 		return s + "." + rawTable
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "clickhouse", "tdengine":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "clickhouse", "tdengine", "hive":
 		s := strings.TrimSpace(schema)
 		if s == "" {
 			return rawTable
@@ -366,6 +390,13 @@ func qualifiedNameForQuery(dbType string, schema string, table string, original 
 // the resolved target object. A source table name may be schema-qualified and
 // must not leak into target DDL or DML for an identity object mapping.
 func qualifiedTargetNameForQuery(dbType string, schema string, table string) string {
+	if normalizeMigrationDBType(dbType) == "hive" && strings.ContainsAny(schema+table, ".` \t\n") {
+		if schema == "" {
+			return hivesql.QuoteIdentifier(table)
+		}
+		return hivesql.QuoteIdentifier(schema) + "." + hivesql.QuoteIdentifier(table)
+	}
+
 	// SQL Server and DuckDB carry schema-qualified names in table. Passing a
 	// separately composed schema.table value would accidentally add the
 	// database/catalog as a third component, so table is the target's original

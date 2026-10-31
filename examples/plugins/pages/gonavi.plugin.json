@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "sdk.examples.pages",
+  "name": "Pages and host capabilities",
+  "version": "1.0.0",
+  "description": "Static page example: one declarative page, one sandboxed HTML page calling host.* through the page bridge, and tools navigation",
+  "author": "GoNavi examples",
+  "license": "Apache-2.0",
+  "permissions": [
+    "ui.pages",
+    "ui.html-panel",
+    "host.connections.read",
+    "host.metadata.read"
+  ],
+  "permissionNotes": {
+    "ui.pages": "Adds the Overview and Saved connections pages to the title-bar plugin menu.",
+    "ui.html-panel": "Renders the Saved connections page as sandboxed HTML in the main window.",
+    "host.connections.read": "Lets that page list saved connection names, types and read-only flags.",
+    "host.metadata.read": "Lets that page list database names of one saved connection."
+  },
+  "contributes": {
+    "pages": [
+      {
+        "id": "overview",
+        "title": "Pages overview",
+        "body": {
+          "type": "column",
+          "children": [
+            {
+              "type": "alert",
+              "title": "No backend in this example",
+              "text": "This package ships without a backend executable, so it declares no commands and cannot be invoked. The host still marks it running, so its pages and the HTML page bridge work."
+            },
+            {
+              "type": "text",
+              "text": "The Saved connections page is sandboxed HTML. It can only call the host capabilities this package declared; every other method is rejected before execution."
+            },
+            {
+              "type": "table",
+              "columns": [
+                {
+                  "key": "method",
+                  "title": "Bridge method"
+                },
+                {
+                  "key": "permission",
+                  "title": "Required permission"
+                }
+              ],
+              "rows": [
+                {
+                  "method": "connections.list",
+                  "permission": "host.connections.read"
+                },
+                {
+                  "method": "metadata.databases",
+                  "permission": "host.metadata.read"
+                },
+                {
+                  "method": "metadata.tables",
+                  "permission": "host.metadata.read"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "connections",
+        "title": "Saved connections",
+        "html": {
+          "source": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Saved connections</title>\n<style>body{font:13px/1.5 system-ui,-apple-system,\"Segoe UI\",sans-serif;margin:16px;color:#1f1f1f}h1{font-size:16px;margin:0 0 8px}p{color:#595959}button{margin:0 8px 0 0}li{margin:4px 0}</style>\n</head><body>\n<h1>Saved connections</h1>\n<p>Read-only host data. This package declares host.connections.read and host.metadata.read, so the bridge accepts exactly those two calls.</p>\n<button id=\"load\" type=\"button\">List connections</button>\n<ul id=\"list\"></ul>\n<script>\nconst list = document.getElementById('list');\nconst item = (text) => { const row = document.createElement('li'); row.textContent = text; list.append(row); return row; };\ndocument.getElementById('load').addEventListener('click', async () => {\n  list.replaceChildren();\n  try {\n    const connections = await window.gonavi.call('connections.list');\n    if (connections.length === 0) item('No saved connections.');\n    for (const connection of connections) {\n      const row = item(connection.name + ' - ' + connection.type + (connection.readOnly ? ' (read-only)' : ''));\n      const databases = document.createElement('button');\n      databases.type = 'button';\n      databases.textContent = 'Databases';\n      databases.addEventListener('click', async () => {\n        try {\n          const names = await window.gonavi.call('metadata.databases', { connectionId: connection.id });\n          window.gonavi.notify(names.length + ' databases in ' + connection.name, 'info');\n        } catch (error) { window.gonavi.notify(String(error), 'error'); }\n      });\n      row.append(databases);\n    }\n  } catch (error) { window.gonavi.notify(String(error), 'error'); }\n});\n</script>\n</body></html>"
+        }
+      }
+    ],
+    "navigation": [
+      {
+        "id": "overview-tools",
+        "title": "Pages overview",
+        "page": "overview",
+        "location": "tools",
+        "order": 0
+      },
+      {
+        "id": "connections-tools",
+        "title": "Saved connections",
+        "page": "connections",
+        "location": "tools",
+        "order": 10
+      }
+    ]
+  }
+}

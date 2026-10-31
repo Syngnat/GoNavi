@@ -8,6 +8,9 @@ import {
 } from '../../compareRepairSql';
 import { createSyncTaskFromCompare } from '../../dataSyncCompareTaskFactory';
 import { setDataSyncHandoff } from '../../../../utils/dataSyncHandoff';
+import type { DataSyncEndpointRef } from '../../model';
+import { useCompareHtmlExport } from '../../useCompareHtmlExport';
+import type { CompareHtmlExportOutcome } from '../../dataSyncRunHistoryTypes';
 import type { DataSyncWorkbenchTaskLifecycleApi } from './useDataSyncWorkbenchTaskLifecycle';
 import type { DataSyncWorkbenchStateApi } from './useDataSyncWorkbenchState';
 import type { DataSyncWorkbenchShellProps } from '../../DataSyncWorkbenchShell';
@@ -36,12 +39,20 @@ export interface UseDataSyncWorkbenchDiffActionsInput {
   setOperationError: DataSyncWorkbenchStateApi['setOperationError'];
 }
 
+// 连接名 + 库（+ schema）拼成报告头里的端点标识。
+const endpointLabel = (endpoint: DataSyncEndpointRef): string => {
+  const connection = endpoint.connectionName || endpoint.connectionId;
+  const database = [endpoint.database, endpoint.schema].filter(Boolean).join('.');
+  return database ? `${connection} · ${database}` : connection;
+};
+
 export const useDataSyncWorkbenchDiffActions = ({
   actionEnabled, t, selectedTask, dirtyTaskIds, selectedPreflight, preflightStale,
   currentPreflightRequiresApproval, capability, selectedApproval, activeStage, saving, preflighting,
   operationBusy, operationError, workbenchFamily, onOpenQueryTab, compareResult, onAskAi,
   onOpenSyncWorkbench, gatewayRef, setOperationError,
 }: UseDataSyncWorkbenchDiffActionsInput) => {
+  const { exportHtml } = useCompareHtmlExport(t);
   const runActionTitle = actionEnabled
     ? t('workbench.start')
     : !selectedTask
@@ -158,6 +169,31 @@ export const useDataSyncWorkbenchDiffActions = ({
       }),
     );
   };
+  const handleExportCompareHtml = async (): Promise<CompareHtmlExportOutcome> => {
+    if (!selectedTask || !compareResult) return { kind: 'cancelled' };
+    // 报告里的两端标识优先用连接名，退化为 ID 时不至于出现空白表头。
+    const outcome = await exportHtml({
+      result: compareResult,
+      compareMode: compareResult.content || selectedTask.compareMode,
+      meta: {
+        taskName: selectedTask.name || t('task_kind.compare'),
+        // 只写连接名分不清比的是哪个库：同一条连接上可能有多个库。
+        sourceLabel: endpointLabel(selectedTask.source),
+        targetLabel: endpointLabel(selectedTask.target),
+      },
+      save: async (fileName, content) => {
+        const saved = await gatewayRef.current!.exportTextFile(fileName, content, 'html');
+        // 导出后直接打开：用户按下按钮的意图就是看报告，不该再让他自己
+        // 去文件管理器里找。打开失败不影响导出结果本身。
+        if (saved) {
+          void gatewayRef.current?.openExportedFile(saved).catch(() => undefined);
+        }
+        return saved;
+      },
+    });
+    if (outcome.kind === 'failed') setOperationError(outcome.error);
+    return outcome;
+  };
   const handleSyncDiffs = async () => {
     if (!selectedTask || selectedTask.kind !== 'compare') return;
     const tables = (compareResult?.tables || [])
@@ -194,7 +230,7 @@ export const useDataSyncWorkbenchDiffActions = ({
     runActionTitle, saveApprovalReady, nextStage, previousStage, relevantBlockerStage,
     relevantBlocker, blockerInEarlierStage, preflightNeedsRefresh, compareStartEnabled, actionHint,
     actionHintTone, serviceUnavailableError, workbenchChrome, handleGenerateRepairSql,
-    handleAskAiAboutDiffs, handleSyncDiffs,
+    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml,
   };
 };
 

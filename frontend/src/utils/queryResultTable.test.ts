@@ -83,6 +83,21 @@ describe('extractQueryResultTableRef', () => {
       });
   });
 
+  it('qualifies an unqualified Kingbase table with the editor schema', () => {
+    expect(extractQueryResultTableRef(
+      "SELECT * FROM mes_work_order AS t0 where work_order_code = 'WO-261028001'",
+      'kingbase',
+      'ldf_server_dbs',
+      'ldf_server',
+    )).toEqual({
+      tableName: 'ldf_server.mes_work_order',
+      metadataDbName: 'ldf_server_dbs',
+      metadataTableName: 'ldf_server.mes_work_order',
+      ddlDbName: 'ldf_server_dbs',
+      ddlTableName: 'ldf_server.mes_work_order',
+    });
+  });
+
   it('keeps PostgreSQL-like schema-qualified table names while using the current database for metadata lookups', () => {
     expect(extractQueryResultTableRef('SELECT * FROM ldf_server.mes_work_order', 'kingbase', 'ldf_server_dbs_dev'))
       .toEqual({

@@ -67,11 +67,25 @@ describe('plugin provider identity and immutable config', () => {
     expect(buildPluginProviderPayload(values, config(), 'save', imageSource).supportsImages).toBe(true);
     expect(() => buildPluginProviderPayload(values, config(), 'save')).toThrow();
   });
-  it('checks model ownership and context only on use and keeps static catalog frozen', () => {
+  it('checks model ownership only on use, allows a catalog-sized context override, and keeps static catalog frozen', () => {
     const [source] = decodePluginAIProviders({ items: [view] }); expect(Object.isFrozen(source.models)).toBe(true);
-    const values = { ...config(), model: 'gpt-test', contextWindow: 8192 };
+    // 声明的窗口是默认值：网关别名在 models.dev 公共目录里可能更大，用户按目录改窗口不该被拦。
+    const values = { ...config(), model: 'gpt-test', contextWindow: 1048576 };
     expect(() => buildPluginProviderPayload(values, config(), 'save', source)).not.toThrow();
-    expect(() => buildPluginProviderPayload(values, config(), 'test', source)).toThrow();
-    expect(buildPluginProviderPayload({ ...values, contextWindow: 4096 }, config(), 'test', source).model).toBe('gpt-test');
+    expect(buildPluginProviderPayload(values, config(), 'test', source).contextWindow).toBe(1048576);
+    expect(() => buildPluginProviderPayload({ ...values, model: 'not-declared' }, config(), 'test', source)).toThrow();
+    // 取值范围仍由 validatePluginProviderConfig 兜底。
+    expect(() => buildPluginProviderPayload({ ...values, contextWindow: 1 }, config(), 'test', source)).toThrow();
+  });
+  it('accepts only bounded raster icon data URLs from the catalog', () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgo=';
+    expect(decodePluginAIProviders({ items: [{ ...view, icon }] })[0].icon).toBe(icon);
+    // 上限跟随宿主的 5 MiB 原始字节（base64 约 4/3），不再按 128 KiB 的 data URL 长度卡。
+    const largest = 'data:image/png;base64,' + 'A'.repeat(Math.ceil((5 << 20) * 4 / 3));
+    expect(decodePluginAIProviders({ items: [{ ...view, icon: largest }] })[0].icon).toBe(largest);
+    for (const bad of ['data:image/svg+xml;base64,PHN2Zz4=', 'data:text/html;base64,PGgxPg==', 'javascript:alert(1)',
+      'data:image/png;base64,' + 'A'.repeat(Math.ceil((5 << 20) * 4 / 3) + 128)]) {
+      expect(() => decodePluginAIProviders({ items: [{ ...view, icon: bad }] })).toThrow();
+    }
   });
 });

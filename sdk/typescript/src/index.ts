@@ -17,4 +17,5 @@ export { validateDataSource, validateDataSourceCommand } from './datasourceValid
 export { validateAIProvider } from './aiProviderDeclaration.js';
 export { validateExporter } from './exporterDeclaration.js';
 export { validateCommand } from './commandDeclaration.js';
+export { validatePages } from './pagesDeclaration.js';
 

@@ -35,8 +35,15 @@ func (a *App) exportTablesSQLToFile(
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	viewLookup := listViewNameLookup(dbInst, runConfig, dbName)
+	viewLookup, err := listExportViewLookup(exportCtx, dbInst, runConfig, dbName)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	objects := buildExportObjectOrder(runConfig, dbName, normalizeExportNameList(tableNames), viewLookup, false)
+	objects, err = prepareHiveExportObjectOrder(exportCtx, dbInst, runConfig, dbName, objects, viewLookup)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 
 	target, err := createAtomicExportTarget(filename, budget)
 	if err != nil {

@@ -36,7 +36,19 @@ func TestTheMacLinkHandlerWakesOnlyForKnownLinks(t *testing.T) {
 	open("gonavi://ai-login?status=authorized")
 	open("gonavi://something-else")
 	open("https://example.com")
-	if woken != 1 {
-		t.Fatalf("woken %d times, want 1 (only the sign-in link)", woken)
+	open("gonavi://plugin/install?spec=github%3Aa%2Fb")
+	open("gonavi://plugin/install?spec=")
+	if woken != 2 {
+		t.Fatalf("woken %d times, want 2 (the sign-in and the market install links)", woken)
+	}
+}
+
+func TestAWakeWithoutLinkContentKeepsTheSignInBehavior(t *testing.T) {
+	waker := &deepLinkWaker{activator: &primaryWindowActivator{show: nil}}
+	// No pending file for the empty executable path: a plain knock must still activate
+	// and behave exactly like the sign-in wake did before the market link existed.
+	waker.wake()
+	if !waker.activator.pending {
+		t.Fatal("a plain knock must bring the window forward")
 	}
 }

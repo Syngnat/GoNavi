@@ -13,6 +13,7 @@ import { t } from '../../../i18n';
 import { formatSidebarTableTimestamp } from '../../sidebar/sidebarHelpers';
 import type { TableOverviewTableActionsApi } from './useTableOverviewTableActions';
 import type { TableOverviewStateApi } from './useTableOverviewState';
+import { TableOverviewNameEditor } from '../TableOverviewNameEditor';
 
 export interface UseTableOverviewRenderersInput {
   textMuted: TableOverviewTableActionsApi['textMuted'];
@@ -29,13 +30,51 @@ export interface UseTableOverviewRenderersInput {
   sortField: TableOverviewStateApi['sortField'];
   toggleSort: TableOverviewTableActionsApi['toggleSort'];
   sortOrder: TableOverviewStateApi['sortOrder'];
+  /** 行是否处于选中态（卡片 / 列表 / 紧凑表三种视图共用）。 */
+  isOverviewTableSelected: (name: string) => boolean;
+  /** 正在就地改名的表（null 表示没有）。 */
+  renamingTable: string | null;
+  renameDraft: string;
+  renameEditorRef: React.MutableRefObject<HTMLSpanElement | null>;
+  onRenameDraftChange: (value: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
 }
 
 export const useTableOverviewRenderers = ({
   textMuted, textSecondary, textPrimary, darkMode, openTableByDefaultAction,
   openV2OverviewContextMenu, accentColor, metadataDialect, maxCombinedSize, hasKnownTableSize,
-  getCombinedTableSize, sortField, toggleSort, sortOrder,
+  getCombinedTableSize, sortField, toggleSort, sortOrder, isOverviewTableSelected,
+  renamingTable, renameDraft, renameEditorRef, onRenameDraftChange, onRenameCommit, onRenameCancel,
 }: UseTableOverviewRenderersInput) => {
+  // 三种视图的行都带同一个选中标记，拖选 / Shift 区间只按它解析，不区分视图。
+  // tabIndex=-1 让点击后行可聚焦，回车改名按焦点判定（避免全局抢 Enter）。
+  const overviewRowProps = (name: string) => ({
+      'data-table-overview-select': name,
+      'aria-selected': isOverviewTableSelected(name),
+      tabIndex: -1,
+  });
+  const selectedClass = (name: string) => (isOverviewTableSelected(name) ? ' is-selected' : '');
+
+  // 表名节点：编辑态换成输入框，静态态带 data-table-overview-rename 供「再次单击」识别。
+  const renderNameNode = (
+      table: TableStatRow,
+      displayName: string,
+      style?: React.CSSProperties,
+  ) => (
+      renamingTable === table.name
+          ? (
+              <TableOverviewNameEditor
+                  value={renameDraft}
+                  onChange={onRenameDraftChange}
+                  onCommit={onRenameCommit}
+                  onCancel={onRenameCancel}
+                  editorRef={renameEditorRef}
+                  ariaLabel={displayName}
+              />
+          )
+          : <span data-table-overview-rename={table.name} style={style}>{displayName}</span>
+  );
   const renderOverviewSectionTitle = (section: OverviewTableSection) => {
       const sectionTitle = section.kind === 'pinned'
           ? t('table_overview.section.pinned')
@@ -137,8 +176,9 @@ export const useTableOverviewRenderers = ({
 
   const renderCardTableContent = (table: TableStatRow) => (
       <div
-          className="gn-v2-table-card"
+          className={`gn-v2-table-card${selectedClass(table.name)}`}
           data-table-overview-card={table.name}
+          {...overviewRowProps(table.name)}
           onDoubleClick={() => openTableByDefaultAction(table.name)}
           onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
           style={{
@@ -158,9 +198,7 @@ export const useTableOverviewRenderers = ({
           <div className="gn-v2-table-card-name" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
               <TableOutlined style={{ fontSize: 14, color: accentColor }} />
               <Tooltip title={getTableOverviewDisplayName(metadataDialect, table.name)} mouseEnterDelay={0.4}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'block' }}>
-                      {getTableOverviewDisplayName(metadataDialect, table.name)}
-                  </span>
+                  {renderNameNode(table, getTableOverviewDisplayName(metadataDialect, table.name), { fontSize: 13, fontWeight: 600, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'block' })}
               </Tooltip>
           </div>
           <Tooltip title={table.comment || undefined} mouseEnterDelay={0.4}>
@@ -222,7 +260,8 @@ export const useTableOverviewRenderers = ({
 
       const content = (
               <div
-                  className="gn-v2-table-row"
+                  className={`gn-v2-table-row${selectedClass(table.name)}`}
+                  {...overviewRowProps(table.name)}
                   onDoubleClick={() => openTableByDefaultAction(table.name)}
                   onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
                   style={{
@@ -259,9 +298,7 @@ export const useTableOverviewRenderers = ({
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                               <TableOutlined style={{ fontSize: 13, color: accentColor, flexShrink: 0 }} />
                               <Tooltip title={displayName} mouseEnterDelay={0.4}>
-                                  <span style={{ color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {displayName}
-                                  </span>
+                                  {renderNameNode(table, displayName, { color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                               </Tooltip>
                               {table.engine && (
                                   <span
@@ -385,9 +422,10 @@ export const useTableOverviewRenderers = ({
       const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
       const content = (
           <div
-              className="gn-table-overview-compact-row"
+              className={`gn-table-overview-compact-row${selectedClass(table.name)}`}
               role="row"
               data-table-overview-row={table.name}
+              {...overviewRowProps(table.name)}
               onDoubleClick={() => openTableByDefaultAction(table.name)}
               onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
               style={{
@@ -403,7 +441,7 @@ export const useTableOverviewRenderers = ({
           >
               <div className="gn-table-overview-compact-name" role="cell" title={displayName}>
                   <TableOutlined aria-hidden="true" />
-                  <span>{displayName}</span>
+                  {renderNameNode(table, displayName)}
               </div>
               <div className="gn-table-overview-compact-cell" role="cell" title={table.comment || undefined}>{table.comment || '—'}</div>
               <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.rows >= 0 ? String(table.rows) : undefined}>{formatRows(table.rows)}</div>

@@ -6,6 +6,9 @@ import "encoding/json"
 const APIVersion = 1
 
 // Manifest describes an immutable plugin package; the host validates it.
+// Icon optionally names the installed-plugin logo: a package-relative raster path
+// the host reads without starting the plugin. A plugin without one falls back to
+// its first AI provider icon.
 type Manifest struct {
 	SchemaVersion   int               `json:"schemaVersion"`
 	APIVersion      int               `json:"apiVersion"`
@@ -15,6 +18,7 @@ type Manifest struct {
 	Description     string            `json:"description,omitempty"`
 	Author          string            `json:"author,omitempty"`
 	License         string            `json:"license,omitempty"`
+	Icon            string            `json:"icon,omitempty"`
 	MinHostVersion  string            `json:"minHostVersion,omitempty"`
 	Permissions     []string          `json:"permissions"`
 	PermissionNotes map[string]string `json:"permissionNotes,omitempty"`
@@ -46,13 +50,34 @@ type Entry struct {
 }
 
 // Contributions contains only supported declarative extension points.
+// Pages and Navigation are host-rendered surfaces that require the ui.pages permission.
 type Contributions struct {
-	Commands    []Command    `json:"commands,omitempty"`
-	Panels      []Panel      `json:"panels,omitempty"`
-	DataSources []DataSource `json:"dataSources,omitempty"`
-	Skills      []Skill      `json:"skills,omitempty"`
-	AIProviders []AIProvider `json:"aiProviders,omitempty"`
-	Exporters   []Exporter   `json:"exporters,omitempty"`
+	Commands          []Command          `json:"commands,omitempty"`
+	Panels            []Panel            `json:"panels,omitempty"`
+	DataSources       []DataSource       `json:"dataSources,omitempty"`
+	Skills            []Skill            `json:"skills,omitempty"`
+	AIProviders       []AIProvider       `json:"aiProviders,omitempty"`
+	Exporters         []Exporter         `json:"exporters,omitempty"`
+	Pages             []Page             `json:"pages,omitempty"`
+	Navigation        []Navigation       `json:"navigation,omitempty"`
+	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
+}
+
+// ConnectionAction is a generic connection/database/collection context-menu
+// contribution. The host renders the target surface and owns the launch context.
+type ConnectionAction struct {
+	ID              string       `json:"id"`
+	Title           string       `json:"title"`
+	Description     string       `json:"description,omitempty"`
+	ConnectionTypes []string     `json:"connectionTypes"`
+	Scopes          []string     `json:"scopes,omitempty"`
+	Target          LaunchTarget `json:"target"`
+}
+
+// LaunchTarget selects the window or page opened for a contribution.
+type LaunchTarget struct {
+	Type string `json:"type"`
+	Page string `json:"page,omitempty"`
 }
 
 // Skill declares an immutable UTF-8 SKILL.md document loaded only on explicit use.

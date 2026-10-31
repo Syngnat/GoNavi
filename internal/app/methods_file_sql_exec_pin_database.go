@@ -7,6 +7,9 @@ import "strings"
 // 后续建表和写入就会落到文件里的库。只改写整句都是 USE 的语句，过程体里的 USE 不动。
 func pinSQLFileImportDatabase(dbType, statement, database string) string {
 	pinned := strings.TrimSpace(database)
+	if pinned != "" && normalizeInsertSQLDialect(dbType) == "hive" {
+		statement = pinHiveCreateDatabase(statement, pinned)
+	}
 	if pinned == "" || !sqlFileDialectHonorsUseDatabase(dbType) || !isSQLUseDatabaseStatement(dbType, statement) {
 		return statement
 	}
@@ -15,7 +18,7 @@ func pinSQLFileImportDatabase(dbType, statement, database string) string {
 
 func sqlFileDialectHonorsUseDatabase(dbType string) bool {
 	switch normalizeSQLClassifierDBType(dbType) {
-	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tdengine", "clickhouse", "sqlserver":
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tdengine", "clickhouse", "sqlserver", "hive":
 		return true
 	default:
 		return false

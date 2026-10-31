@@ -8,6 +8,7 @@ import {
   t,
   type SupportedLanguage,
 } from "../i18n";
+import { formatBytes } from "./byteSize";
 
 const METRIC_LABELS: Record<string, string> = {
   "heap.used": "jvm_monitoring_presentation.metric.heap_used",
@@ -83,20 +84,7 @@ export const formatMonitoringTime = (
   return createTimeFormatter(language).format(new Date(timestamp));
 };
 
-export const formatBytes = (value?: number): string => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return "--";
-  }
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let next = value;
-  let unitIndex = 0;
-  while (next >= 1024 && unitIndex < units.length - 1) {
-    next /= 1024;
-    unitIndex += 1;
-  }
-  const precision = next >= 100 || unitIndex === 0 ? 0 : next >= 10 ? 1 : 2;
-  return `${next.toFixed(precision)} ${units[unitIndex]}`;
-};
+export { formatBytes };
 
 export const formatMonitoringAxisBytes = (value?: number): string => formatBytes(value);
 

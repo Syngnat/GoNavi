@@ -16,6 +16,7 @@ import {
 import { configureAntdStaticOverlayLayer } from './utils/overlayZIndex'
 import { devHarnessMode } from './dev/devHarnessMode';
 import { installBrowserMockRuntime } from './dev/browserMock/installBrowserMockRuntime';
+import { startPluginInstallDeeplinkListener } from './components/pluginManager/pluginInstallDeeplink';
 import { installIpcMeter } from './utils/ipcMeter';
 import { installTabSwitchProbe } from './utils/tabSwitchProbe';
 
@@ -92,6 +93,8 @@ const Root = ({ rootComponent }: { rootComponent: React.ReactNode }) => {
         if (!isStoreHydrated) {
             return;
         }
+        // 市场网站 gonavi://plugin/install 的接收端；订阅先行，早于首屏握手发出。
+        const stopPluginInstallDeeplink = startPluginInstallDeeplinkListener();
         let cancelled = false;
         // 先撤启动遮罩（Web 模式没有原生窗口可等），再等启动窗口几何落到最终
         // 状态后才发首屏握手：主窗口此时仍隐藏，用户看不到“小窗 → 全屏”的过渡。
@@ -105,6 +108,7 @@ const Root = ({ rootComponent }: { rootComponent: React.ReactNode }) => {
         });
         return () => {
             cancelled = true;
+            stopPluginInstallDeeplink();
         };
     }, [isStoreHydrated]);
 

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"GoNavi-Wails/internal/ai/provider"
@@ -47,20 +48,24 @@ func localCLICommandCacheKey(commandName string) string {
 	)
 }
 
-func lookupLocalCLICommandCache(commandName string) (localCLICommandDetection, bool) {
+// 缓存键必须由调用方在探测开始前算好并贯穿读写：探测过程本身可能要跑 login shell，
+// 期间钩子（尤其是测试里的 mock，或后台预热的并发探测）随时可能被替换。
+// 若在写入时再算键，一次用旧钩子得到的「未找到」会被记到新钩子的键上，
+// 之后同键的探测直接命中假阴性，表现为外部客户端偶发「未安装」。
+func lookupLocalCLICommandCache(cacheKey string) (localCLICommandDetection, bool) {
 	localCLICommandDetectionMu.Lock()
 	defer localCLICommandDetectionMu.Unlock()
-	entry, ok := localCLICommandDetectionCache[localCLICommandCacheKey(commandName)]
+	entry, ok := localCLICommandDetectionCache[cacheKey]
 	if !ok || time.Now().After(entry.expiresAt) {
 		return localCLICommandDetection{}, false
 	}
 	return entry, true
 }
 
-func storeLocalCLICommandCache(commandName string, found bool, path string) {
+func storeLocalCLICommandCache(cacheKey string, found bool, path string) {
 	localCLICommandDetectionMu.Lock()
 	defer localCLICommandDetectionMu.Unlock()
-	localCLICommandDetectionCache[localCLICommandCacheKey(commandName)] = localCLICommandDetection{
+	localCLICommandDetectionCache[cacheKey] = localCLICommandDetection{
 		found:     found,
 		path:      path,
 		expiresAt: time.Now().Add(localCLICommandDetectionTTL),
@@ -79,11 +84,12 @@ func detectLocalCLICommand(commandName string) (bool, string) {
 	if commandName == "" {
 		return false, ""
 	}
-	if entry, ok := lookupLocalCLICommandCache(commandName); ok {
+	cacheKey := localCLICommandCacheKey(commandName)
+	if entry, ok := lookupLocalCLICommandCache(cacheKey); ok {
 		return entry.found, entry.path
 	}
 	found, path := detectLocalCLICommandUncached(commandName)
-	storeLocalCLICommandCache(commandName, found, path)
+	storeLocalCLICommandCache(cacheKey, found, path)
 	return found, path
 }
 
@@ -166,6 +172,38 @@ func localizeMCPClientPathDetail(text mcpClientInstallTextFunc, err error) strin
 	return detail
 }
 
+// localCLICachePrewarmCommands 是要预热的外部客户端命令。
+// 新增外部客户端时同步加到这里，否则用户首次打开设置页仍要付冷路径代价。
+var localCLICachePrewarmCommands = []string{
+	claudeCodeClientCommandName,
+	codexClientCommandName,
+	openCodeClientCommandName,
+	cursorClientCommandName,
+	zCodeClientCommandName,
+	kimiCodeClientCommandName,
+	deepSeekHarnessClientCommandName,
+	grokBuildClientCommandName,
+}
+
+// localCLICachePrewarmDisabled 关闭构造服务时的后台预热。
+//
+// 预热 goroutine 不随构造服务的调用方结束：本包用例大量替换 localCLICommandPathFunc
+// 等包级钩子，上一个用例留下的预热 goroutine 会在钩子被换掉之后继续探测，
+// 于是新用例的 mock 收到别的命令名（expected lookup for opencode, got "zcode"），
+// 整包跑就随机失败。测试二进制在 TestMain 里关掉它，生产保持默认开启。
+var localCLICachePrewarmDisabled atomic.Bool
+
+// localCLIPrewarmSpawn 真正起后台预热。测试替换它，既能断言门闩生效，又不必真起 goroutine。
+var localCLIPrewarmSpawn = func(run func()) { go run() }
+
+// startLocalCLICachePrewarm 起后台预热；测试形态下是空操作。
+func startLocalCLICachePrewarm() {
+	if localCLICachePrewarmDisabled.Load() {
+		return
+	}
+	localCLIPrewarmSpawn(prewarmLocalCLICommandCache)
+}
+
 // prewarmLocalCLICommandCache 在后台预热外部客户端探测结果。
 //
 // 冷路径实测约 1.2s（未安装的命令要把候选 shell 逐个起 login shell 直到超时），
@@ -173,18 +211,8 @@ func localizeMCPClientPathDetail(text mcpClientInstallTextFunc, err error) strin
 // 命中缓存，代价降到毫秒级。预热失败没有后果——它只是提前填缓存，
 // 真正的探测逻辑与结果判定完全不变。
 func prewarmLocalCLICommandCache() {
-	names := []string{
-		claudeCodeClientCommandName,
-		codexClientCommandName,
-		openCodeClientCommandName,
-		cursorClientCommandName,
-		zCodeClientCommandName,
-		kimiCodeClientCommandName,
-		deepSeekHarnessClientCommandName,
-		grokBuildClientCommandName,
-	}
 	var wg sync.WaitGroup
-	for _, name := range names {
+	for _, name := range localCLICachePrewarmCommands {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()

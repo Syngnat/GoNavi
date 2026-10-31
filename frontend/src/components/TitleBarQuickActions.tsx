@@ -14,6 +14,8 @@ export interface TitleBarQuickAction {
   onClick?: () => void;
   disabled?: boolean;
   priority?: 'primary' | 'secondary';
+  // 插件工具入口放在 AI 按钮之后，其他工具保持原有位置。
+  afterAI?: boolean;
   /**
    * 是否处于激活态。
    *
@@ -24,6 +26,10 @@ export interface TitleBarQuickAction {
   dividerBefore?: boolean;
   /** Additional class for sizing or styling one popup without changing other menus. */
   popupClassName?: string;
+  /** Fires when the dropdown opens; lazy menus load their entries there instead of at startup. */
+  onMenuOpen?: () => void;
+  /** Disabled placeholder shown while a lazy menu is empty, loading or unavailable. */
+  emptyMenuLabel?: string;
   menu?: TitleBarQuickAction[];
 }
 
@@ -42,11 +48,19 @@ const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, acti
     key: action.key,
     icon: action.icon,
     label: action.label,
-    onClick: action.menu?.length ? undefined : action.onClick,
+    onClick: action.menu !== undefined ? undefined : action.onClick,
     disabled: action.disabled,
-    children: action.menu ? buildMenuItems(action.menu) : undefined,
-    popupClassName: action.menu?.length ? 'gn-v2-titlebar-quick-submenu' : undefined,
+    children: action.menu !== undefined ? buildActionMenuItems(action) : undefined,
+    popupClassName: action.menu !== undefined ? 'gn-v2-titlebar-quick-submenu' : undefined,
   }));
+
+  const buildActionMenuItems = (action: TitleBarQuickAction): MenuProps['items'] => {
+    const items = buildMenuItems(action.menu ?? []);
+    if ((items?.length ?? 0) === 0 && action.emptyMenuLabel) {
+      return [{ key: action.key + '-empty', label: action.emptyMenuLabel, disabled: true }];
+    }
+    return items;
+  };
 
   const handleMenuOpenChange = (key: string, open: boolean) => {
     setOpenMenuKey((current) => {
@@ -74,16 +88,16 @@ const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, acti
   );
 
   const renderStandaloneAction = (action: TitleBarQuickAction) => (
-    action.menu && action.menu.length > 0 ? (
+    action.menu !== undefined ? (
       <Tooltip
         key={action.key}
-        title={action.menu.map((menuAction) => menuAction.label).join('、')}
+        title={action.menu.length > 0 ? action.menu.map((menuAction) => menuAction.label).join('、') : action.label}
         placement="bottom"
         mouseEnterDelay={0.75}
         open={openMenuKey === action.key ? false : undefined}
       >
         <Dropdown
-          menu={{ items: buildMenuItems(action.menu), className: 'gn-v2-titlebar-quick-menu' }}
+          menu={{ items: buildActionMenuItems(action), className: 'gn-v2-titlebar-quick-menu' }}
           trigger={['click']}
           placement="bottomLeft"
           rootClassName={`gn-v2-titlebar-quick-dropdown gn-v2-action-menu-popup-host${action.popupClassName ? ` ${action.popupClassName}` : ''}`}
@@ -94,7 +108,10 @@ const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, acti
             showHeader: false,
           })}
           open={openMenuKey === action.key}
-          onOpenChange={(open) => handleMenuOpenChange(action.key, open)}
+          onOpenChange={(open) => {
+            if (open) action.onMenuOpen?.();
+            handleMenuOpenChange(action.key, open);
+          }}
         >
           <button
             type="button"

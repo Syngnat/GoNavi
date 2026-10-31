@@ -121,7 +121,8 @@ export const validateDataSyncTask = (
     issues.push(issue('backup_directory_required', 'blocker', 'delivery'));
   }
   const enabledMappings = task.mappings.filter((mapping) => mapping.enabled);
-  if (enabledMappings.length === 0) {
+  // 对比不再要求逐表映射：范围在运行期按源库全部表展开。
+  if (enabledMappings.length === 0 && task.kind !== 'compare') {
     issues.push(issue('mapping_required', 'blocker', 'mappings'));
   }
   if (task.kind === 'querySink' && task.mappings.length !== 1) {
@@ -149,7 +150,8 @@ export const validateDataSyncTask = (
       }
     }
     const targetObject = normalize(mapping.targetObject);
-    if (!targetObject && task.kind !== 'backup') {
+    // 对比只读：目标缺表正是要比出来的差异，空目标名按同名比对，不能挡住执行。
+    if (!targetObject && task.kind !== 'backup' && task.kind !== 'compare') {
       issues.push(
         issue('target_object_required', 'blocker', 'mappings', mapping.id),
       );

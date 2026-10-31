@@ -105,9 +105,12 @@ export const useDataSyncDatabases = (
 export const useDataSyncObjects = (
   gateway: DataSyncWorkbenchGateway,
   endpoint: DataSyncEndpointRef,
+  // 对比任务按整库在服务端展开表清单，前端不需要这份对象列表：千表库上
+  // 拉一次就是几千行元数据，白占内存也拖慢首屏。
+  allowLoad = true,
 ): DataSyncMetadataResult<DataSyncObjectMetadata> => {
   const requestKey = dataSyncEndpointMetadataKey(endpoint);
-  const enabled = Boolean(endpoint.connectionId.trim());
+  const enabled = allowLoad && Boolean(endpoint.connectionId.trim());
   return useMetadataCollection(gateway, requestKey, enabled, (options) =>
     gateway.listObjects({ ...endpoint }, options),
   );

@@ -30,7 +30,7 @@ func TestParseManifestAcceptsShippedExamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 10 {
-		t.Fatalf("parsed %d manifests, want 10", count)
+	if count != 11 {
+		t.Fatalf("parsed %d manifests, want 11", count)
 	}
 }
