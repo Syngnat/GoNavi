@@ -5,6 +5,7 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "viteServerTimeout": 120,
   "wailsjsdir": "./frontend",
   "build:tags": "webkit2_41",
   "version": "2",
