@@ -47,7 +47,9 @@ func (executor appDataSyncJobExecutor) Execute(ctx context.Context, request sync
 		return syncjob.ExecutionOutcome{}, err
 	}
 	if err := executor.prepareDataSyncTargetTables(ctx, request, definition, enabledMappings, source, target, reporter); err != nil {
-		return syncjob.ExecutionOutcome{Resumable: true}, err
+		// "Resumable" is only honest when a resume checkpoint actually exists; otherwise the UI
+		// offers a Resume entry that manager_runs.go rejects with ErrRunNotResumable.
+		return syncjob.ExecutionOutcome{Resumable: request.Checkpoint != nil}, err
 	}
 	if definition.IncrementalMode == syncjob.IncrementalCDC {
 		return executor.executeCDCJob(ctx, request, definition, enabledMappings, source, target, reporter)
@@ -63,10 +65,13 @@ func (executor appDataSyncJobExecutor) Execute(ctx context.Context, request sync
 	if err != nil {
 		return syncjob.ExecutionOutcome{}, err
 	}
+	// A resume checkpoint only exists once a mapping has completed, or when this run resumed from
+	// one; without it the Resume action cannot succeed, so never advertise it.
+	hasResumeCheckpoint := func(index int) bool { return index > 0 || request.Checkpoint != nil }
 	outcome := syncjob.ExecutionOutcome{}
 	for index := startIndex; index < len(enabledMappings); index++ {
 		if err := ctx.Err(); err != nil {
-			outcome.Resumable = true
+			outcome.Resumable = hasResumeCheckpoint(index)
 			return outcome, err
 		}
 		mapping := enabledMappings[index]
@@ -83,7 +88,7 @@ func (executor appDataSyncJobExecutor) Execute(ctx context.Context, request sync
 
 		config, err := buildDataSyncJobEngineConfig(definition, request.Run.ID, source, target, mapping)
 		if err != nil {
-			outcome.Resumable = true
+			outcome.Resumable = hasResumeCheckpoint(index)
 			return outcome, err
 		}
 		if definition.Kind != syncjob.JobKindCompare {
@@ -98,7 +103,7 @@ func (executor appDataSyncJobExecutor) Execute(ctx context.Context, request sync
 		outcome.RowsDeleted += mappingOutcome.RowsDeleted
 		outcome.RowsFailed += mappingOutcome.RowsFailed
 		if runErr != nil {
-			outcome.Resumable = dataSyncJobMappingRetrySafe(definition) && !db.IsWriteOutcomeUnknown(runErr)
+			outcome.Resumable = hasResumeCheckpoint(index) && dataSyncJobMappingRetrySafe(definition) && !db.IsWriteOutcomeUnknown(runErr)
 			return outcome, runErr
 		}
 
