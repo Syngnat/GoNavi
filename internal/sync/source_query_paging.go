@@ -50,7 +50,6 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 	}
 	writableColSet := buildWritableTargetColumnSet(ctx.TargetCols)
 	counts := pagedDiffCounts{}
-	rowIndexBase := 0
 
 	if tableMode == "insert_update" {
 		includeDeletes := opts.Delete
@@ -65,11 +64,10 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 			if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
 				return nil
 			}
-			committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, rowIndexBase)
+			committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, page.SourceOffset)
 			counts.Inserts += committed.Inserts
 			counts.Updates += committed.Updates
 			counts.Deletes += committed.Deletes
-			rowIndexBase += len(changeSet.Inserts) + len(changeSet.Updates) + len(changeSet.Deletes)
 			return err
 		})
 		if err != nil {
@@ -115,22 +113,21 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 		}
 	}
 
-	applyPage := func(rows []map[string]interface{}) error {
+	applyPage := func(rows []map[string]interface{}, sourceOffset int) error {
 		insertRows := filterRowsByPKSelection(ctx.PKColumn, rows, opts.Insert, opts.SelectedInsertPKs)
 		insertRows = filterInsertRows(insertRows, writableColSet)
 		if len(insertRows) == 0 {
 			return nil
 		}
-		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, connection.ChangeSet{Inserts: insertRows}, rowIndexBase)
+		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, connection.ChangeSet{Inserts: insertRows}, sourceOffset)
 		counts.Inserts += committed.Inserts
-		rowIndexBase += len(insertRows)
 		return err
 	}
 
 	if len(firstRows) == 0 {
 		return true, counts, nil
 	}
-	if err := applyPage(firstRows); err != nil {
+	if err := applyPage(firstRows, 0); err != nil {
 		return true, counts, err
 	}
 	if len(firstRows) < pageSize {
@@ -146,7 +143,7 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 		if len(rows) == 0 {
 			return true, counts, nil
 		}
-		if err := applyPage(rows); err != nil {
+		if err := applyPage(rows, offset); err != nil {
 			return true, counts, err
 		}
 		if len(rows) < pageSize {

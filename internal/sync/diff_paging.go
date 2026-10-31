@@ -34,6 +34,10 @@ type pagedDiffPage struct {
 	Updates []pagedUpdateDiff
 	Deletes []map[string]interface{}
 	Same    int
+	// SourceOffset is the 0-based position of this page's first source row inside the table or
+	// query result. OnRowError receives it as the row index, so both paging paths and the
+	// direct-import path agree on what an error row's index refers to.
+	SourceOffset int
 }
 
 func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tableIndex, totalTables int, tableName string, sourceDB db.Database, targetDB db.Database, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, opts TableOptions, sourceType, targetType, applyTableName, pkCol string) (bool, pagedDiffCounts, error) {
@@ -68,7 +72,6 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 	s.progress(config.JobID, tableIndex, totalTables, tableName, "分页对比数据")
 
 	applied := pagedDiffCounts{}
-	rowIndexBase := 0
 	// Inserts are source rows and stay keyed by the source column name; updates and deletes are
 	// applied to the target and carry the target-side name, so each filter reads its own side.
 	targetPKCol := pagedTargetName(pagedColumnNames(targetCols), pkCol)
@@ -83,11 +86,10 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 		if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
 			return nil
 		}
-		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, rowIndexBase)
+		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, page.SourceOffset)
 		applied.Inserts += committed.Inserts
 		applied.Updates += committed.Updates
 		applied.Deletes += committed.Deletes
-		rowIndexBase += len(changeSet.Inserts) + len(changeSet.Updates) + len(changeSet.Deletes)
 		return err
 	})
 	if err != nil {
@@ -180,6 +182,7 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 		}
 
 		page := diffSourcePageByPK(pkCol, targetPKCol, targetNames, sourceRows, targetRows)
+		page.SourceOffset = offset
 		totals.Inserts += len(page.Inserts)
 		totals.Updates += len(page.Updates)
 		totals.Same += page.Same
@@ -195,6 +198,9 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 	}
 
 	if includeDeletes {
+		// Delete rows exist only on the target, so they report their own run-wide ordinal rather
+		// than pretending to be a source row position.
+		deleteOrdinal := 0
 		lastPK, hasLastPK := interface{}(nil), false
 		targetPKCols := []connection.ColumnDefinition{{Name: targetPKCol}}
 		for {
@@ -246,10 +252,11 @@ func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.D
 			if len(deletes) > 0 {
 				totals.Deletes += len(deletes)
 				if consume != nil {
-					if err := consume(pagedDiffPage{Deletes: deletes}); err != nil {
+					if err := consume(pagedDiffPage{Deletes: deletes, SourceOffset: deleteOrdinal}); err != nil {
 						return true, totals, err
 					}
 				}
+				deleteOrdinal += len(deletes)
 			}
 			if len(targetRows) < pageSize {
 				break
