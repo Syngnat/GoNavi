@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeInspection } from './decode';
 
-const inspection = (contributes: Record<string, unknown>, permissions: string[] = ['ui.pages']) => ({
+const inspection = (contributes: Record<string, unknown>, permissions: string[] = ['ui.pages'], window?: unknown) => ({
   manifest: {
     schemaVersion: 1,
     apiVersion: 1,
@@ -9,6 +9,7 @@ const inspection = (contributes: Record<string, unknown>, permissions: string[] 
     name: 'Pages',
     version: '1.0.0',
     permissions,
+    ...(window === undefined ? {} : { window }),
     contributes,
   },
   digest: 'a'.repeat(64),
@@ -22,8 +23,8 @@ const htmlPage = (id: string, title: string = id, source: string = '<h1>Hi</h1>'
   ({ id, title, html: { source } });
 const nav = (id: string, page: string, over: Record<string, unknown> = {}) =>
   ({ id, title: id, page, location: 'tools', ...over });
-const rejects = (contributes: Record<string, unknown>, permissions?: string[]) =>
-  expect(() => decodeInspection(inspection(contributes, permissions))).toThrow('plugin.error.invalid_response');
+const rejects = (contributes: Record<string, unknown>, permissions?: string[], window?: unknown) =>
+  expect(() => decodeInspection(inspection(contributes, permissions, window))).toThrow('plugin.error.invalid_response');
 
 describe('manifest pages', () => {
   it('accepts declared pages with navigation to a declared page', () => {
@@ -99,6 +100,16 @@ describe('manifest navigation', () => {
     rejects({ pages: [textPage('overview')], navigation: [nav('a', 'overview'), nav('a', 'overview')] });
     rejects({ pages: [textPage('overview')], navigation: [{ ...nav('a', 'overview'), extra: true }] });
     rejects({ pages: [textPage('overview')], navigation: Array.from({ length: 33 }, (_, index) => nav('n' + index, 'overview')) });
+  });
+
+  it('accepts a window target only when the manifest declares the window', () => {
+    const window = { entry: 'index.html' };
+    const result = decodeInspection(inspection({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] }, [], window));
+    expect(result.manifest.contributes?.navigation?.[0]).toMatchObject({ target: 'window' });
+    // 窗口目标不开页面，因此不要求 ui.pages。
+    rejects({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] }, [], undefined);
+    rejects({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', page: 'overview', location: 'tools' }] }, [], window);
+    rejects({ pages: [textPage('overview')], navigation: [{ id: 'ssh', title: 'SSH', target: 'window2', location: 'tools' }] }, ['ui.pages'], window);
   });
 });
 

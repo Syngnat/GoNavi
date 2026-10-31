@@ -20,6 +20,14 @@ const PageCustomHTMLPermission = "ui.html-panel"
 // PageLocationTools is the only navigation location version one accepts.
 const PageLocationTools = "tools"
 
+// Navigation targets stay an enumeration. An empty target is the page target so
+// manifests written before windows could be attached keep their meaning. They stay
+// unexported because the SDK guide documents the JSON contract, not Go constants.
+const (
+	pageTargetPage   = "page"
+	pageTargetWindow = "window"
+)
+
 const (
 	maxPageDeclarations  = 32
 	maxNavigationEntries = 32
@@ -47,11 +55,20 @@ func ValidatePages(manifest Manifest) error {
 	if len(pages) == 0 && len(navigation) == 0 {
 		return nil
 	}
-	if !pagePermissionGranted(manifest.Permissions, PagesPermission) {
-		return fmt.Errorf("pages or navigation require the %s permission", PagesPermission)
-	}
 	if len(pages) > maxPageDeclarations || len(navigation) > maxNavigationEntries {
 		return errors.New("too many pages or navigation entries")
+	}
+	// ui.pages gates page declarations and page navigation; a window target only opens
+	// the plugin's own window, exactly like a window connection action, so a manifest
+	// whose navigation entries all target the window needs no page permission.
+	declaresPages := len(pages) > 0
+	for _, item := range navigation {
+		if item.Target != pageTargetWindow {
+			declaresPages = true
+		}
+	}
+	if declaresPages && !pagePermissionGranted(manifest.Permissions, PagesPermission) {
+		return fmt.Errorf("pages or navigation require the %s permission", PagesPermission)
 	}
 	commands := make(map[string]bool, len(manifest.Contributes.Commands))
 	for _, command := range manifest.Contributes.Commands {
@@ -61,7 +78,7 @@ func ValidatePages(manifest Manifest) error {
 	if err != nil {
 		return err
 	}
-	return validatePageNavigation(navigation, declared)
+	return validatePageNavigation(navigation, declared, manifest.Window != nil)
 }
 
 // validatePageEntries returns the declared page ids for navigation resolution.
@@ -95,15 +112,27 @@ func validatePageEntries(pages []Page, permissions []string, commands map[string
 	return declared, nil
 }
 
-func validatePageNavigation(navigation []Navigation, pages map[string]bool) error {
+func validatePageNavigation(navigation []Navigation, pages map[string]bool, hasWindow bool) error {
 	declared := make(map[string]bool, len(navigation))
 	for _, item := range navigation {
 		if !pageDeclarationID.MatchString(item.ID) || declared[item.ID] || !validPageText(item.Title, 256) {
 			return errors.New("invalid or duplicate navigation entry")
 		}
 		declared[item.ID] = true
-		if !pages[item.Page] {
-			return errors.New("navigation references an undeclared page")
+		switch item.Target {
+		case "", pageTargetPage:
+			if !pages[item.Page] {
+				return errors.New("navigation references an undeclared page")
+			}
+		case pageTargetWindow:
+			if !hasWindow {
+				return errors.New("window navigation requires a window")
+			}
+			if item.Page != "" {
+				return errors.New("window navigation cannot declare a page")
+			}
+		default:
+			return errors.New("unsupported navigation target")
 		}
 		if item.Location != PageLocationTools {
 			return errors.New("unsupported navigation location")

@@ -184,6 +184,49 @@ func TestNavigationDeclarationRejectsUnsafeEntries(t *testing.T) {
 	}
 }
 
+func TestNavigationWindowTargetOpensThePluginWindow(t *testing.T) {
+	m := pagesManifest("example.window-nav")
+	m.Window = &Window{Entry: "index.html"}
+	m.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Location: PageLocationTools}}
+	if err := ValidateManifest(m); err != nil {
+		t.Fatalf("window navigation without ui.pages was rejected: %v", err)
+	}
+	encoded, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"target":"window"`) {
+		t.Fatalf("window target did not round-trip: %s", encoded)
+	}
+	parsed, err := ParseManifest(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Contributes.Navigation[0].Target != PageTargetWindow {
+		t.Fatalf("target = %q", parsed.Contributes.Navigation[0].Target)
+	}
+
+	withoutWindow := pagesManifest("example.window-nav")
+	withoutWindow.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Location: PageLocationTools}}
+	if ValidateManifest(withoutWindow) == nil {
+		t.Fatal("window navigation without a window was accepted")
+	}
+
+	withPage := pagesManifest("example.window-nav")
+	withPage.Window = &Window{Entry: "index.html"}
+	withPage.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Page: "overview", Location: PageLocationTools}}
+	if ValidateManifest(withPage) == nil {
+		t.Fatal("window navigation with a page was accepted")
+	}
+
+	unknown := pagesManifest("example.window-nav")
+	unknown.Window = &Window{Entry: "index.html"}
+	unknown.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "popover", Location: PageLocationTools}}
+	if ValidateManifest(unknown) == nil {
+		t.Fatal("unknown navigation target was accepted")
+	}
+}
+
 func TestPageAndNavigationIDNamespacesAreIndependent(t *testing.T) {
 	m := pagesManifest("example.namespaces", PagesPermission)
 	m.Contributes.Pages = []Page{textPage("shared", "Page")}

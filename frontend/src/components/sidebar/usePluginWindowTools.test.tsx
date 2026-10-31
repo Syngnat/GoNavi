@@ -96,6 +96,35 @@ describe('title bar plugin entries', () => {
     expect(actions).toHaveLength(0);
   });
 
+  it('opens the declared window from a window-target navigation entry', async () => {
+    const tool = plugin('example.ssh');
+    tool.manifest.name = 'SSH';
+    tool.manifest.permissions = [];
+    tool.manifest.contributes = { navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] };
+    tool.manifest.window = { entry: 'index.html' };
+    api.list.mockResolvedValue([tool]);
+    await mount();
+    expect(actions).toHaveLength(1);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="SSH"]')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(api.openWindow).toHaveBeenCalledWith('example.ssh', 'zh-CN', expect.anything());
+  });
+
+  it('hides a window-target entry in the web runtime', async () => {
+    Reflect.set(window, '__GONAVI_WEB_RUNTIME__', { buildType: 'web' });
+    const tool = plugin('example.ssh');
+    tool.manifest.permissions = [];
+    tool.manifest.contributes = { navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] };
+    tool.manifest.window = { entry: 'index.html' };
+    api.list.mockResolvedValue([tool]);
+    await mount();
+    expect(actions).toHaveLength(0);
+    expect(api.openWindow).not.toHaveBeenCalled();
+  });
+
   it('does not infer an entry from a declared window', async () => {
     const windowTool = plugin('example.window');
     windowTool.manifest.contributes = undefined;

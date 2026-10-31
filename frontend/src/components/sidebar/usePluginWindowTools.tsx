@@ -3,7 +3,7 @@ import { pluginAPI } from '../../plugins/api';
 import { PluginAPIError, pluginErrorText } from '../../plugins/apiResult';
 import { PLUGIN_LIFECYCLE_EVENT } from '../../plugins/events';
 import { subscribePluginContributionInvalidation } from '../../plugins/invalidation';
-import type { PluginStatus } from '../../plugins/types';
+import type { PluginPage, PluginStatus } from '../../plugins/types';
 import { openPluginPageTab } from '../../pluginPages/openPluginPageTab';
 import { useI18n } from '../../i18n/provider';
 import { useStore } from '../../store';
@@ -17,17 +17,27 @@ const REQUEST_TIMEOUT_MS = 10000;
 const STARTUP_INTERVAL_MS = 1000;
 const STARTUP_WINDOW_MS = 15000;
 const identity = (plugin: PluginStatus) => `${plugin.digest}:${plugin.generation}`;
-// 顶栏只放插件自己声明的入口：contributes.navigation（location 仅允许 tools）指向的页面。
-// 过去按 pages / window 推断，装完插件就会凭空多出一个按钮；那些入口继续留在插件管理里打开。
-const toolPage = (plugin: PluginStatus) => {
+type ToolTarget =
+  | { kind: 'page'; page: PluginPage }
+  | { kind: 'window' };
+
+// 顶栏只放插件自己声明的入口：contributes.navigation（location 仅允许 tools）。
+// target=window 打开清单声明的独立窗口，target=page 打开声明的页面；过去按 pages / window
+// 推断，装完插件就会凭空多出一个按钮，那些入口继续留在插件管理里打开。
+const toolTarget = (plugin: PluginStatus, web: boolean): ToolTarget | undefined => {
   const contributes = plugin.manifest.contributes;
   const entries = (contributes?.navigation ?? [])
     .filter((entry) => entry.location === 'tools')
     .sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
   for (const entry of entries) {
+    if ((entry.target ?? 'page') === 'window') {
+      // 网页运行时开不了原生窗口，入口不出现，和插件管理里的「打开窗口」保持一致。
+      if (plugin.manifest.window && !web) return { kind: 'window' };
+      continue;
+    }
     const page = contributes?.pages?.find((candidate) =>
       candidate.id === entry.page && candidate.id.trim() && (candidate.html?.source || candidate.body !== undefined));
-    if (page) return page;
+    if (page) return { kind: 'page', page };
   }
   return undefined;
 };
@@ -62,7 +72,7 @@ function useWindowToolCatalog(web: boolean) {
       const [items, runtime] = await request.promise;
       if (!current.current.alive || ticket !== current.current.epoch) return;
       const allowed = !runtime.safeMode && runtime.managementAllowed;
-      const canOpen = (plugin: PluginStatus) => Boolean(toolPage(plugin));
+      const canOpen = (plugin: PluginStatus) => Boolean(toolTarget(plugin, web));
       const available = allowed ? items.filter((plugin) => {
         const pin = identity(plugin); const id = plugin.manifest.id;
         if (current.current.revoked.has(id)) {
@@ -110,7 +120,7 @@ function useWindowToolCatalog(web: boolean) {
   return { plugins, error, refresh, isCurrent, hasInstalledTools: current.current.installedTools.size > 0 };
 }
 
-function useWindowToolOpen(catalog: ReturnType<typeof useWindowToolCatalog>, language: string, synchronize: () => Promise<void>) {
+function useWindowToolOpen(catalog: ReturnType<typeof useWindowToolCatalog>, web: boolean, language: string, synchronize: () => Promise<void>) {
   const pending = useRef(new Map<string, { pin: string; cancel: () => void }>());
   const [busy, setBusy] = useState(new Set<string>());
   const [failure, setFailure] = useState<{ plugin: PluginStatus; text: string }>();
@@ -131,9 +141,9 @@ function useWindowToolOpen(catalog: ReturnType<typeof useWindowToolCatalog>, lan
     const id = plugin.manifest.id;
     if (!catalog.isCurrent(plugin) || pending.current.has(id)) return;
     setFailure(undefined);
-    const page = toolPage(plugin);
-    if (page) {
-      openPluginPageTab({ pluginID: id, pageID: page.id, title: page.title });
+    const target = toolTarget(plugin, web);
+    if (target?.kind === 'page') {
+      openPluginPageTab({ pluginID: id, pageID: target.page.id, title: target.page.title });
       return;
     }
     const request = boundedRequest(synchronize().then(() => {
@@ -158,8 +168,8 @@ export function usePluginWindowTools(): TitleBarQuickAction[] {
   const { language, t } = useI18n();
   const web = isWebRuntime();
   const catalog = useWindowToolCatalog(web);
-  const synchronize = usePluginWindowPreferences(language, !web && catalog.plugins.some(plugin => !toolPage(plugin)));
-  const invocation = useWindowToolOpen(catalog, language, synchronize);
+  const synchronize = usePluginWindowPreferences(language, !web && catalog.plugins.some(plugin => toolTarget(plugin, web)?.kind === 'window'));
+  const invocation = useWindowToolOpen(catalog, web, language, synchronize);
   const icon = <TitlebarPluginIcon size="100%" />;
   // 入口位置不取决于页面或窗口；点击时再按插件声明选择打开目标。
   const tools: TitleBarQuickAction[] = catalog.plugins.map((plugin) => ({

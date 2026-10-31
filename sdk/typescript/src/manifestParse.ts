@@ -69,7 +69,7 @@ export function parseManifest(data: unknown): Manifest {
         only(item.html, ['source']);
       }
     });
-    if (contributes.navigation != null) list(contributes.navigation, (item) => only(item, ['id', 'title', 'page', 'location', 'order']));
+    if (contributes.navigation != null) list(contributes.navigation, (item) => only(item, ['id', 'title', 'target', 'page', 'location', 'order']));
     if (contributes.connectionActions != null) list(contributes.connectionActions, (item) => {
       only(item, ['id', 'title', 'description', 'connectionTypes', 'scopes', 'target']);
       if (!record(item.target)) throw new Error('invalid manifest JSON');

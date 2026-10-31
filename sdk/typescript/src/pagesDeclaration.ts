@@ -82,12 +82,20 @@ function validatePageEntries(pages: readonly Page[], permissions: readonly strin
   return declared;
 }
 
-function validateNavigationEntries(navigation: readonly Navigation[], pages: ReadonlySet<string>): void {
+function validateNavigationEntries(navigation: readonly Navigation[], pages: ReadonlySet<string>, hasWindow: boolean): void {
   const declared = new Set<string>();
   for (const entry of navigation) {
     if (!PAGE_ID.test(entry.id ?? '') || declared.has(entry.id) || !boundedText(entry.title, 256)) throw new Error('invalid or duplicate navigation entry');
     declared.add(entry.id);
-    if (!pages.has(entry.page)) throw new Error('navigation references an undeclared page');
+    const target = entry.target ?? 'page';
+    if (target === 'page') {
+      if (entry.page === undefined || !pages.has(entry.page)) throw new Error('navigation references an undeclared page');
+    } else if (target === 'window') {
+      if (!hasWindow) throw new Error('window navigation requires a window');
+      if (entry.page !== undefined && entry.page !== '') throw new Error('window navigation cannot declare a page');
+    } else {
+      throw new Error('unsupported navigation target');
+    }
     if (entry.location !== 'tools') throw new Error('unsupported navigation location');
     const order = entry.order ?? 0;
     if (!Number.isInteger(order) || order < MIN_ORDER || order > MAX_ORDER) throw new Error('navigation order exceeds limit');
@@ -101,10 +109,13 @@ export function validatePages(manifest: Manifest): void {
   const navigation = contributes?.navigation ?? [];
   if (pages.length === 0 && navigation.length === 0) return;
   const permissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
-  if (!granted(permissions, 'ui.pages')) throw new Error('pages or navigation require the ui.pages permission');
+  // ui.pages gates page declarations and page navigation; a window target only opens the
+  // plugin's own window, so window-only navigation needs no page permission.
+  const declaresPages = pages.length > 0 || navigation.some((entry) => (entry.target ?? 'page') !== 'window');
+  if (declaresPages && !granted(permissions, 'ui.pages')) throw new Error('pages or navigation require the ui.pages permission');
   if (pages.length > MAX_PAGES || navigation.length > MAX_NAVIGATION) throw new Error('too many pages or navigation entries');
   const commands = new Set<string>();
   for (const command of contributes?.commands ?? []) commands.add(command.id);
   const declared = validatePageEntries(pages, permissions, commands);
-  validateNavigationEntries(navigation, declared);
+  validateNavigationEntries(navigation, declared, manifest.window != null);
 }
