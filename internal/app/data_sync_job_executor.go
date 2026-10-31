@@ -197,16 +197,16 @@ func (executor appDataSyncJobExecutor) executeWatermarkMappingWithRetry(
 			outcome.Resumable = false
 			return outcome, nil
 		}
-		runErr := errors.New(result.Message)
 		if result.OutcomeUnknown {
 			// Keep the batches this run already confirmed so the failed record does not under-report
 			// writes; only resumability is dropped, because replaying an unknown outcome is unsafe.
 			outcome.Resumable = false
-			return outcome, db.MarkWriteOutcomeUnknown(runErr)
+			return outcome, db.MarkWriteOutcomeUnknown(errors.New(result.Message))
 		}
 		// A deterministic failure (missing table, unknown column, unsupported dialect) cannot
 		// improve by replaying the same window; stop immediately instead of burning the retry
 		// budget and the backoff schedule.
+		runErr := dataSyncExecutionError(result.Message)
 		if dataSyncJobMappingErrorIsPermanent(runErr) {
 			return outcome, runErr
 		}
@@ -395,6 +395,21 @@ func dataSyncJobMappingRetrySafe(definition syncjob.JobDefinition) bool {
 	return !strings.EqualFold(strings.TrimSpace(definition.Options.SyncMode), "insert_only")
 }
 
+// errDataSyncExecutionFailed gives a failed run a stable identity. The sync engine reports
+// failures as text, so the original error object no longer exists here; wrapping the message
+// with a sentinel keeps errors.Is usable, and a message that matches the permanent-failure
+// patterns is marked permanent so the manager can pause the task instead of replaying a
+// definition that can never succeed.
+var errDataSyncExecutionFailed = errors.New("data sync execution failed")
+
+func dataSyncExecutionError(message string) error {
+	err := fmt.Errorf("%s: %w", message, errDataSyncExecutionFailed)
+	if dataSyncJobMappingErrorIsPermanent(errors.New(message)) {
+		return syncjob.MarkPermanentExecutionError(err)
+	}
+	return err
+}
+
 // dataSyncJobMappingErrorIsPermanent recognizes errors that can never improve
 // by replaying a mapping. In particular, retrying malformed target DDL merely
 // repeats a database parser failure and obscures the actionable error.
@@ -455,7 +470,7 @@ func (executor appDataSyncJobExecutor) executeOneMapping(ctx context.Context, ru
 		if result.Cancelled && ctx.Err() != nil {
 			return outcome, ctx.Err()
 		}
-		return outcome, errors.New(result.Message)
+		return outcome, dataSyncExecutionError(result.Message)
 	}
 	return outcome, nil
 }
