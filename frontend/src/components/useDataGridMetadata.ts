@@ -28,6 +28,10 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     initialUniqueKeyGroups,
   } = ctx;
 
+  const isKingbaseQueryResult = exportScope === 'queryResult'
+    && resolveDataSourceType(connections.find((item: { id: string }) => item.id === connectionId)?.config) === 'kingbase';
+  const hasAuthoritativeEmptyMap = isKingbaseQueryResult && initialColumnMetaMap != null
+    && typeof initialColumnMetaMap === 'object' && !Array.isArray(initialColumnMetaMap) && Object.keys(initialColumnMetaMap).length === 0;
   const hasInitialColumnMeta = hasUsableColumnMeta(initialColumnMetaMap || {});
   const hasInitialUniqueKeyGroups = Array.isArray(initialUniqueKeyGroups);
 
@@ -91,7 +95,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
-    if (!connectionId || !normalizedTableName || deferKingbaseMetadata || hasInitialColumnMeta) return;
+    if (!connectionId || !normalizedTableName || deferKingbaseMetadata || hasInitialColumnMeta || hasAuthoritativeEmptyMap) return;
 
     const cacheKey = metadataCacheKey;
     if (columnMetaCacheRef.current[cacheKey]) return;
@@ -165,6 +169,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     metadataCacheKey,
     metadataConnectionParams,
     hasInitialColumnMeta,
+    hasAuthoritativeEmptyMap,
   ]);
 
   useEffect(() => {
@@ -309,7 +314,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     hasInitialUniqueKeyGroups,
   ]);
 
-  const resolvedColumnMetaMap = hasInitialColumnMeta ? initialColumnMetaMap : columnMetaMap;
+  const resolvedColumnMetaMap = hasInitialColumnMeta || hasAuthoritativeEmptyMap ? initialColumnMetaMap : columnMetaMap;
   const resolvedUniqueKeyGroups = hasInitialUniqueKeyGroups ? initialUniqueKeyGroups : uniqueKeyGroups;
 
   const columnMetaMapByLowerName = useMemo(() => {

@@ -122,6 +122,36 @@ describe('useDataGridMetadata execution context', () => {
     expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
   });
 
+  it('does not cache an authoritative empty query projection as table metadata during same-table transitions', async () => {
+    const Snapshot = ({ initial, loading = false }: { initial?: Record<string, { type?: string; comment?: string }>; loading?: boolean }) => {
+      controller = useDataGridMetadata({ connections: [{ id: 'kingbase', config: { type: 'kingbase', host: 'mock.invalid', port: 54321 } }],
+        connectionId: 'kingbase', dbName: 'lab', tableName: 'customers', exportScope: 'queryResult', visibleColumnNames: ['name'],
+        loading, initialColumnMetaMap: initial });
+      return null;
+    };
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [{ name: 'name', type: 'varchar', comment: 'customer name' }] });
+    await act(async () => { renderer = create(<Snapshot initial={{}} />); });
+    expect(controller?.columnMetaMap).toEqual({});
+    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    await act(async () => { renderer?.update(<Snapshot initial={undefined} loading />); });
+    expect(controller?.columnMetaMap).toEqual({});
+    await act(async () => { renderer?.update(<Snapshot initial={undefined} />); });
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+    expect(controller?.columnMetaMap.name.comment).toBe('customer name');
+    await act(async () => { renderer?.update(<Snapshot initial={{}} />); });
+    expect(controller?.columnMetaMap).toEqual({});
+    await act(async () => { renderer?.update(<Snapshot initial={{ name: { type: 'varchar', comment: 'new comment' } }} />); });
+    expect(controller?.columnMetaMap.name.comment).toBe('new comment');
+    await act(async () => { renderer?.update(<Snapshot initial={{}} loading />); });
+    expect(controller?.columnMetaMap).toEqual({});
+  });
+
+  it('keeps the previous non-Kingbase fallback when the supplied map is empty', async () => {
+    await act(async () => { renderer = create(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={{}} />); });
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+    expect(controller?.columnMetaMap).toHaveProperty('public_value');
+  });
+
   it('uses execution-plan metadata without requesting the same table again', async () => {
     const initialColumnMetaMap = {
       id: { type: 'bigint', comment: '', nullable: 'NO', default: '', hasDefault: false, extra: '', key: 'PRI' },

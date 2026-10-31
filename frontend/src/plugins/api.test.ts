@@ -31,6 +31,19 @@ describe('generated plugin adapter', () => {
     expect(host.PluginInvoke).toHaveBeenCalledWith('test.hello', 'hello', '{"who":"Ada"}');
     expect(() => pluginAPI.invoke('test.hello', 'hello', { text: 'x'.repeat(9000) })).toThrow();
   });
+  it('loads installed plugins with host-provided icons and preserves status updates', async () => {
+    const withIcon = { ...status, manifest: { ...manifest, icon: 'frontend/icon.png' } };
+    host.PluginList.mockResolvedValue({ success: true, data: [withIcon, status] });
+    expect(await pluginAPI.list()).toEqual([withIcon, status]);
+    host.PluginInspect.mockResolvedValue({ success: true, data: {
+      manifest: withIcon.manifest, digest: status.digest, sourcePath: '/tmp/package', sizeBytes: 14,
+    } });
+    expect((await pluginAPI.inspect('/tmp/package')).manifest.icon).toBe('frontend/icon.png');
+    host.PluginInstall.mockResolvedValue({ success: true, data: withIcon });
+    expect(await pluginAPI.install('/tmp/package', status.digest, true)).toEqual(withIcon);
+    host.PluginSetEnabled.mockResolvedValue({ success: true, data: withIcon });
+    expect(await pluginAPI.setEnabled(manifest.id, false)).toEqual(withIcon);
+  });
   it('never conflates an enable request with disable', async () => {
     host.PluginSetEnabled.mockResolvedValue({ success: true, data: status });
     await pluginAPI.setEnabled('test.hello', false);

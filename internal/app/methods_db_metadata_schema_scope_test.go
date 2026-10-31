@@ -246,6 +246,36 @@ func TestDBGetColumnsKeepsCurrentDatabaseForKingbaseQualifiedTableMetadata(t *te
 	}
 }
 
+func TestDBGetColumnsKeepsKingbaseSearchPathForPureTableMetadata(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) { return raw, nil }
+	for _, params := range []string{"", "search_path=%22dbms_job%22%2C%22public%22"} {
+		t.Run("params="+params, func(t *testing.T) {
+			dbInst := &fakeMetadataRetryDB{columns: []connection.ColumnDefinition{{Name: "name", Type: "varchar", Comment: "customer name"}}}
+			newDatabaseFunc = func(string) (db.Database, error) { return dbInst, nil }
+			application := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+			config := connection.ConnectionConfig{Type: "kingbase", Host: "mock.invalid", Port: 54321, User: "test", Database: "lab", ConnectionParams: params}
+			result := application.DBGetColumns(config, "lab", "customers")
+			if !result.Success {
+				t.Fatalf("metadata failed: %s", result.Message)
+			}
+			if dbInst.connectConfig.Database != "lab" || dbInst.connectConfig.ConnectionParams != params || dbInst.columnSchema != "" || dbInst.columnTable != "customers" {
+				t.Fatalf("wrong metadata connection=%+v schema=%q table=%q", dbInst.connectConfig, dbInst.columnSchema, dbInst.columnTable)
+			}
+			columns := result.Data.([]connection.ColumnDefinition)
+			if len(columns) != 1 || columns[0].Comment != "customer name" {
+				t.Fatalf("missing comment: %v", columns)
+			}
+		})
+	}
+}
+
 func TestDBGetIndexesKeepsCurrentDatabaseForKingbaseQualifiedTableMetadata(t *testing.T) {
 	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc

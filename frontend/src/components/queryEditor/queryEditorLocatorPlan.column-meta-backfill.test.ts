@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveQueryLocatorPlan } from './queryEditorLocatorPlan';
 import { clearLocatorMetaCache } from '../../utils/queryLocatorMetaCache';
-import { clearQueryResultColumnMetaBackfillCache } from './queryEditorColumnMetaBackfill';
+import { clearQueryResultColumnMetaBackfillCache, getQueryResultLocatorMetaCacheKey } from './queryEditorColumnMetaBackfill';
 
 const backendApp = vi.hoisted(() => ({
   DBGetColumns: vi.fn(),
@@ -129,5 +129,58 @@ describe('resolveQueryLocatorPlan 列类型回填', () => {
     const queriedTables = backendApp.DBGetColumns.mock.calls.map((call) => String(call[2]));
     expect(queriedTables).toEqual(['dbms_job.lab_customers']);
     expect(plan.columnMetaMap?.name?.type).toBe('character varying(50)');
+  });
+
+  it('Kingbase cache keys follow explicit params and last duplicate search_path without leaking the URI', () => {
+    const uri = 'postgres://test:secret@mock.invalid/lab?search_path=public';
+    const key = getQueryResultLocatorMetaCacheKey({ ...config, uri, connectionParams: 'search_path=archive&search_path=latest' }, config.database, 'lab_customers');
+    expect(key).toBe(getQueryResultLocatorMetaCacheKey({ ...config, connectionParams: 'search_path=latest' }, config.database, 'lab_customers'));
+    expect(key).not.toContain('secret');
+  });
+
+  it('Kingbase URI search_path does not share cached columns across connections', async () => {
+    backendApp.DBGetColumns.mockImplementation((cfg: { uri?: string }) => Promise.resolve({
+      success: true, data: [{ name: 'name', type: 'varchar', comment: cfg.uri }],
+    }));
+    for (const uri of ['postgres://test@mock.invalid/lab?search_path=public', 'postgres://test@mock.invalid/lab?search_path=archive']) {
+      const plan = await resolveQueryLocatorPlan({ statement: 'SELECT name FROM lab_customers', dbType: 'kingbase', currentDb: config.database,
+        config: { ...config, uri }, forceReadOnly: false, schemaName: '',
+      });
+      expect(plan.columnMetaMap?.name?.comment).toBe(uri);
+    }
+  });
+
+  it('Kingbase column snapshots are isolated by the execution search_path', async () => {
+    backendApp.DBGetColumns.mockImplementation((cfg: { connectionParams?: string }) => Promise.resolve({
+      success: true,
+      data: [{ name: 'name', type: 'varchar', comment: cfg.connectionParams }],
+    }));
+    for (const searchPath of ['search_path=public', 'search_path=archive']) {
+      const plan = await resolveQueryLocatorPlan({
+        statement: 'SELECT name FROM lab_customers', dbType: 'kingbase', currentDb: config.database,
+        config: { ...config, connectionParams: searchPath }, forceReadOnly: false, schemaName: '',
+      });
+      expect(plan.columnMetaMap?.name?.comment).toBe(searchPath);
+    }
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(2);
+  });
+
+  it('Kingbase unqualified SQL resolves columns through search_path rather than the browsing schema', async () => {
+    backendApp.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => Promise.resolve({
+      success: true,
+      data: table === 'lab_customers' ? [{ name: 'name', type: 'varchar', comment: 'visible customer' }] : [],
+    }));
+    const plan = await resolveQueryLocatorPlan({
+      statement: 'SELECT name FROM lab_customers LIMIT 101 OFFSET 0',
+      dbType: 'kingbase',
+      currentDb: config.database,
+      config,
+      forceReadOnly: false,
+      schemaName: 'dbms_job',
+    });
+
+    expect(plan.columnMetaMap?.name?.comment).toBe('visible customer');
+    expect(plan.tableRef?.metadataTableName).toBe('lab_customers');
+    expect(plan.executedSql).toBe('SELECT name FROM lab_customers LIMIT 101 OFFSET 0');
   });
 });

@@ -121,18 +121,17 @@ export const createSavedQuerySlice = (set: StoreSet, get: StoreGet): SavedQueryS
 
   deleteQuery: async (id) => {
     await deleteSavedQueryFromBackend(resolveSavedQueryBackend(), id);
-    const groups = await getSavedQueryGroupsFromBackend(
-      resolveSavedQueryBackend(),
-    );
-    set((state) => ({
-      savedQueries: state.savedQueries.filter((q) => q.id !== id),
-      savedQueryGroups: normalizeSavedQueryGroups(
-        groups,
-        state.savedQueries
-          .filter((query) => query.id !== id)
-          .map((query) => query.id),
-      ),
-    }));
+    // 后端删除时已清理分组成员和排序，本地同步即可，无需再次读取分组。
+    set((state) => {
+      const savedQueries = state.savedQueries.filter((query) => query.id !== id);
+      return {
+        savedQueries,
+        savedQueryGroups: normalizeSavedQueryGroups(
+          state.savedQueryGroups,
+          savedQueries.map((query) => query.id),
+        ),
+      };
+    });
   },
 
   saveExternalSQLDirectory: (directory) =>

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SIDEBAR_RESIZE_MAX_WIDTH } from './utils/sidebarLayout';
+import { buildAllSavedQueriesTreeNode } from './components/sidebar/sidebarSavedQueriesTreeNode';
 
 class MemoryStorage implements Storage {
   private data = new Map<string, string>();
@@ -47,6 +48,73 @@ describe('store appearance persistence', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.resetModules();
+  });
+
+  it('removes a deleted saved query and its empty connection group without refreshing groups', async () => {
+    const { useStore } = await importStore();
+    const backendResolver = await import('./store/storeConnectionSanitizers');
+    const deleted = { id: 'delete-last', name: 'Delete last', sql: 'select 1', connectionId: 'saved-conn', dbName: 'app', createdAt: 1 };
+    const kept = { ...deleted, id: 'keep-query', name: 'Keep query', connectionId: 'keep-conn' };
+    const connections = [
+      { id: 'saved-conn', name: 'Saved connection', config: { type: 'mysql', host: 'db.local', port: 3306 } },
+      { id: 'keep-conn', name: 'Kept connection', config: { type: 'mysql', host: 'other.local', port: 3306 } },
+    ] as Parameters<typeof buildAllSavedQueriesTreeNode>[1];
+    const GetSavedQueryGroups = vi.fn(async () => []);
+    const DeleteQuery = vi.fn(async () => undefined);
+    const resolver = vi.spyOn(backendResolver, 'resolveSavedQueryBackend').mockReturnValue({ DeleteQuery, GetSavedQueryGroups });
+    try {
+      useStore.setState({ connections, savedQueries: [deleted, kept], savedQueryGroups: [] });
+      await useStore.getState().deleteQuery(deleted.id);
+      const snapshot = useStore.getState();
+      const tree = buildAllSavedQueriesTreeNode(snapshot.savedQueries, snapshot.connections, snapshot.savedQueryGroups);
+      expect(DeleteQuery).toHaveBeenCalledWith(deleted.id);
+      expect(snapshot.savedQueries.map(query => query.id)).toEqual([kept.id]);
+      expect(tree?.children?.map(node => node.key)).toEqual(['all-saved-queries-connection-keep-conn']);
+      expect(snapshot.connections).toEqual(connections);
+      await useStore.getState().deleteQuery(kept.id);
+      const empty = useStore.getState();
+      expect(buildAllSavedQueriesTreeNode(empty.savedQueries, empty.connections, empty.savedQueryGroups)).toBeNull();
+      expect(empty.connections).toEqual(connections);
+      expect(GetSavedQueryGroups).not.toHaveBeenCalled();
+    } finally { resolver.mockRestore(); }
+  });
+
+  it('clears deleted query membership and child order without a fallible group refresh', async () => {
+    const { useStore } = await importStore();
+    const backendResolver = await import('./store/storeConnectionSanitizers');
+    const query = { id: 'delete-grouped', name: 'Grouped query', sql: 'select 1', connectionId: 'saved-conn', dbName: 'app', createdAt: 1 };
+    const group = { id: 'manual', name: 'Manual folder', queryIds: [query.id], childOrder: [`query:${query.id}`], createdAt: 1 };
+    const GetSavedQueryGroups = vi.fn(async () => { throw new Error('group refresh failed'); });
+    const resolver = vi.spyOn(backendResolver, 'resolveSavedQueryBackend').mockReturnValue({
+      DeleteQuery: vi.fn(async () => undefined), GetSavedQueryGroups,
+    });
+    try {
+      useStore.setState({ savedQueries: [query], savedQueryGroups: [group] });
+      await expect(useStore.getState().deleteQuery(query.id)).resolves.toBeUndefined();
+      expect(useStore.getState().savedQueries).toEqual([]);
+      expect(useStore.getState().savedQueryGroups).toMatchObject([{ id: group.id, queryIds: [], childOrder: [] }]);
+      const tree = buildAllSavedQueriesTreeNode(useStore.getState().savedQueries, [], useStore.getState().savedQueryGroups);
+      expect(tree?.children).toMatchObject([{ key: 'saved-query-manual-group-manual', children: [] }]);
+      expect(GetSavedQueryGroups).not.toHaveBeenCalled();
+    } finally { resolver.mockRestore(); }
+  });
+
+  it('does not remove saved queries or groups when the backend deletion fails', async () => {
+    const { useStore } = await importStore();
+    const backendResolver = await import('./store/storeConnectionSanitizers');
+    const query = { id: 'keep-failed-delete', name: 'Keep', sql: 'select 1', connectionId: 'saved-conn', dbName: 'app', createdAt: 1 };
+    const group = { id: 'manual', name: 'Manual folder', queryIds: [query.id], createdAt: 1 };
+    const GetSavedQueryGroups = vi.fn(async () => []);
+    const resolver = vi.spyOn(backendResolver, 'resolveSavedQueryBackend').mockReturnValue({
+      DeleteQuery: vi.fn(async () => { throw new Error('delete failed'); }), GetSavedQueryGroups,
+    });
+    try {
+      useStore.setState({ savedQueries: [query], savedQueryGroups: [group] });
+      await expect(useStore.getState().deleteQuery(query.id)).rejects.toThrow('delete failed');
+      expect(useStore.getState().savedQueries).toEqual([query]);
+      expect(useStore.getState().savedQueryGroups).toEqual([group]);
+      expect(GetSavedQueryGroups).not.toHaveBeenCalled();
+    } finally { resolver.mockRestore(); }
   });
 
   it('fills missing DataGrid appearance settings with defaults during hydration', async () => {
@@ -1239,5 +1307,106 @@ describe('store appearance persistence', () => {
     const saved = useStore.getState().connections[0];
     expect(saved?.config.redisDB).toBe(31);
     expect(saved?.includeRedisDatabases).toEqual([0, 15, 16, 31]);
+  });
+});
+
+
+describe('saved-query delete menu completion', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage());
+    vi.resetModules();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it.each(['pending', 'failed', 'delete-failed'] as const)('completes the actual delete menu with %s backend reads', async (mode) => {
+    const { useStore } = await importStore();
+    const backendResolver = await import('./store/storeConnectionSanitizers');
+    const { buildSavedQueryMenuItems } = await import('./components/sidebar/sidebarNodeMenuSavedQueries');
+    const { default: Modal } = await import('./components/common/ResizableDraggableModal');
+    const { message } = await import('antd');
+    const { t } = await import('./i18n');
+    const query = { id: 'menu-last', name: 'Last query', sql: 'select 1', connectionId: 'menu-conn', dbName: 'app', createdAt: 1 };
+    const connections = [{ id: 'menu-conn', name: 'Menu connection', config: { type: 'mysql', host: 'db.local', port: 3306 } }] as Parameters<typeof buildAllSavedQueriesTreeNode>[1];
+    const group = { id: 'menu-manual', name: 'Manual', queryIds: [query.id], childOrder: [`query:${query.id}`] };
+    const groups = mode === 'delete-failed' ? [group] : [];
+    let release!: (groups: []) => void;
+    const pending = new Promise<[]>(resolve => { release = resolve; });
+    const GetSavedQueryGroups = vi.fn(() => mode === 'pending' ? pending : Promise.reject(new Error('group refresh failed')));
+    const DeleteQuery = vi.fn(async () => {
+      if (mode === 'delete-failed') throw new Error('delete failed');
+    });
+    vi.spyOn(backendResolver, 'resolveSavedQueryBackend').mockReturnValue({ DeleteQuery, GetSavedQueryGroups });
+    useStore.setState({ connections, savedQueries: [query], savedQueryGroups: groups });
+    let config!: Parameters<typeof Modal.confirm>[0];
+    vi.spyOn(Modal, 'confirm').mockImplementation(input => { config = input; return { destroy: vi.fn(), update: vi.fn() }; });
+    const errorToast = vi.spyOn(message, 'error').mockImplementation(() => (() => undefined) as ReturnType<typeof message.error>);
+    const successToast = vi.spyOn(message, 'success').mockImplementation(() => (() => undefined) as ReturnType<typeof message.success>);
+    const tree = buildAllSavedQueriesTreeNode([query], connections, groups)!;
+    const setTreeData = vi.fn();
+    const context = {
+      savedQueryGroups: groups, connections, isSavedQueryUnmatched: () => false,
+      deleteQuery: useStore.getState().deleteQuery,
+      resolveSavedQueryDisplayName: (name: string) => name,
+      treeDataRef: { current: [tree] }, setTreeData,
+    } as Parameters<typeof buildSavedQueryMenuItems>[0]['context'];
+    const items = buildSavedQueryMenuItems({ node: { dataRef: query }, context });
+    const item = items?.find(item => item && 'key' in item && item.key === 'delete-query');
+    if (!item || !('onClick' in item) || !item.onClick) throw new Error('delete menu missing');
+    item.onClick({} as Parameters<NonNullable<typeof item.onClick>>[0]);
+    let settled = false;
+    const outcome = Promise.resolve(config.onOk!()).then(() => { settled = true; return null; }, error => { settled = true; return error; });
+    let settledWithoutRefresh = false;
+    try {
+      await vi.waitFor(() => expect(settled || GetSavedQueryGroups.mock.calls.length > 0).toBe(true));
+      settledWithoutRefresh = settled;
+    } finally { release([]); }
+    const error = await outcome;
+    expect(DeleteQuery).toHaveBeenCalledWith(query.id);
+    expect(useStore.getState().connections).toEqual(connections);
+    expect(GetSavedQueryGroups).not.toHaveBeenCalled();
+    expect(settledWithoutRefresh).toBe(true);
+    if (mode === 'delete-failed') {
+      expect(error).toBeInstanceOf(Error);
+      expect(useStore.getState().savedQueries).toEqual([query]);
+      expect(useStore.getState().savedQueryGroups).toEqual(groups);
+      expect(errorToast).toHaveBeenCalledWith(t('sidebar.message.saved_query_delete_failed', { error: 'delete failed' }));
+      expect(successToast).not.toHaveBeenCalled();
+      expect(setTreeData).not.toHaveBeenCalled();
+    } else {
+      expect(error).toBeNull();
+      expect(useStore.getState().savedQueries).toEqual([]);
+      expect(buildAllSavedQueriesTreeNode(useStore.getState().savedQueries, connections, [])).toBeNull();
+      expect(context.treeDataRef.current).toEqual([]);
+      expect(setTreeData).toHaveBeenCalledWith([]);
+      expect(successToast).toHaveBeenCalledWith(t('sidebar.message.saved_query_deleted'));
+      expect(errorToast).not.toHaveBeenCalled();
+    }
+  });
+
+  it('keeps newer query and group state when a pending deletion finishes', async () => {
+    const { useStore } = await importStore();
+    const backendResolver = await import('./store/storeConnectionSanitizers');
+    const deleted = { id: 'concurrent-delete', name: 'Delete', sql: 'select 1', connectionId: 'menu-conn', dbName: 'app', createdAt: 1 };
+    const added = { ...deleted, id: 'concurrent-added', name: 'New query' };
+    const group = { id: 'concurrent-group', name: 'New group', queryIds: [added.id], childOrder: [`query:${added.id}`] };
+    let finishDelete!: () => void;
+    const GetSavedQueryGroups = vi.fn(async () => []);
+    vi.spyOn(backendResolver, 'resolveSavedQueryBackend').mockReturnValue({
+      DeleteQuery: vi.fn(() => new Promise<void>(resolve => { finishDelete = resolve; })),
+      GetSavedQueryGroups, SaveQuery: vi.fn(async query => query),
+    });
+    useStore.setState({ savedQueries: [deleted], savedQueryGroups: [] });
+    const deleting = useStore.getState().deleteQuery(deleted.id);
+    await useStore.getState().saveQuery(added);
+    useStore.getState().replaceSavedQueryGroups([group]);
+    finishDelete();
+    await deleting;
+    expect(useStore.getState().savedQueries).toEqual([added]);
+    expect(useStore.getState().savedQueryGroups).toMatchObject([group]);
+    expect(GetSavedQueryGroups).not.toHaveBeenCalled();
   });
 });
