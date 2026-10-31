@@ -32,13 +32,18 @@ function validExporter(exporter: Record<string, unknown>, commands: Map<string, 
     && typeof exporter.contentType === 'string' && /^(text|application)\/[a-z0-9][a-z0-9.+-]{0,63}$/.test(exporter.contentType)
     && (exporter.streaming === undefined || typeof exporter.streaming === 'boolean');
 }
-// Mirrors internal/plugin's package icon rule: a bounded package-relative raster path.
-// SVG is refused because the host renders logos in its own window.
-const PACKAGE_ICON_PATH = /^[^\\:<>"|?*\u0000-\u001f]+\.(?:png|jpe?g|webp|gif)$/i;
+// Mirrors internal/plugin's package icon rule (validPackageIcon + safePackagePath): a bounded
+// package-relative raster path. An empty string means "no logo", because the host skips the
+// check and IconPath falls back to the provider icon. SVG is refused: logos render in the host
+// window, so an executable vector document is never needed.
+const PACKAGE_ICON_PATH = /\.(?:png|jpe?g|webp|gif)$/i;
 function validPackageIcon(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256 || !PACKAGE_ICON_PATH.test(value)) return false;
-  return value.split('/').every((part) => part !== '' && part !== '.' && part !== '..'
-    && part.length <= 240 && part === part.replace(/[ .]+$/, ''));
+  if (value === '') return true;
+  if (typeof value !== 'string' || value.length > 256 || !utf8Within(value, 256) || !PACKAGE_ICON_PATH.test(value)
+    || /[\\:\u0000-\u001f<>"|?*]/.test(value) || value.startsWith('/')) return false;
+  const parts = value.split('/');
+  return parts.length <= 33 && parts.every((part) => part !== '' && part !== '.' && part !== '..'
+    && part.length <= 240 && !part.endsWith(' ') && !part.endsWith('.') && !reservedSkillSegment(part));
 }
 function validAIProvider(provider: Record<string, unknown>, commands: Map<string, Record<string, unknown>>): boolean {
   const command = typeof provider.command === 'string' ? commands.get(provider.command) : undefined;
@@ -194,9 +199,9 @@ export function decodeManifest(data: unknown): PluginManifest {
     || m.permissions.some((p) => typeof p !== 'string')) invalid();
   const name = m.name as string;
   if (!validPluginID(m.id) || typeof m.version !== 'string' || !validVersion(m.version) || name.trim() === '' || !utf8Within(name, 256) || name.includes('\u0000')) invalid();
-  const icon = m.icon;
-  if (icon !== undefined && (typeof icon !== 'string' || (icon !== '' && (!utf8Within(icon, 256)
-    || !/\.(png|jpe?g|webp|gif)$/i.test(icon) || !validWindowEntry(icon))))) invalid();
+  // Only an absent key means "no logo": a literal null is not a path, and the host never emits
+  // one because the field is omitempty, so accepting it would only widen the contract.
+  if (m.icon !== undefined && !validPackageIcon(m.icon)) invalid();
   const textLimits: Record<string, number> = { description: 16384, author: 512, license: 256 };
   for (const key of ['description', 'author', 'license', 'minHostVersion']) {
     const value = m[key];
@@ -206,7 +211,6 @@ export function decodeManifest(data: unknown): PluginManifest {
     if (limit != null && !utf8Within(value, limit)) invalid();
     if (key === 'minHostVersion' && value !== '' && !validVersion(value)) invalid();
   }
-  if (m.icon != null && !validPackageIcon(m.icon)) invalid();
   if (m.permissionNotes != null) {
     const notes = requireRecord(m.permissionNotes);
     const granted = new Set(m.permissions as string[]);

@@ -19,7 +19,7 @@ describe('manifest icon decoding', () => {
   });
 
   it('rejects paths and formats the host never accepts', () => {
-    for (const icon of ['icons/logo.svg', '/icons/logo.png', '../logo.png', 'icons\\logo.png', 'icons/./logo.png', 'icons/logo.png ', 'a'.repeat(253) + '.png', 7]) {
+    for (const icon of ['icons/logo.svg', '/icons/logo.png', '../logo.png', 'icons\\logo.png', 'icons/./logo.png', 'icons/logo.png ', 'icons' + String.fromCharCode(92) + 'logo.png', 'a'.repeat(253) + '.png', 7]) {
       expect(() => decodeManifest({ ...base, icon })).toThrow(PluginAPIError);
     }
   });

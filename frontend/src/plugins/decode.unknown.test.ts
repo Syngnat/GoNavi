@@ -32,7 +32,7 @@ describe('unknown manifest fields', () => {
   });
   it('rejects unsafe icon paths and invalid types', () => {
     for (const icon of [null, false, 1, {}, [], 'icon.svg', '/icon.png', '../icon.png', 'frontend/../icon.png',
-      './icon.png', 'frontend//icon.png', 'frontend/./icon.png', 'frontend\\icon.png', 'C:/icon.png',
+      './icon.png', 'frontend//icon.png', 'frontend/./icon.png', 'frontend' + String.fromCharCode(92) + 'icon.png', 'C:/icon.png',
       'https://example.com/icon.png', 'data:image/png;base64,AA==', 'icon.png?x=1', 'icon.png#x',
       'icon\u0000.png', 'con.png', 'frontend/ /icon.png']) {
       expect(() => decodeInspection(inspection({ icon }))).toThrow('plugin.error.invalid_response');
