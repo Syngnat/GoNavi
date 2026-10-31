@@ -154,17 +154,24 @@ function validatePages(pages: unknown, permissions: readonly string[]): Set<stri
   }
   return seen;
 }
-function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>): void {
+function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>, hasWindow: boolean): void {
   if (!Array.isArray(entries) || entries.length > PAGE_CONTRIBUTION_LIMIT) invalid();
   const seen = new Set<string>();
   for (const item of entries) {
     const entry = requireRecord(item);
-    onlyKeys(entry, ['id', 'title', 'page', 'location', 'order']);
+    onlyKeys(entry, ['id', 'title', 'target', 'page', 'location', 'order']);
     const order = entry.order;
     if (!validLocalID(entry.id) || seen.has(entry.id) || !validLocalTitle(entry.title)
-      || typeof entry.page !== 'string' || !pageIDs.has(entry.page)
       || entry.location !== 'tools'
       || (order != null && (typeof order !== 'number' || !Number.isInteger(order) || order < -1000 || order > 1000))) invalid();
+    const target = entry.target ?? 'page';
+    if (target === 'page') {
+      if (typeof entry.page !== 'string' || !pageIDs.has(entry.page)) invalid();
+    } else if (target === 'window') {
+      if (!hasWindow || (entry.page != null && entry.page !== '')) invalid();
+    } else {
+      invalid();
+    }
     seen.add(entry.id as string);
   }
 }
@@ -354,12 +361,14 @@ export function decodeManifest(data: unknown): PluginManifest {
       const pages = c.pages ?? [];
       const navigation = c.navigation ?? [];
       // Empty arrays declare nothing, so they must not require the permission the
-      // host also only enforces for a non-empty declaration.
-      const declares = (Array.isArray(pages) && pages.length > 0)
-        || (Array.isArray(navigation) && navigation.length > 0);
+      // host also only enforces for a non-empty declaration. A window target only
+      // opens the plugin's own window and needs no page permission.
+      const pageNavigation = Array.isArray(navigation)
+        && navigation.some((entry) => requireRecord(entry).target !== 'window');
+      const declares = (Array.isArray(pages) && pages.length > 0) || pageNavigation;
       if (declares && !permissions.includes('ui.pages')) invalid();
       const pageIDs = validatePages(pages, permissions);
-      validateNavigation(navigation, pageIDs);
+      validateNavigation(navigation, pageIDs, m.window != null);
     }
     if (c.skills != null) {
       if (!Array.isArray(c.skills) || c.skills.length > 16 || !(m.permissions as string[]).includes('ai.skills')) return invalid();

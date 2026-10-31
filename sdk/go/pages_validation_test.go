@@ -179,3 +179,32 @@ func TestPageDeclarationsRoundTripJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidatePagesAcceptsWindowTargetNavigation(t *testing.T) {
+	manifest := pageManifest()
+	manifest.Window = &Window{Entry: "index.html"}
+	manifest.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "window", Location: PageLocationTools}}
+	if err := ValidatePages(manifest); err != nil {
+		t.Fatalf("window navigation without ui.pages: %v", err)
+	}
+
+	withoutWindow := pageManifest()
+	withoutWindow.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "window", Location: PageLocationTools}}
+	if err := ValidatePages(withoutWindow); err == nil {
+		t.Fatal("window navigation without a window was accepted")
+	}
+
+	withPage := pageManifest()
+	withPage.Window = &Window{Entry: "index.html"}
+	withPage.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "window", Page: "overview", Location: PageLocationTools}}
+	if err := ValidatePages(withPage); err == nil {
+		t.Fatal("window navigation with a page was accepted")
+	}
+
+	unknown := pageManifest()
+	unknown.Window = &Window{Entry: "index.html"}
+	unknown.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "popover", Location: PageLocationTools}}
+	if err := ValidatePages(unknown); err == nil {
+		t.Fatal("unknown navigation target was accepted")
+	}
+}

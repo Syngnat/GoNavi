@@ -18,13 +18,16 @@ type PageHTML struct {
 	Source string `json:"source"`
 }
 
-// Navigation attaches a declared page to one host location. Location is an
+// Navigation attaches a declared page or the plugin window to one host location.
+// Target is an enumeration: an empty target and PageTargetPage open Page in a
+// workbench tab, PageTargetWindow opens the manifest window. Location is an
 // enumeration whose only version-one value is PageLocationTools; Order only
 // reorders entries of the same plugin.
 type Navigation struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Page     string `json:"page"`
+	Target   string `json:"target,omitempty"`
+	Page     string `json:"page,omitempty"`
 	Location string `json:"location"`
 	Order    int    `json:"order,omitempty"`
 }

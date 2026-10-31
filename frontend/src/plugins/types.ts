@@ -32,7 +32,9 @@ export interface PluginPage {
 export interface PluginNavigation {
   id: string;
   title: string;
-  page: string;
+  /** `page` opens the declared page in a tab; `window` opens the manifest window. */
+  target?: 'page' | 'window';
+  page?: string;
   location: 'tools';
   order?: number;
 }

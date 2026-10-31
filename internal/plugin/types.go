@@ -115,12 +115,15 @@ type Page struct {
 	HTML  *HTMLPanel `json:"html,omitempty"`
 }
 
-// Navigation attaches a declared page to a host location. Location stays an
-// enumeration, and order only reorders entries of the same plugin.
+// Navigation attaches a declared page or the plugin's own window to a host
+// location. Target stays an enumeration: "page" (the default) opens the page in
+// a workbench tab, "window" opens the window declared by the manifest. Location
+// stays an enumeration, and order only reorders entries of the same plugin.
 type Navigation struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Page     string `json:"page"`
+	Target   string `json:"target,omitempty"`
+	Page     string `json:"page,omitempty"`
 	Location string `json:"location"`
 	Order    int    `json:"order,omitempty"`
 }
