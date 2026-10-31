@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"time"
+
+	"GoNavi-Wails/internal/plugin"
 )
 
 // downloadPluginAsset fetches a third-party plugin archive directly from its
@@ -11,5 +13,5 @@ import (
 // The client still inherits the global proxy or the platform/environment proxy.
 func downloadPluginAsset(ctx context.Context, rawURL, filePath string) (string, error) {
 	client := newStrictDownloadHTTPClientWithContext(ctx, 10*time.Minute)
-	return downloadFileWithHashSequential(client, rawURL, filePath, nil)
+	return downloadFileWithHashSequentialLimit(client, rawURL, filePath, nil, plugin.MaxPackageBytes)
 }

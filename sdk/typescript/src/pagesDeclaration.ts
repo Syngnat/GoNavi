@@ -103,7 +103,8 @@ function validateNavigationEntries(navigation: readonly Navigation[], pages: Rea
   for (const entry of navigation) {
     if (!PAGE_ID.test(entry.id ?? '') || declared.has(entry.id) || !boundedText(entry.title, 256)) throw new Error('invalid or duplicate navigation entry');
     declared.add(entry.id);
-    const target = entry.target ?? 'page';
+    const rawTarget: unknown = entry.target;
+    const target = rawTarget == null || rawTarget === '' ? 'page' : rawTarget;
     if (target === 'page') {
       if (entry.page === undefined || !pages.has(entry.page)) throw new Error('navigation references an undeclared page');
     } else if (target === 'window') {

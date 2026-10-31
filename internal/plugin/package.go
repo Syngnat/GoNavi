@@ -18,6 +18,10 @@ import (
 
 const maxPackageEntries = 4096
 
+// MaxPackageBytes bounds both the archive downloaded for inspection and the bytes a package
+// expands to. Without it a zip/tgz bomb could fill the disk before the entry-count check runs.
+const MaxPackageBytes int64 = 256 << 20
+
 type packageFile struct {
 	name string
 	size int64
@@ -64,6 +68,10 @@ func scanPackage(ctx context.Context, source, destination string) (Inspection, e
 	case info.IsDir():
 		err = scan.directory(absolute)
 	case info.Mode().IsRegular():
+		// Bound the archive before archive/zip materializes its whole central directory.
+		if info.Size() > MaxPackageBytes {
+			return result, fmt.Errorf("package exceeds size limit")
+		}
 		format, formatErr := archiveFormat(absolute)
 		if formatErr != nil {
 			return result, formatErr
@@ -130,6 +138,9 @@ func (s *packageScan) file(name string, size int64, r io.Reader) error {
 	}
 	if name == manifestName && size > maxManifestBytes {
 		return fmt.Errorf("manifest exceeds size limit")
+	}
+	if size > MaxPackageBytes-s.total {
+		return fmt.Errorf("package exceeds size limit")
 	}
 	if err := s.entry(name, false); err != nil {
 		return err

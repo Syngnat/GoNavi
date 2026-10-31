@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func TestPanelHTMLParses(t *testing.T) {
+	raw := []byte(`{"schemaVersion":1,"apiVersion":1,"id":"example.panel","name":"Panel","version":"1.0.0","permissions":["ui.html-panel"],"contributes":{"panels":[{"id":"main","title":"Main","html":{"source":"<p>hi</p>"}}]}}`)
+	if _, err := ParseManifest(raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestShippedContributionNamesRoundTrip(t *testing.T) {
 	manifest := Manifest{
 		SchemaVersion: 1, APIVersion: 1, ID: "example.bundle", Name: "Bundle", Version: "1.0.0",

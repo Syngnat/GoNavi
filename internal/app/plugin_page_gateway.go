@@ -43,49 +43,6 @@ type pluginPageCapability struct {
 
 type pluginPageCapabilities map[string]pluginPageCapability
 
-// dispatchPluginPageCall applies the documented validation order and invokes
-// exactly one registered handler. Tests inject a fake capability map to cover
-// validation without touching a database or the plugin runtime.
-func dispatchPluginPageCall(
-	ctx context.Context,
-	capabilities pluginPageCapabilities,
-	a *App,
-	status plugin.Status,
-	pageID string,
-	method string,
-	arguments json.RawMessage,
-) (any, string) {
-	if !pluginPageDeclared(status.Manifest, pageID) {
-		return nil, "not_declared"
-	}
-	capability, registered := capabilities[method]
-	if !registered {
-		return nil, "unknown_method"
-	}
-	if capability.permission != "" && !pluginPageHasPermission(status.Manifest, capability.permission) {
-		return nil, "permission_denied"
-	}
-	if !pluginPageArgumentsValid(arguments) {
-		return nil, "invalid_arguments"
-	}
-	if ctx == nil || ctx.Err() != nil {
-		return nil, "internal"
-	}
-	value, code := capability.handle(ctx, a, pluginPageRequest{
-		pluginID:  status.Manifest.ID,
-		pageID:    pageID,
-		method:    method,
-		status:    status,
-		arguments: arguments,
-	})
-	if code != "" {
-		return nil, code
-	}
-	return value, ""
-}
-
-// pluginPageDeclared only trusts the validated manifest snapshot. Navigation
-// references are checked by package validation; the gateway gates on pages.
 func pluginPageDeclared(manifest plugin.Manifest, pageID string) bool {
 	if pageID == "" {
 		return false
