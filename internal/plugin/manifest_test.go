@@ -18,6 +18,7 @@ func TestManifestValidation(t *testing.T) {
 		{"unsupported api", func(m *Manifest) { m.APIVersion = 2 }},
 		{"invalid id", func(m *Manifest) { m.ID = "../escape" }},
 		{"missing semver patch", func(m *Manifest) { m.Version = "1.0" }},
+		{"version too long", func(m *Manifest) { m.Version = "1.0.0-" + strings.Repeat("a", 123) }},
 		{"unknown runtime", func(m *Manifest) { m.Backend = &Backend{Default: &Entry{Executable: "x", Runtime: "shell"}} }},
 		{"shell path", func(m *Manifest) { m.Backend = &Backend{Default: &Entry{Executable: "../x"}} }},
 		{"duplicate permission", func(m *Manifest) { m.Permissions = []string{"db.read", "db.read"} }},
