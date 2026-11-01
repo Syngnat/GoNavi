@@ -166,7 +166,7 @@ function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>, hasW
     if (!validLocalID(entry.id) || seen.has(entry.id) || !validLocalTitle(entry.title)
       || entry.location !== 'tools'
       || (order != null && (typeof order !== 'number' || !Number.isInteger(order) || order < -1000 || order > 1000))) invalid();
-    const target = entry.target ?? 'page';
+    const target = entry.target == null || entry.target === '' ? 'page' : entry.target;
     if (target === 'page') {
       if (typeof entry.page !== 'string' || !pageIDs.has(entry.page)) invalid();
     } else if (target === 'window') {

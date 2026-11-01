@@ -53,7 +53,14 @@ export function parseManifest(data: unknown): Manifest {
     const contributes = data.contributes;
     only(contributes, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions']);
     if (contributes.commands != null) list(contributes.commands, (item) => only(item, ['id', 'title', 'description', 'inputSchema', 'effect']));
-    if (contributes.panels != null) list(contributes.panels, (item) => { only(item, ['id', 'title', 'body']); if (item.body != null) node(item.body); });
+    if (contributes.panels != null) list(contributes.panels, (item) => {
+      only(item, ['id', 'title', 'body', 'html']);
+      if (item.body != null) node(item.body);
+      if (item.html != null) {
+        if (!record(item.html)) throw new Error('invalid manifest JSON');
+        only(item.html, ['source']);
+      }
+    });
     if (contributes.dataSources != null) list(contributes.dataSources, (item) => only(item, ['id', 'name', 'dialect', 'command', 'defaultPort', 'readOnly']));
     if (contributes.skills != null) list(contributes.skills, (item) => only(item, ['id', 'name', 'description', 'entry', 'resources']));
     if (contributes.exporters != null) list(contributes.exporters, (item) => only(item, ['id', 'name', 'command', 'extension', 'contentType', 'streaming']));

@@ -79,23 +79,31 @@ func (m *Manager) ReplacePackage(ctx context.Context, request InstallRequest) (S
 		// Installation rejects a plugin whose previous generation is still running, and the
 		// runtime owner stops that.instance asynchronously.
 		if err = m.waitGenerationSettled(ctx, id); err != nil {
-			_, _ = m.SetEnabled(ctx, id, true)
+			_, _ = m.reenableAfterReplace(ctx, id)
 			return Status{}, err
 		}
 	}
 	status, installErr := m.Install(ctx, request)
 	if installErr != nil {
 		if wasEnabled {
-			_, _ = m.SetEnabled(ctx, id, true)
+			_, _ = m.reenableAfterReplace(ctx, id)
 		}
 		return Status{}, installErr
 	}
 	if !wasEnabled {
 		return status, nil
 	}
-	enabled, enableErr := m.SetEnabled(ctx, id, true)
+	enabled, enableErr := m.reenableAfterReplace(ctx, id)
 	if enableErr != nil {
-		return status, enableErr
+		return status, fmt.Errorf("plugin installed but could not be re-enabled: %w", enableErr)
 	}
 	return enabled, nil
+}
+
+// reenableAfterReplace runs outside the caller's cancellation: the package change already
+// happened, so a cancelled request must not leave the plugin disabled as a side effect.
+func (m *Manager) reenableAfterReplace(ctx context.Context, id string) (Status, error) {
+	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	return m.SetEnabled(detached, id, true)
 }

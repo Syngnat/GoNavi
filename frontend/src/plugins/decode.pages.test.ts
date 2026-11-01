@@ -102,6 +102,14 @@ describe('manifest navigation', () => {
     rejects({ pages: [textPage('overview')], navigation: Array.from({ length: 33 }, (_, index) => nav('n' + index, 'overview')) });
   });
 
+  it('treats an empty navigation target as the page target', () => {
+    const result = decodeInspection(inspection({
+      pages: [textPage('overview')],
+      navigation: [{ id: 'entry', title: 'Entry', target: '', page: 'overview', location: 'tools' }],
+    }));
+    expect(result.manifest.contributes?.navigation?.[0]).toMatchObject({ target: '' });
+  });
+
   it('accepts a window target only when the manifest declares the window', () => {
     const window = { entry: 'index.html' };
     const result = decodeInspection(inspection({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] }, [], window));

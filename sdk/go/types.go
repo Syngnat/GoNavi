@@ -125,11 +125,13 @@ type Command struct {
 	Effect      string          `json:"effect,omitempty"`
 }
 
-// Panel is host-rendered data, never executable HTML or JavaScript.
+// Panel declares exactly one body: a host-rendered tree or a sandboxed custom HTML
+// document that the host only shows in an opaque-origin frame.
 type Panel struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Body  UINode `json:"body"`
+	ID    string    `json:"id"`
+	Title string    `json:"title"`
+	Body  UINode    `json:"body"`
+	HTML  *PageHTML `json:"html,omitempty"`
 }
 
 // UINode uses text, alert, column, row, button or table as Type.
