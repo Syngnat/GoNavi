@@ -1,6 +1,6 @@
 import type { Manifest } from './types.js';
 
-const topLevel = ['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window', 'configSchema'];
+const topLevel = ['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window'];
 const entryKeys = ['executable', 'args', 'runtime'];
 const nodeKeys = ['type', 'text', 'title', 'children', 'command', 'arguments', 'columns', 'rows'];
 

@@ -3,7 +3,7 @@ import { decodeManifest } from './decode';
 
 const manifest = (action: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
   schemaVersion: 1, apiVersion: 1, id: 'com.example.mongo', name: 'Mongo', version: '1.0.0',
-  permissions: [], window: { entry: 'ui/index.html' }, ...extra,
+  permissions: ['ui.html-panel'], window: { entry: 'ui/index.html' }, ...extra,
   contributes: { connectionActions: [action] },
 });
 

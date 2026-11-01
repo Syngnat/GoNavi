@@ -200,7 +200,7 @@ export const MANIFEST_JSON_LIMITS = { bytes: 1 << 20, text: 256 << 10, depth: 64
 export function decodeManifest(data: unknown): PluginManifest {
   boundedJSON(data, MANIFEST_JSON_LIMITS.bytes, MANIFEST_JSON_LIMITS.text, MANIFEST_JSON_LIMITS.depth, MANIFEST_JSON_LIMITS.values);
   const raw = requireRecord(data);
-  const allowed = new Set(['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window', 'configSchema']);
+  const allowed = new Set(['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window']);
   if (Object.keys(raw).some((key) => !allowed.has(key))) invalid();
   const m: Record<string, unknown> = { ...raw, permissions: raw.permissions ?? [] };
   if (m.schemaVersion !== 1 || m.apiVersion !== 1 || typeof m.id !== 'string' || typeof m.name !== 'string'
@@ -394,8 +394,8 @@ export function decodeManifest(data: unknown): PluginManifest {
       for (const entry of Object.values(requireRecord(backend.platforms))) onlyKeys(requireRecord(entry), entryKeys);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(m, 'configSchema') && !validSchema(m.configSchema)) invalid();
   if (m.window != null) {
+    if (!(m.permissions as string[]).includes('ui.html-panel')) invalid();
     const view = requireRecord(m.window);
     onlyKeys(view, ['entry', 'title', 'width', 'height']);
     if (!validWindowEntry(view.entry)) invalid();

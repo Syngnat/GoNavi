@@ -54,7 +54,6 @@ export interface Manifest {
   backend?: { default?: Entry; platforms?: Record<string, Entry> };
   contributes?: { commands?: Command[]; panels?: { id: string; title: string; body?: UINode; html?: PageHTML }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
   window?: { entry: string; title?: string; width?: number; height?: number };
-  configSchema?: JSONValue;
 }
 export interface InitializeParams {
   apiVersion: 1; pluginId: string; version: string; generation: number;
