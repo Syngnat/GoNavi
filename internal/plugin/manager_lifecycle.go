@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"GoNavi-Wails/internal/buildversion"
@@ -269,7 +270,10 @@ func (m *Manager) quarantine(inst *instance, cause error) {
 	defer cancel()
 	message := cause.Error()
 	if len(message) > 1024 {
-		message = message[:1024]
+		// A byte slice can end inside a multi-byte rune; encoding/json would then expand the
+		// invalid bytes to U+FFFD, push LastError past the loadState limit and make the whole
+		// state file unreadable. Trim to a valid prefix before it is persisted.
+		message = strings.ToValidUTF8(message[:1024], "")
 	}
 	// A quarantined record survives restarts and only the persisted message reaches the card,
 	// so the log has to carry the same cause or the fault becomes unreproducible later.

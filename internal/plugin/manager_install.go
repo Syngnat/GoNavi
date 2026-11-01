@@ -42,13 +42,17 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest) (Status, 
 		return Status{}, ErrDigestMismatch
 	}
 	target := filepath.Join(m.root, "store", inspection.Digest)
-	if _, statErr := os.Lstat(target); statErr == nil {
-		existing, checkErr := InspectPackage(ctx, target)
-		if checkErr != nil {
-			return Status{}, checkErr
+	replaceCorrupt := false
+	if info, statErr := os.Lstat(target); statErr == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return Status{}, fmt.Errorf("invalid immutable package location")
 		}
-		if existing.Digest != inspection.Digest {
-			return Status{}, ErrDigestMismatch
+		existing, checkErr := InspectPackage(ctx, target)
+		// A store entry can be damaged after publication (antivirus quarantine, power loss).
+		// Refusing to reinstall the same digest would strand the user with no repair path, so
+		// treat an unreadable or mismatched entry as corrupt and republish it from staging.
+		if checkErr != nil || existing.Digest != inspection.Digest {
+			replaceCorrupt = true
 		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return Status{}, statErr
@@ -77,6 +81,15 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest) (Status, 
 		if info, statErr := os.Lstat(target); statErr == nil {
 			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 				return false, fmt.Errorf("invalid immutable package location")
+			}
+			if replaceCorrupt {
+				quarantine := target + ".corrupt-" + time.Now().UTC().Format("20060102T150405.000000000")
+				if renameErr := os.Rename(target, quarantine); renameErr != nil {
+					return false, fmt.Errorf("quarantine corrupt package: %w", renameErr)
+				}
+				if renameErr := os.Rename(staging, target); renameErr != nil {
+					return false, renameErr
+				}
 			}
 		} else if errors.Is(statErr, os.ErrNotExist) {
 			if renameErr := os.Rename(staging, target); renameErr != nil {

@@ -208,3 +208,20 @@ func TestValidatePagesAcceptsWindowTargetNavigation(t *testing.T) {
 		t.Fatal("unknown navigation target was accepted")
 	}
 }
+
+func TestValidatePagesRejectsNodesTheRendererCannotDraw(t *testing.T) {
+	reserved := pageManifest(PagesPermission, "data.sources")
+	reserved.Backend = &Backend{Default: &Entry{Executable: "backend"}}
+	reserved.Contributes.Commands = []Command{{ID: "query", Title: "Query", Effect: "read"}}
+	reserved.Contributes.DataSources = []DataSource{{ID: "db", Name: "DB", Dialect: "mysql", Command: "query", ReadOnly: true}}
+	reserved.Contributes.Pages = []Page{{ID: "main", Title: "Main", Body: &UINode{Type: "button", Title: "Run", Command: "query"}}}
+	if err := ValidatePages(reserved); err == nil {
+		t.Fatal("page button referencing a data source command was accepted")
+	}
+
+	fields := pageManifest(PagesPermission)
+	fields.Contributes.Pages = []Page{{ID: "text", Title: "Text", Body: &UINode{Type: "text", Text: "x", Children: []UINode{{Type: "text"}}}}}
+	if err := ValidatePages(fields); err == nil {
+		t.Fatal("text node with children was accepted")
+	}
+}

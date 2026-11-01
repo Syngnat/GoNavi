@@ -74,6 +74,17 @@ func ValidatePages(manifest Manifest) error {
 	for _, command := range manifest.Contributes.Commands {
 		commands[command.ID] = true
 	}
+	// A page button can only invoke commands the page gateway dispatches; commands reserved by
+	// a data source, AI provider or exporter are not part of that catalogue.
+	for _, source := range manifest.Contributes.DataSources {
+		delete(commands, source.Command)
+	}
+	for _, provider := range manifest.Contributes.AIProviders {
+		delete(commands, provider.Command)
+	}
+	for _, exporter := range manifest.Contributes.Exporters {
+		delete(commands, exporter.Command)
+	}
 	declared, err := validatePageEntries(pages, manifest.Permissions, commands)
 	if err != nil {
 		return err
@@ -180,6 +191,24 @@ func validatePageNode(node UINode, commands map[string]bool, depth int, count *i
 	}
 	if node.Type != "button" && node.Command != "" {
 		return errors.New("non-button command is unsupported")
+	}
+	switch node.Type {
+	case "text", "alert":
+		if len(node.Children) > 0 || len(node.Arguments) > 0 || len(node.Columns) > 0 || len(node.Rows) > 0 {
+			return errors.New("page element field is not supported")
+		}
+	case "column", "row":
+		if len(node.Arguments) > 0 || len(node.Columns) > 0 || len(node.Rows) > 0 {
+			return errors.New("page element field is not supported")
+		}
+	case "button":
+		if len(node.Children) > 0 || len(node.Columns) > 0 || len(node.Rows) > 0 {
+			return errors.New("page element field is not supported")
+		}
+	case "table":
+		if len(node.Children) > 0 || len(node.Arguments) > 0 {
+			return errors.New("page element field is not supported")
+		}
 	}
 	if len(node.Columns) > 32 || len(node.Rows) > 500 || len(node.Children) > 128 {
 		return errors.New("page data exceeds limit")

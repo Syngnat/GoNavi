@@ -17,11 +17,13 @@ const utf8Within = (value: string, limit: number) => new TextEncoder().encode(va
 function validDataSource(source: Record<string, unknown>, command: Record<string, unknown> | undefined): boolean {
   const effect = command?.effect;
   const port = source.defaultPort;
+  const readOnly = source.readOnly;
   return typeof source.id === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(source.id)
     && typeof source.name === 'string' && source.name.trim() !== '' && utf8Within(source.name, 256) && !source.name.includes('\u0000')
-    && typeof source.command === 'string' && source.readOnly === true
+    && typeof source.command === 'string' && typeof readOnly === 'boolean'
     && (source.dialect === 'mysql' || source.dialect === 'postgres' || source.dialect === 'sqlite') && command != null
-    && (effect == null || effect === '' || effect === 'read' || effect === 'unknown')
+    // Only a read-only source constrains its command effect; writable sources accept write.
+    && (readOnly === false || effect == null || effect === '' || effect === 'read' || effect === 'unknown')
     && (port == null || (typeof port === 'number' && Number.isInteger(port) && port >= 0 && port <= 65535));
 }
 function validExporter(exporter: Record<string, unknown>, commands: Map<string, Record<string, unknown>>): boolean {

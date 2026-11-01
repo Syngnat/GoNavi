@@ -59,11 +59,16 @@ func pluginPageQueryRead(ctx context.Context, a *App, request pluginPageRequest)
 		return nil, "invalid_arguments"
 	}
 	started := time.Now()
-	// Bind a scan-layer row budget. maxRows+1 distinguishes "exactly maxRows"
-	// from "more rows exist" without reading the whole result set. Drivers that
-	// understand db.RowBudget stop scanning at the limit; others still fall back
-	// to response truncation below.
-	budget := db.NewRowBudget(maxRows + 1)
+	// Bind a scan-layer budget. maxRows+1 distinguishes "exactly maxRows" from
+	// "more rows exist" without reading the whole result set. Byte and field
+	// ceilings stop a huge cell/BLOB from being materialized before the 256 KiB
+	// response check runs; drivers that do not understand db.RowBudget still fall
+	// back to response truncation below.
+	budget := db.NewRowBudgetWithOptions(db.RowBudgetOptions{
+		MaxRowsPerResult: maxRows + 1,
+		MaxTotalBytes:    4 << 20,
+		MaxFieldBytes:    1 << 20,
+	})
 	result := a.dbQueryWithCancel(config, config.Database, statement, "", dbQueryAuditOptions{
 		auditAll:         true,
 		auditWrites:      true,

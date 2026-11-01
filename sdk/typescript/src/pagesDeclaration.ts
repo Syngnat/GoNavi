@@ -45,6 +45,22 @@ function validateNode(value: UINode, commands: ReadonlySet<string>, depth: numbe
   const children = Array.isArray(node.children) ? node.children : [];
   const columns = Array.isArray(node.columns) ? node.columns : [];
   const rows = Array.isArray(node.rows) ? node.rows : [];
+  switch (node.type) {
+    case 'text':
+    case 'alert':
+      if (children.length > 0 || node.arguments !== undefined || columns.length > 0 || rows.length > 0) throw new Error('page element field is not supported');
+      break;
+    case 'column':
+    case 'row':
+      if (node.arguments !== undefined || columns.length > 0 || rows.length > 0) throw new Error('page element field is not supported');
+      break;
+    case 'button':
+      if (children.length > 0 || columns.length > 0 || rows.length > 0) throw new Error('page element field is not supported');
+      break;
+    case 'table':
+      if (children.length > 0 || node.arguments !== undefined) throw new Error('page element field is not supported');
+      break;
+  }
   if (children.length > 128 || columns.length > 32 || rows.length > 500) throw new Error('page data exceeds limit');
   const keys = new Set<string>();
   for (const column of columns) {
@@ -116,6 +132,11 @@ export function validatePages(manifest: Manifest): void {
   if (pages.length > MAX_PAGES || navigation.length > MAX_NAVIGATION) throw new Error('too many pages or navigation entries');
   const commands = new Set<string>();
   for (const command of contributes?.commands ?? []) commands.add(command.id);
+  // Page buttons can only invoke commands the page gateway dispatches; commands reserved by a
+  // data source, AI provider or exporter are not part of that catalogue.
+  for (const source of contributes?.dataSources ?? []) commands.delete(source.command);
+  for (const provider of contributes?.aiProviders ?? []) commands.delete(provider.command);
+  for (const exporter of contributes?.exporters ?? []) commands.delete(exporter.command);
   const declared = validatePageEntries(pages, permissions, commands);
   validateNavigationEntries(navigation, declared, manifest.window != null);
 }
