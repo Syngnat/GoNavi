@@ -21,7 +21,7 @@ func TestPluginRunConnectionActionLaunchesWindowWithScopedContext(t *testing.T) 
 	root := t.TempDir()
 	manifest := plugin.Manifest{
 		SchemaVersion: 1, APIVersion: 1, ID: "test.mongo", Name: "MongoShell", Version: "1.0.0",
-		Permissions: []string{plugin.ConnectionsCredentialsPermission},
+		Permissions: []string{plugin.ConnectionsCredentialsPermission, plugin.CustomPanelPermission},
 		Window:      &plugin.Window{Entry: "index.html", Title: "MongoShell"},
 		Contributes: plugin.Contributions{ConnectionActions: []plugin.ConnectionAction{{
 			ID: "open-shell", Title: "MongoShell", ConnectionTypes: []string{"mongodb"},

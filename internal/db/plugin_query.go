@@ -40,6 +40,13 @@ func (p *PluginDatabase) QueryContext(ctx context.Context, query string) ([]map[
 	return rows, fields, nil
 }
 
+// QueryReadOnlyContext satisfies ReadOnlyQueryContexter. Every query on a plugin source is
+// already classified by the host's read-only SQL policy in QueryContext before dispatch, so
+// the enforced-read-only path shares the same implementation.
+func (p *PluginDatabase) QueryReadOnlyContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
+	return p.QueryContext(ctx, query)
+}
+
 func (p *PluginDatabase) finishRead(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("plugin database context is required")

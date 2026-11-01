@@ -94,6 +94,13 @@ describe('page declarations', () => {
     expect(() => validatePages(value)).toThrow(/too many pages/);
   });
 
+  it('treats an empty navigation target as the page target', () => {
+    const value = manifest(['ui.pages']);
+    value.contributes!.pages = [textPage('overview', 'Overview')];
+    value.contributes!.navigation = [{ id: 'entry', title: 'Entry', target: '' as 'page', page: 'overview', location: 'tools' }];
+    expect(() => validatePages(value)).not.toThrow();
+  });
+
   it('accepts a window target only when the manifest declares the window', () => {
     const windowed = manifest([]);
     windowed.window = { entry: 'index.html' };

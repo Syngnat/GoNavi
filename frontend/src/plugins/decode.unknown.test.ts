@@ -12,7 +12,7 @@ describe('unknown manifest fields', () => {
       expect(String(error)).not.toContain('文文文');
     }
     expect(() => decodeInspection(inspection({ contributes: { commands: [{ id: 'run', title: 'Run', [name]: true }] } }))).toThrow('plugin.error.invalid_response');
-    expect(() => decodeInspection(inspection({ window: { entry: 'bin/plugin', [name]: true } }))).toThrow('plugin.error.invalid_response');
+    expect(() => decodeInspection(inspection({ permissions: ['ui.html-panel'], window: { entry: 'bin/plugin', [name]: true } }))).toThrow('plugin.error.invalid_response');
     expect(() => decodeInspection(inspection({ backend: { default: { executable: 'bin/plugin', [name]: true } } }))).toThrow('plugin.error.invalid_response');
     expect(() => decodeInspection(inspection({ contributes: { panels: [{ id: 'main', title: 'Panel', body: { type: 'text', text: 'ok', [name]: true } }] } }))).toThrow('plugin.error.invalid_response');
     expect(() => decodeInspection(inspection({ contributes: { commands: [{ id: 'ask', title: 'Ask' }], aiProviders: [{ id: 'chat', name: 'Chat', command: 'ask', supportsTools: false, supportsImages: false, models: [{ id: 'm', name: 'M', contextWindow: 1024, maxOutputTokens: 1, [name]: true }] }] } }))).toThrow('plugin.error.invalid_response');

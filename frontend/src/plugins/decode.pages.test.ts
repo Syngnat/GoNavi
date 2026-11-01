@@ -102,14 +102,22 @@ describe('manifest navigation', () => {
     rejects({ pages: [textPage('overview')], navigation: Array.from({ length: 33 }, (_, index) => nav('n' + index, 'overview')) });
   });
 
+  it('treats an empty navigation target as the page target', () => {
+    const result = decodeInspection(inspection({
+      pages: [textPage('overview')],
+      navigation: [{ id: 'entry', title: 'Entry', target: '', page: 'overview', location: 'tools' }],
+    }));
+    expect(result.manifest.contributes?.navigation?.[0]).toMatchObject({ target: '' });
+  });
+
   it('accepts a window target only when the manifest declares the window', () => {
     const window = { entry: 'index.html' };
-    const result = decodeInspection(inspection({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] }, [], window));
+    const result = decodeInspection(inspection({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] }, ['ui.html-panel'], window));
     expect(result.manifest.contributes?.navigation?.[0]).toMatchObject({ target: 'window' });
     // 窗口目标不开页面，因此不要求 ui.pages。
     rejects({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', location: 'tools' }] }, [], undefined);
-    rejects({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', page: 'overview', location: 'tools' }] }, [], window);
-    rejects({ pages: [textPage('overview')], navigation: [{ id: 'ssh', title: 'SSH', target: 'window2', location: 'tools' }] }, ['ui.pages'], window);
+    rejects({ navigation: [{ id: 'ssh', title: 'SSH', target: 'window', page: 'overview', location: 'tools' }] }, ['ui.html-panel'], window);
+    rejects({ pages: [textPage('overview')], navigation: [{ id: 'ssh', title: 'SSH', target: 'window2', location: 'tools' }] }, ['ui.pages', 'ui.html-panel'], window);
   });
 });
 

@@ -23,7 +23,10 @@ func TestManifestValidation(t *testing.T) {
 		{"shell path", func(m *Manifest) { m.Backend = &Backend{Default: &Entry{Executable: "../x"}} }},
 		{"duplicate permission", func(m *Manifest) { m.Permissions = []string{"db.read", "db.read"} }},
 		{"self dependency", func(m *Manifest) { m.Requires = []Dependency{{ID: m.ID}} }},
-		{"unsafe window", func(m *Manifest) { m.Window = &Window{Entry: "C:/test"} }},
+		{"unsafe window", func(m *Manifest) {
+			m.Permissions = []string{CustomPanelPermission}
+			m.Window = &Window{Entry: "C:/test"}
+		}},
 		{"undeclared command", func(m *Manifest) {
 			m.Contributes.Panels = []Panel{{ID: "main", Title: "Panel", Body: UINode{Type: "button", Command: "missing"}}}
 		}},
@@ -37,14 +40,17 @@ func TestManifestValidation(t *testing.T) {
 			m.Contributes.ConnectionActions = []ConnectionAction{{ID: "open", Title: "Open", ConnectionTypes: []string{"mongodb"}, Target: LaunchTarget{Type: "window"}}}
 		}},
 		{"connection action invalid type", func(m *Manifest) {
+			m.Permissions = []string{CustomPanelPermission}
 			m.Window = &Window{Entry: "index.html"}
 			m.Contributes.ConnectionActions = []ConnectionAction{{ID: "open", Title: "Open", ConnectionTypes: []string{"Mongo DB!"}, Target: LaunchTarget{Type: "window"}}}
 		}},
 		{"connection action invalid scope", func(m *Manifest) {
+			m.Permissions = []string{CustomPanelPermission}
 			m.Window = &Window{Entry: "index.html"}
 			m.Contributes.ConnectionActions = []ConnectionAction{{ID: "open", Title: "Open", ConnectionTypes: []string{"mongodb"}, Scopes: []string{"schema"}, Target: LaunchTarget{Type: "window"}}}
 		}},
 		{"duplicate connection action", func(m *Manifest) {
+			m.Permissions = []string{CustomPanelPermission}
 			m.Window = &Window{Entry: "index.html"}
 			m.Contributes.ConnectionActions = []ConnectionAction{
 				{ID: "open", Title: "Open", ConnectionTypes: []string{"mongodb"}, Target: LaunchTarget{Type: "window"}},
@@ -79,6 +85,7 @@ func TestManifestValidation(t *testing.T) {
 		t.Fatal("unknown field accepted")
 	}
 	withAction := basicManifest("test.fixture")
+	withAction.Permissions = []string{CustomPanelPermission}
 	withAction.Window = &Window{Entry: "index.html"}
 	withAction.Contributes.ConnectionActions = []ConnectionAction{{
 		ID: "open", Title: "MongoShell", ConnectionTypes: []string{"mongodb"},

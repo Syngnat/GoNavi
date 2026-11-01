@@ -198,7 +198,7 @@ func TestPageButtonCannotInvokeAReservedCommand(t *testing.T) {
 }
 
 func TestNavigationWindowTargetOpensThePluginWindow(t *testing.T) {
-	m := pagesManifest("example.window-nav")
+	m := pagesManifest("example.window-nav", CustomPanelPermission)
 	m.Window = &Window{Entry: "index.html"}
 	m.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Location: PageLocationTools}}
 	if err := ValidateManifest(m); err != nil {
@@ -225,14 +225,14 @@ func TestNavigationWindowTargetOpensThePluginWindow(t *testing.T) {
 		t.Fatal("window navigation without a window was accepted")
 	}
 
-	withPage := pagesManifest("example.window-nav")
+	withPage := pagesManifest("example.window-nav", CustomPanelPermission)
 	withPage.Window = &Window{Entry: "index.html"}
 	withPage.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Page: "overview", Location: PageLocationTools}}
 	if ValidateManifest(withPage) == nil {
 		t.Fatal("window navigation with a page was accepted")
 	}
 
-	unknown := pagesManifest("example.window-nav")
+	unknown := pagesManifest("example.window-nav", CustomPanelPermission)
 	unknown.Window = &Window{Entry: "index.html"}
 	unknown.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "popover", Location: PageLocationTools}}
 	if ValidateManifest(unknown) == nil {

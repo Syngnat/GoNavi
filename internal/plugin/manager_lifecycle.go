@@ -139,7 +139,9 @@ func (m *Manager) runInstance(inst *instance) {
 	m.mu.Lock()
 	inst.ready = false
 	m.mu.Unlock()
-	if err != nil && inst.ctx.Err() == nil {
+	// ErrDisabled only means this instance was fenced (safe mode, disable, or a newer
+	// generation); quarantining would persist a fault onto that newer record.
+	if err != nil && inst.ctx.Err() == nil && !errors.Is(err, ErrDisabled) {
 		m.quarantine(inst, err)
 	}
 	if inst.process != nil {
