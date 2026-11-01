@@ -1635,6 +1635,7 @@ jobs:
         run: install -m 0644 LICENSE NOTICE release-assets/
 
       - name: List Assets
+        if: ${{ !inputs.drivers_only }}
         run: ls -R release-assets cli-assets
 
       - name: Download Previous Driver Manifest
