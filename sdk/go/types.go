@@ -26,7 +26,6 @@ type Manifest struct {
 	Backend         *Backend          `json:"backend,omitempty"`
 	Contributes     *Contributions    `json:"contributes,omitempty"`
 	Window          *Window           `json:"window,omitempty"`
-	ConfigSchema    json.RawMessage   `json:"configSchema,omitempty"`
 }
 
 // Requirement declares a plugin dependency rather than an implicit install.

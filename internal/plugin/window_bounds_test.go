@@ -7,6 +7,7 @@ import (
 
 func TestWindowBounds(t *testing.T) {
 	manifest := basicManifest("example.window")
+	manifest.Permissions = []string{CustomPanelPermission}
 	manifest.Window = &Window{Entry: "bin/plugin", Title: strings.Repeat("中", 85), Width: 8192}
 	if err := ValidateManifest(manifest); err != nil {
 		t.Fatal(err)

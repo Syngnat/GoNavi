@@ -27,7 +27,6 @@ type Manifest struct {
 	Backend         *Backend          `json:"backend,omitempty"`
 	Contributes     Contributions     `json:"contributes,omitempty"`
 	Window          *Window           `json:"window,omitempty"`
-	ConfigSchema    json.RawMessage   `json:"configSchema,omitempty"`
 }
 
 // Dependency declares an installed dependency; dependencies are never downloaded implicitly.

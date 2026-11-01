@@ -25,7 +25,8 @@ func TestPluginInspectWindowBounds(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			raw, err := json.Marshal(plugin.Manifest{
 				SchemaVersion: 1, APIVersion: 1, ID: "example.window", Name: "Window", Version: "1.0.0",
-				Window: &plugin.Window{Entry: test.entry, Title: test.title, Width: test.width},
+				Permissions: []string{plugin.CustomPanelPermission},
+				Window:      &plugin.Window{Entry: test.entry, Title: test.title, Width: test.width},
 			})
 			if err != nil {
 				t.Fatal(err)

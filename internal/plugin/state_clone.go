@@ -47,7 +47,6 @@ func cloneManifest(m Manifest) Manifest {
 		window := *m.Window
 		clone.Window = &window
 	}
-	clone.ConfigSchema = append(json.RawMessage(nil), m.ConfigSchema...)
 	clone.Contributes = cloneContributions(m.Contributes)
 	return clone
 }
