@@ -417,7 +417,10 @@ def main():
     args = parse_args()
     assets_dir = Path(args.assets_dir).resolve()
     root = repo_root()
-    generated_from = os.environ.get("GITHUB_SHA", "").strip() or resolve_head_commit(root)
+    # The manifest proves which source produced these assets, and the manifest is built from
+    # the checked-out release tag. GITHUB_SHA is the workflow ref (a branch on dispatch), not
+    # the tag checkout, so HEAD is the authoritative source whenever it resolves.
+    generated_from = resolve_head_commit(root) or os.environ.get("GITHUB_SHA", "").strip()
 
     asset_entries = []
     for child in sorted(assets_dir.rglob("*")):
