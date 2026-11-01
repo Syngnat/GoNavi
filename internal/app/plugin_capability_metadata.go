@@ -20,9 +20,15 @@ func pluginCapabilityConnectionTest(_ context.Context, a *App, request pluginCap
 		return nil, code
 	}
 	result := a.TestConnection(config)
+	// The driver message can carry hosts, paths or user names; the capability promises a
+	// summary, so callers get a stable code and the details stay in the host log.
+	message := "ok"
+	if !result.Success {
+		message = "connection_failed"
+	}
 	return map[string]any{
 		"success": result.Success,
-		"message": result.Message,
+		"message": message,
 	}, ""
 }
 

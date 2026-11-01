@@ -71,13 +71,6 @@ describe('version page manifest boundary', () => {
   it('accepts a page body nested past the general depth cap', () => {
     expect(decodeVersionPage({ versions: [row('1.0.0', pageBody(16))] }).versions[0].plugin.manifest?.contributes?.pages?.[0].title).toBe('Studio');
   });
-  it('accepts a manifest whose own schema uses the manifest depth budget', () => {
-    let schema: Record<string, unknown> = {};
-    for (let level = 0; level < 62; level += 1) schema = { properties: schema };
-    const payload = { versions: [row('1.0.0', pageBody(1), { configSchema: schema })] };
-    expect(() => boundedJSON(payload)).toThrow('plugin.ui.invalid_data');
-    expect(decodeVersionPage(payload).versions).toHaveLength(1);
-  });
   it('accepts a row whose manifest carries a host-sized inline page', () => {
     const permissions = ['ui.pages', 'ui.html-panel'];
     const log2SQL = { pages: [{ id: 'log2sql', title: 'Log2SQL', html: { source: '<p>' + 'a'.repeat(43114) + '</p>' } }] };

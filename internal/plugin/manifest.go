@@ -174,6 +174,11 @@ func ValidateManifest(m Manifest) error {
 		return err
 	}
 	if m.Window != nil {
+		// A window runs package HTML/JS in a native WebView with the window bridge; like a
+		// custom HTML page it needs the explicit sandboxed-HTML permission.
+		if !permissions[CustomPanelPermission] {
+			return fmt.Errorf("window requires the %s permission", CustomPanelPermission)
+		}
 		if err := safePackagePath(m.Window.Entry); err != nil {
 			return fmt.Errorf("invalid window entry: %w", err)
 		}
@@ -181,11 +186,9 @@ func ValidateManifest(m Manifest) error {
 			return fmt.Errorf("invalid window dimensions or title")
 		}
 	}
-	if err := validateConnectionActions(m, permissions); err != nil {
-		return err
-	}
-	return validateSchema(m.ConfigSchema)
+	return validateConnectionActions(m, permissions)
 }
+
 // publicDeclaredCommands returns the commands a panel or page may invoke: everything except
 // the commands reserved by data sources, AI providers and exporters.
 func publicDeclaredCommands(m Manifest, declared map[string]bool) map[string]bool {

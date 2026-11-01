@@ -28,8 +28,21 @@ type diskState struct {
 
 func (m *Manager) loadState() (diskState, error) {
 	state := diskState{SchemaVersion: 1, Records: make(map[string]record)}
-	f, err := openStateFile(filepath.Join(m.root, "state.json"))
+	path := filepath.Join(m.root, "state.json")
+	info, statErr := os.Stat(path)
+	if errors.Is(statErr, os.ErrNotExist) {
+		m.invalidateStateCache()
+		return state, nil
+	}
+	if statErr != nil {
+		return state, statErr
+	}
+	if cached := m.cachedState(info); cached != nil {
+		return cloneDiskState(*cached), nil
+	}
+	f, err := openStateFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		m.invalidateStateCache()
 		return state, nil
 	}
 	if err != nil {
@@ -68,8 +81,39 @@ func (m *Manager) loadState() (diskState, error) {
 			return state, fmt.Errorf("invalid persisted manifest: %w", err)
 		}
 	}
-	return state, nil
+	m.storeStateCache(info, state)
+	return cloneDiskState(state), nil
 }
+
+// cachedState returns a validated snapshot only when the file on disk is still the one that
+// produced it. A renamed/in-place changed file has a different identity or mtime and misses.
+func (m *Manager) cachedState(info os.FileInfo) *diskState {
+	m.stateCacheMu.Lock()
+	defer m.stateCacheMu.Unlock()
+	if m.stateCache == nil || m.stateCacheInfo == nil {
+		return nil
+	}
+	if !os.SameFile(m.stateCacheInfo, info) || m.stateCacheInfo.Size() != info.Size() || !m.stateCacheInfo.ModTime().Equal(info.ModTime()) {
+		return nil
+	}
+	return m.stateCache
+}
+
+func (m *Manager) storeStateCache(info os.FileInfo, state diskState) {
+	cached := cloneDiskState(state)
+	m.stateCacheMu.Lock()
+	m.stateCache = &cached
+	m.stateCacheInfo = info
+	m.stateCacheMu.Unlock()
+}
+
+func (m *Manager) invalidateStateCache() {
+	m.stateCacheMu.Lock()
+	m.stateCache = nil
+	m.stateCacheInfo = nil
+	m.stateCacheMu.Unlock()
+}
+
 func (m *Manager) mutate(ctx context.Context, change func(*diskState) (bool, error)) (diskState, error) {
 	var empty diskState
 	lock, err := acquireStateLock(ctx, filepath.Join(m.root, ".state.lock"))
@@ -102,6 +146,7 @@ func (m *Manager) mutate(ctx context.Context, change func(*diskState) (bool, err
 	if err = atomicStateWrite(m.root, content); err != nil {
 		return state, fmt.Errorf("persist plugin state: %w", err)
 	}
+	m.invalidateStateCache()
 	return state, nil
 }
 func acquireStateLock(ctx context.Context, path string) (*os.File, error) {

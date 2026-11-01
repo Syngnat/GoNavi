@@ -24,7 +24,7 @@ func TestPluginCheckWindowBounds(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			raw, err := json.Marshal(map[string]any{
-				"schemaVersion": 1, "apiVersion": 1, "id": "example.window", "name": "Window", "version": "1.0.0", "permissions": []any{},
+				"schemaVersion": 1, "apiVersion": 1, "id": "example.window", "name": "Window", "version": "1.0.0", "permissions": []any{"ui.html-panel"},
 				"window": map[string]any{"entry": test.entry, "title": test.title, "width": test.width},
 			})
 			if err != nil {
