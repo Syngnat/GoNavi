@@ -236,6 +236,7 @@ jobs:
       - name: Verify existing driver release provenance
         id: existing_driver_release
         env:
+          GH_TOKEN: ${{ secrets.DRIVER_RELEASE_TOKEN }}
           DRIVER_RELEASE_TOKEN: ${{ secrets.DRIVER_RELEASE_TOKEN }}
         shell: bash
         run: |
