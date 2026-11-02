@@ -94,7 +94,10 @@ func enablePluginPageTestPackage(t *testing.T, a *App, id string) {
 	if result := a.PluginSetEnabled(id, true); !result.Success {
 		t.Fatalf("enable failed: %+v", result)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	// Windows CI 上插件进程冷启动实测要 6s+（同一份用例在 macOS 上是毫秒级）。
+	// 这里等的是「进程起来」而不是测性能，给足上限；真挂死时仍会被测试框架的
+	// 超时兜住，不会无限等待。
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		list := a.PluginList()
 		if !list.Success {
