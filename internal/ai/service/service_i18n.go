@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"GoNavi-Wails/internal/ai/provider"
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -152,6 +153,20 @@ func (s *Service) localizeProviderHealthCheckRequestError(err error) error {
 	default:
 		return err
 	}
+}
+
+// localizeCodeBuddyCLIHealthError 把 CodeBuddy CLI 的未认证状态换成本地化提示。
+//
+// CLI 未登录时把 401 写在 stderr、退出码却是 0，原文含 trace id 与 target 等诊断信息，
+// 直接展示既不可读也不符合文案规范；这里只保留「需要登录」这一事实与操作建议。
+func (s *Service) localizeCodeBuddyCLIHealthError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, provider.ErrCodeBuddyCLIAuthRequired) {
+		return fmt.Errorf("%s", s.serviceText("ai_service.backend.error.codebuddy_cli_auth_required", nil))
+	}
+	return err
 }
 
 func trimLocalizedModelListRequestCreateDetail(err error) string {

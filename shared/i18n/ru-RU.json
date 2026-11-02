@@ -1792,6 +1792,7 @@
   "ai_service.backend.database_context.value_no": "Нет",
   "ai_service.backend.database_context.value_yes": "Да",
   "ai_service.backend.error.active_provider_not_found": "Активный AI Provider не найден",
+  "ai_service.backend.error.codebuddy_cli_auth_required": "CodeBuddy CLI не выполнен вход. Запустите codebuddy в локальном терминале для входа или укажите API Key / Auth Token, чтобы переопределить локальную сессию",
   "ai_service.backend.error.config_dir_create_failed": "Не удалось создать каталог конфигурации: {{detail}}",
   "ai_service.backend.error.config_load_failed": "Не удалось загрузить конфигурацию AI: {{detail}}",
   "ai_service.backend.error.config_read_failed": "Не удалось прочитать конфигурацию AI: {{detail}}",

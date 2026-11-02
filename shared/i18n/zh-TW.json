@@ -1792,6 +1792,7 @@
   "ai_service.backend.database_context.value_no": "否",
   "ai_service.backend.database_context.value_yes": "是",
   "ai_service.backend.error.active_provider_not_found": "未找到作用中的 AI Provider",
+  "ai_service.backend.error.codebuddy_cli_auth_required": "CodeBuddy CLI 未登入：請先在本機終端執行 codebuddy 完成登入，或填寫 API Key / Auth Token 覆寫本機登入狀態",
   "ai_service.backend.error.config_dir_create_failed": "建立設定目錄失敗: {{detail}}",
   "ai_service.backend.error.config_load_failed": "載入 AI 設定失敗: {{detail}}",
   "ai_service.backend.error.config_read_failed": "讀取 AI 設定失敗: {{detail}}",

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"GoNavi-Wails/internal/ai"
+	"GoNavi-Wails/internal/ai/provider"
 	"GoNavi-Wails/shared/i18n"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -573,4 +574,28 @@ func TestAIListModelsUsesEnglishLocalizedModelListErrors(t *testing.T) {
 			t.Fatalf("expected no Chinese coding-plan text, got %q", errorText)
 		}
 	})
+}
+
+func TestLocalizeCodeBuddyCLIHealthErrorRendersLocalizedText(t *testing.T) {
+	service := NewService()
+	service.AISetLanguage("zh-CN")
+
+	err := service.localizeCodeBuddyCLIHealthError(provider.ErrCodeBuddyCLIAuthRequired)
+	if err == nil {
+		t.Fatal("expected localized error")
+	}
+	if strings.Contains(err.Error(), "authentication required") {
+		t.Fatalf("应返回本地化文案而不是哨兵原文：%q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "CodeBuddy CLI") {
+		t.Fatalf("expected CodeBuddy hint, got %q", err.Error())
+	}
+
+	if localized := service.localizeCodeBuddyCLIHealthError(nil); localized != nil {
+		t.Fatal("nil 输入必须原样返回 nil")
+	}
+	other := errors.New("CodeBuddy CLI execution failed: boom")
+	if got := service.localizeCodeBuddyCLIHealthError(other); got != other {
+		t.Fatal("非认证错误必须原样透传")
+	}
 }

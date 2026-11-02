@@ -77,7 +77,7 @@ func (s *Service) checkLegacyProviderHealth(config ai.ProviderConfig) (string, e
 		}
 	case "codebuddy-cli":
 		checkKind = "model-response"
-		err = codebuddyCLIHealthCheckFunc(config)
+		err = s.localizeCodeBuddyCLIHealthError(codebuddyCLIHealthCheckFunc(config))
 	case "grok-cli":
 		checkKind = "model-list"
 		if authErr := validateLocalCLIProviderAuthMode(config); authErr != nil {
