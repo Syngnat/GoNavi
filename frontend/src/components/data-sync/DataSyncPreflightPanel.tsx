@@ -14,6 +14,7 @@ import {
   collectDataSyncPreflightIndexes,
   formatDataSyncPreflightIndexColumns,
 } from './dataSyncPreflightIndexes';
+import { DataSyncSqlBlock } from './DataSyncSqlBlock';
 import {
   dataSyncValidationIssueText,
   type DataSyncWorkbenchTranslate,
@@ -112,19 +113,31 @@ export const DataSyncPreflightPanel: React.FC<{
     [unmigratedIndexes],
   );
 
+  // 复制走同一套通道：先试 Wails 剪贴板，失败再退回浏览器剪贴板。
+  const copyText = async (text: string): Promise<boolean> => {
+    if (!text) return false;
+    try {
+      if (await ClipboardSetText(text)) return true;
+    } catch {
+      // Wails 运行时不可用时退回浏览器剪贴板。
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const copyRemediationSQL = async () => {
-    if (!remediationSQL) return;
     setCopyError(false);
-    try {
-      if (await ClipboardSetText(remediationSQL)) return;
-    } catch {
-      // Fall back to the browser clipboard when the Wails runtime is unavailable.
-    }
-    try {
-      await navigator.clipboard.writeText(remediationSQL);
-    } catch {
-      setCopyError(true);
-    }
+    if (!await copyText(remediationSQL)) setCopyError(true);
+  };
+
+  // 单条复制：只复制这一条索引的补救语句，方便逐条执行。
+  const copyOne = async (statements: string[]) => {
+    setCopyError(false);
+    if (!await copyText(statements.join('\n'))) setCopyError(true);
   };
 
   useEffect(() => {
@@ -271,7 +284,17 @@ export const DataSyncPreflightPanel: React.FC<{
                       })}</p>
                       <p>{index.reason}</p>
                       {remediationStatements.length > 0 ? (
-                        <pre>{remediationStatements.join('\n')}</pre>
+                        <>
+                          <DataSyncSqlBlock sql={remediationStatements.join('\n')} />
+                          <button
+                            type="button"
+                            className="gn-data-sync-link-button"
+                            data-remediation-copy={index.name}
+                            onClick={() => void copyOne(index.remediationStatements || [])}
+                          >
+                            {t('compare.copy.copy_one')}
+                          </button>
+                        </>
                       ) : null}
                     </li>
                   );

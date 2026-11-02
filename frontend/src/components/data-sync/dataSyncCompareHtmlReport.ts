@@ -281,12 +281,12 @@ export const buildCompareHtmlReport = (
   // 报告与面板共用同一份投影：按表排序、每条变更一行。
   const detailRows = groupByTable(projectCompareDetailRows(result, options.compareMode));
   const tableCols = [
-    '<col style="width:24%">',
+    '<col style="width:22%">',
     '<col style="width:4%">',
-    '<col style="width:8%">',
+    '<col style="width:12%">',
     '<col style="width:20%">',
-    '<col style="width:15%">',
-    '<col style="width:15%">',
+    '<col style="width:14%">',
+    '<col style="width:14%">',
     '<col style="width:6%">',
   ].join('');
 

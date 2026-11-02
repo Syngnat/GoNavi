@@ -33,7 +33,8 @@ const rowClass = (row: CompareDetailRow): string => {
 
 // 每列宽度百分比。固定列宽是必需的：不定宽时内容一长就把「风险」列挤出视野，
 // 于是最关键的一列反而看不到。
-const COLUMN_WIDTHS = ['24%', '4%', '8%', '20%', '15%', '15%', '6%'];
+// 变更类型列给到 12%：窄于此「可空性不同」这类五字标签会被省略号截断。
+const COLUMN_WIDTHS = ['22%', '4%', '12%', '20%', '14%', '14%', '6%'];
 
 type CellProps = { value: string; className?: string };
 

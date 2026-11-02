@@ -8,7 +8,7 @@ import {
 } from '../../compareRepairSql';
 import { createSyncTaskFromCompare } from '../../dataSyncCompareTaskFactory';
 import { setDataSyncHandoff } from '../../../../utils/dataSyncHandoff';
-import type { DataSyncEndpointRef } from '../../model';
+import type { DataSyncEndpointRef, DataSyncTableDiffSummary } from '../../model';
 import { useCompareHtmlExport } from '../../useCompareHtmlExport';
 import type { CompareHtmlExportOutcome } from '../../dataSyncRunHistoryTypes';
 import type { DataSyncWorkbenchTaskLifecycleApi } from './useDataSyncWorkbenchTaskLifecycle';
@@ -194,6 +194,20 @@ export const useDataSyncWorkbenchDiffActions = ({
     if (outcome.kind === 'failed') setOperationError(outcome.error);
     return outcome;
   };
+  // 复制整组：只渲染调用方传进来的表（即界面上可见的那一批），
+  // 搜索/筛选后的结果才是用户想分批执行的对象。
+  const handleCopyCompareSql = async (
+    tables: DataSyncTableDiffSummary[],
+  ): Promise<string> => {
+    if (!selectedTask || tables.length === 0) return '';
+    const sql = buildCompareRepairSQL(
+      { success: true, message: '', content: compareResult?.content, tables },
+      { dialect: selectedTask.target.type, schema: selectedTask.target.schema },
+    );
+    if (!navigator?.clipboard?.writeText) return '';
+    await navigator.clipboard.writeText(sql);
+    return sql;
+  };
   const handleSyncDiffs = async () => {
     if (!selectedTask || selectedTask.kind !== 'compare') return;
     const tables = (compareResult?.tables || [])
@@ -230,7 +244,7 @@ export const useDataSyncWorkbenchDiffActions = ({
     runActionTitle, saveApprovalReady, nextStage, previousStage, relevantBlockerStage,
     relevantBlocker, blockerInEarlierStage, preflightNeedsRefresh, compareStartEnabled, actionHint,
     actionHintTone, serviceUnavailableError, workbenchChrome, handleGenerateRepairSql,
-    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml,
+    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml, handleCopyCompareSql,
   };
 };
 
