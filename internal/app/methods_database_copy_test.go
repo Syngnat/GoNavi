@@ -173,10 +173,13 @@ func TestCopyDatabaseSurfacesListTablesFailure(t *testing.T) {
 
 	result := app.CopyDatabase(copySourceConfig(), "shop")
 
-	// 测试环境没有加载文案目录，appText 原样返回 key；这里只断言走到了
-	// 「读取表清单失败」这条分支，而不是继续建库。
-	if result.Success || !strings.Contains(result.Message, "database_copy_list_tables_failed") {
+	// 文案随 localizer 是否加载而变（本机是 key，CI 是英文），断言「没成功」
+	// 且没有继续建库即可，不依赖具体文案。
+	if result.Success {
 		t.Fatalf("应报告读取表清单失败: %#v", result)
+	}
+	if strings.TrimSpace(result.Message) == "" {
+		t.Fatalf("失败时必须给出消息: %#v", result)
 	}
 	if len(stub.executed) != 0 {
 		t.Fatalf("读取表清单失败后不应执行任何语句: %v", stub.executed)
