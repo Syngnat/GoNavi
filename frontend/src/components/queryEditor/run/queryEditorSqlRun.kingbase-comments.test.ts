@@ -189,12 +189,12 @@ describe('Kingbase query comment execution path', () => {
     expect(backend.DBGetIndexes).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ['upper(name) AS name, customers.*', ['name', 'id', 'name_2'], { name: 'ALICE', id: 1, name_2: 'Alice' }],
-    ['customers.*, upper(name) AS name', ['id', 'name', 'name_2'], { id: 1, name: 'Alice', name_2: 'ALICE' }],
-    ['upper(name) AS "name", *', ['name', 'id', 'name_2'], { name: 'ALICE', id: 1, name_2: 'Alice' }],
-    ['*, upper(name) name', ['id', 'name', 'name_2'], { id: 1, name: 'Alice', name_2: 'ALICE' }],
-  ])('does not lend wildcard source metadata to colliding expression labels: %s', async (projection, columns, row) => {
+  it.each<[string, string[], Record<string, unknown>, Record<string, string>]>([
+    ['upper(name) AS name, customers.*', ['name', 'id', 'name_2'], { name: 'ALICE', id: 1, name_2: 'Alice' }, {}],
+    ['customers.*, upper(name) AS name', ['id', 'name', 'name_2'], { id: 1, name: 'Alice', name_2: 'ALICE' }, { name: 'customer name' }],
+    ['upper(name) AS "name", *', ['name', 'id', 'name_2'], { name: 'ALICE', id: 1, name_2: 'Alice' }, {}],
+    ['*, upper(name) name', ['id', 'name', 'name_2'], { id: 1, name: 'Alice', name_2: 'ALICE' }, { name: 'customer name' }],
+  ])('expressions never borrow a same-named entity comment and the entity column keeps it when it comes first: %s', async (projection, columns, row, expectedComments) => {
     backend.DBGetColumns.mockResolvedValue({ success: true, data: [
       { name: 'id', type: 'bigint', key: 'PRI', comment: 'customer id' },
       { name: 'name', type: 'varchar', comment: 'customer name' },
@@ -203,11 +203,14 @@ describe('Kingbase query comment execution path', () => {
     vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns, rows: [row] }] });
     await runQueryEditorSqlStatements(input);
     const titles = await gridComments(input);
-    titles.filter(title => title.columnName !== 'id').forEach(title => {
-      expect(title.comment).toBeUndefined();
-      expect(title.markup).not.toContain('gn-v2-column-title-comment');
-    });
     expect(titles.find(title => title.columnName === 'id')?.comment).toBe('customer id');
+    // 后端把重复标签改成 name_2：裸名永远归属投影里先出现的那一项，表达式不借注释。
+    titles.filter(title => title.columnName !== 'id').forEach(title => {
+      const expected = expectedComments[title.columnName];
+      expect(title.comment).toBe(expected);
+      if (expected) expect(title.markup).toContain('gn-v2-column-title-comment');
+      else expect(title.markup).not.toContain('gn-v2-column-title-comment');
+    });
     expect(backend.DBGetColumns).toHaveBeenCalledTimes(1);
   });
 
@@ -217,5 +220,84 @@ describe('Kingbase query comment execution path', () => {
     expect(results(input)[0].columnMetaMap?.Customer?.comment).toBe('customer name');
     expect(results(input)[0].readOnly).toBe(true);
     expect(results(input)[0].editLocator).toBeUndefined();
+  });
+});
+/**
+ * 同一结果集里出现「同名列」时，结果列名与注释必须一一对应：
+ * 表达式标签不借注释，实体列按投影顺序取首个同名结果列，引号限定列不能被遮蔽偏移截断。
+ */
+describe('Kingbase same-name result column mapping', () => {
+  beforeEach(() => {
+    clearLocatorMetaCache(); clearQueryResultColumnMetaBackfillCache(); resetTableMetadataRequestCacheForTests();
+    backend.DBGetForeignKeys.mockReset().mockResolvedValue({ success: true, data: [] });
+    backend.DBGetIndexes.mockReset().mockResolvedValue({ success: true, data: [] });
+  });
+
+  it('never lets a lower-name fallback lend a comment to a same-named expression label', async () => {
+    backend.DBGetColumns.mockResolvedValue({ success: true, data: [{ name: 'name', type: 'varchar', comment: 'customer name' }] });
+    const input = createInput('SELECT name AS "Customer", upper(name) AS "customer" FROM customers', false);
+    vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns: ['Customer', 'customer'], rows: [{ Customer: 'Alice', customer: 'ALICE' }] }] });
+    await runQueryEditorSqlStatements(input);
+    const titles = await gridComments(input);
+    expect(titles[0]).toMatchObject({ columnName: 'Customer', comment: 'customer name' });
+    expect(titles[1].columnName).toBe('customer');
+    expect(titles[1].comment).toBeUndefined();
+    expect(titles[1].markup).not.toContain('gn-v2-column-title-comment');
+  });
+
+  it('keeps the first same-named entity column when a later alias reuses the label', async () => {
+    backend.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => Promise.resolve({
+      success: true,
+      data: table === 'customers'
+        ? [{ name: 'id', type: 'bigint', comment: 'customer id' }, { name: 'name', type: 'varchar', comment: 'customer name' }]
+        : [{ name: 'id', type: 'bigint', comment: 'order id' }],
+    }));
+    const input = createInput('SELECT c.*, o.id AS name FROM customers c JOIN orders o ON c.id=o.id', false);
+    vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns: ['id', 'name', 'name_2'], rows: [{ id: 1, name: 'Alice', name_2: 1 }] }] });
+    await runQueryEditorSqlStatements(input);
+    const titles = await gridComments(input);
+    expect(titles.find(title => title.columnName === 'id')?.comment).toBe('customer id');
+    expect(titles.find(title => title.columnName === 'name')?.comment).toBe('customer name');
+    expect(titles.find(title => title.columnName === 'name_2')?.comment).toBeUndefined();
+  });
+
+  it('keeps comments when one joined table cannot provide metadata', async () => {
+    backend.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => (
+      String(table).includes('orders')
+        ? Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] })
+        : Promise.resolve({ success: true, data: [
+          { name: 'id', type: 'bigint', key: 'PRI', comment: 'customer id' },
+          { name: 'name', type: 'varchar', comment: 'customer name' },
+        ] })
+    ));
+    const input = createInput('SELECT * FROM customers c JOIN orders o ON c.id=o.id', false);
+    vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns: ['id', 'name', 'id_2'], rows: [{ id: 1, name: 'Alice', id_2: 1 }] }] });
+    await runQueryEditorSqlStatements(input);
+    const titles = await gridComments(input);
+    expect(titles.find(title => title.columnName === 'id')?.comment).toBe('customer id');
+    expect(titles.find(title => title.columnName === 'name')?.comment).toBe('customer name');
+  });
+
+  it('keeps the first same-named entity column when a later expression reuses the label', async () => {
+    backend.DBGetColumns.mockResolvedValue({ success: true, data: [
+      { name: 'id', type: 'bigint', key: 'PRI', comment: 'customer id' },
+      { name: 'name', type: 'varchar', comment: 'customer name' },
+    ] });
+    const input = createInput('SELECT c.*, COALESCE(c.id, 0) AS id FROM customers c', false);
+    vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns: ['id', 'name', 'id_2'], rows: [{ id: 1, name: 'Alice', id_2: 1 }] }] });
+    await runQueryEditorSqlStatements(input);
+    const titles = await gridComments(input);
+    expect(titles.find(title => title.columnName === 'id')?.comment).toBe('customer id');
+    expect(titles.find(title => title.columnName === 'name')?.comment).toBe('customer name');
+    expect(titles.find(title => title.columnName === 'id_2')?.comment).toBeUndefined();
+  });
+
+  it('resolves a quoted qualified column instead of reporting an authoritative empty projection', async () => {
+    backend.DBGetColumns.mockResolvedValue({ success: true, data: [{ name: 'name', type: 'varchar', comment: 'customer name' }] });
+    const input = createInput('SELECT "c"."name" FROM customers "c"', false);
+    vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns: ['name'], rows: [{ name: 'Alice' }] }] });
+    await runQueryEditorSqlStatements(input);
+    const titles = await gridComments(input);
+    expect(titles[0]).toMatchObject({ columnName: 'name', comment: 'customer name' });
   });
 });

@@ -266,12 +266,17 @@ export type QueryResultSelectAliasEntry = {
   qualifier: string;
 };
 
-/** 最外层 SELECT 列表在原文里的区间；拿不到（如 WITH 开头）就返回 undefined。 */
+/**
+ * 最外层 SELECT 列表在原文里的区间；拿不到（如 WITH 开头）就返回 undefined。
+ * 遮蔽文本把引号标识符抹成空白且长度不变，所以只用它定位关键字与 FROM，
+ * 跳过空白必须回到原文：否则 "c"."name" 里被抹白的 "c" 会被当成空白吃掉，切出 ."name"。
+ */
 const resolveOuterSelectListRange = (statement: string, dbType: string): { start: number; end: number } | undefined => {
   const structural = maskQueryResultSqlStructure(statement, dbType);
-  const head = /^\s*SELECT\s+/i.exec(structural);
-  if (!head) return undefined;
-  const listStart = head[0].length;
+  const keyword = /SELECT/i.exec(structural);
+  if (!keyword) return undefined;
+  const afterKeyword = keyword.index + keyword[0].length;
+  const listStart = afterKeyword + (/^\s*/.exec(statement.slice(afterKeyword))?.[0].length || 0);
   const fromMatch = /\s+FROM\s+/i.exec(structural.slice(listStart));
   if (!fromMatch) return undefined;
   return { start: listStart, end: listStart + fromMatch.index + fromMatch[0].search(/FROM/i) };
@@ -340,6 +345,51 @@ export const resolveQueryResultSelectAliasEntries = (
   return entries;
 };
 
+type ProjectedLabelKind = 'entity' | 'expression';
+
+/**
+ * 按投影顺序判定每个结果列标签「首次出现」的来源。
+ * 后端会把重复标签改成 name_2、name_3，所以裸名永远属于第一个同名项：
+ * 只有首次出现就是实体列，裸名才配得上该实体列的注释；表达式只占位、不借注释。
+ */
+const resolveProjectedLabelKinds = (
+  statement: string,
+  dbType: string,
+  tables: QueryResultSourceTable[],
+  metaMaps: Array<Record<string, ColumnMeta>>,
+  merged: Record<string, ColumnMeta>,
+): Map<string, ProjectedLabelKind> => {
+  const kinds = new Map<string, ProjectedLabelKind>();
+  const range = resolveOuterSelectListRange(statement, dbType);
+  if (!range) return kinds;
+  const record = (label: string, kind: ProjectedLabelKind): void => {
+    if (label && !kinds.has(label)) kinds.set(label, kind);
+  };
+  splitTopLevelComma(statement.slice(range.start, range.end).replace(/^\s*DISTINCT\s+/i, ''), dbType).forEach((item) => {
+    const trimmed = item.trim();
+    const mapping = resolveSelectItemMapping(item);
+    if (mapping !== 'all') {
+      if (mapping) {
+        record(mapping.resultColumn, 'entity');
+        return;
+      }
+      const alias = SELECT_ITEM_AS_ALIAS_REGEX.exec(trimmed) || SELECT_ITEM_BARE_ALIAS_REGEX.exec(trimmed);
+      if (alias) record(stripAliasQuotes(alias[2]), 'expression');
+      return;
+    }
+    const qualifier = stripAliasQuotes(trimmed.replace(/\s*\.\s*\*$/, ''));
+    if (trimmed === '*') Object.keys(merged).forEach((name) => record(name, 'entity'));
+    tables.forEach((table, index) => {
+      const matched = trimmed === '*' || table.alias === qualifier
+        || table.ref.metadataTableName === qualifier
+        || table.ref.metadataTableName.split('.').pop() === qualifier;
+      if (!matched) return;
+      Object.keys(metaMaps[index]).forEach((name) => record(name, 'entity'));
+    });
+  });
+  return kinds;
+};
+
 const resolveQualifiedTableMeta = (
   tables: QueryResultSourceTable[],
   metaMaps: Array<Record<string, ColumnMeta>>,
@@ -379,71 +429,76 @@ export const resolveQueryResultColumnMetaByCandidateTables = async ({
   const merged = isKingbaseDialect(dbType)
     ? Object.assign({}, ...usableMaps) as Record<string, ColumnMeta>
     : mergeColumnMetaMapsByPriority(usableMaps);
+  // 表达式标签只占位、不借注释；同名实体列若在投影里先出现，裸名仍归实体列。
+  const labelKinds = resolveProjectedLabelKinds(statement, dbType, tables, metaMaps, merged);
   if (!isKingbaseDialect(dbType)) {
     resolveQueryResultSelectAliasEntries(statement, dbType).forEach(({ resultColumn, sourceColumn, qualifier }) => {
       if (findColumnMeta(merged, resultColumn)) return;
       const meta = resolveQualifiedTableMeta(tables, metaMaps, qualifier, sourceColumn) || findColumnMeta(merged, sourceColumn);
       if (meta) merged[resultColumn] = meta;
     });
+    labelKinds.forEach((kind, label) => { if (kind === 'expression') delete merged[label]; });
     return merged;
   }
+  // 只按「这次真正取到元数据的表」判同名歧义：某张表本轮超时或不可见，不能牵连其它表的裸列注释。
   Object.keys(merged).forEach((name) => {
-    if (metaMaps.some((map) => !hasUsableColumnMeta(map))
-      || metaMaps.filter((map) => findColumnMeta(map, name)).length !== 1) delete merged[name];
+    if (metaMaps.filter((map) => hasUsableColumnMeta(map) && findColumnMeta(map, name)).length !== 1) delete merged[name];
   });
   const range = resolveOuterSelectListRange(statement, dbType);
   if (!range) return undefined;
   const projected: Record<string, ColumnMeta> = {};
-  const seenResults = new Set<string>();
-  const duplicateResults = new Set<string>();
-  const recordResultColumn = (name: string): void => {
-    if (seenResults.has(name)) duplicateResults.add(name);
-    seenResults.add(name);
+  // 后端按投影顺序给重复结果列名加 _2 后缀（scan_rows 的 ensureUniqueQueryColumnNames），
+  // 所以裸名归属「投影里第一个」同名项：先写入的实体列不能被后面的同名项覆盖。
+  const emittedLabels = new Set<string>();
+  const emitResultColumn = (label: string, meta: ColumnMeta | undefined): void => {
+    if (!label || emittedLabels.has(label)) return;
+    emittedLabels.add(label);
+    if (meta) projected[label] = meta;
   };
   splitTopLevelComma(statement.slice(range.start, range.end).replace(/^\s*DISTINCT\s+/i, ''), dbType).forEach((item) => {
+    const trimmed = item.trim();
     const mapping = resolveSelectItemMapping(item);
     if (mapping !== 'all') {
-      const alias = SELECT_ITEM_AS_ALIAS_REGEX.exec(item.trim()) || SELECT_ITEM_BARE_ALIAS_REGEX.exec(item.trim());
-      if (mapping) {
-        recordResultColumn(mapping.resultColumn);
-      } else if (alias) {
-        // 表达式的显式标签不借用通配符展开或纯列引用的同名元数据。
-        duplicateResults.add(stripAliasQuotes(alias[2]));
+      if (!mapping) return;
+      // 首次出现不是实体列的裸名属于表达式，不借注释。
+      if (labelKinds.get(mapping.resultColumn) !== 'entity') return;
+      const meta = mapping.qualifier
+        ? resolveQualifiedTableMeta(tables, metaMaps, mapping.qualifier, mapping.sourceColumn)
+        : findColumnMeta(merged, mapping.sourceColumn);
+      emitResultColumn(mapping.resultColumn, meta);
+      if (meta && mapping.resultColumn === mapping.sourceColumn) {
+        // 驱动可能按「表名.列名」返回结果标签，补一份限定名键。
+        tables.forEach((table, index) => {
+          if (findColumnMeta(metaMaps[index], mapping.sourceColumn) !== meta) return;
+          [table.alias, table.ref.metadataTableName].filter(Boolean).forEach((prefix) => {
+            projected[`${prefix}.${mapping.sourceColumn}`] = meta;
+          });
+        });
       }
       return;
     }
-    const qualifier = stripAliasQuotes(item.trim().replace(/\s*\.\s*\*$/, ''));
-    if (item.trim() === '*') Object.assign(projected, merged);
+    const qualifier = stripAliasQuotes(trimmed.replace(/\s*\.\s*\*$/, ''));
     const candidates = tables.map((table, index) => ({ table, index })).filter(({ table }) => (
-      item.trim() === '*' || table.alias === qualifier || table.ref.metadataTableName === qualifier
+      trimmed === '*' || table.alias === qualifier || table.ref.metadataTableName === qualifier
         || table.ref.metadataTableName.split('.').pop() === qualifier
     ));
-    if (item.trim() !== '*' && candidates.length !== 1) return;
+    if (trimmed !== '*' && candidates.length !== 1) return;
+    if (trimmed === '*') {
+      // 裸 * 沿用跨表去重后的 merged；展开出的标签同样登记，避免被后面的同名项覆盖。
+      Object.entries(merged).forEach(([name, meta]) => {
+        if (labelKinds.get(name) === 'entity') emitResultColumn(name, meta);
+      });
+    }
     candidates.forEach(({ table, index }) => {
-      if (item.trim() !== '*') Object.assign(projected, metaMaps[index]);
+      if (trimmed !== '*') {
+        Object.entries(metaMaps[index]).forEach(([name, meta]) => {
+          if (labelKinds.get(name) === 'entity') emitResultColumn(name, meta);
+        });
+      }
       [table.alias, table.ref.metadataTableName].filter(Boolean).forEach((prefix) => {
         Object.entries(metaMaps[index]).forEach(([name, meta]) => { projected[`${prefix}.${name}`] = meta; });
       });
     });
-  });
-  resolveQueryResultSelectAliasEntries(statement, dbType).forEach(({ resultColumn, sourceColumn, qualifier }) => {
-    const meta = qualifier
-      ? resolveQualifiedTableMeta(tables, metaMaps, qualifier, sourceColumn)
-      : findColumnMeta(merged, sourceColumn);
-    if (meta) {
-      projected[resultColumn] = meta;
-      if (resultColumn === sourceColumn) {
-        tables.forEach((table, index) => {
-          if (findColumnMeta(metaMaps[index], sourceColumn) !== meta) return;
-          [table.alias, table.ref.metadataTableName].filter(Boolean).forEach((prefix) => {
-            projected[`${prefix}.${sourceColumn}`] = meta;
-          });
-        });
-      }
-    }
-  });
-  Object.keys(projected).forEach((name) => {
-    if (duplicateResults.has(name)) delete projected[name];
   });
   return projected;
 };

@@ -317,15 +317,27 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
   const resolvedColumnMetaMap = hasInitialColumnMeta || hasAuthoritativeEmptyMap ? initialColumnMetaMap : columnMetaMap;
   const resolvedUniqueKeyGroups = hasInitialUniqueKeyGroups ? initialUniqueKeyGroups : uniqueKeyGroups;
 
+  // 同一小写名对应多个结果列时（如 "Customer" 与 "customer"），大小写回退会把注释串到另一列，
+  // 所以只在「该小写名唯一对应一个结果列」时才建立回退索引；精确匹配置不受影响。
+  const ambiguousLowerNameCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    ((visibleColumnNames || []) as unknown[]).forEach((name) => {
+      const lowerName = String(name || '').toLowerCase();
+      if (lowerName) counts.set(lowerName, (counts.get(lowerName) || 0) + 1);
+    });
+    return counts;
+  }, [visibleColumnNames]);
+
   const columnMetaMapByLowerName = useMemo(() => {
     const next: Record<string, any> = {};
     Object.entries(resolvedColumnMetaMap).forEach(([name, meta]) => {
       const lowerName = String(name || '').toLowerCase();
       if (!lowerName || next[lowerName]) return;
+      if ((ambiguousLowerNameCounts.get(lowerName) || 0) > 1) return;
       next[lowerName] = meta;
     });
     return next;
-  }, [resolvedColumnMetaMap]);
+  }, [ambiguousLowerNameCounts, resolvedColumnMetaMap]);
 
   const columnTypeMapByLowerName = useMemo(() => {
     const next: Record<string, string> = {};

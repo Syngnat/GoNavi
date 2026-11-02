@@ -23,6 +23,7 @@ import type { SavedConnection } from '../../../typeDefs/connectionTypes';
 import type { createQueryEditorImeAndDropHandlers } from './queryEditorImeAndDropHandlers';
 import type { createQueryEditorAiInlineGhostActions } from './queryEditorAiInlineGhostActions';
 import type { createQueryEditorNavigationHover } from './queryEditorNavigationHover';
+import { placeQueryEditorLastLineCaret, selectQueryEditorLastLineWord } from './queryEditorLastLineWordSelect';
 
 export interface BindQueryEditorEditorEventsInput {
     monaco: Parameters<OnMount>[1];
@@ -405,7 +406,45 @@ export const bindQueryEditorEditorEvents = ({
     editor.onDidDispose?.(() => {
         unsubscribeActivation();
         detachWindowListeners(false);
+        editorDomNode?.removeEventListener('dblclick', handleEditorDoubleClick, true);
+        editorDomNode?.removeEventListener('mousedown', handleEditorLastLineMouseDown, true);
     });
+
+    // WKWebView 在「最后一行下方的空白」取不到文本节点，Monaco 得到 UNKNOWN 目标：单击不定位、双击不选词。
+    // 下面两个兜底只在原生没命中内容时介入，命中正常时完全不碰。
+    const buildLastLineSelectHost = () => ({
+        getModel: () => editor.getModel?.(),
+        getTargetAtClientPoint: (clientX: number, clientY: number) => (editor as any).getTargetAtClientPoint?.(clientX, clientY),
+        queryLastRenderedLine: () => {
+            const lines = editorDomNode?.querySelectorAll?.('.view-lines .view-line');
+            return lines && lines.length ? lines[lines.length - 1] : null;
+        },
+        selectWord: (lineNumber: number, startColumn: number, endColumn: number) => {
+            editor.setSelection?.(new monaco.Selection(lineNumber, startColumn, lineNumber, endColumn));
+        },
+        placeCaret: (lineNumber: number, column: number) => {
+            editor.setPosition?.({ lineNumber, column });
+        },
+    });
+    const handleEditorDoubleClick = (rawEvent: Event) => {
+        const event = rawEvent as MouseEvent;
+        try {
+            selectQueryEditorLastLineWord(buildLastLineSelectHost(), event.clientX, event.clientY);
+        } catch {
+            // 兜底失败不能影响正常编辑
+        }
+    };
+    const handleEditorLastLineMouseDown = (rawEvent: Event) => {
+        const event = rawEvent as MouseEvent;
+        if (event.button !== 0) return;
+        try {
+            placeQueryEditorLastLineCaret(buildLastLineSelectHost(), event.clientX, event.clientY);
+        } catch {
+            // 兜底失败不能影响正常编辑
+        }
+    };
+    editorDomNode?.addEventListener('dblclick', handleEditorDoubleClick, true);
+    editorDomNode?.addEventListener('mousedown', handleEditorLastLineMouseDown, true);
 
     editorDomNode?.addEventListener('beforeinput', handleImeBeforeInput, true);
     editorDomNode?.addEventListener('compositionstart', handleImeCompositionStart, true);
