@@ -12,7 +12,7 @@ index d6448fe..a2423c7 100644
      scrollWidth?: number;
      onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
 diff --git a/node_modules/rc-tree/es/NodeList.js b/node_modules/rc-tree/es/NodeList.js
-index edc6fa9..6dd7c86 100644
+index edc6fa9..7ea6e72 100644
 --- a/node_modules/rc-tree/es/NodeList.js
 +++ b/node_modules/rc-tree/es/NodeList.js
 @@ -2,7 +2,7 @@ import _extends from "@babel/runtime/helpers/esm/extends";
@@ -47,8 +47,8 @@ index edc6fa9..6dd7c86 100644
      fullHeight: false,
      virtual: virtual,
      itemHeight: itemHeight,
-+    itemHeightFixed: motionType ? false : itemHeightFixed,
-+    itemHeightResolver: !motionType && itemHeightResolver ? resolvedItemHeight : undefined,
++    itemHeightFixed: motion && motionType ? false : itemHeightFixed,
++    itemHeightResolver: !(motion && motionType) && itemHeightResolver ? resolvedItemHeight : undefined,
      scrollWidth: scrollWidth,
      prefixCls: "".concat(prefixCls, "-list"),
      ref: listRef,
@@ -68,7 +68,7 @@ index 8c04c4f..22dda81 100644
      itemScrollOffset?: number;
      virtual?: boolean;
 diff --git a/node_modules/rc-tree/es/Tree.js b/node_modules/rc-tree/es/Tree.js
-index eee37d3..55b168c 100644
+index eee37d3..fb2fa42 100644
 --- a/node_modules/rc-tree/es/Tree.js
 +++ b/node_modules/rc-tree/es/Tree.js
 @@ -947,6 +947,8 @@ var Tree = /*#__PURE__*/function (_React$Component) {
@@ -103,7 +103,7 @@ index d6448fe..a2423c7 100644
      scrollWidth?: number;
      onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
 diff --git a/node_modules/rc-tree/lib/NodeList.js b/node_modules/rc-tree/lib/NodeList.js
-index 75ed97e..d289c04 100644
+index 75ed97e..940d42a 100644
 --- a/node_modules/rc-tree/lib/NodeList.js
 +++ b/node_modules/rc-tree/lib/NodeList.js
 @@ -17,7 +17,7 @@ var React = _interopRequireWildcard(require("react"));
@@ -138,8 +138,8 @@ index 75ed97e..d289c04 100644
      fullHeight: false,
      virtual: virtual,
      itemHeight: itemHeight,
-+    itemHeightFixed: motionType ? false : itemHeightFixed,
-+    itemHeightResolver: !motionType && itemHeightResolver ? resolvedItemHeight : undefined,
++    itemHeightFixed: motion && motionType ? false : itemHeightFixed,
++    itemHeightResolver: !(motion && motionType) && itemHeightResolver ? resolvedItemHeight : undefined,
      scrollWidth: scrollWidth,
      prefixCls: "".concat(prefixCls, "-list"),
      ref: listRef,
@@ -159,7 +159,7 @@ index 8c04c4f..22dda81 100644
      itemScrollOffset?: number;
      virtual?: boolean;
 diff --git a/node_modules/rc-tree/lib/Tree.js b/node_modules/rc-tree/lib/Tree.js
-index 99abdbe..5b9be81 100644
+index 99abdbe..26cbb56 100644
 --- a/node_modules/rc-tree/lib/Tree.js
 +++ b/node_modules/rc-tree/lib/Tree.js
 @@ -957,6 +957,8 @@ var Tree = /*#__PURE__*/function (_React$Component) {
