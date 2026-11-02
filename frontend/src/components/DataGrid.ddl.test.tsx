@@ -938,8 +938,12 @@ describe('DataGrid DDL interactions', () => {
     await waitForEffects();
 
     expect(renderer!.root.findAllByType(DataGridPageFind)).toHaveLength(0);
+    // 捕获阶段的 keydown 不止一个：表格刷新快捷键也注册在同一阶段。
+    // 按函数名排除它，只留页内查找的监听器。
     const keydownRegistrations = vi.mocked(window.addEventListener).mock.calls.filter(
-      ([type, _listener, options]) => type === 'keydown' && options === true,
+      ([type, listener, options]) => type === 'keydown'
+        && options === true
+        && (listener as { name?: string })?.name !== 'handleDataGridRefreshShortcut',
     );
     expect(keydownRegistrations).toHaveLength(1);
     const handlePageFindShortcut = keydownRegistrations[0][1] as EventListener;
@@ -997,8 +1001,11 @@ describe('DataGrid DDL interactions', () => {
     });
     await waitForEffects();
 
+    // 同第一处：排除表格刷新快捷键的监听器，只留页内查找那一个。
     const keydownRegistrations = vi.mocked(window.addEventListener).mock.calls.filter(
-      ([type, _listener, options]) => type === 'keydown' && options === true,
+      ([type, listener, options]) => type === 'keydown'
+        && options === true
+        && (listener as { name?: string })?.name !== 'handleDataGridRefreshShortcut',
     );
     expect(keydownRegistrations).toHaveLength(1);
     const event = {

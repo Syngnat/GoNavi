@@ -44,7 +44,8 @@ export const useDataGridRefreshShortcut = ({
         );
         if (!binding?.enabled || !binding.combo) return;
 
-        const handleRefreshShortcut = (event: KeyboardEvent) => {
+        // 具名函数：同阶段还有页内查找的监听器，测试需要按名字区分两者。
+        const handleDataGridRefreshShortcut = (event: KeyboardEvent) => {
             if (!isShortcutMatch(event, binding.combo)) return;
 
             const root = rootRef.current;
@@ -75,8 +76,8 @@ export const useDataGridRefreshShortcut = ({
             onRefresh();
         };
 
-        window.addEventListener('keydown', handleRefreshShortcut, true);
-        return () => window.removeEventListener('keydown', handleRefreshShortcut, true);
+        window.addEventListener('keydown', handleDataGridRefreshShortcut, true);
+        return () => window.removeEventListener('keydown', handleDataGridRefreshShortcut, true);
     }, [
         isActive, viewMode, rootRef, shortcutOptions, activeShortcutPlatform, canRefresh, onRefresh,
     ]);
