@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 )
 
 const maxStateBytes = 32 << 20
 const maxInstalled = 128
+const maxPersistedReasonBytes = 1024
 
 type record struct {
 	Status
@@ -71,18 +73,38 @@ func (m *Manager) loadState() (diskState, error) {
 		default:
 			return state, fmt.Errorf("invalid persisted lifecycle state")
 		}
-		if r.Generation == 0 || len(r.LastError) > 1024 {
+		if r.Generation == 0 || len(r.LastError) > maxPersistedReasonBytes {
 			return state, fmt.Errorf("invalid persisted generation or diagnostics")
 		}
 		if id != r.Manifest.ID || !validDigest(r.Digest) {
 			return state, fmt.Errorf("invalid plugin state identity")
 		}
 		if err = ValidateManifest(r.Manifest); err != nil {
-			return state, fmt.Errorf("invalid persisted manifest: %w", err)
+			// 宿主升级后新增的清单规则会拒绝早期版本已接受的插件；一条记录失效不能让整个
+			// 运行时不可用，否则用户连在界面上卸载它都做不到。这里隔离它并保留移除能力。
+			r.Quarantined = true
+			r.DesiredEnabled = false
+			r.State = StateBlocked
+			r.LastError = persistedRejectionReason(err)
+			state.Records[id] = r
+			continue
 		}
 	}
 	m.storeStateCache(info, state)
 	return cloneDiskState(state), nil
+}
+
+// persistedRejectionReason 保留拒绝原因，同时收进 state.json 允许的诊断字节上限内。
+func persistedRejectionReason(err error) string {
+	reason := "invalid persisted manifest: " + err.Error()
+	if len(reason) <= maxPersistedReasonBytes {
+		return reason
+	}
+	trimmed := reason[:maxPersistedReasonBytes]
+	for len(trimmed) > 0 && !utf8.ValidString(trimmed) {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return trimmed
 }
 
 // cachedState returns a validated snapshot only when the file on disk is still the one that
