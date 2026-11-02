@@ -576,11 +576,11 @@ func TestAIListModelsUsesEnglishLocalizedModelListErrors(t *testing.T) {
 	})
 }
 
-func TestLocalizeCodeBuddyCLIHealthErrorRendersLocalizedText(t *testing.T) {
+func TestLocalizeCodeBuddyCLIErrorRendersLocalizedText(t *testing.T) {
 	service := NewService()
 	service.AISetLanguage("zh-CN")
 
-	err := service.localizeCodeBuddyCLIHealthError(provider.ErrCodeBuddyCLIAuthRequired)
+	err := service.localizeCodeBuddyCLIError(provider.ErrCodeBuddyCLIAuthRequired)
 	if err == nil {
 		t.Fatal("expected localized error")
 	}
@@ -591,11 +591,11 @@ func TestLocalizeCodeBuddyCLIHealthErrorRendersLocalizedText(t *testing.T) {
 		t.Fatalf("expected CodeBuddy hint, got %q", err.Error())
 	}
 
-	if localized := service.localizeCodeBuddyCLIHealthError(nil); localized != nil {
+	if localized := service.localizeCodeBuddyCLIError(nil); localized != nil {
 		t.Fatal("nil 输入必须原样返回 nil")
 	}
 	other := errors.New("CodeBuddy CLI execution failed: boom")
-	if got := service.localizeCodeBuddyCLIHealthError(other); got != other {
+	if got := service.localizeCodeBuddyCLIError(other); got != other {
 		t.Fatal("非认证错误必须原样透传")
 	}
 }

@@ -740,22 +740,17 @@ func TestCodeBuddyCLIProviderChatStreamReportsAuthRequired(t *testing.T) {
 		ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}},
 		func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) },
 	)
-	// 流式路径的错误按既有设计通过 callback 传递，函数本身返回 nil。
-	if err != nil {
-		t.Fatalf("stream should report the failure through the callback, got %v", err)
+	// 认证失败保留哨兵类型，让 service 层与连接测试使用同一本地化提示。
+	if !errors.Is(err, ErrCodeBuddyCLIAuthRequired) {
+		t.Fatalf("err = %v, want ErrCodeBuddyCLIAuthRequired", err)
 	}
-	var authError string
 	for _, chunk := range chunks {
-		if chunk.Error == "" {
-			continue
+		if chunk.Error != "" {
+			t.Fatalf("authentication should be returned as a typed error, got callback error %q", chunk.Error)
 		}
-		if strings.Contains(chunk.Error, "traceid") || strings.Contains(chunk.Error, "copilot.tencent.com") {
-			t.Fatalf("流式错误不应回显 CLI 原文：%q", chunk.Error)
-		}
-		authError = chunk.Error
 	}
-	if !strings.Contains(authError, "not signed in") {
-		t.Fatalf("流式错误文案应指向登录，实际 %q", authError)
+	if strings.Contains(err.Error(), "traceid") || strings.Contains(err.Error(), "copilot.tencent.com") {
+		t.Fatalf("authentication error must omit raw diagnostics: %q", err.Error())
 	}
 }
 

@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -161,13 +160,12 @@ func (p *CodeBuddyCLIProvider) ChatWithState(ctx context.Context, state json.Raw
 	// 「401 Authentication required」而退出码为 0）。不在这里读 stderr，上层只会
 	// 拿到空响应并报「CLI 没有返回模型响应」，把「需要登录」误导成模型问题。
 	if len(bytes.TrimSpace(output)) == 0 {
+		// 认证信息可能位于长诊断日志之后，识别必须先于展示摘要的截断。
+		if isCodeBuddyCLIAuthFailure(stderrBuf.String()) {
+			requestErr = ErrCodeBuddyCLIAuthRequired
+			return nil, nil, requestErr
+		}
 		if detail := codebuddyCLIStderrDetail(&stderrBuf); detail != "" {
-			// 未登录/凭证被拒是可预期状态：返回哨兵错误交给 service 层本地化，
-			// 不把 CLI 原文（含 trace id、target 等诊断信息）直接抛给界面。
-			if isCodeBuddyCLIAuthFailure(detail) {
-				requestErr = ErrCodeBuddyCLIAuthRequired
-				return nil, nil, requestErr
-			}
 			requestErr = fmt.Errorf("CodeBuddy CLI returned no output (exit code 0); stderr: %s", detail)
 			return nil, nil, requestErr
 		}
@@ -261,82 +259,10 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 		logger.Infof("CodeBuddyCLI 请求进程已启动：requestId=%s pid=%d", requestLog.id, cmd.Process.Pid)
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	currentSessionID := strings.TrimSpace(resumeSessionID)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		var event cliStreamEvent
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			logger.Warnf("CodeBuddyCLI 忽略非 JSON 输出：requestId=%s line=%s", requestLog.id, RedactAIUpstreamLogText(line))
-			continue
-		}
-		if strings.TrimSpace(event.SessionID) != "" {
-			currentSessionID = strings.TrimSpace(event.SessionID)
-		}
-
-		switch event.Type {
-		case "system":
-			if isCodeBuddyCLISystemRetryEvent(event) {
-				if errMsg, hasError := extractCodeBuddyCLISystemRetryError(event); hasError {
-					callback(ai.StreamChunk{Error: errMsg, Done: true})
-					requestErr = fmt.Errorf("CodeBuddy CLI authentication failed: %s", errMsg)
-					if cmd.Process != nil {
-						_ = cmd.Process.Kill()
-					}
-					_ = cmd.Wait()
-					return "", nil
-				}
-			}
-		case "assistant":
-			if errMsg, hasError := extractCodeBuddyCLIEventError(event); hasError {
-				callback(ai.StreamChunk{Error: errMsg, Done: true})
-				requestErr = fmt.Errorf("CodeBuddy CLI returned an error: %s", errMsg)
-				_ = cmd.Wait()
-				return "", nil
-			}
-			if event.Message.Content != nil {
-				for _, block := range event.Message.Content {
-					if block.Type == "thinking" && block.Thinking != "" {
-						callback(ai.StreamChunk{Thinking: block.Thinking})
-					} else if block.Type == "text" && block.Text != "" {
-						callback(ai.StreamChunk{Content: block.Text})
-					}
-				}
-			}
-		case "content_block_delta":
-			if event.Delta.Type == "thinking_delta" && event.Delta.Thinking != "" {
-				callback(ai.StreamChunk{Thinking: event.Delta.Thinking})
-			} else if event.Delta.Text != "" {
-				callback(ai.StreamChunk{Content: event.Delta.Text})
-			}
-		case "result":
-			if errMsg, hasError := extractCodeBuddyCLIEventError(event); hasError {
-				callback(ai.StreamChunk{Error: errMsg, Done: true})
-				requestErr = fmt.Errorf("CodeBuddy CLI returned an error: %s", errMsg)
-				_ = cmd.Wait()
-				return "", nil
-			}
-			var usage *ai.TokenUsage
-			if event.Usage != nil {
-				normalized := normalizeClaudeCLIUsage(event.Usage)
-				usage = &normalized
-			}
-			callback(ai.StreamChunk{Done: true, Usage: usage})
-			_ = cmd.Wait()
-			return currentSessionID, nil
-		case "error":
-			errMsg, _ := extractCodeBuddyCLIEventError(event)
-			callback(ai.StreamChunk{Error: errMsg, Done: true})
-			requestErr = fmt.Errorf("CodeBuddy CLI returned an error: %s", errMsg)
-			_ = cmd.Wait()
-			return "", nil
-		}
+	currentSessionID, terminal, streamErr := scanCodeBuddyCLIStream(stdout, cmd, resumeSessionID, requestLog.id, callback)
+	if terminal {
+		requestErr = streamErr
+		return currentSessionID, nil
 	}
 
 	waitErr := cmd.Wait()
@@ -368,8 +294,8 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 	if stderrStr != "" {
 		if isCodeBuddyCLIAuthFailure(stderrStr) {
 			requestErr = ErrCodeBuddyCLIAuthRequired
-			callback(ai.StreamChunk{Error: requestErr.Error(), Done: true})
-			return "", nil
+			// 返回哨兵类型，service 层可本地化；不要在回调里提前丢失类型。
+			return "", requestErr
 		}
 		detail := codebuddyCLIStderrDetail(&stderrBuf)
 		requestErr = fmt.Errorf("CodeBuddy CLI returned no output (exit code 0); stderr: %s", detail)
