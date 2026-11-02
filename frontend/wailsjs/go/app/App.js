@@ -158,6 +158,10 @@ export function ConfigureGlobalProxy(arg1, arg2) {
   return window['go']['app']['App']['ConfigureGlobalProxy'](arg1, arg2);
 }
 
+export function CopyDatabase(arg1, arg2) {
+  return window['go']['app']['App']['CopyDatabase'](arg1, arg2);
+}
+
 export function CopyTable(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['CopyTable'](arg1, arg2, arg3, arg4);
 }

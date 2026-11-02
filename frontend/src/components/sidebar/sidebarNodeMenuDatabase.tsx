@@ -45,6 +45,10 @@ export const buildDatabaseNodeMenuItems = ({ node, context }: BuildDatabaseNodeM
            label: t('sidebar.menu.copy_database_name'),
            icon: <CopyOutlined />,
            onClick: () => handleV2DatabaseContextMenuAction(node, 'copy-database-name')
+         }, {
+           key: 'copy-database',
+           label: t('sidebar.menu.copy_database'),
+           onClick: () => handleV2DatabaseContextMenuAction(node, 'copy-database')
        },
       ...(canCreateTable ? [{
            key: 'new-table',

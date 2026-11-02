@@ -94,6 +94,7 @@ type UseSidebarV2ActionHandlersArgs = {
   handleCopyTableName: (node: any) => Promise<void>;
   handleCopyTable: (node: any) => void;
   handleCopyDatabaseName: (node: any) => Promise<void>;
+  handleCopyDatabase: (node: any) => Promise<void>;
   handleCopyStructure: (node: any) => Promise<void>;
   handleCopyTableAsInsert: (node: any) => Promise<void>;
   openCreateStarRocksRollup: (node: any) => void;
@@ -168,6 +169,7 @@ export const useSidebarV2ActionHandlers = ({
   handleCopyTableName,
   handleCopyTable,
   handleCopyDatabaseName,
+  handleCopyDatabase,
   handleCopyStructure,
   handleCopyTableAsInsert,
   openCreateStarRocksRollup,
@@ -456,6 +458,9 @@ export const useSidebarV2ActionHandlers = ({
         return;
       case 'copy-database-name':
         void handleCopyDatabaseName(node);
+        return;
+      case 'copy-database':
+        void handleCopyDatabase(node);
         return;
       case 'new-table':
         openNewTableDesign(node);

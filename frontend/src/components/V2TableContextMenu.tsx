@@ -136,6 +136,7 @@ export type V2DatabaseContextMenuActionKey =
   | 'pin-database'
   | 'unpin-database'
   | 'copy-database-name'
+  | 'copy-database'
   | 'new-table'
   | 'new-schema'
   | 'new-materialized-view'
@@ -206,6 +207,7 @@ export const V2DatabaseContextMenuView: React.FC<{
       <div className="gn-v2-context-menu-body">
         {renderItems([
           { action: 'copy-database-name', icon: <CopyOutlined />, title: t('sidebar.menu.copy_database_name'), kbd: primaryShortcut('C', shortcutPlatform), featured: true },
+          { action: 'copy-database', icon: <CopyOutlined />, title: t('sidebar.menu.copy_database') },
           { action: isPinned ? 'unpin-database' : 'pin-database', icon: <PushpinOutlined />, title: isPinned ? t('sidebar.action.unpin_database') : t('sidebar.action.pin_database'), kbd: isPinned ? t('sidebar.status.pinned') : undefined, selected: isPinned },
           { action: 'new-table', icon: <TableOutlined />, title: t('sidebar.menu.create_table'), kbd: primaryShortcut('N', shortcutPlatform), featured: true },
           ...(supportsSchemaActions ? [{ action: 'new-schema', icon: <FolderAddOutlined />, title: t('sidebar.v2_database_menu.new_schema') }] : []),
