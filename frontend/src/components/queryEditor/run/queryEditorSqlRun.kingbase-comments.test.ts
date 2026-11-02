@@ -278,6 +278,22 @@ describe('Kingbase same-name result column mapping', () => {
     expect(titles.find(title => title.columnName === 'name')?.comment).toBe('customer name');
   });
 
+  it('does not lend a later table comment to an earlier table column', async () => {
+    backend.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => (
+      String(table).includes('orders')
+        ? Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] })
+        : Promise.resolve({ success: true, data: [
+          { name: 'id', type: 'bigint', key: 'PRI', comment: 'customer id' },
+          { name: 'name', type: 'varchar', comment: 'customer name' },
+        ] })
+    ));
+    const input = createInput('SELECT * FROM orders o JOIN customers c ON c.id=o.id', false);
+    vi.mocked(input.executeSqlEditorMultiQuery).mockResolvedValue({ success: true, message: '', data: [{ columns: ['id', 'total_amount', 'id_2', 'name'], rows: [{ id: 1, total_amount: 10, id_2: 1, name: 'Alice' }] }] });
+    await runQueryEditorSqlStatements(input);
+    const titles = await gridComments(input);
+    expect(titles.find(title => title.columnName === 'id')?.comment).toBeUndefined();
+  });
+
   it('keeps the first same-named entity column when a later expression reuses the label', async () => {
     backend.DBGetColumns.mockResolvedValue({ success: true, data: [
       { name: 'id', type: 'bigint', key: 'PRI', comment: 'customer id' },

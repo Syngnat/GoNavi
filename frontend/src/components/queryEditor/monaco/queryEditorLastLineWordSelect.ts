@@ -18,6 +18,7 @@ export interface QueryEditorLastLineWordSelectHost {
 
 const CONTENT_TEXT = 6;
 const CONTENT_EMPTY = 7;
+const UNKNOWN_TARGET = 0;
 
 type ClampedHit = { directHit: boolean; position: QueryEditorWordPosition };
 
@@ -28,8 +29,12 @@ const resolveClampedContentHit = (
   lineCount: number,
 ): ClampedHit | null => {
   const direct = host.getTargetAtClientPoint?.(clientX, clientY);
-  if (direct && (direct.type === CONTENT_TEXT || direct.type === CONTENT_EMPTY) && direct.position) {
-    return { directHit: true, position: direct.position };
+  if (direct) {
+    if ((direct.type === CONTENT_TEXT || direct.type === CONTENT_EMPTY) && direct.position) {
+      return { directHit: true, position: direct.position };
+    }
+    // 行号槽、滚动条、概览尺、编辑器外都是 Monaco 的正常命中，不能兜底抢走。
+    if (direct.type !== UNKNOWN_TARGET) return null;
   }
   const rect = host.queryLastRenderedLine?.()?.getBoundingClientRect?.();
   if (!rect || !Number.isFinite(rect.top) || !(rect.height > 0)) return null;

@@ -78,4 +78,27 @@ describe('placeQueryEditorLastLineCaret', () => {
     }, 40, 200)).toBe(false);
     expect(placeCaret).not.toHaveBeenCalled();
   });
+
+  it.each([1, 3, 11, 13])('非内容目标（Monaco 类型 %i）不兜底', (targetType) => {
+    const selectWord = vi.fn();
+    const placeCaret = vi.fn();
+    let hits = 0;
+    // 真实场景：第一次命中的是行号槽、滚动条这类非内容目标，夹回最后一行后才会命中内容。
+    const getTargetAtClientPoint = vi.fn(() => {
+      hits += 1;
+      return hits === 1 ? { type: targetType } : { type: 6, position: { lineNumber: 1, column: 5 } };
+    });
+    const host = {
+      getModel: () => ({ getLineCount: () => 1, getWordAtPosition: () => ({ startColumn: 3, endColumn: 8 }) }),
+      getTargetAtClientPoint,
+      queryLastRenderedLine: () => lineElement(100, 20),
+      selectWord,
+      placeCaret,
+    };
+    expect(selectQueryEditorLastLineWord(host, 40, 200)).toBe(false);
+    hits = 0;
+    expect(placeQueryEditorLastLineCaret(host, 40, 200)).toBe(false);
+    expect(selectWord).not.toHaveBeenCalled();
+    expect(placeCaret).not.toHaveBeenCalled();
+  });
 });

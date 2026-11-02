@@ -440,9 +440,14 @@ export const resolveQueryResultColumnMetaByCandidateTables = async ({
     labelKinds.forEach((kind, label) => { if (kind === 'expression') delete merged[label]; });
     return merged;
   }
-  // 只按「这次真正取到元数据的表」判同名歧义：某张表本轮超时或不可见，不能牵连其它表的裸列注释。
+  // 可用的候选表必须恰好排在前面，裸名列的归属才确定：某张表本轮超时或不可见时不能牵连后面表的裸列注释，
+  // 但后面的表取到了元数据也不能把注释借给投影里更靠前、本轮没取到元数据的表（那是张冠李戴的错注释）。
+  const firstUnusableIndex = metaMaps.findIndex((map) => !hasUsableColumnMeta(map));
+  const usableMapsFormPrefix = firstUnusableIndex < 0
+    || metaMaps.slice(firstUnusableIndex).every((map) => !hasUsableColumnMeta(map));
   Object.keys(merged).forEach((name) => {
-    if (metaMaps.filter((map) => hasUsableColumnMeta(map) && findColumnMeta(map, name)).length !== 1) delete merged[name];
+    const owners = metaMaps.filter((map) => hasUsableColumnMeta(map) && findColumnMeta(map, name)).length;
+    if (!usableMapsFormPrefix || owners !== 1) delete merged[name];
   });
   const range = resolveOuterSelectListRange(statement, dbType);
   if (!range) return undefined;

@@ -288,6 +288,21 @@ describe('SELECT 别名映射回填', () => {
     expect(metaMap?.total_amount).toBeUndefined();
   });
 
+  it('靠前的候选表取不到元数据时，不把后面表的注释借给它的裸列', async () => {
+    backendApp.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => (
+      String(table).includes('lab_customers')
+        ? Promise.resolve({ success: true, data: customerColumns })
+        : Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] })
+    ));
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT * FROM lab_orders o JOIN lab_customers c ON c.id = o.customer_id',
+      dbType: 'kingbase', currentDb: 'gonavi_kingbase_lab', defaultSchema: 'dbms_job', config,
+    });
+    // 投影里第一个 id 属于 lab_orders，本轮拿不到它的列定义，宁可不给注释也不能张冠李戴。
+    expect(metaMap?.id).toBeUndefined();
+    expect(metaMap?.name).toBeUndefined();
+  });
+
   it('非金仓方言在实体列先出现时保留同名实体列注释', async () => {
     backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [
       { name: 'order_name', type: 'varchar(100)', comment: '监测任务名称' },
