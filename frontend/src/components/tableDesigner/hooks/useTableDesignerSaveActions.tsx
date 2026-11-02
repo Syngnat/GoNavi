@@ -67,6 +67,7 @@ export interface UseTableDesignerSaveActionsInput {
     buildCreateTableSql: TableDesignerDialectSupportApi['buildCreateTableSql'];
     charset: TableDesignerStateApi['charset'];
     collation: TableDesignerStateApi['collation'];
+    originalCollation: TableDesignerStateApi['originalCollation'];
     tableComment: TableDesignerStateApi['tableComment'];
     getIndexKindOptions: TableDesignerDialectSupportApi['getIndexKindOptions'];
     triggers: TableDesignerStateApi['triggers'];
@@ -96,7 +97,7 @@ export const useTableDesignerSaveActions = ({
     setFks, setForeignKeySaving, setSelectedForeignKey, newTableName, isTDengineChildNewTable,
     tdengineStableName, tdengineChildTagDefs, tdengineChildTagValues, tdengineTagValues, columns,
     isTDengineNewTable, tdengineTableKind, tdengineTagDefinitions, buildCreateTableSql, charset,
-    collation, tableComment, getIndexKindOptions, triggers, setPreviewSql, setIsPreviewOpen,
+    collation, originalCollation, tableComment, getIndexKindOptions, triggers, setPreviewSql, setIsPreviewOpen,
     resolveTableInfo, originalColumns, hasUnsavedDraftChanges, fetchData, executeSchemaStatements,
     previewSql, selectedSchema, getDbType, supportsTableDesignerSchemaSelection,
     designerSchemaTitle, tableColumns, handleResizeStart, selectedColumnRowKeys,
@@ -404,6 +405,9 @@ export const useTableDesignerSaveActions = ({
                 tableName: tableInfo.qualifiedName,
                 originalColumns,
                 columns,
+                charset,
+                collation,
+                originalCollation,
                 translate: (key, params) => t(key, params, i18nLanguage),
             });
 

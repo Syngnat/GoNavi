@@ -223,6 +223,21 @@ export const useTableOverviewRenderers = ({
           <div className="gn-v2-table-card-meta" style={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 16, marginTop: 'auto', flexShrink: 0, fontSize: 12, color: textMuted }}>
               <span title={t('table_overview.sort.rows')} style={{ minWidth: 52, flexShrink: 0, whiteSpace: 'nowrap' }}>📊 {formatRows(table.rows)}</span>
               <span title={t('table_overview.metric.data_size')} style={{ minWidth: 72, flexShrink: 0, whiteSpace: 'nowrap' }}>💾 {formatSize(table.dataSize)}</span>
+              {table.charset ? (
+                  <span
+                      data-table-overview-card-field="charset"
+                      title={`${t('table_overview.metric.charset')}: ${table.charset}${table.collation ? ` / ${table.collation}` : ''}`}
+                      style={{
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          opacity: 0.7,
+                      }}
+                  >
+                      {table.charset}
+                  </span>
+              ) : null}
               <span
                       data-table-overview-card-field="engine"
                       title={`${t('table_overview.metric.engine')}: ${table.engine || '—'}`}

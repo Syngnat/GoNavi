@@ -13,6 +13,8 @@ const table: TableStatRow = {
   dataSize: 1024,
   indexSize: 512,
   engine: 'InnoDB',
+  charset: 'utf8mb4',
+  collation: 'utf8mb4_general_ci',
   createTime: '',
   updateTime: '',
 };
