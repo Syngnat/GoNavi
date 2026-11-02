@@ -1159,9 +1159,17 @@ jobs:
 
           Write-Host "📦 输出 7z SFX 便携版 EXE $portableExeName..."
           $finalExePath = (Resolve-Path -LiteralPath $finalExe).Path
-          & (Join-Path $releaseRoot "tools\\make-portable-sfx.ps1") -SourceExe $finalExePath -OutputExe (Join-Path $releaseRoot $portableExeName) -LicenseFile $licenseFile -NoticeFile $noticeFile
-          if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $portableExeName))) {
-              throw "SFX 便携版 EXE 生成失败: $portableExeName"
+          # SFX 便携版是附加产物，需要联网下载官方 LZMA SDK（偶发 DNS 失败）。
+          # 它失败不该拖垮同一次的 ZIP 与 MSI：降级为警告并在步骤摘要里说明。
+          $sfxOk = $true
+          try {
+              & (Join-Path $releaseRoot "tools\\make-portable-sfx.ps1") -SourceExe $finalExePath -OutputExe (Join-Path $releaseRoot $portableExeName) -LicenseFile $licenseFile -NoticeFile $noticeFile
+              if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $portableExeName))) {
+                  throw "SFX 便携版 EXE 未生成: $portableExeName"
+              }
+          } catch {
+              $sfxOk = $false
+              Write-Host "::warning title=SFX 便携版已跳过::SFX 便携版 EXE 生成失败，ZIP 与 MSI 继续构建。原因: $($_.Exception.Message)"
           }
 
           $portableDir = Join-Path $env:RUNNER_TEMP "gonavi-portable-$archName"

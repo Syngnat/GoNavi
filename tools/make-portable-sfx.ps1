@@ -29,6 +29,54 @@ $ErrorActionPreference = 'Stop'
 $LzmaSdkSha256 = "cbc3babd589d971e45971d787ff100be8aaa5eab15b2694497ec3e447009e1f2"
 $SevenZrSha256 = "ad4c82fadcbdf93c03b4fc440f300509c7d60c5c2f4d183e35d9d70d6957037d"
 $SevenZipDownloadBase = "https://www.7-zip.org/a"
+# 官方站点偶发 DNS 解析失败（GitHub runner 侧）：www 与裸域是两条独立解析
+# 记录，一条挂了另一条通常还能用。两者路径规则相同，可直接替换主机名。
+$SevenZipDownloadMirrors = @(
+    "https://www.7-zip.org/a",
+    "https://7-zip.org/a"
+)
+
+<#
+.SYNOPSIS
+带重试与镜像回退的文件下载。
+
+.DESCRIPTION
+官方站点在 GitHub runner 上偶发 "No such host is known"（DNS 解析失败）。
+单次 Invoke-WebRequest 失败就让整个 Windows 打包挂掉代价太大，因此：
+- 每个地址最多重试 $Attempts 次，指数退避；
+- 官方地址全部失败后依次尝试镜像；
+- 仍失败则抛出，由调用方决定是降级还是中止。
+
+下载完成后由调用方做 SHA256 校验，不在这里做——镜像的路径规则不同，
+校验只在拿到文件后进行。
+#>
+function Invoke-DownloadWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [int]$Attempts = 3,
+        [int]$TimeoutSec = 120
+    )
+    $errors = New-Object System.Collections.Generic.List[string]
+    foreach ($base in $SevenZipDownloadMirrors) {
+        $uri = "$base/$RelativePath"
+        for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+            try {
+                Write-Host "   下载 $uri（第 $attempt/$Attempts 次）..."
+                Invoke-WebRequest -Uri $uri -OutFile $OutFile -TimeoutSec $TimeoutSec
+                if (Test-Path -LiteralPath $OutFile) { return }
+                throw "下载完成但文件不存在: $OutFile"
+            } catch {
+                $errors.Add("$uri -> $($_.Exception.Message)")
+                if ($attempt -lt $Attempts) {
+                    Start-Sleep -Seconds ([Math]::Pow(2, $attempt))
+                }
+            }
+        }
+    }
+    $detail = ($errors | Select-Object -Last 4) -join "`n  "
+    throw "下载 $RelativePath 失败（已尝试 $($SevenZipDownloadMirrors.Count) 个源）:`n  $detail"
+}
 
 function Resolve-SevenZip {
     param([string]$Requested, [string]$WorkDir, [string]$Version)
@@ -41,7 +89,7 @@ function Resolve-SevenZip {
     Write-Host "   未找到已安装的 7-Zip,下载官方 $Version 便携工具链..."
     $sevenZipExe = Join-Path $WorkDir "7zr.exe"
     if (-not (Test-Path $sevenZipExe)) {
-        Invoke-WebRequest -Uri "$SevenZipDownloadBase/7zr.exe" -OutFile $sevenZipExe -TimeoutSec 120
+        Invoke-DownloadWithRetry -RelativePath "7zr.exe" -OutFile $sevenZipExe
     }
     Verify-FileHash -Path $sevenZipExe -Expected $SevenZrSha256
     return $sevenZipExe
@@ -204,7 +252,7 @@ if (-not $sfxModule) {
     $sdkArchive = Join-Path $WorkDir "lzma-$SevenZipVersion.7z"
     if (-not (Test-Path $sdkArchive)) {
         Write-Host "   下载 7-Zip 官方 LZMA SDK $SevenZipVersion ..."
-        Invoke-WebRequest -Uri "$SevenZipDownloadBase/lzma$($SevenZipVersion.Substring(2)).7z" -OutFile $sdkArchive -TimeoutSec 120
+        Invoke-DownloadWithRetry -RelativePath "lzma$($SevenZipVersion.Substring(2)).7z" -OutFile $sdkArchive
     }
     Verify-FileHash -Path $sdkArchive -Expected $LzmaSdkSha256
     $sdkFiles = Join-Path $WorkDir "lzma-$SevenZipVersion"
