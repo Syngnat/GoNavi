@@ -28,7 +28,8 @@ export type ShortcutAction =
   | 'diagnoseQuery'
   | 'diagnoseExecutionError'
   | 'optimizeQueryWithAI'
-  | 'showSlowQueries';
+  | 'showSlowQueries'
+  | 'refreshTableData';
 
 export type ShortcutPlatform = 'mac' | 'windows';
 
@@ -134,6 +135,7 @@ export const SHORTCUT_ACTION_ORDER: ShortcutAction[] = [
   'diagnoseExecutionError',
   'optimizeQueryWithAI',
   'showSlowQueries',
+  'refreshTableData',
   'openShortcutManager',
   'toggleMacFullscreen',
   'resetWindowZoom',
@@ -296,6 +298,13 @@ const SHORTCUT_ACTION_META_DEFINITIONS: Record<ShortcutAction, ShortcutActionMet
     scope: 'queryEditor',
     allowInEditable: true,
   },
+  refreshTableData: {
+    labelKey: 'app.shortcuts.action.refreshTableData.label',
+    descriptionKey: 'app.shortcuts.action.refreshTableData.description',
+    // 只读操作，输入框里也能用：刷新数据不会打断正在编辑的单元格草稿
+    // （草稿由 DataGrid 自己保留）。
+    allowInEditable: true,
+  },
   showSlowQueries: {
     labelKey: 'app.shortcuts.action.showSlowQueries.label',
     descriptionKey: 'app.shortcuts.action.showSlowQueries.description',
@@ -433,6 +442,13 @@ export const DEFAULT_SHORTCUT_OPTIONS: ShortcutOptions = {
   showSlowQueries: {
     mac: { combo: 'Meta+Shift+L', enabled: true },
     windows: { combo: 'Ctrl+Shift+L', enabled: true },
+  },
+  // 表格数据刷新。Windows 用 F5（Navicat / DataGrip / SSMS 惯例，且该键不与
+  // 现有快捷键冲突）。macOS 的 Meta+R 已被「运行查询」占用，改用 Meta+Shift+R。
+  // 两条都只在表格焦点内生效，见 DataGrid 的消费方。
+  refreshTableData: {
+    mac: { combo: 'Meta+Shift+R', enabled: true },
+    windows: { combo: 'F5', enabled: true },
   },
   openShortcutManager: {
     mac: { combo: 'Meta+,', enabled: true },

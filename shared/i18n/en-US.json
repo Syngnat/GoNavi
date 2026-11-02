@@ -3751,6 +3751,8 @@
   "app.shortcuts.action.sendAIChatMessage.description": "Send the current message from the AI input; Shift+Enter always inserts a new line",
   "app.shortcuts.action.sendAIChatMessage.label": "Send AI Chat",
   "app.shortcuts.action.showSlowQueries.description": "View slow SQL history for the current connection (default threshold 500ms)",
+  "app.shortcuts.action.refreshTableData.label": "Refresh table data",
+  "app.shortcuts.action.refreshTableData.description": "Reload the current table data from the database",
   "app.shortcuts.action.showSlowQueries.label": "Slow SQL History",
   "app.shortcuts.action.switchToNextTab.description": "Move right among open tabs",
   "app.shortcuts.action.switchToNextTab.label": "Switch to Next Tab",

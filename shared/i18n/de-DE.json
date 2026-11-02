@@ -3751,6 +3751,8 @@
   "app.shortcuts.action.sendAIChatMessage.description": "Aktuelle Nachricht im AI-Eingabefeld senden; Shift+Enter fügt immer einen Zeilenumbruch ein",
   "app.shortcuts.action.sendAIChatMessage.label": "AI-Chat senden",
   "app.shortcuts.action.showSlowQueries.description": "Verlauf langsamer SQL-Abfragen für die aktuelle Verbindung anzeigen (Standard-Schwellwert 500ms)",
+  "app.shortcuts.action.refreshTableData.label": "Tabellendaten aktualisieren",
+  "app.shortcuts.action.refreshTableData.description": "Lädt die Daten der aktuellen Tabelle erneut aus der Datenbank",
   "app.shortcuts.action.showSlowQueries.label": "Langsame SQL-Historie",
   "app.shortcuts.action.switchToNextTab.description": "In geöffneten Tabs nach rechts wechseln",
   "app.shortcuts.action.switchToNextTab.label": "Zum nächsten Tab wechseln",

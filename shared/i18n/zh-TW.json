@@ -3751,6 +3751,8 @@
   "app.shortcuts.action.sendAIChatMessage.description": "在 AI 輸入框中送出目前訊息，Shift+Enter 一律換行",
   "app.shortcuts.action.sendAIChatMessage.label": "AI 聊天送出",
   "app.shortcuts.action.showSlowQueries.description": "檢視目前連線的慢 SQL 歷史記錄（預設閾值 500ms）",
+  "app.shortcuts.action.refreshTableData.label": "重新整理表格資料",
+  "app.shortcuts.action.refreshTableData.description": "從資料庫重新載入目前資料表的資料",
   "app.shortcuts.action.showSlowQueries.label": "慢 SQL 歷史",
   "app.shortcuts.action.switchToNextTab.description": "在開啟的標籤頁中向右切換",
   "app.shortcuts.action.switchToNextTab.label": "切換到下一個標籤頁",

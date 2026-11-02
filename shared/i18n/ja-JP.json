@@ -3751,6 +3751,8 @@
   "app.shortcuts.action.sendAIChatMessage.description": "AI 入力欄の現在のメッセージを送信します。Shift+Enter は常に改行します",
   "app.shortcuts.action.sendAIChatMessage.label": "AI チャット送信",
   "app.shortcuts.action.showSlowQueries.description": "現在の接続のスロー SQL 履歴を表示（デフォルト閾値 500ms）",
+  "app.shortcuts.action.refreshTableData.label": "テーブルデータを再読み込み",
+  "app.shortcuts.action.refreshTableData.description": "データベースから現在のテーブルデータを再取得します",
   "app.shortcuts.action.showSlowQueries.label": "スロー SQL 履歴",
   "app.shortcuts.action.switchToNextTab.description": "開いているタブの中で右へ切り替えます",
   "app.shortcuts.action.switchToNextTab.label": "次のタブへ切り替え",

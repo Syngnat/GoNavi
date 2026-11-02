@@ -2,6 +2,7 @@ import React from 'react';
 import ImportPreviewModal from './ImportPreviewModal';
 import DataGridSecondaryActions from './DataGridSecondaryActions';
 import { useDataGridShellRenderers } from './dataGrid/shell/useDataGridShellRenderers';
+import { useDataGridRefreshShortcut } from './dataGrid/hooks/useDataGridRefreshShortcut';
 import { DataGridShellToolbar } from './dataGrid/shell/DataGridShellToolbar';
 import { DataGridShellBody } from './dataGrid/shell/DataGridShellBody';
 import { DataGridShellRowEditorModal } from './dataGrid/shell/DataGridShellRowEditorModal';
@@ -209,6 +210,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     jsonEditorValue,
     jsonViewText,
     loading,
+    shortcutOptions,
     localizedDataEditAutoCommitDelayOptions,
     looksLikeJsonText,
     mergedDisplayData,
@@ -378,6 +380,18 @@ const {
   showFilter, addFilter, cellEditMode, closeCellEditMode, cellEditModeRef, setCellEditMode,
   mergedDisplayData, JSON, useStore, setTimeout, window, CustomEvent,
 });
+// 表格数据刷新快捷键。只在表格焦点内生效——F5 在全页范围是浏览器刷新，
+// 抢过来会让用户在侧边栏按 F5 得到「刷新表格」。刷新中不重复触发。
+useDataGridRefreshShortcut({
+  isActive: !!props.isActive,
+  viewMode,
+  rootRef,
+  shortcutOptions: shortcutOptions || {},
+  activeShortcutPlatform,
+  canRefresh: !loading,
+  onRefresh: handleRefreshGrid,
+});
+
 
   return (
     <div
