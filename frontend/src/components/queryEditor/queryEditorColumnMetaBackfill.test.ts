@@ -303,6 +303,26 @@ describe('SELECT 别名映射回填', () => {
     expect(metaMap?.name).toBeUndefined();
   });
 
+  it('三张表里中间那张取不到元数据时，只有排在它前面的表保留裸列注释', async () => {
+    backendApp.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => {
+      const key = String(table);
+      if (key.includes('lab_orders')) {
+        return Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] });
+      }
+      if (key.includes('lab_items')) {
+        return Promise.resolve({ success: true, data: [{ name: 'item_name', type: 'varchar', comment: '物料名称' }] });
+      }
+      return Promise.resolve({ success: true, data: customerColumns });
+    });
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT * FROM lab_customers c JOIN lab_orders o ON o.customer_id = c.id JOIN lab_items i ON i.order_id = o.id',
+      dbType: 'kingbase', currentDb: 'gonavi_kingbase_lab', defaultSchema: 'dbms_job', config,
+    });
+    expect(metaMap?.name?.comment).toBe('客户姓名');
+    // lab_items 排在取不到元数据的 lab_orders 后面，裸名归属不确定，不借注释。
+    expect(metaMap?.item_name).toBeUndefined();
+  });
+
   it('非金仓方言在实体列先出现时保留同名实体列注释', async () => {
     backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [
       { name: 'order_name', type: 'varchar(100)', comment: '监测任务名称' },

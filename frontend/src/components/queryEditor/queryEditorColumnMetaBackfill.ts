@@ -267,9 +267,9 @@ export type QueryResultSelectAliasEntry = {
 };
 
 /**
- * 最外层 SELECT 列表在原文里的区间；拿不到（如 WITH 开头）就返回 undefined。
- * 遮蔽文本把引号标识符抹成空白且长度不变，所以只用它定位关键字与 FROM，
- * 跳过空白必须回到原文：否则 "c"."name" 里被抹白的 "c" 会被当成空白吃掉，切出 ."name"。
+ * 最外层 SELECT 列表在原文里的区间；找不到 SELECT 或 FROM 时返回 undefined。
+ * 遮蔽文本把引号标识符与括号内容都抹成空白且长度不变（所以 WITH ... AS (SELECT ...) 命中的是外层 SELECT），
+ * 只用它定位关键字与 FROM；跳过空白必须回到原文：否则 "c"."name" 里被抹白的 "c" 会被当成空白吃掉，切出 ."name"。
  */
 const resolveOuterSelectListRange = (statement: string, dbType: string): { start: number; end: number } | undefined => {
   const structural = maskQueryResultSqlStructure(statement, dbType);
@@ -440,14 +440,16 @@ export const resolveQueryResultColumnMetaByCandidateTables = async ({
     labelKinds.forEach((kind, label) => { if (kind === 'expression') delete merged[label]; });
     return merged;
   }
-  // 可用的候选表必须恰好排在前面，裸名列的归属才确定：某张表本轮超时或不可见时不能牵连后面表的裸列注释，
-  // 但后面的表取到了元数据也不能把注释借给投影里更靠前、本轮没取到元数据的表（那是张冠李戴的错注释）。
-  const firstUnusableIndex = metaMaps.findIndex((map) => !hasUsableColumnMeta(map));
-  const usableMapsFormPrefix = firstUnusableIndex < 0
-    || metaMaps.slice(firstUnusableIndex).every((map) => !hasUsableColumnMeta(map));
+  // 裸名列归投影里第一个同名项，而候选表顺序就是投影顺序：只有「唯一拥有该列的可用表」前面没有
+  // 本轮取不到元数据的表时，这份注释才确定属于它；否则宁可空着，也不借后面表的注释（那是张冠李戴）。
   Object.keys(merged).forEach((name) => {
-    const owners = metaMaps.filter((map) => hasUsableColumnMeta(map) && findColumnMeta(map, name)).length;
-    if (!usableMapsFormPrefix || owners !== 1) delete merged[name];
+    const owners = metaMaps
+      .map((map, index) => (hasUsableColumnMeta(map) && findColumnMeta(map, name) ? index : -1))
+      .filter((index) => index >= 0);
+    const onlyOwner = owners.length === 1 ? owners[0] : -1;
+    const blockedByEarlierUnusable = onlyOwner > 0
+      && metaMaps.slice(0, onlyOwner).some((map) => !hasUsableColumnMeta(map));
+    if (onlyOwner < 0 || blockedByEarlierUnusable) delete merged[name];
   });
   const range = resolveOuterSelectListRange(statement, dbType);
   if (!range) return undefined;
