@@ -95,6 +95,8 @@ export function ConfigureDriverRuntimeDirectory(arg1:string):Promise<connection.
 
 export function ConfigureGlobalProxy(arg1:boolean,arg2:connection.ProxyConfig):Promise<connection.QueryResult>;
 
+export function CopyDatabase(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
+
 export function CopyTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
 export function CreateDatabase(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;

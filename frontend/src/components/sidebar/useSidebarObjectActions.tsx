@@ -180,7 +180,7 @@ export const useSidebarObjectActions = ({
 }: UseSidebarObjectActionsArgs) => {
   const {
     confirmSidebarMutation, handleCopyStructure, handleCopyTableName, handleCopyTable,
-    handleCopyDatabaseName, handleExport, openExportDialog, handleCopyTableAsInsert,
+    handleCopyDatabase, handleCopyDatabaseName, handleExport, openExportDialog, handleCopyTableAsInsert,
     openTableDdlInDesigner, openTableInERView, injectTablePromptToAI,
   } = useSidebarCopyExportActions({
     connections, buildRuntimeConfig, loadTables, getDatabaseNodeRef, connectionIds, addTab,
@@ -241,7 +241,7 @@ export const useSidebarObjectActions = ({
     handleCopyStructure,
     handleCopyTable,
     handleCopyTableName,
-    handleCopyDatabaseName,
+    handleCopyDatabase, handleCopyDatabaseName,
     handleExport,
     openExportDialog,
     handleCopyTableAsInsert,
