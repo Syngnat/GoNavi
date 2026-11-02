@@ -31,6 +31,9 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest) (Status, 
 	if err != nil {
 		return Status{}, err
 	}
+	if reason := m.hostCompatibilityReason(inspection.Manifest); reason != "" {
+		return Status{}, fmt.Errorf("%w: %s", ErrHostTooOld, reason)
+	}
 	if inspection.Digest != request.Digest {
 		return Status{}, ErrDigestMismatch
 	}

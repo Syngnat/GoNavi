@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"GoNavi-Wails/internal/buildversion"
 	"GoNavi-Wails/internal/logger"
 )
 
@@ -64,8 +63,10 @@ func (m *Manager) reconcile(ctx context.Context) {
 			continue
 		}
 		reason := dependencyReason(r, state.Records)
-		if r.Manifest.MinHostVersion != "" && !buildversion.SatisfiesMinimum(m.opts.HostVersion, r.Manifest.MinHostVersion) {
-			reason = "plugin requires a newer compatible host version"
+		// Same rule as installation: a package refused at install time must not be
+		// startable here, and a manifest rejected by this build stays blocked.
+		if hostReason := m.hostCompatibilityReason(r.Manifest); hostReason != "" {
+			reason = hostReason
 		}
 		if reason != "" {
 			if r.State != StateBlocked || r.LastError != reason {

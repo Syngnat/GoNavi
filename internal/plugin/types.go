@@ -241,3 +241,8 @@ var ErrClosed = errors.New("plugin manager is closed")
 
 // ErrDigestMismatch rejects changed packages after inspection.
 var ErrDigestMismatch = errors.New("plugin package digest mismatch")
+
+// ErrHostTooOld rejects a package whose declared minimum host version this build
+// does not satisfy. Installing it anyway leaves a record the runtime can only
+// quarantine: the user gets a plugin that never runs and has to remove it again.
+var ErrHostTooOld = errors.New("plugin requires a newer host version")
