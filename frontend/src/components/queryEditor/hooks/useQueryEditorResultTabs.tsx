@@ -244,6 +244,8 @@ export const useQueryEditorResultTabs = ({
                 columns: target.columns,
                 messages: target.messages,
                 resultType: target.resultType,
+                summaryKind: target.summaryKind,
+                summaryStatementCount: target.summaryStatementCount,
                 requestLabel: target.requestLabel,
                 httpStatus: target.httpStatus,
                 rawResponse: target.rawResponse,
@@ -300,6 +302,8 @@ export const useQueryEditorResultTabs = ({
                         : restored.resultType === 'elasticsearch'
                             ? 'elasticsearch'
                             : 'grid',
+                    summaryKind: restored.summaryKind,
+                    summaryStatementCount: restored.summaryStatementCount,
                     requestLabel: restored.requestLabel,
                     httpStatus: restored.httpStatus,
                     rawResponse: restored.rawResponse,

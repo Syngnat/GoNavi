@@ -7,7 +7,7 @@ import QueryEditor, { shouldRefreshQueryEditorCompletionColumns } from './QueryE
 import QueryEditorResultsPanel, { shouldActivateResultTabDetachPointer } from './QueryEditorResultsPanel';
 import QueryEditorToolbar from './QueryEditorToolbar';
 import { storeState, backendApp, messageApi, dataGridState, editorState } from './queryEditorResultsAndDropTestState';
-import { create, notifyStoreSubscribers, textContent, findButton, findByClassName, createTab } from './queryEditorResultsAndDropTestHelpers';
+import { create, notifyStoreSubscribers, textContent, findButton, findByClassName, createTab, findResultMessageTextarea } from './queryEditorResultsAndDropTestHelpers';
 import { setUpQueryEditorResultsAndDropTest, tearDownQueryEditorResultsAndDropTest } from './queryEditorResultsAndDropTestHooks';
 
 vi.mock('../store', async (importOriginal) => (await import('./queryEditorResultsAndDropTestState')).mockModule1(importOriginal));
@@ -281,8 +281,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('warns that a write executed without a managed transaction cannot be rolled back', async () => {
-    // DDL 在后端 shouldUseManagedSQLTransaction 中不算可托管写操作，
-    // 会以 autocommit 直接落地：必须显式告知不可撤销。
+    // 后端拒绝把这批 DML 纳入托管事务时会直接以 autocommit 落地，必须显式告知不可撤销。
     backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
       success: true,
       data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
@@ -290,7 +289,7 @@ describe('QueryEditor external SQL save', () => {
 
     let renderer!: ReactTestRenderer;
     await act(async () => {
-      renderer = create(<QueryEditor tab={createTab({ query: 'DROP TABLE tmp_table;' })} />);
+      renderer = create(<QueryEditor tab={createTab({ query: 'UPDATE users SET active = 0 WHERE id = 1;' })} />);
     });
 
     await act(async () => {
@@ -306,6 +305,37 @@ describe('QueryEditor external SQL save', () => {
       expect.anything(),
     );
     expect(storeState.sqlEditorPendingTransactions['tab-1']).toBeUndefined();
+    renderer?.unmount();
+  });
+
+  it('does not warn about rollback for DDL that never had rollback semantics', async () => {
+    // DDL / TRUNCATE 在 MySQL 等库里隐式提交，本身没有回滚语义；
+    // 几百条 ALTER 每条弹一次告警只是噪音，改由结果页说明结构变更已直接生效。
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 0 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'DROP TABLE tmp_table;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    const rendered = textContent(renderer!.toJSON());
+    expect(rendered).not.toContain('影响行数：0');
+    expect(rendered).toContain('结构变更已直接生效');
     renderer?.unmount();
   });
 
@@ -482,9 +512,11 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBQueryMulti).toHaveBeenCalledOnce();
     expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
     expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
-    // 52 statements produce more results than the history budget keeps: the
-    // oldest unpinned sets are released instead of mounting 52 grids.
-    expect(resultTabs).toHaveLength(20);
+    // 52 条语句全是 affectedRows 结果：合并成一个「执行摘要」标签，
+    // 不再让 52 个 ✓ 标签挤爆历史预算。
+    expect(resultTabs).toHaveLength(1);
+    expect(textContent(renderer!.toJSON())).toContain('执行摘要');
+    expect(findResultMessageTextarea(renderer!).props.value).toContain('52 条语句执行成功');
     await act(async () => {
       renderer.unmount();
     });

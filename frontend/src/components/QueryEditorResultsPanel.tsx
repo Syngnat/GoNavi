@@ -34,6 +34,7 @@ import LogPanel from './LogPanel';
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorExecutionStatus } from './queryEditor/QueryEditorExecutionStatus';
 import { QueryEditorExecutionErrorCard } from './queryEditor/QueryEditorExecutionErrorCard';
+import { isQueryEditorStatementSummary } from './queryEditor/run/queryEditorRunStatementSummary';
 import {
     resolveVisibleQueryEditorExecutionLifecycle,
     type QueryEditorExecutionLifecycleState,
@@ -53,6 +54,9 @@ export type QueryEditorResultSet = {
     columns: string[];
     messages?: string[];
     resultType?: 'grid' | 'message' | 'elasticsearch';
+    /** 批量写语句汇总行（见 queryEditorRunStatementSummary），渲染为「执行摘要」。 */
+    summaryKind?: string;
+    summaryStatementCount?: number;
     requestLabel?: string;
     httpStatus?: number;
     rawResponse?: string;
@@ -253,7 +257,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         const rs = index >= 0 ? resultSets[index] : null;
         if (!rs) return t('query_editor.results_panel.menu.open_in_window');
         if (rs.resultType === 'message') {
-            return t('query_editor.results_panel.tab.message', { index: index + 1 });
+            return t(isQueryEditorStatementSummary(rs)
+                ? 'query_editor.results_panel.summary.title'
+                : 'query_editor.results_panel.tab.message', { index: index + 1 });
         }
         return t('query_editor.results_panel.tab.result', { index: index + 1 });
     }, [resultSets, t]);
@@ -605,7 +611,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 rootClassName={'gn-v2-tab-context-menu-popup'}
                 popupRender={(menu) => renderV2ActionMenuPopup(menu, true, {
                     title: rs.resultType === 'message'
-                        ? t('query_editor.results_panel.tab.message', { index: idx + 1 })
+                        ? t(isQueryEditorStatementSummary(rs)
+                            ? 'query_editor.results_panel.summary.title'
+                            : 'query_editor.results_panel.tab.message', { index: idx + 1 })
                         : t('query_editor.results_panel.tab.result', { index: idx + 1 }),
                     showHeader: false,
                 })}
@@ -633,7 +641,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                             {rs.resultType === 'elasticsearch' && rs.requestLabel
                                 ? rs.requestLabel
                                 : rs.resultType === 'message'
-                                ? t('query_editor.results_panel.tab.message', { index: idx + 1 })
+                                ? t(isQueryEditorStatementSummary(rs)
+                                    ? 'query_editor.results_panel.summary.title'
+                                    : 'query_editor.results_panel.tab.message', { index: idx + 1 })
                                 : t('query_editor.results_panel.tab.result', { index: idx + 1 })}
                         </span>
                     </Tooltip>
@@ -644,6 +654,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     ) : null}
                     {rs.truncated ? <QueryEditorResultTruncatedIndicator /> : null}
                     {(() => {
+                        if (isQueryEditorStatementSummary(rs)) {
+                            return <span className="query-result-tab-count" data-query-result-tab-count="true">{rs.summaryStatementCount ?? 0}</span>;
+                        }
                         if (rs.resultType === 'message') return <span className="query-result-tab-count" data-query-result-tab-count="true">i</span>;
                         if (isAffectedRowsResult(rs)) return <span className="query-result-tab-count" data-query-result-tab-count="true">✓</span>;
                         if (!Array.isArray(rs.rows)) return null;
