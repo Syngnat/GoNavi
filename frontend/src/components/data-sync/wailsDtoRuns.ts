@@ -11,6 +11,7 @@ import type {
   DataSyncTaskDefinition,
   DataSyncCdcSourceStatus,
   DataSyncColumnAttributeDiff,
+  DataSyncColumnDefinitionView,
   DataSyncCompareDiffStats,
   DataSyncIndexStructureDiff,
 } from './model';
@@ -214,6 +215,25 @@ const decodeIndexDiffs = (
     .filter((diff): diff is NonNullable<typeof diff> => diff !== null);
 };
 
+// 结构化列定义是可选的：旧后端不下发时保持 undefined，界面据此退回纯文本展示，
+// 而不是凭空造一个空定义（那会生成丢默认值的 DDL）。
+const decodeColumnDefinitionView = (
+  value: unknown,
+  path: string,
+): DataSyncColumnDefinitionView | undefined => {
+  if (!isRecord(value)) return undefined;
+  const view = record(value, path);
+  return {
+    name: string(view.name, `${path}.name`),
+    type: string(view.type, `${path}.type`),
+    nullable: boolean(view.nullable, `${path}.nullable`),
+    hasDefault: boolean(view.hasDefault, `${path}.hasDefault`),
+    default: optionalString(view.default, `${path}.default`) || undefined,
+    extra: optionalString(view.extra, `${path}.extra`) || undefined,
+    comment: optionalString(view.comment, `${path}.comment`) || undefined,
+  };
+};
+
 const decodeAttributeDiffs = (
   value: unknown,
   path: string,
@@ -325,6 +345,14 @@ export const decodeCompareResult = (
                       optionalString(diff.source, `${diffPath}.source`) || undefined,
                     target:
                       optionalString(diff.target, `${diffPath}.target`) || undefined,
+                    sourceDefinition: decodeColumnDefinitionView(
+                      diff.sourceDefinition,
+                      `${diffPath}.sourceDefinition`,
+                    ),
+                    targetDefinition: decodeColumnDefinitionView(
+                      diff.targetDefinition,
+                      `${diffPath}.targetDefinition`,
+                    ),
                   };
                 })
                 .filter(

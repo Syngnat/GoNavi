@@ -43,7 +43,9 @@ const result: DataSyncCompareResult = {
 describe('compare repair SQL', () => {
   it('builds reviewable ALTER SQL from schema diffs', () => {
     const sql = buildCompareRepairSQL(result, { dialect: 'mysql', schema: 'app' });
-    expect(sql).toContain('ALTER TABLE `app`.`orders` ADD COLUMN `note` varchar(64) NULL;');
+    // 无结构化列定义时退回纯类型文本；不再无条件补 NULL——源端类型里
+    // 可能已经带 NOT NULL，再补 NULL 会自相矛盾。
+    expect(sql).toContain('ALTER TABLE `app`.`orders` ADD COLUMN `note` varchar(64);');
     expect(sql).toContain('-- ALTER TABLE `app`.`orders` DROP COLUMN `legacy`;');
     expect(sql).toContain('MODIFY COLUMN `amount` decimal(10,2);');
     expect(sql).not.toContain('ok');
@@ -53,7 +55,7 @@ describe('compare repair SQL', () => {
 
   it('uses PostgreSQL quoting and TYPE syntax', () => {
     const sql = buildCompareRepairSQL(result, { dialect: 'postgres', schema: 'public' });
-    expect(sql).toContain('ALTER TABLE "public"."orders" ADD COLUMN "note" varchar(64) NULL;');
+    expect(sql).toContain('ALTER TABLE "public"."orders" ADD COLUMN "note" varchar(64);');
     expect(sql).toContain('ALTER COLUMN "amount" TYPE decimal(10,2);');
   });
 

@@ -51,6 +51,47 @@ type ColumnStructureDiff struct {
 	// diffs, and the column name for renamed diffs.
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
+	// SourceDefinition/TargetDefinition carry the structured column definition.
+	//
+	// The text payload above drops DEFAULT and COMMENT, so a repair SQL built
+	// from it alone would recreate a column without its default value or
+	// comment. Front-ends must not re-parse the text to recover them.
+	SourceDefinition *ColumnDefinitionView `json:"sourceDefinition,omitempty"`
+	TargetDefinition *ColumnDefinitionView `json:"targetDefinition,omitempty"`
+}
+
+// ColumnDefinitionView 是列定义中「重建该列所需」的子集。
+//
+// 只放生成 DDL 真正用得到的字段：字符集/排序规则等由目标库默认值决定，
+// 原样带过去反而会在跨引擎时生成非法语句。
+type ColumnDefinitionView struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Nullable   bool   `json:"nullable"`
+	HasDefault bool   `json:"hasDefault"`
+	Default    string `json:"default,omitempty"`
+	Extra      string `json:"extra,omitempty"`
+	Comment    string `json:"comment,omitempty"`
+}
+
+// columnDefinitionView 把驱动元数据收敛成可重建列的子集。
+func columnDefinitionView(col connection.ColumnDefinition) *ColumnDefinitionView {
+	view := &ColumnDefinitionView{
+		Name:     strings.TrimSpace(col.Name),
+		Type:     strings.TrimSpace(col.Type),
+		Nullable: normalizeColumnNullable(col.Nullable) != "NO",
+		Extra:    strings.TrimSpace(col.Extra),
+		Comment:  strings.TrimSpace(col.Comment),
+	}
+	if col.Default != nil {
+		view.HasDefault = true
+		view.Default = *col.Default
+	} else if col.HasDefault {
+		// 有 DEFAULT 子句但值为空：区分「DEFAULT ''」与「没有 DEFAULT」，
+		// 否则生成的 DDL 会把空串默认值丢掉。
+		view.HasDefault = true
+	}
+	return view
 }
 
 // 列差异 kind 常量。
@@ -124,10 +165,12 @@ func diffColumnStructures(sourceCols, targetCols []connection.ColumnDefinition, 
 				kind = ColumnDiffCapacityDegraded
 			}
 			diffs = append(diffs, ColumnStructureDiff{
-				Column: sourceCol.Name,
-				Kind:   kind,
-				Source: sourceTypeText,
-				Target: targetTypeText,
+				Column:           sourceCol.Name,
+				Kind:             kind,
+				Source:           sourceTypeText,
+				Target:           targetTypeText,
+				SourceDefinition: columnDefinitionView(sourceCol),
+				TargetDefinition: columnDefinitionView(targetCol),
 			})
 		}
 		sourceNullable := normalizeColumnNullable(sourceCol.Nullable)

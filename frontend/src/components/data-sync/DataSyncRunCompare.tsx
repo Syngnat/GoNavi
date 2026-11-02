@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { tableHasCompareDiff } from './compareRepairSql';
 import { DataSyncCompareAppendixTable } from './DataSyncCompareAppendixTable';
 import { DataSyncCompareDetailTable } from './DataSyncCompareDetailTable';
+import { DataSyncCompareMigrationScript } from './DataSyncCompareMigrationScript';
 import { DataSyncCompareFilters, type CompareGroupBy } from './DataSyncCompareFilters';
 import { DataSyncCompareSummary } from './DataSyncCompareSummary';
 import { RunEventTimeline } from './DataSyncRunEventTimeline';
@@ -30,7 +31,7 @@ import type {
 type ExportNotice = { tone: 'ok' | 'error'; text: string; path?: string } | null;
 
 export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
-  const { selectedRunId, runEvents, compareResult, compareMode, t, onGenerateRepairSql, onAskAiAboutDiffs, onSyncDiffs, onExportCompareHtml, onOpenExportedFile, onCopyCompareSql } = props;
+  const { selectedRunId, runEvents, compareResult, compareMode, t, onGenerateRepairSql, onAskAiAboutDiffs, onSyncDiffs, onExportCompareHtml, onOpenExportedFile, onCopyCompareSql, onRenderMigrationSql, copyCompareText } = props;
   const isCompareWorkbench = props.family === 'compare';
   const compareDetailOpen = isCompareWorkbench && Boolean(selectedRunId);
   // 筛选只影响明细列表；KPI 与分布始终按完整结果统计，避免筛选后指标跳变。
@@ -38,7 +39,7 @@ export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
   const [query, setQuery] = useState('');
   const [riskFilter, setRiskFilter] = useState<CompareRiskBucket[]>([]);
   const [groupBy, setGroupBy] = useState<CompareGroupBy>('table');
-  const [detailTab, setDetailTab] = useState<'main' | 'appendix'>('main');
+  const [detailTab, setDetailTab] = useState<'main' | 'appendix' | 'migration'>('main');
   // 导出结果就地反馈：成功给出落盘路径，取消保持静默。
   const [exportNotice, setExportNotice] = useState<ExportNotice>(null);
   const onExportPathClick = (path: string) => {
@@ -107,6 +108,8 @@ export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
   const hasAppendix = (compareResult?.tables || []).some(
     (row) => (row.attributeDiffs || []).length > 0,
   );
+  // 迁移脚本由 Shell 侧按目标端方言渲染；拿不到时该页签不出现。
+  const migrationSql = onRenderMigrationSql ? onRenderMigrationSql(visibleTables) : '';
   return <>
     {(!isCompareWorkbench && compareResult) || compareDetailOpen ? (
       <section className="gn-data-sync-compare-panel" data-data-sync-compare="true">
@@ -214,9 +217,9 @@ export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
               onCopyAll={onCopyCompareSql ? () => onCopyCompareSql(visibleTables) : undefined}
               t={t}
             />
-            {hasAppendix ? (
+            {hasAppendix || migrationSql ? (
               <div className="gn-data-sync-compare-detail-tabs" role="tablist">
-                {(['main', 'appendix'] as const).map((key) => (
+                {(['main', 'appendix', 'migration'] as const).map((key) => (
                   <button
                     key={key}
                     type="button"
@@ -228,12 +231,20 @@ export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
                   >
                     {t(key === 'main'
                       ? 'compare.appendix.tab_main'
-                      : 'compare.appendix.tab_appendix')}
+                      : key === 'appendix'
+                        ? 'compare.appendix.tab_appendix'
+                        : 'compare.migration.tab')}
                   </button>
                 ))}
               </div>
             ) : null}
-            {detailTab === 'appendix' && hasAppendix ? (
+            {detailTab === 'migration' ? (
+              <DataSyncCompareMigrationScript
+                sql={migrationSql}
+                copyText={copyCompareText ?? (async () => false)}
+                t={t}
+              />
+            ) : detailTab === 'appendix' && hasAppendix ? (
               <DataSyncCompareAppendixTable result={compareResult} t={t} />
             ) : detailRows.length === 0 ? (
               <p className="gn-data-sync-compare-empty-filter" data-data-sync-compare-empty-filter="true">

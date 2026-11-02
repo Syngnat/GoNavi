@@ -1424,3 +1424,43 @@ body[data-ui-version='v2'][data-theme='dark'] .gn-data-sync-sql-token[data-token
 body[data-ui-version='v2'][data-theme='dark'] .gn-data-sync-sql-token[data-token='number'] {
   color: #c4b5fd;
 }
+
+/* 迁移脚本区：每张表一块，块之间用分隔线代替大块留白。 */
+.gn-data-sync-compare-migration__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.gn-data-sync-compare-migration__head strong {
+  color: var(--gn-fg-3, #4b5563);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gn-data-sync-compare-migration__empty {
+  margin: 0;
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: 12px;
+}
+
+.gn-data-sync-compare-migration__blocks {
+  display: grid;
+  gap: 0;
+}
+
+.gn-data-sync-compare-migration__item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gn-data-sync-compare-migration__item:last-child {
+  border-bottom: 0;
+}
+
+.gn-data-sync-compare-migration__item .gn-data-sync-link-button {
+  margin-top: 6px;
+  font-size: 11.5px;
+}

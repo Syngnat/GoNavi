@@ -62,7 +62,7 @@ describe('compare repair SQL for a missing target table', () => {
   it('keeps ADD COLUMN statements for tables that already exist', () => {
     const sql = buildCompareRepairSQL(existingTable, { dialect: 'mysql', schema: '' });
 
-    expect(sql).toContain('ALTER TABLE `orders` ADD COLUMN `note` varchar(64) NULL;');
+    expect(sql).toContain('ALTER TABLE `orders` ADD COLUMN `note` varchar(64);');
     expect(sql).not.toContain('CREATE TABLE');
   });
 });
