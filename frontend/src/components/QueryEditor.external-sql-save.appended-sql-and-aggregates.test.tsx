@@ -1022,8 +1022,16 @@ describe('QueryEditor external SQL save', () => {
       expect(dataGridState.latestProps?.tableName).toBe(expectedTableName);
       expect(dataGridState.latestProps?.editLocator).toBeUndefined();
       expect(dataGridState.latestProps?.readOnly).toBe(true);
-      expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
-      expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
+      // Kingbase 是唯一允许为结果列回填元数据的方言：它的 search_path 让
+      // 未限定表名解析不出真实 schema，只能按候选表实际加载列（见
+      // queryEditorColumnMetaBackfill 里的 isKingbaseDialect 分支）。
+      // 这只影响表头的类型/注释显示，不影响「聚合结果只读」这条断言本身。
+      if (dbType === 'kingbase') {
+        expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
+      } else {
+        expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+        expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
+      }
       expect(messageApi.warning).not.toHaveBeenCalled();
     },
   );
