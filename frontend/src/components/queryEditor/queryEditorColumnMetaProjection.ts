@@ -2,6 +2,7 @@ import type { QueryResultSourceTable } from '../../utils/queryResultTable';
 import { maskQueryResultSqlStructure, skipSqlTrivia } from '../../utils/queryResultTable';
 import { splitQualifiedNameSegmentsDetailed } from '../../utils/qualifiedName';
 import { isOracleLikeDialect, isPgLikeDialect } from '../../utils/sqlDialect';
+import { isQueryResultBareValueKeyword } from '../../utils/queryResultValueKeywords';
 import { hasUsableColumnMeta, type ColumnMeta } from '../dataGridColumnMeta';
 import { splitTopLevelComma } from './queryEditorSelectRewrite';
 
@@ -78,7 +79,7 @@ const resolveSelectItemMapping = (item: string, dbType: string): QueryResultSele
   if (!text) return undefined;
   if (/^\*$/.test(text) || /\.\s*\*$/.test(text)) return 'all';
   const buildEntry = (expression: string, alias: string): QueryResultSelectAliasEntry | undefined => {
-    if (!COLUMN_PATH_ONLY_REGEX.test(expression)) return undefined;
+    if (!COLUMN_PATH_ONLY_REGEX.test(expression) || isQueryResultBareValueKeyword(expression, dbType)) return undefined;
     const parts = splitQualifiedNameSegmentsDetailed(expression, dbType);
     const source = parts.at(-1);
     if (!source) return undefined;

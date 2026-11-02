@@ -21,9 +21,11 @@ beforeEach(() => {
   backend.DBGetForeignKeys.mockReset().mockResolvedValue({ success: true, data: [] });
 });
 
-it.each([true, false])('single-table COUNT aliases stay unannotated through plan and grid, metadata available=%s', async available => {
+it.each([
+  ['COUNT(*)', true], ['COUNT(*)', false], ['NULL', true], ['TRUE', true], ['CURRENT_DATE', true],
+] as const)('single-table value %s stays unannotated through plan and grid, metadata available=%s', async (value, available) => {
   if (!available) backend.DBGetColumns.mockResolvedValue({ success: false, data: [] });
-  const statement = 'SELECT COUNT(*) AS STATUS FROM customers';
+  const statement = `SELECT ${value} AS STATUS FROM customers`;
   const config = { type: 'mysql', host: 'mock.invalid', port: 3306, user: 'test', database: 'lab' };
   const plan = await resolveQueryLocatorPlan({ statement, dbType: 'mysql', currentDb: 'lab', config, forceReadOnly: false, deferColumnMetaBackfill: true });
   expect(plan.tableRef?.tableName).toBe('customers');

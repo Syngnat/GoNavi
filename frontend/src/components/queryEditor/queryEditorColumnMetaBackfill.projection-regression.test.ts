@@ -73,6 +73,11 @@ describe('wildcard projection order', () => {
 });
 
 describe('expression label casing', () => {
+  it.each(['NULL', 'TRUE', 'FALSE', 'CURRENT_DATE'])('does not treat bare value %s as an entity column', async value => {
+    const meta = await resolveQueryResultColumnMetaByCandidateTables(params(`SELECT ${value} AS status FROM customers`, 'mysql'));
+    expect(meta?.status).toBeUndefined();
+  });
+
   it.each(['STATUS', 'Status', 'status'])('does not lend entity metadata to COUNT AS %s', async alias => {
     const meta = await resolveQueryResultColumnMetaByCandidateTables(params(`SELECT COUNT(*) AS ${alias} FROM customers`, 'mysql'));
     expect(meta?.status).toBeUndefined();
