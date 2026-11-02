@@ -56,6 +56,7 @@ export interface TableDesignerToolbarProps {
   supportsTableCommentOps: TableDesignerDialectSupportApi['supportsTableCommentOps'];
   openTableCommentModal: TableDesignerIndexEditsApi['openTableCommentModal'];
   isTDengineChildNewTable: TableDesignerDialectSupportApi['isTDengineChildNewTable'];
+  setTableOptionsOpen: (open: boolean) => void;
   handleAddColumn: TableDesignerColumnEditsApi['handleAddColumn'];
   handleAddColumnAfterSelected: TableDesignerColumnEditsApi['handleAddColumnAfterSelected'];
   selectedColumnRowKeys: TableDesignerStateApi['selectedColumnRowKeys'];
@@ -71,7 +72,7 @@ export const TableDesignerToolbar = ({
   selectedSchema, getDbType, latestSelectedSchemaRef, setSelectedSchema, setTableDesignerSchema,
   tab, isTDengineNewTable, charset, setCharset, setCollation, charsetOptions, collation,
   collationOptions, readOnly, generateDDL, metadataLoading, handleRefreshDesigner,
-  supportsTableCommentOps, openTableCommentModal, isTDengineChildNewTable, handleAddColumn,
+  supportsTableCommentOps, openTableCommentModal, isTDengineChildNewTable, setTableOptionsOpen, handleAddColumn,
   handleAddColumnAfterSelected, selectedColumnRowKeys, columnClipboard, selectedColumns,
   openCopySelectedColumnsModal,
 }: TableDesignerToolbarProps) => (
@@ -151,6 +152,11 @@ export const TableDesignerToolbar = ({
       )}
       {!readOnly && <Button size="small" icon={<SaveOutlined />} type="primary" disabled={supportsTableDesignerSchemaSelection && !schemaReady} onClick={generateDDL}>{t('table_designer.action.save', undefined, i18nLanguage)}</Button>}
       {!isNewTable && <Button size="small" icon={<ReloadOutlined />} loading={metadataLoading} onClick={handleRefreshDesigner}>{t('table_designer.action.refresh', undefined, i18nLanguage)}</Button>}
+      {!readOnly && !isNewTable && !isTDengineNewTable && (
+          <Button size="small" onClick={() => setTableOptionsOpen(true)}>
+              {t('table_designer.action.table_options', undefined, i18nLanguage)}
+          </Button>
+      )}
       {!readOnly && supportsTableCommentOps() && (
           <Button size="small" icon={<EditOutlined />} onClick={openTableCommentModal}>{t('table_designer.action.table_comment', undefined, i18nLanguage)}</Button>
       )}

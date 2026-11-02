@@ -17,6 +17,10 @@ export interface TableStatRow {
     dataSize: number;
     indexSize: number;
     engine: string;
+    /** 表级默认字符集；非 MySQL 系或取不到时为空串。 */
+    charset: string;
+    /** 表级默认排序规则；与 charset 成对出现。 */
+    collation: string;
     createTime: string;
     updateTime: string;
 }
@@ -164,6 +168,7 @@ SELECT
     DATA_LENGTH AS data_length,
     INDEX_LENGTH AS index_length,
     ENGINE AS engine,
+    TABLE_COLLATION AS table_collation,
     CREATE_TIME AS create_time,
     UPDATE_TIME AS update_time
 FROM information_schema.tables
@@ -225,6 +230,31 @@ ORDER BY s.name, t.name`;
     }
 };
 
+/**
+ * 从排序规则名反推字符集。
+ *
+ * MySQL 的排序规则名总是「字符集_后缀」；但后缀本身可能带下划线
+ * （utf8mb4_0900_ai_ci），所以不能用 split('_')[0]，要按已知字符集前缀匹配。
+ */
+const KNOWN_CHARSETS = [
+    'utf8mb4', 'utf8mb3', 'utf8', 'ucs2', 'utf16', 'utf16le', 'utf32',
+    'latin1', 'latin2', 'latin5', 'latin7', 'ascii', 'binary', 'cp1250',
+    'cp1251', 'cp1256', 'cp1257', 'cp850', 'cp852', 'cp866', 'dec8',
+    'gb18030', 'gb2312', 'gbk', 'greek', 'hebrew', 'euckr', 'eucjpms',
+    'sjis', 'ujis', 'koi8r', 'koi8u', 'macce', 'macroman', 'swe7',
+    'armscii8', 'geostd8', 'keybcs2', 'tis620',
+];
+
+export const collationToCharset = (collation: string): string => {
+    const value = String(collation || '').trim().toLowerCase();
+    if (!value) return '';
+    const match = KNOWN_CHARSETS
+        .filter((charset) => value === charset || value.startsWith(`${charset}_`))
+        // 取最长匹配：utf8mb4 必须先于 utf8 命中。
+        .sort((left, right) => right.length - left.length)[0];
+    return match || '';
+};
+
 export const parseTableStats = (dialect: string, rows: Record<string, any>[]): TableStatRow[] => {
     return rows.map((row) => {
         const get = (keys: string[]): any => {
@@ -250,6 +280,10 @@ export const parseTableStats = (dialect: string, rows: Record<string, any>[]): T
             dataSize: numVal(['Data_length', 'data_length', 'DATA_LENGTH', 'total_bytes'], -1),
             indexSize: numVal(['Index_length', 'index_length', 'INDEX_LENGTH'], -1),
             engine: strVal(['Engine', 'engine']),
+            // information_schema.tables 只有 TABLE_COLLATION；字符集是它的前缀
+            // （utf8mb4_0900_ai_ci → utf8mb4），单独再查一列会多一次往返。
+            charset: collationToCharset(strVal(['Table_collation', 'table_collation', 'TABLE_COLLATION'])),
+            collation: strVal(['Table_collation', 'table_collation', 'TABLE_COLLATION']),
             createTime: strVal(['Create_time', 'create_time']),
             updateTime: strVal(['Update_time', 'update_time']),
         };

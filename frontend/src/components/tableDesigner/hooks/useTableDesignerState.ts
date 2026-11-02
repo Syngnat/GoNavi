@@ -69,6 +69,9 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
     const [schemaLoading, setSchemaLoading] = useState(false);
     const [charset, setCharset] = useState('utf8mb4');
     const [collation, setCollation] = useState('utf8mb4_unicode_ci');
+    // 表当前生效的排序规则：只有它与编辑值不同时才生成 CONVERT TO。
+    const [originalCollation, setOriginalCollation] = useState('');
+    const [tableOptionsOpen, setTableOptionsOpen] = useState(false);
     const [starRocksTableKind, setStarRocksTableKind] = useState<StarRocksTableKind>('olap');
     const [starRocksKeyModel, setStarRocksKeyModel] = useState<StarRocksKeyModel>('DUPLICATE');
     const [starRocksKeyColumns, setStarRocksKeyColumns] = useState<string[]>([]);
@@ -412,7 +415,8 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
         fks, setFks, triggers, setTriggers, ddl, setDdl, newTableName, setNewTableName,
         schemaOptions, setSchemaOptions, selectedSchema, setSelectedSchema, schemaSelectionOverride,
         setSchemaSelectionOverride, schemaReady, setSchemaReady, schemaLoading, setSchemaLoading,
-        charset, setCharset, collation, setCollation, starRocksTableKind, setStarRocksTableKind,
+        charset, setCharset, collation, setCollation, originalCollation, setOriginalCollation,
+        tableOptionsOpen, setTableOptionsOpen, starRocksTableKind, setStarRocksTableKind,
         starRocksKeyModel, setStarRocksKeyModel, starRocksKeyColumns, setStarRocksKeyColumns,
         starRocksPartitionClause, setStarRocksPartitionClause, starRocksDistributionType,
         setStarRocksDistributionType, starRocksDistributionColumns, setStarRocksDistributionColumns,

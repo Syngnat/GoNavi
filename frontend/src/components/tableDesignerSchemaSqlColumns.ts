@@ -31,6 +31,15 @@ export interface BuildAlterTablePreviewInput {
   tableName: string;
   originalColumns: EditableColumnSnapshot[];
   columns: EditableColumnSnapshot[];
+  /**
+   * 表级默认字符集/排序规则。只有 MySQL 系支持原地修改，且改动会重写整表，
+   * 因此仅在显式给出且与当前值不同时才生成 CONVERT TO。
+   */
+  charset?: string;
+  collation?: string;
+  /** 表当前生效的字符集/排序规则，用于判断是否真的变了。 */
+  originalCharset?: string;
+  originalCollation?: string;
   translate?: SchemaSqlTranslator;
 }
 
