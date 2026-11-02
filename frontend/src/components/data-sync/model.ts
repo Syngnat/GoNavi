@@ -412,6 +412,22 @@ export type DataSyncRunEvent = {
   createdAt: string;
 };
 
+/**
+ * Structured column definition carried alongside a column diff.
+ *
+ * The text payload (source/target) drops DEFAULT and COMMENT, so repairing a
+ * column from that text alone would lose them. Never re-parse the text.
+ */
+export type DataSyncColumnDefinitionView = {
+  name: string;
+  type: string;
+  nullable: boolean;
+  hasDefault: boolean;
+  default?: string;
+  extra?: string;
+  comment?: string;
+};
+
 /** One column-level structural difference reported by the compare backend. */
 export type DataSyncColumnStructureDiff = {
   column: string;
@@ -424,6 +440,8 @@ export type DataSyncColumnStructureDiff = {
     | 'capacity_degraded';
   source?: string;
   target?: string;
+  sourceDefinition?: DataSyncColumnDefinitionView;
+  targetDefinition?: DataSyncColumnDefinitionView;
 };
 
 /**

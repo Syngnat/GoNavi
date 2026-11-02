@@ -45,6 +45,10 @@ export type DataSyncRunHistoryProps = {
    * Resolves to the copied text, or '' when the clipboard refused.
    */
   onCopyCompareSql?: (tables: DataSyncTableDiffSummary[]) => Promise<string>;
+  /** Renders repair SQL for the visible tables in the target dialect. */
+  onRenderMigrationSql?: (tables: DataSyncTableDiffSummary[]) => string;
+  /** Copies text through the same channel the workbench uses. */
+  copyCompareText?: (text: string) => Promise<boolean>;
 };
 
 export type CompareHtmlExportOutcome =

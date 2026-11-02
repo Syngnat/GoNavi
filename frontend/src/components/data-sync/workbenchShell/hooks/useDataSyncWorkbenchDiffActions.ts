@@ -9,6 +9,7 @@ import {
 import { createSyncTaskFromCompare } from '../../dataSyncCompareTaskFactory';
 import { setDataSyncHandoff } from '../../../../utils/dataSyncHandoff';
 import type { DataSyncEndpointRef, DataSyncTableDiffSummary } from '../../model';
+import { ClipboardSetText } from '../../../../../wailsjs/runtime/runtime';
 import { useCompareHtmlExport } from '../../useCompareHtmlExport';
 import type { CompareHtmlExportOutcome } from '../../dataSyncRunHistoryTypes';
 import type { DataSyncWorkbenchTaskLifecycleApi } from './useDataSyncWorkbenchTaskLifecycle';
@@ -194,8 +195,32 @@ export const useDataSyncWorkbenchDiffActions = ({
     if (outcome.kind === 'failed') setOperationError(outcome.error);
     return outcome;
   };
+  // 迁移脚本：按目标端方言渲染调用方可见的那批表。
+  const renderMigrationSql = (tables: DataSyncTableDiffSummary[]): string => {
+    if (!selectedTask || tables.length === 0) return '';
+    return buildCompareRepairSQL(
+      { success: true, message: '', content: compareResult?.content, tables },
+      { dialect: selectedTask.target.type, schema: selectedTask.target.schema },
+    );
+  };
+
   // 复制整组：只渲染调用方传进来的表（即界面上可见的那一批），
   // 搜索/筛选后的结果才是用户想分批执行的对象。
+  // 复制统一走一个通道：先试 Wails 剪贴板，失败退回浏览器剪贴板。
+  const copyCompareText = async (text: string): Promise<boolean> => {
+    if (!text) return false;
+    try {
+      if (await ClipboardSetText(text)) return true;
+    } catch {
+      // Wails 运行时不可用时退回浏览器剪贴板。
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const handleCopyCompareSql = async (
     tables: DataSyncTableDiffSummary[],
   ): Promise<string> => {
@@ -204,9 +229,7 @@ export const useDataSyncWorkbenchDiffActions = ({
       { success: true, message: '', content: compareResult?.content, tables },
       { dialect: selectedTask.target.type, schema: selectedTask.target.schema },
     );
-    if (!navigator?.clipboard?.writeText) return '';
-    await navigator.clipboard.writeText(sql);
-    return sql;
+    return await copyCompareText(sql) ? sql : '';
   };
   const handleSyncDiffs = async () => {
     if (!selectedTask || selectedTask.kind !== 'compare') return;
@@ -244,7 +267,7 @@ export const useDataSyncWorkbenchDiffActions = ({
     runActionTitle, saveApprovalReady, nextStage, previousStage, relevantBlockerStage,
     relevantBlocker, blockerInEarlierStage, preflightNeedsRefresh, compareStartEnabled, actionHint,
     actionHintTone, serviceUnavailableError, workbenchChrome, handleGenerateRepairSql,
-    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml, handleCopyCompareSql,
+    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml, handleCopyCompareSql, renderMigrationSql, copyCompareText,
   };
 };
 

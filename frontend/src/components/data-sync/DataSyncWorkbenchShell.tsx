@@ -160,7 +160,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     runActionTitle, saveApprovalReady, nextStage, previousStage, relevantBlockerStage,
     relevantBlocker, blockerInEarlierStage, preflightNeedsRefresh, compareStartEnabled, actionHint,
     actionHintTone, serviceUnavailableError, workbenchChrome, handleGenerateRepairSql,
-    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml, handleCopyCompareSql,
+    handleAskAiAboutDiffs, handleSyncDiffs, handleExportCompareHtml, handleCopyCompareSql, renderMigrationSql, copyCompareText,
   } = useDataSyncWorkbenchDiffActions({
     actionEnabled, t, selectedTask, dirtyTaskIds, selectedPreflight, preflightStale,
     currentPreflightRequiresApproval, capability, selectedApproval, activeStage, saving,
@@ -390,6 +390,10 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           onCopyCompareSql={
             workbenchFamily === 'compare' ? handleCopyCompareSql : undefined
           }
+          onRenderMigrationSql={
+            workbenchFamily === 'compare' ? renderMigrationSql : undefined
+          }
+          copyCompareText={workbenchFamily === 'compare' ? copyCompareText : undefined}
         />
       ) : null}
       {activeView === 'schedules' ? (

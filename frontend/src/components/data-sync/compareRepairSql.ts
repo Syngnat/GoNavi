@@ -3,43 +3,32 @@ import type {
   DataSyncCompareResult,
   DataSyncTableDiffSummary,
 } from './model';
-import { getDataSourceSpec } from '../../utils/dataSourceRegistry';
+import {
+  addColumnStatement,
+  modifyColumnStatement,
+  sqlDefaultLiteral,
+} from './compareRepairSqlColumn';
+import {
+  normalizeCompareDialect,
+  quoteCompareIdent,
+  qualifyCompareTable,
+} from './compareRepairSqlQuote';
 import { t } from '../../i18n';
 
-const PG_LIKE = new Set([
-  'postgres',
-  'postgresql',
-  'kingbase',
-  'highgo',
-  'opengauss',
-  'gaussdb',
-  'vastbase',
-]);
+export {
+  normalizeCompareDialect,
+  quoteCompareIdent,
+  qualifyCompareTable,
+} from './compareRepairSqlQuote';
 
-const normalizeDialect = (value: string): string => {
-  const dialect = String(value || '').trim().toLowerCase();
-  if (dialect === 'postgresql') return 'postgres';
-  if (['mssql', 'sql_server', 'sql-server'].includes(dialect)) return 'sqlserver';
-  // 描述表类型按借用方言生成修复 SQL（CockroachDB → postgres 用双引号，TiDB → mysql 用反引号）。
-  return getDataSourceSpec(dialect)?.ddlDialect || dialect;
-};
+const normalizeDialect = normalizeCompareDialect;
 
-export const quoteCompareIdent = (name: string, dialect: string): string => {
-  const normalized = normalizeDialect(dialect);
-  if (PG_LIKE.has(normalized)) return `"${String(name).replace(/"/g, '""')}"`;
-  return `\`${String(name).replace(/`/g, '``')}\``;
-};
-
-export const qualifyCompareTable = (
-  table: string,
-  schema: string,
-  dialect: string,
-): string => {
-  const quoted = quoteCompareIdent(table, dialect);
-  const schemaName = String(schema || '').trim();
-  return schemaName ? `${quoteCompareIdent(schemaName, dialect)}.${quoted}` : quoted;
-};
-
+/**
+ * 判断一张表在给定对比模式下是否存在差异。
+ *
+ * 结构差异只在结构模式（或后端标了 hasSchema）下计入，否则仅数据对比会把
+ * 未展开的结构差异也算成「有差异」。
+ */
 export const tableHasCompareDiff = (
   summary: DataSyncTableDiffSummary,
   mode?: DataSyncCompareMode,
@@ -49,43 +38,12 @@ export const tableHasCompareDiff = (
   const hasSchemaDiff =
     (summary.schemaDiffCount ?? 0) > 0 ||
     (summary.missingColumns || []).length > 0 ||
-    (summary.columnDiffs || []).length > 0;
+    (summary.columnDiffs || []).length > 0 ||
+    (summary.indexDiffs || []).length > 0 ||
+    (summary.attributeDiffs || []).length > 0;
   const hasDataDiff =
     summary.inserts > 0 || summary.updates > 0 || summary.deletes > 0;
   return (showSchema && hasSchemaDiff) || (showData && hasDataDiff);
-};
-
-const addColumnSql = (
-  tableSql: string,
-  column: string,
-  type: string,
-  dialect: string,
-): string => {
-  const col = quoteCompareIdent(column, dialect);
-  const columnType = type.trim() || 'TEXT';
-  if (normalizeDialect(dialect) === 'sqlserver') {
-    return `ALTER TABLE ${tableSql} ADD ${col} ${columnType} NULL;`;
-  }
-  return `ALTER TABLE ${tableSql} ADD COLUMN ${col} ${columnType} NULL;`;
-};
-
-const modifyTypeSql = (
-  tableSql: string,
-  column: string,
-  type: string,
-  dialect: string,
-): string => {
-  const col = quoteCompareIdent(column, dialect);
-  const columnType = type.trim();
-  if (!columnType) return `-- ${tableSql}.${col}: missing source type, skipped`;
-  const normalized = normalizeDialect(dialect);
-  if (PG_LIKE.has(normalized)) {
-    return `ALTER TABLE ${tableSql} ALTER COLUMN ${col} TYPE ${columnType};`;
-  }
-  if (normalized === 'sqlserver') {
-    return `ALTER TABLE ${tableSql} ALTER COLUMN ${col} ${columnType} NULL;`;
-  }
-  return `ALTER TABLE ${tableSql} MODIFY COLUMN ${col} ${columnType};`;
 };
 
 /**
@@ -138,14 +96,22 @@ export const buildCompareRepairSQL = (
     const missing = (summary.missingColumns || []).filter(
       (column) => !diffs.some((diff) => diff.column === column && diff.kind === 'missing_in_target'),
     );
-    if (diffs.length === 0 && missing.length === 0) continue;
+    // 索引与默认值差异也能生成语句，不能只看列差异就早退。
+    if (
+      diffs.length === 0 && missing.length === 0 &&
+      (summary.indexDiffs || []).length === 0 &&
+      (summary.attributeDiffs || []).length === 0
+    ) continue;
     const statements: string[] = [`-- ${summary.table}`];
     missing.forEach((column) => {
-      statements.push(addColumnSql(tableSql, column, '', dialect));
+      statements.push(addColumnStatement(tableSql, column, '', undefined, dialect));
     });
     diffs.forEach((diff) => {
       if (diff.kind === 'missing_in_target') {
-        statements.push(addColumnSql(tableSql, diff.column, diff.source || '', dialect));
+        // 有结构化定义就按它重建（带 DEFAULT/COMMENT），否则退回纯类型文本。
+        statements.push(addColumnStatement(
+          tableSql, diff.column, diff.source || '', diff.sourceDefinition, dialect,
+        ));
         return;
       }
       if (diff.kind === 'extra_in_target') {
@@ -155,7 +121,9 @@ export const buildCompareRepairSQL = (
         return;
       }
       if (diff.kind === 'type') {
-        statements.push(modifyTypeSql(tableSql, diff.column, diff.source || '', dialect));
+        statements.push(modifyColumnStatement(
+          tableSql, diff.column, diff.source || '', diff.sourceDefinition, dialect,
+        ));
         return;
       }
       if (diff.kind === 'nullable') {
@@ -177,8 +145,51 @@ export const buildCompareRepairSQL = (
         statements.push(
           `-- 风险：${tableSql}.${quoteCompareIdent(diff.column, dialect)} 容量 ${diff.source || '—'} → ${diff.target || '—'}，超长数据会被截断`,
         );
-        statements.push(modifyTypeSql(tableSql, diff.column, diff.source || '', dialect));
+        statements.push(modifyColumnStatement(
+          tableSql, diff.column, diff.source || '', diff.sourceDefinition, dialect,
+        ));
       }
+    });
+    // 索引差异：MySQL 不支持原地改索引定义，必须在同一条 ALTER 里 DROP + ADD。
+    // 缺失索引直接 ADD；多出的索引注释掉，避免误删。
+    (summary.indexDiffs || []).forEach((diff) => {
+      const indexName = quoteCompareIdent(diff.name, dialect);
+      if (diff.kind === 'missing_in_target') {
+        const columns = (diff.columns || []).join(', ');
+        if (!columns) return;
+        const prefix = diff.unique ? 'UNIQUE ' : '';
+        statements.push(`ALTER TABLE ${tableSql} ADD ${prefix}INDEX ${indexName} (${columns});`);
+        return;
+      }
+      if (diff.kind === 'extra_in_target') {
+        statements.push(`-- ALTER TABLE ${tableSql} DROP INDEX ${indexName}; -- 目标多出索引`);
+        return;
+      }
+      if (diff.kind === 'changed') {
+        statements.push(
+          `ALTER TABLE ${tableSql} DROP INDEX ${indexName}, ADD ${diff.unique ? 'UNIQUE ' : ''}INDEX ${indexName} (${(diff.columns || []).join(', ')});`,
+        );
+        return;
+      }
+      if (diff.kind === 'renamed') {
+        statements.push(
+          `-- ${tableSql}: 索引疑似重命名 ${quoteCompareIdent(diff.source || diff.name, dialect)} → ${quoteCompareIdent(diff.target || '—', dialect)}，请确认后手工修改`,
+        );
+      }
+    });
+    // 默认值/注释漂移：只改这两项不会影响数据写入，但会让两端行为不同。
+    (summary.attributeDiffs || []).forEach((diff) => {
+      const col = quoteCompareIdent(diff.column, dialect);
+      const target = diff.target || '';
+      const source = diff.source || '';
+      if (diff.kind === 'default') {
+        const clause = target ? `DEFAULT ${sqlDefaultLiteral(target)}` : 'DROP DEFAULT';
+        statements.push(`ALTER TABLE ${tableSql} ALTER COLUMN ${col} SET ${clause}; -- 目标现状 ${target || '无默认值'} → 源端 ${source || '无默认值'}`);
+        return;
+      }
+      statements.push(
+        `-- ${tableSql}.${col} 注释不同：目标 ${target || '无'} → 源端 ${source || '无'}，请按方言手工修改`,
+      );
     });
     blocks.push(statements.join('\n'));
   }
