@@ -758,3 +758,65 @@ func TestCodeBuddyCLIProviderChatStreamReportsAuthRequired(t *testing.T) {
 		t.Fatalf("流式错误文案应指向登录，实际 %q", authError)
 	}
 }
+
+func TestCodeBuddyCLIProviderChatStreamSurfacesStderrDetail(t *testing.T) {
+	// 流式的非认证失败同样要把 stderr 摘要带出来，而不是静默 Done。
+	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\necho 'CodeBuddy upstream unreachable: dial tcp 10.0.0.1:443: i/o timeout' >&2\nexit 0\n")
+	restore := overrideCodeBuddyCLIForTest(t, fakeCodeBuddy)
+	defer restore()
+
+	cliProvider, err := NewCodeBuddyCLIProvider(ai.ProviderConfig{APIKey: "cb-test"})
+	if err != nil {
+		t.Fatalf("unexpected provider error: %v", err)
+	}
+
+	var chunks []ai.StreamChunk
+	_, err = cliProvider.(SessionStreamProvider).ChatStreamWithState(
+		context.Background(),
+		nil,
+		ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}},
+		func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) },
+	)
+	if err != nil {
+		t.Fatalf("stream should report the failure through the callback, got %v", err)
+	}
+	var detail string
+	for _, chunk := range chunks {
+		if chunk.Error != "" {
+			detail = chunk.Error
+		}
+	}
+	for _, want := range []string{"no output", "upstream unreachable"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, detail)
+		}
+	}
+}
+
+func TestCodeBuddyCLIProviderChatStreamKeepsDoneWithoutStderr(t *testing.T) {
+	// stderr 也为空时不能凭空造错：保持既有的 Done 语义。
+	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\nexit 0\n")
+	restore := overrideCodeBuddyCLIForTest(t, fakeCodeBuddy)
+	defer restore()
+
+	cliProvider, err := NewCodeBuddyCLIProvider(ai.ProviderConfig{APIKey: "cb-test"})
+	if err != nil {
+		t.Fatalf("unexpected provider error: %v", err)
+	}
+
+	var chunks []ai.StreamChunk
+	_, err = cliProvider.(SessionStreamProvider).ChatStreamWithState(
+		context.Background(),
+		nil,
+		ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}},
+		func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) },
+	)
+	if err != nil {
+		t.Fatalf("expected the stream to finish quietly, got %v", err)
+	}
+	for _, chunk := range chunks {
+		if chunk.Error != "" {
+			t.Fatalf("stderr 为空时不应报错，实际 %q", chunk.Error)
+		}
+	}
+}
