@@ -83,9 +83,7 @@ func (p *CodeBuddyCLIProvider) Validate() error {
 	if err != nil {
 		return err
 	}
-	capability, _ := LookupCLICapability("codebuddy-cli")
-	_, err = capability.NormalizeEffort(p.config.Effort)
-	return err
+	return nil
 }
 
 func (p *CodeBuddyCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
@@ -355,11 +353,27 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 
 	if waitErr != nil {
 		errMsg := fmt.Sprintf("CodeBuddy CLI exited unexpectedly: %v", waitErr)
-		if stderrStr != "" {
-			errMsg = fmt.Sprintf("CodeBuddy CLI exited unexpectedly: %s", stderrStr)
+		if detail := codebuddyCLIStderrDetail(&stderrBuf); detail != "" {
+			errMsg = fmt.Sprintf("CodeBuddy CLI exited unexpectedly: %s", detail)
 		}
 		requestErr = fmt.Errorf("%s", errMsg)
 		callback(ai.StreamChunk{Error: errMsg, Done: true})
+		return "", nil
+	}
+
+	// 退出码 0 却没有 result 事件：CLI 把失败原因写在了 stderr（实测未登录时返回
+	// 「401 Authentication required」而退出码为 0）。这里若直接 Done，上层只会看到空
+	// 响应并报「CLI 没有返回模型响应」，把「需要登录」误导成模型问题；与 ChatWithState
+	// 保持同一套判定与截断。
+	if stderrStr != "" {
+		if isCodeBuddyCLIAuthFailure(stderrStr) {
+			requestErr = ErrCodeBuddyCLIAuthRequired
+			callback(ai.StreamChunk{Error: requestErr.Error(), Done: true})
+			return "", nil
+		}
+		detail := codebuddyCLIStderrDetail(&stderrBuf)
+		requestErr = fmt.Errorf("CodeBuddy CLI returned no output (exit code 0); stderr: %s", detail)
+		callback(ai.StreamChunk{Error: requestErr.Error(), Done: true})
 		return "", nil
 	}
 
@@ -597,7 +611,7 @@ func extractCodeBuddyCLISystemRetryError(event cliStreamEvent) (string, bool) {
 //
 // CLI 把 401 写在 stderr、退出码却是 0，原文里带 trace id 与 target 等诊断信息，
 // 不适合直接展示。这里只暴露「需要登录」这一事实，由 service 层渲染成本地化文案。
-var ErrCodeBuddyCLIAuthRequired = errors.New("codebuddy cli authentication required")
+var ErrCodeBuddyCLIAuthRequired = errors.New("CodeBuddy CLI is not signed in; run codebuddy in a local terminal, or provide an API Key / Auth Token")
 
 // codebuddyCLIAuthFailureMarkers 覆盖 CLI 未登录时的各种表述。
 var codebuddyCLIAuthFailureMarkers = []string{

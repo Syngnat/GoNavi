@@ -720,3 +720,41 @@ func TestCodeBuddyCLIProviderChatReportsAuthRequiredWithoutRawStderr(t *testing.
 		t.Fatalf("认证错误不应回显 CLI 原文：%q", err.Error())
 	}
 }
+
+func TestCodeBuddyCLIProviderChatStreamReportsAuthRequired(t *testing.T) {
+	// 流式路径与 Chat 同源：未登录时 exit 0、stdout 没有 result 事件、401 只在 stderr。
+	// 修复前这里会静默 Done，上层只能报「CLI 没有返回模型响应」。
+	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\necho '401 Authentication required. Please use /login command to sign in (target: https://copilot.tencent.com) (traceid: abc123)' >&2\nexit 0\n")
+	restore := overrideCodeBuddyCLIForTest(t, fakeCodeBuddy)
+	defer restore()
+
+	cliProvider, err := NewCodeBuddyCLIProvider(ai.ProviderConfig{APIKey: "cb-test"})
+	if err != nil {
+		t.Fatalf("unexpected provider error: %v", err)
+	}
+
+	var chunks []ai.StreamChunk
+	_, err = cliProvider.(SessionStreamProvider).ChatStreamWithState(
+		context.Background(),
+		nil,
+		ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}},
+		func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) },
+	)
+	// 流式路径的错误按既有设计通过 callback 传递，函数本身返回 nil。
+	if err != nil {
+		t.Fatalf("stream should report the failure through the callback, got %v", err)
+	}
+	var authError string
+	for _, chunk := range chunks {
+		if chunk.Error == "" {
+			continue
+		}
+		if strings.Contains(chunk.Error, "traceid") || strings.Contains(chunk.Error, "copilot.tencent.com") {
+			t.Fatalf("流式错误不应回显 CLI 原文：%q", chunk.Error)
+		}
+		authError = chunk.Error
+	}
+	if !strings.Contains(authError, "not signed in") {
+		t.Fatalf("流式错误文案应指向登录，实际 %q", authError)
+	}
+}
