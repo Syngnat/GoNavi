@@ -24,9 +24,15 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+# 脚本自身所在目录的上一级即仓库根（tools/ 的父目录）。
+$repoRoot = Split-Path -Parent $PSScriptRoot
+
 # 7-Zip 25.01 LZMA SDK(installer.txt 所载安装器模块的官方来源)与 7zr.exe 的
 # SHA256(www.7-zip.org);升级版本时同步更新
 $LzmaSdkSha256 = "cbc3babd589d971e45971d787ff100be8aaa5eab15b2694497ec3e447009e1f2"
+# 仓库内 tools/sfx/7zSD.sfx 的哈希（取自上述 SDK）。下载回退路径也校验它，
+# 保证两条路径拿到的是同一个模块。
+$SfxModuleSha256 = "18b4c189f195d55fe1e6c08d6a186d31c89d6c3c55afe122a55230078f7ea294"
 $SevenZrSha256 = "ad4c82fadcbdf93c03b4fc440f300509c7d60c5c2f4d183e35d9d70d6957037d"
 $SevenZipDownloadBase = "https://www.7-zip.org/a"
 # 官方站点偶发 DNS 解析失败（GitHub runner 侧）：www 与裸域是两条独立解析
@@ -247,7 +253,21 @@ if (-not (Test-Path $SourceExe)) { throw "找不到源 exe: $SourceExe" }
 $sevenZip = Resolve-SevenZip -Requested $SevenZipExe -WorkDir $WorkDir -Version $SevenZipVersion
 
 # --- 2. 准备官方 7zSD.sfx 安装器模块(LZMA SDK 固定版本 + 哈希校验;public domain) ---
+#
+# 优先用仓库内随代码提交的 tools/sfx/7zSD.sfx。这个文件取自 LZMA SDK 25.01
+# 的 bin/7zSD.sfx，public domain、版本固定，本来就不会变；每次构建现去
+# www.7-zip.org 下载只会把一个确定性产物变成网络依赖（该站点在 GitHub
+# runner 与国内网络都出现过 DNS/TLS 失败）。
+# 只有仓库内文件缺失或哈希不符时才回退到下载。
 $sfxModule = $SfxModulePath
+if (-not $sfxModule) {
+    $vendoredModule = Join-Path $repoRoot "tools\sfx\7zSD.sfx"
+    if (Test-Path -LiteralPath $vendoredModule) {
+        Verify-FileHash -Path $vendoredModule -Expected $SfxModuleSha256
+        Write-Host "   使用仓库内 SFX 模块: tools/sfx/7zSD.sfx"
+        $sfxModule = $vendoredModule
+    }
+}
 if (-not $sfxModule) {
     $sdkArchive = Join-Path $WorkDir "lzma-$SevenZipVersion.7z"
     if (-not (Test-Path $sdkArchive)) {
@@ -262,6 +282,7 @@ if (-not $sfxModule) {
         if ($LASTEXITCODE -ne 0) { throw "解压 LZMA SDK 失败(退出码 $LASTEXITCODE)" }
     }
     $sfxModule = Join-Path $sdkFiles "bin\7zSD.sfx"
+    Verify-FileHash -Path $sfxModule -Expected $SfxModuleSha256
 }
 if (-not (Test-Path $sfxModule)) { throw "找不到 SFX 模块: $sfxModule" }
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -114,6 +115,33 @@ class WindowsReleaseArtifactsTest(unittest.TestCase):
                 self.assertIn("ZIP 与 MSI 继续构建", source)
                 # 降级后不能再有「SFX 生成失败就 throw」的硬失败路径。
                 self.assertNotIn('throw "SFX 便携版 EXE 生成失败', source)
+
+    def test_portable_sfx_prefers_vendored_module(self) -> None:
+        # 模块版本固定、内容不变，构建不该依赖外网。仓库内文件优先，
+        # 下载只作为缺失/哈希不符时的回退。
+        source = (ROOT / "tools" / "make-portable-sfx.ps1").read_text(encoding="utf-8")
+        self.assertIn('$vendoredModule = Join-Path $repoRoot "tools\\sfx\\7zSD.sfx"', source)
+        self.assertIn("$SfxModuleSha256", source)
+        self.assertIn("使用仓库内 SFX 模块", source)
+        # 仓库内模块必须先于下载分支出现，否则等于没优先。
+        self.assertLess(
+            source.index("$vendoredModule"),
+            source.index("下载 7-Zip 官方 LZMA SDK"),
+        )
+
+    def test_vendored_sfx_module_matches_expected_hash(self) -> None:
+        # 二进制进仓库的前提是内容可校验：哈希必须与脚本里锁定的一致。
+        module = ROOT / "tools" / "sfx" / "7zSD.sfx"
+        self.assertTrue(module.is_file(), "缺少 tools/sfx/7zSD.sfx")
+        digest = hashlib.sha256(module.read_bytes()).hexdigest()
+        self.assertEqual(
+            digest,
+            "18b4c189f195d55fe1e6c08d6a186d31c89d6c3c55afe122a55230078f7ea294",
+        )
+        source = (ROOT / "tools" / "make-portable-sfx.ps1").read_text(encoding="utf-8")
+        self.assertIn(digest, source)
+        # 许可说明必须随文件一起提交。
+        self.assertTrue((ROOT / "tools" / "sfx" / "README.md").is_file())
 
     def test_portable_sfx_downloads_retry_across_mirrors(self) -> None:
         # 单次 Invoke-WebRequest 失败会让整个 Windows 打包挂掉；
