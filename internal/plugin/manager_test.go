@@ -258,7 +258,10 @@ func TestDisableNeverWaitsForBusyPlugin(t *testing.T) {
 	if _, err := m.SetEnabled(context.Background(), status.Manifest.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 300*time.Millisecond {
+	// 这个断言要证明的是「disable 没有等待插件里的长任务」，不是测调度精度。
+	// Windows CI 上 300ms 会被正常的进程启动/调度抖动打穿（实测 315ms），
+	// 而真正的「等待」会等满插件的阻塞时长（秒级），两者相差一个数量级。
+	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("disable waited on plugin: %s", elapsed)
 	}
 	if _, err := m.AssetPath(status.Manifest.ID, "asset.txt"); !errors.Is(err, ErrDisabled) {
