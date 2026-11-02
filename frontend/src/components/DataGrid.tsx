@@ -603,6 +603,7 @@ const DataGrid: React.FC<DataGridProps> = ({
         useMemo, useStore, viewMode, virtualListItemHeight, virtualListItemHeightFixed,
         virtualListItemNativeScrollbarControlled, virtualListItemHorizontalOffsetComposited,
         virtualListItemColumnVirtual, window,
+        isActive, shortcutOptions,
       }}
     />
   );
