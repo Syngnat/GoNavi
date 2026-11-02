@@ -3751,6 +3751,8 @@
   "app.shortcuts.action.sendAIChatMessage.description": "在 AI 输入框中发送当前消息，Shift+Enter 始终换行",
   "app.shortcuts.action.sendAIChatMessage.label": "AI 聊天发送",
   "app.shortcuts.action.showSlowQueries.description": "查看当前连接的慢 SQL 历史记录（默认阈值 500ms）",
+  "app.shortcuts.action.refreshTableData.label": "刷新表格数据",
+  "app.shortcuts.action.refreshTableData.description": "重新从数据库加载当前表的数据",
   "app.shortcuts.action.showSlowQueries.label": "慢 SQL 历史",
   "app.shortcuts.action.switchToNextTab.description": "在打开的标签页中向右切换",
   "app.shortcuts.action.switchToNextTab.label": "切换到下一个标签页",

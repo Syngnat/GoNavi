@@ -3751,6 +3751,8 @@
   "app.shortcuts.action.sendAIChatMessage.description": "Отправить текущее сообщение из поля ввода AI; Shift+Enter всегда вставляет новую строку",
   "app.shortcuts.action.sendAIChatMessage.label": "Отправить AI-чат",
   "app.shortcuts.action.showSlowQueries.description": "Просмотр истории медленных SQL-запросов для текущего подключения (порог по умолчанию 500мс)",
+  "app.shortcuts.action.refreshTableData.label": "Обновить данные таблицы",
+  "app.shortcuts.action.refreshTableData.description": "Повторно загрузить данные текущей таблицы из базы данных",
   "app.shortcuts.action.showSlowQueries.label": "История медленных SQL",
   "app.shortcuts.action.switchToNextTab.description": "Переключиться вправо среди открытых вкладок",
   "app.shortcuts.action.switchToNextTab.label": "Следующая вкладка",
