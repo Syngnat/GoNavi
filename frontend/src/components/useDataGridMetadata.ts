@@ -28,9 +28,8 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     initialUniqueKeyGroups,
   } = ctx;
 
-  const isKingbaseQueryResult = exportScope === 'queryResult'
-    && resolveDataSourceType(connections.find((item: { id: string }) => item.id === connectionId)?.config) === 'kingbase';
-  const hasAuthoritativeEmptyMap = isKingbaseQueryResult && initialColumnMetaMap != null
+  // 执行计划提供的空映射是结果级显示决定；只有 undefined 才允许回退加载表元数据。
+  const hasAuthoritativeEmptyMap = exportScope === 'queryResult' && initialColumnMetaMap != null
     && typeof initialColumnMetaMap === 'object' && !Array.isArray(initialColumnMetaMap) && Object.keys(initialColumnMetaMap).length === 0;
   const hasInitialColumnMeta = hasUsableColumnMeta(initialColumnMetaMap || {});
   const hasInitialUniqueKeyGroups = Array.isArray(initialUniqueKeyGroups);
@@ -77,7 +76,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     const cacheKey = metadataCacheKey;
     columnMetaSeqRef.current += 1;
     if (hasInitialColumnMeta) {
-      columnMetaCacheRef.current[cacheKey] = initialColumnMetaMap;
+      if (exportScope === 'table') columnMetaCacheRef.current[cacheKey] = initialColumnMetaMap;
     } else {
       setColumnMetaMap(columnMetaCacheRef.current[cacheKey] || {});
     }

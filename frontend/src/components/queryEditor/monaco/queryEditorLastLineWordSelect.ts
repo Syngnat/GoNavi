@@ -10,7 +10,7 @@ export interface QueryEditorLastLineWordSelectHost {
     getLineCount?: () => number;
     getWordAtPosition?: (position: QueryEditorWordPosition) => { startColumn: number; endColumn: number } | null | undefined;
   } | null;
-  getTargetAtClientPoint?: (clientX: number, clientY: number) => { type?: number; position?: QueryEditorWordPosition } | null | undefined;
+  getTargetAtClientPoint?: (clientX: number, clientY: number) => { type?: number; position?: QueryEditorWordPosition | null } | null | undefined;
   queryLastRenderedLine?: () => Element | null | undefined;
   selectWord?: (lineNumber: number, startColumn: number, endColumn: number) => void;
   placeCaret?: (lineNumber: number, column: number) => void;
