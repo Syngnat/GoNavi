@@ -133,11 +133,15 @@ func TestHiveCancellationKeepsSessionReusable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer driver.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	// 超时必须短于 pollInterval（默认 200ms），这样第一次轮询前就已经过期，
+	// 走的是「提交后立即取消」这条路径。但 30ms 在慢机器上会让取消失败请求与
+	// 初始提交撞车（CI 上出现过 write tcp ... i/o timeout）：取消时连接可能
+	// 还在写初始请求。留出足够余量，同时仍远小于 pollInterval。
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	started := time.Now()
 	_, _, err := driver.QueryContext(ctx, "SELECT blocked")
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 2*time.Second {
 		t.Fatalf("cancel=%v duration=%s", err, time.Since(started))
 	}
 	service.mu.Lock()
