@@ -7,6 +7,9 @@ import { buildQueryResultColumnPinScope } from '../utils/queryResultColumnPinSco
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import DataGrid from './DataGrid';
+import {
+    isQueryEditorRowCountMeaninglessStatement, isQueryEditorStatementSummary,
+} from './queryEditor/run/queryEditorRunStatementSummary';
 // Type-only import: erased at compile time, so this never becomes a runtime
 // module cycle between the panel and its per-result content.
 import type { QueryEditorResultSet } from './QueryEditorResultsPanel';
@@ -174,6 +177,8 @@ const QueryEditorResultTabContent: React.FC<{
     );
 
     if (rs.resultType === 'message') {
+        // 批量写语句的汇总结果：显示「执行摘要」，避免几百个结果标签
+        const isStatementSummary = isQueryEditorStatementSummary(rs);
         return (
             <div className="gn-v2-query-success" style={{
                 flex: 1, minHeight: 0, display: 'flex', justifyContent: 'flex-start', flexDirection: 'column', gap: 12,
@@ -181,7 +186,9 @@ const QueryEditorResultTabContent: React.FC<{
             }}>
                 {renderMessageBlock({
                     text: (rs.messages || []).join('\n'),
-                    title: t('query_editor.results_panel.message.title'),
+                    title: t(isStatementSummary
+                        ? 'query_editor.results_panel.summary.title'
+                        : 'query_editor.results_panel.message.title'),
                     fontSize: 'var(--gn-font-size-mono, 13px)',
                     fillHeight: true,
                     color: darkMode ? '#d4d4d4' : '#333',
@@ -253,6 +260,9 @@ const QueryEditorResultTabContent: React.FC<{
 
     if (isAffectedRowsResult(rs)) {
         const affected = Number(rs.rows[0]?.affectedRows ?? 0);
+        // DDL / TRUNCATE 的受影响行数恒为 0，显示「影响行数：0」会被误读成语句没生效，
+        // 改用结构变更说明（行数对这类语句没有语义）。
+        const rowCountMeaningless = isQueryEditorRowCountMeaninglessStatement(rs.exportSql || rs.sql || '');
         const messageText = Array.isArray(rs.messages) ? rs.messages.join('\n') : '';
         return (
             <div className="gn-v2-query-success" style={{
@@ -261,7 +271,9 @@ const QueryEditorResultTabContent: React.FC<{
             }}>
                 <span style={{ fontSize: 36, color: '#52c41a' }}>✓</span>
                 <span style={{ fontSize: 14, fontWeight: 500 }}>{t('query_editor.result.execution_success')}</span>
-                <span style={{ fontSize: 13, color: '#999' }}>{t('query_editor.result.affected_rows', { count: affected })}</span>
+                <span style={{ fontSize: 13, color: '#999' }}>{rowCountMeaningless
+                    ? t('query_editor.result.schema_change_applied')
+                    : t('query_editor.result.affected_rows', { count: affected })}</span>
                 {messageText
                     ? renderMessageBlock({ text: messageText, fontSize: 'var(--gn-font-size-mono, 12px)', compact: true, maxWidth: 720, color: darkMode ? '#d4d4d4' : '#666', marginTop: 8 })
                     : null}
