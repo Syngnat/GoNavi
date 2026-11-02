@@ -13,15 +13,34 @@
 .gn-data-sync-run-details-body .gn-data-sync-run-pagination { flex-wrap: wrap; }
 .gn-data-sync-run-details-body .gn-data-sync-run-events__content { min-width: 0; overflow-wrap: anywhere; }
 
-/* 弹窗内的滚动条默认只有 10px 且 thumb 只有 4px 可见，误触率高。
-   这里给弹窗内的滚动容器加宽到 14px、thumb 加粗，命中区域随之外扩。 */
-.gn-data-sync-run-details-body::-webkit-scrollbar,
-.gn-data-sync-run-details-body .gn-data-sync-compare-detail__scroll::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+/* 弹窗体滚动条统一为 8px 细条：轨道透明、滑块半透明、悬停加深。
+   明细表内的滚动条在 part5 里另有同名规则，两者保持一致。 */
+.gn-data-sync-run-details-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gn-br-2, rgba(15, 23, 42, 0.12)) transparent;
 }
 
-.gn-data-sync-run-details-body::-webkit-scrollbar-thumb,
-.gn-data-sync-run-details-body .gn-data-sync-compare-detail__scroll::-webkit-scrollbar-thumb {
-  border-width: 4px;
+.gn-data-sync-run-details-body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.gn-data-sync-run-details-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.gn-data-sync-run-details-body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  background-clip: content-box;
+}
+
+.gn-data-sync-run-details-body::-webkit-scrollbar-thumb:hover {
+  background: var(--gn-br-3, rgba(15, 23, 42, 0.18));
+  background-clip: content-box;
+}
+
+.gn-data-sync-run-details-body::-webkit-scrollbar-corner {
+  background: transparent;
 }

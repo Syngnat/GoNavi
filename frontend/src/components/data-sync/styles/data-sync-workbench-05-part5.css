@@ -1145,15 +1145,31 @@
   margin-left: auto;
 }
 
+/* 筛选行里所有「内容长度会变」的元素都必须定宽，否则计数文字一变长，
+   右侧复制按钮就会左右漂移。 */
 .gn-data-sync-compare-filters__search .gn-data-sync-control {
+  flex: 0 0 200px;
   width: 200px;
+  min-width: 200px;
+  max-width: 200px;
   min-height: 30px;
   padding-block: 2px;
 }
 
 .gn-data-sync-compare-filters__count {
+  flex: none;
+  width: 96px;
   color: var(--gn-fg-5, #9ca3af);
   font-size: 11px;
+  /* 等宽数字：否则 342 比 30 宽，按钮仍会移动。 */
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gn-data-sync-compare-filters__copy {
+  flex: none;
+  margin-left: 0;
   white-space: nowrap;
 }
 
@@ -1353,4 +1369,58 @@
   text-align: left;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* SQL 代码块：去掉大灰底，改用左侧细线，视觉重量降下来才能一屏看多条。 */
+.gn-data-sync-sql-block {
+  margin: 0;
+  padding: 10px 0 10px 14px;
+  border-left: 2px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+  background: transparent;
+  color: var(--gn-fg-2, #1f2937);
+  font-family: var(--gn-font-mono, ui-monospace, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-x: auto;
+  white-space: pre;
+  user-select: text;
+}
+
+.gn-data-sync-sql-token[data-token='keyword'] {
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.gn-data-sync-sql-token[data-token='ident'] {
+  color: #1c5cab;
+}
+
+.gn-data-sync-sql-token[data-token='string'] {
+  color: #b45309;
+}
+
+.gn-data-sync-sql-token[data-token='number'] {
+  color: #6d28d9;
+}
+
+.gn-data-sync-sql-token[data-token='comment'] {
+  color: var(--gn-fg-5, #9ca3af);
+  font-style: italic;
+}
+
+/* 深色模式下浅色取值对比度不足，逐类另配一套（不是把浅色反转）。 */
+body[data-ui-version='v2'][data-theme='dark'] .gn-data-sync-sql-token[data-token='keyword'] {
+  color: #5eead4;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gn-data-sync-sql-token[data-token='ident'] {
+  color: #7fb3ee;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gn-data-sync-sql-token[data-token='string'] {
+  color: #fbbf24;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gn-data-sync-sql-token[data-token='number'] {
+  color: #c4b5fd;
 }

@@ -162,6 +162,22 @@ export const buildCompareRepairSQL = (
         statements.push(
           `-- ${tableSql}.${quoteCompareIdent(diff.column, dialect)} 可空性不同：源 ${diff.source || '—'} / 目标 ${diff.target || '—'}`,
         );
+        return;
+      }
+      if (diff.kind === 'renamed') {
+        // 重命名是推断出来的，可能是改名也可能是一删一增。RENAME COLUMN 在
+        // 目标端不存在旧列时会直接失败，所以只给注释建议、不自动生成语句。
+        statements.push(
+          `-- ${tableSql}: 疑似重命名 ${quoteCompareIdent(diff.source || diff.column, dialect)} → ${quoteCompareIdent(diff.target || '—', dialect)}，请确认后手工修改`,
+        );
+        return;
+      }
+      if (diff.kind === 'capacity_degraded') {
+        // 容量降级不会让建表失败，但存量数据会被截断；给出语句并标明风险。
+        statements.push(
+          `-- 风险：${tableSql}.${quoteCompareIdent(diff.column, dialect)} 容量 ${diff.source || '—'} → ${diff.target || '—'}，超长数据会被截断`,
+        );
+        statements.push(modifyTypeSql(tableSql, diff.column, diff.source || '', dialect));
       }
     });
     blocks.push(statements.join('\n'));

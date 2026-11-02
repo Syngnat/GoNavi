@@ -30,7 +30,7 @@ import type {
 type ExportNotice = { tone: 'ok' | 'error'; text: string; path?: string } | null;
 
 export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
-  const { selectedRunId, runEvents, compareResult, compareMode, t, onGenerateRepairSql, onAskAiAboutDiffs, onSyncDiffs, onExportCompareHtml, onOpenExportedFile } = props;
+  const { selectedRunId, runEvents, compareResult, compareMode, t, onGenerateRepairSql, onAskAiAboutDiffs, onSyncDiffs, onExportCompareHtml, onOpenExportedFile, onCopyCompareSql } = props;
   const isCompareWorkbench = props.family === 'compare';
   const compareDetailOpen = isCompareWorkbench && Boolean(selectedRunId);
   // 筛选只影响明细列表；KPI 与分布始终按完整结果统计，避免筛选后指标跳变。
@@ -102,6 +102,7 @@ export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
     [detailRows, groupBy],
   );
   const detailCount = detailRows.length;
+
   // 附表只有存在默认值/注释差异时才作为可切换页签出现。
   const hasAppendix = (compareResult?.tables || []).some(
     (row) => (row.attributeDiffs || []).length > 0,
@@ -210,6 +211,7 @@ export function DataSyncRunCompare(props: DataSyncRunHistoryProps) {
               onQueryChange={setQuery}
               onRiskFilterChange={setRiskFilter}
               onGroupByChange={setGroupBy}
+              onCopyAll={onCopyCompareSql ? () => onCopyCompareSql(visibleTables) : undefined}
               t={t}
             />
             {hasAppendix ? (

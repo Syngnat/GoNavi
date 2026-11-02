@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import type {
   CompareRiskBucket,
   CompareSummary,
@@ -20,6 +22,8 @@ type Props = {
   onQueryChange: (query: string) => void;
   onRiskFilterChange: (risk: CompareRiskBucket[]) => void;
   onGroupByChange: (groupBy: CompareGroupBy) => void;
+  /** Copies every visible statement; omitted when the caller has nothing to copy. */
+  onCopyAll?: () => Promise<string>;
   t: DataSyncWorkbenchTranslate;
 };
 
@@ -50,9 +54,26 @@ export function DataSyncCompareFilters({
   onQueryChange,
   onRiskFilterChange,
   onGroupByChange,
+  onCopyAll,
   t,
 }: Props) {
   const counts = compareFilterCounts(summary);
+  // 复制结果只在按钮上短暂反馈；失败时同样给出提示，避免用户以为已复制。
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const handleCopyAll = async () => {
+    if (!onCopyAll) return;
+    try {
+      const text = await onCopyAll();
+      if (!text) {
+        setCopyState('failed');
+      } else {
+        setCopyState('copied');
+      }
+    } catch {
+      setCopyState('failed');
+    }
+    setTimeout(() => setCopyState('idle'), 2000);
+  };
   const toggleRisk = (risk: CompareRiskBucket) => {
     onRiskFilterChange(
       riskFilter.includes(risk)
@@ -122,6 +143,21 @@ export function DataSyncCompareFilters({
         <span className="gn-data-sync-compare-filters__count" data-compare-visible-count={visibleCount}>
           {t('compare.filters.visible_count', { count: visibleCount })}
         </span>
+        {onCopyAll ? (
+          <button
+            type="button"
+            className="gn-data-sync-button gn-data-sync-compare-filters__copy"
+            data-compare-copy-all="true"
+            disabled={visibleCount === 0 || copyState === 'copied'}
+            onClick={() => void handleCopyAll()}
+          >
+            {copyState === 'copied'
+              ? t('compare.copy.copied')
+              : copyState === 'failed'
+                ? t('compare.copy.failed')
+                : t('compare.copy.copy_all')}
+          </button>
+        ) : null}
       </div>
     </div>
   );
