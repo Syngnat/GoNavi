@@ -103,6 +103,30 @@ class WindowsReleaseArtifactsTest(unittest.TestCase):
             self.assertIn(f"GoNavi-${{version}}-Windows-{arch}-Portable.exe", publish_source)
             self.assertIn(f"GoNavi-${{version}}-Windows-{arch}-Portable.zip", publish_source)
 
+    def test_sfx_failure_degrades_to_warning(self) -> None:
+        # SFX 便携版要联网下载官方 LZMA SDK，偶发 DNS 解析失败。
+        # 它是附加产物，失败必须降级为警告，否则同一次的 ZIP 与 MSI 一起挂掉。
+        for workflow in WORKFLOWS:
+            with self.subTest(workflow=workflow.name):
+                source = workflow.read_text(encoding="utf-8")
+                self.assertIn("$sfxOk = $false", source)
+                self.assertIn("SFX 便携版已跳过", source)
+                self.assertIn("ZIP 与 MSI 继续构建", source)
+                # 降级后不能再有「SFX 生成失败就 throw」的硬失败路径。
+                self.assertNotIn('throw "SFX 便携版 EXE 生成失败', source)
+
+    def test_portable_sfx_downloads_retry_across_mirrors(self) -> None:
+        # 单次 Invoke-WebRequest 失败会让整个 Windows 打包挂掉；
+        # 官方 www 与裸域是两条独立 DNS 记录，需要重试与回退。
+        source = (ROOT / "tools" / "make-portable-sfx.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Invoke-DownloadWithRetry", source)
+        self.assertIn("https://www.7-zip.org/a", source)
+        self.assertIn("https://7-zip.org/a", source)
+        self.assertIn("Invoke-DownloadWithRetry -RelativePath \"7zr.exe\"", source)
+        self.assertIn("Invoke-DownloadWithRetry -RelativePath \"lzma", source)
+        # 两处下载都必须走带重试的封装，不能再裸调 Invoke-WebRequest。
+        self.assertEqual(source.count("Invoke-WebRequest -Uri"), 1)
+
     def test_portable_sfx_runs_root_gonavi_exe(self) -> None:
         source = (ROOT / "tools" / "make-portable-sfx.ps1").read_text(encoding="utf-8")
         self.assertIn('RunProgram="GoNavi.exe"', source)
