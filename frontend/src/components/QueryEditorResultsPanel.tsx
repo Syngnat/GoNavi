@@ -117,7 +117,9 @@ export const resolveEffectiveActiveResultKey = (
     if (showParamsTab && activeResultKey === QUERY_EDITOR_PARAMS_PANEL_KEY) {
         return QUERY_EDITOR_PARAMS_PANEL_KEY;
     }
-    return resultSets[0]?.key || (showSqlLogTab ? QUERY_EDITOR_SQL_LOG_TAB_KEY : '');
+    return resultSets[0]?.key
+        || (showSqlLogTab ? QUERY_EDITOR_SQL_LOG_TAB_KEY : '')
+        || (showParamsTab ? QUERY_EDITOR_PARAMS_PANEL_KEY : '');
 };
 
 interface QueryEditorResultsPanelProps {
@@ -129,6 +131,8 @@ interface QueryEditorResultsPanelProps {
     loading: boolean;
     executionError: string;
     sqlLogCount: number;
+    // 关闭后不再渲染「日志」标签，执行错误改为直接显示在结果区顶部。
+    showSqlLogTab?: boolean;
     darkMode: boolean;
     currentDb: string;
     currentConnectionId: string;
@@ -201,6 +205,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     loading,
     executionError,
     sqlLogCount,
+    showSqlLogTab = true,
     darkMode,
     currentDb,
     currentConnectionId,
@@ -436,7 +441,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     const resolvedActiveResultKey = resolveEffectiveActiveResultKey(
         resultSets,
         activeResultKey,
-        true,
+        showSqlLogTab,
         Boolean(paramsPanel),
     );
 
@@ -728,7 +733,23 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
             ),
             children: paramsPanel,
         } : null;
-    const tabItems = [logTabItem, ...(paramsTabItem ? [paramsTabItem] : []), ...resultTabItems];
+    const tabItems = [
+        ...(showSqlLogTab ? [logTabItem] : []),
+        ...(paramsTabItem ? [paramsTabItem] : []),
+        ...resultTabItems,
+    ];
+    const inlineErrorCard = !showSqlLogTab && executionError ? (
+        <div className="query-result-panel-error">
+            <QueryEditorExecutionErrorCard
+                compact
+                darkMode={darkMode}
+                error={executionError}
+                onDiagnose={onDiagnoseExecutionError}
+                diagnoseShortcutLabel={diagnoseShortcutLabel}
+                onLocate={onLocateExecutionError}
+            />
+        </div>
+    ) : null;
     const activeResultSet = resultSets.find((rs) => rs.key === resolvedActiveResultKey) || null;
     const activeResultUsesDataGrid = Boolean(activeResultSet && activeResultSet.resultType !== 'message' && !isAffectedRowsResult(activeResultSet));
 
@@ -797,11 +818,15 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
               .query-result-panel-header-title { font-size: 13px; font-weight: 600; color: #666; }
               .query-result-panel-hide { display: inline-flex; align-items: center; gap: 4px; }
               .query-result-panel-tab-actions { display: inline-flex; flex-direction: row; align-items: center; gap: 4px; }
+              .query-result-panel-error { flex: 0 0 auto; max-height: 45%; overflow: auto; padding: 10px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.06); }
               .query-result-tabs .ant-tabs-extra-content .query-result-panel-tab-action { width: 28px; min-width: 28px; height: 28px !important; min-height: 28px !important; padding: 0 !important; display: inline-flex; align-items: center; justify-content: center; }
             `}</style>
             <div data-gonavi-close-shortcut-scope="result" className="gn-v2-query-results" style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {tabItems.length > 0 ? (
-                    <Tabs className="query-result-tabs" activeKey={resolvedActiveResultKey} onChange={onActiveResultKeyChange} animated={false} style={{ flex: 1, minHeight: 0 }} tabBarExtraContent={tabsExtraContent} items={tabItems} />
+                    <>
+                        {inlineErrorCard}
+                        <Tabs className="query-result-tabs" activeKey={resolvedActiveResultKey} onChange={onActiveResultKeyChange} animated={false} style={{ flex: 1, minHeight: 0 }} tabBarExtraContent={tabsExtraContent} items={tabItems} />
+                    </>
                 ) : executionError ? (
                     <>
                         <div className="query-result-panel-header gn-v2-query-result-panel-header">

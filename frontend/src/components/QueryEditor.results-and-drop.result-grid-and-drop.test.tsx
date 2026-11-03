@@ -3,6 +3,7 @@ import { act, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import QueryEditor from './QueryEditor';
 import QueryEditorResultsPanel, { QUERY_EDITOR_SQL_LOG_TAB_KEY, resolveEffectiveActiveResultKey } from './QueryEditorResultsPanel';
+import { QUERY_EDITOR_PARAMS_PANEL_KEY } from './queryEditor/params/queryEditorParamsModel';
 import { storeState, backendApp, dataGridState, autoFetchState, editorState } from './queryEditorResultsAndDropTestState';
 import { create, notifyStoreSubscribers, textContent, findButton, createTab } from './queryEditorResultsAndDropTestHelpers';
 import { setUpQueryEditorResultsAndDropTest, tearDownQueryEditorResultsAndDropTest } from './queryEditorResultsAndDropTestHooks';
@@ -513,6 +514,7 @@ describe('QueryEditor external SQL save', () => {
     expect(resolveEffectiveActiveResultKey(resultSets, 'stale-result', true)).toBe('result-1');
     expect(resolveEffectiveActiveResultKey([], 'stale-result', true)).toBe(QUERY_EDITOR_SQL_LOG_TAB_KEY);
     expect(resolveEffectiveActiveResultKey([], 'stale-result', false)).toBe('');
+    expect(resolveEffectiveActiveResultKey([], 'stale-result', false, true)).toBe(QUERY_EDITOR_PARAMS_PANEL_KEY);
 
     const renderer = create(
       <QueryEditorResultsPanel

@@ -24,8 +24,8 @@ export interface DataTableSettingsFieldsProps {
   t: UseAppThemeSettingsRenderInput['t'];
   appearance: UseAppThemeSettingsRenderInput['appearance'];
   setAppearance: UseAppThemeSettingsRenderInput['setAppearance'];
-  autoShowSqlExecutionLog: boolean;
-  setAutoShowSqlExecutionLog: (enabled: boolean) => void;
+  showSqlExecutionLog: boolean;
+  setShowSqlExecutionLog: (enabled: boolean) => void;
   tableDoubleClickAction: UseAppThemeSettingsRenderInput['tableDoubleClickAction'];
   queryTableCtrlClickAction: UseAppThemeSettingsRenderInput['queryTableCtrlClickAction'];
   sqlEditorFontSizeFollowsGlobal: UseAppThemeSettingsRenderInput['sqlEditorFontSizeFollowsGlobal'];
@@ -37,20 +37,20 @@ export interface DataTableSettingsFieldsProps {
 }
 
 export const DataTableSettingsFields = ({
-  renderThemeSettingsRow, t, appearance, setAppearance, autoShowSqlExecutionLog,
-  setAutoShowSqlExecutionLog, tableDoubleClickAction,
+  renderThemeSettingsRow, t, appearance, setAppearance, showSqlExecutionLog,
+  setShowSqlExecutionLog, tableDoubleClickAction,
   queryTableCtrlClickAction, sqlEditorFontSizeFollowsGlobal, effectiveSqlEditorFontSize,
   dataTableFontSizeFollowsGlobal, effectiveDataTableFontSize, sidebarTreeFontSizeFollowsGlobal,
   effectiveSidebarTreeFontSize,
 }: DataTableSettingsFieldsProps) => (
   <>
       {renderThemeSettingsRow({
-          label: t('app.theme.data_table.auto_show_sql_execution_log'),
-          hint: t('app.theme.data_table.auto_show_sql_execution_log_hint'),
+          label: t('app.theme.data_table.show_sql_execution_log'),
+          hint: t('app.theme.data_table.show_sql_execution_log_hint'),
           control: (
               <Switch
-                  checked={autoShowSqlExecutionLog}
-                  onChange={setAutoShowSqlExecutionLog}
+                  checked={showSqlExecutionLog}
+                  onChange={setShowSqlExecutionLog}
               />
           ),
       })}

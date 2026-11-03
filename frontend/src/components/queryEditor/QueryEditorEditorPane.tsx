@@ -196,6 +196,8 @@ export const QueryEditorEditorPane = ({
     onFormat={handleFormat}
     onTriggerSqlAiCompletion={() => triggerAiInlineCompletionRef.current?.()}
     onToggleResultPanelVisibility={toggleResultPanelVisibility}
+    showSqlExecutionLog={queryOptions?.showSqlExecutionLog !== false}
+    onToggleSqlExecutionLog={() => setQueryOptions({ showSqlExecutionLog: queryOptions?.showSqlExecutionLog === false })}
     onAIAction={handleAIAction}
     showViewDataVerify={
       isObjectEditQueryTab

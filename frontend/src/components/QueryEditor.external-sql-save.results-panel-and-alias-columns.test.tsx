@@ -222,7 +222,7 @@ describe('QueryEditor external SQL save', () => {
 
   it('shows execution failures inside the embedded sql log tab in v2', async () => {
 
-    storeState.queryOptions.autoShowSqlExecutionLog = false;
+    storeState.queryOptions.showSqlExecutionLog = true;
     backendApp.DBQueryMulti.mockResolvedValueOnce({
       success: false,
       message: 'driver exploded',
@@ -251,8 +251,36 @@ describe('QueryEditor external SQL save', () => {
     renderer.unmount();
   });
 
+  it('drops the sql log tab and keeps execution failures visible when the log tab is disabled', async () => {
+    storeState.queryOptions.showSqlExecutionLog = false;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: false,
+      message: 'driver exploded',
+      data: [],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'select 1;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(findSqlLogTab(renderer)).toHaveLength(0);
+    expect(renderer.root.findAll((node) => node.props?.['data-log-panel'] === 'embedded')).toHaveLength(0);
+    expect(textContent(renderer.toJSON())).toContain('driver exploded');
+
+    renderer.unmount();
+  });
+
   it('keeps empty successful executions collapsed when automatic log display is disabled', async () => {
-    storeState.queryOptions.autoShowSqlExecutionLog = false;
+    storeState.queryOptions.showSqlExecutionLog = false;
     const windowListeners: Record<string, ((event?: Event) => void)[]> = {};
     vi.stubGlobal('window', {
       addEventListener: vi.fn((type: string, listener: (event?: Event) => void) => {
@@ -297,7 +325,7 @@ describe('QueryEditor external SQL save', () => {
     'activates the data result tab and requests data preview for %s after the sql log tab was open',
     async (dbType) => {
 
-      storeState.queryOptions.autoShowSqlExecutionLog = false;
+      storeState.queryOptions.showSqlExecutionLog = false;
       storeState.connections[0].config.type = dbType;
       storeState.sqlLogs = [{
         id: 'log-1',

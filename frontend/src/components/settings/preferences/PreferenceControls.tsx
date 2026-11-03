@@ -21,7 +21,7 @@ export function PreferenceControls({ controls, compact = false, tablePreview, co
   const setAppearance = useStore(state => state.setAppearance);
   const scale = useStore(state => state.uiScale);
   const setScale = useStore(state => state.setUiScale);
-  const log = useStore(state => state.queryOptions.autoShowSqlExecutionLog);
+  const log = useStore(state => state.queryOptions.showSqlExecutionLog);
   const setQueryOptions = useStore(state => state.setQueryOptions);
   const control = (key: PreferenceControl) => {
     const label = t(PREFERENCE_CONTROL_KEYS[key]);
@@ -31,7 +31,7 @@ export function PreferenceControls({ controls, compact = false, tablePreview, co
     }
     if (key === 'layout') return <Switch aria-label={label} checked={appearance.uiLayoutMode === 'navicat'} onChange={value => setAppearance({ uiLayoutMode: value ? 'navicat' : 'classic' })} />;
     if (key === 'scale') return <InputNumber aria-label={label} min={80} max={125} step={5} value={Math.round(scale * 100)} addonAfter="%" onChange={value => { if (value !== null) setScale(value / 100); }} />;
-    if (key === 'log') return <Switch aria-label={label} checked={log !== false} onChange={value => setQueryOptions({ autoShowSqlExecutionLog: value })} />;
+    if (key === 'log') return <Switch aria-label={label} checked={log !== false} onChange={value => setQueryOptions({ showSqlExecutionLog: value })} />;
     if (key === 'lowSpec') return <Switch aria-label={label} checked={resolveLowSpecModeActive(appearance.lowSpecMode, detectRuntimeCapabilityCached().lowSpec)} onChange={value => setAppearance({ lowSpecMode: value })} />;
     if (key === 'doubleClick') return <Select aria-label={label} value={appearance.tableDoubleClickAction} options={[
       { value: 'open-data', label: t('app.theme.data_table.table_double_click_action.open_data') },
