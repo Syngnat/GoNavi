@@ -2,6 +2,7 @@ import { getDataSourceDialectFamily, getDataSourceSpec, getDataSourceSpecByDiale
 import { pluginDataSourceConfigType, parsePluginDataSourceType } from '../plugins/dataSource/identity';
 import { resolveOceanBaseProtocolForDialect } from './oceanBaseProtocol';
 import { splitQualifiedNameSegmentsDetailed, splitQualifiedNameSegments } from './qualifiedName';
+import { quoteInterSystemsIdent } from './intersystemsIdentifiers';
 
 export type ColumnTypeOption = { value: string };
 
@@ -312,6 +313,12 @@ export const quoteSqlIdentifierPart = (dbType: string, part: string): string => 
   }
   if (isSqlServerDialect(dialect)) {
     return `[${escapeBracketIdentifier(ident)}]`;
+  }
+  // IRIS/Caché 的双引号只在服务端开启 DelimitedIds 时才是标识符定界符；关闭时会被当成
+  // 字符串字面量（`FROM "BDA_Store"` 报 LITERAL ('BDA_Store') found）。裸名在两种配置下
+  // 都能解析且大小写不敏感，所以按需加引号，规则与 PostgreSQL 的大小写折叠不同。
+  if (dialect === 'iris') {
+    return quoteInterSystemsIdent(ident);
   }
   // 描述表声明“按需加引号”的自有方言（如 GBase 8s）与 PostgreSQL 规则一致。
   if (isPgLikeDialect(dialect) || getDataSourceSpecByDialect(dialect)?.ui?.quoting === 'pg') {

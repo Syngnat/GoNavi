@@ -71,10 +71,87 @@ func irisSQLLiteral(raw string) string {
 	return strings.ReplaceAll(raw, "'", "''")
 }
 
+// irisReservedWords 是 IRIS 2026.1 $SYSTEM.SQL.IsReservedWord 的实测结果；TOP 是该 API
+// 未列出、但 IRIS 用作行数限定的关键字，一并按保留字处理。ORDER / VALUE / INDEX / KEY /
+// NAME 等不在此列，可裸写。
+var irisReservedWords = map[string]struct{}{
+	"ABSOLUTE": {}, "ADD": {}, "ALL": {}, "ALLOCATE": {}, "ALTER": {}, "AND": {},
+	"ANY": {}, "ARE": {}, "AS": {}, "ASC": {}, "ASSERTION": {}, "AT": {}, "AVG": {},
+	"BEGIN": {}, "BETWEEN": {}, "BIT": {}, "BIT_LENGTH": {}, "BOTH": {}, "BY": {},
+	"CASCADE": {}, "CASE": {}, "CAST": {}, "CHAR": {}, "CHARACTER": {},
+	"CHAR_LENGTH": {}, "CHECK": {}, "CLOSE": {}, "COALESCE": {}, "COLLATE": {},
+	"COMMIT": {}, "CONNECT": {}, "CONNECTION": {}, "CONSTRAINT": {},
+	"CONSTRAINTS": {}, "CONTINUE": {}, "CONVERT": {}, "COUNT": {}, "CREATE": {},
+	"CROSS": {}, "CURRENT": {}, "CURRENT_DATE": {}, "CURRENT_TIME": {},
+	"CURRENT_TIMESTAMP": {}, "CURRENT_USER": {}, "CURSOR": {}, "DATE": {},
+	"DEALLOCATE": {}, "DEC": {}, "DECIMAL": {}, "DECLARE": {}, "DEFAULT": {},
+	"DEFERRABLE": {}, "DELETE": {}, "DESC": {}, "DESCRIBE": {}, "DESCRIPTOR": {},
+	"DIAGNOSTICS": {}, "DISCONNECT": {}, "DISTINCT": {}, "DOMAIN": {}, "DOUBLE": {},
+	"DROP": {}, "ELSE": {}, "END": {}, "ESCAPE": {}, "EXCEPT": {}, "EXCEPTION": {},
+	"EXEC": {}, "EXECUTE": {}, "EXISTS": {}, "EXTERNAL": {}, "EXTRACT": {},
+	"FALSE": {}, "FETCH": {}, "FIRST": {}, "FLOAT": {}, "FOR": {}, "FOREIGN": {},
+	"FOUND": {}, "FROM": {}, "FULL": {}, "GET": {}, "GLOBAL": {}, "GO": {},
+	"GOTO": {}, "GRANT": {}, "GROUP": {}, "HAVING": {}, "HOUR": {}, "IDENTITY": {},
+	"IMMEDIATE": {}, "IN": {}, "INDICATOR": {}, "INITIALLY": {}, "INNER": {},
+	"INPUT": {}, "INSENSITIVE": {}, "INSERT": {}, "INT": {}, "INTEGER": {},
+	"INTERSECT": {}, "INTERVAL": {}, "INTO": {}, "IS": {}, "ISOLATION": {},
+	"JOIN": {}, "LANGUAGE": {}, "LAST": {}, "LEADING": {}, "LEFT": {}, "LEVEL": {},
+	"LIKE": {}, "LOCAL": {}, "LOWER": {}, "MATCH": {}, "MAX": {}, "MIN": {},
+	"MINUTE": {}, "MODULE": {}, "NAMES": {}, "NATIONAL": {}, "NATURAL": {},
+	"NCHAR": {}, "NEXT": {}, "NO": {}, "NOT": {}, "NULL": {}, "NULLIF": {},
+	"NUMERIC": {}, "OCTET_LENGTH": {}, "OF": {}, "ON": {}, "ONLY": {}, "OPEN": {},
+	"OPTION": {}, "OR": {}, "OUTER": {}, "OUTPUT": {}, "OVERLAPS": {}, "PAD": {},
+	"PARTIAL": {}, "PREPARE": {}, "PRESERVE": {}, "PRIMARY": {}, "PRIOR": {},
+	"PRIVILEGES": {}, "PROCEDURE": {}, "PUBLIC": {}, "READ": {}, "REAL": {},
+	"REFERENCES": {}, "RELATIVE": {}, "RESTRICT": {}, "REVOKE": {}, "RIGHT": {},
+	"ROLLBACK": {}, "ROWS": {}, "SCHEMA": {}, "SCROLL": {}, "SECOND": {},
+	"SECTION": {}, "SELECT": {}, "SESSION_USER": {}, "SET": {}, "SMALLINT": {},
+	"SOME": {}, "SPACE": {}, "SQLERROR": {}, "SQLSTATE": {}, "SUBSTRING": {},
+	"SUM": {}, "SYSDATE": {}, "SYSTEM_USER": {}, "TABLE": {}, "TEMPORARY": {},
+	"THEN": {}, "TIME": {}, "TIMEZONE_HOUR": {}, "TO": {}, "TOP": {},
+	"TRAILING": {}, "TRANSACTION": {}, "TRIM": {}, "TRUE": {}, "UNION": {},
+	"UNIQUE": {}, "UPDATE": {}, "UPPER": {}, "USER": {}, "USING": {}, "VALUES": {},
+	"VARCHAR": {}, "VARYING": {}, "WHEN": {}, "WHENEVER": {}, "WHERE": {},
+	"WITH": {}, "WORK": {}, "WRITE": {},
+}
+
+// irisBareIdentifier 判定一个名字能否在 IRIS/Caché 里不加定界符直接使用：字母、下划线
+// 或 % 开头，其余为字母数字下划线，且不是保留字。% 开头是 IRIS 的系统投影约定
+// （%ID、%VID 等），裸写可用。
+func irisBareIdentifier(text string) bool {
+	if text == "" {
+		return false
+	}
+	for idx := 0; idx < len(text); idx++ {
+		ch := text[idx]
+		isLetter := (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+		isDigit := ch >= '0' && ch <= '9'
+		if idx == 0 {
+			if !isLetter && ch != '_' && ch != '%' {
+				return false
+			}
+			continue
+		}
+		if !isLetter && !isDigit && ch != '_' {
+			return false
+		}
+	}
+	_, reserved := irisReservedWords[strings.ToUpper(text)]
+	return !reserved
+}
+
+// irisQuoteIdent 按「能裸写就裸写」引用标识符，与前端 intersystemsIdentifiers.ts 同规则。
+//
+// IRIS/Caché 的双引号只在服务端开启 DelimitedIds 时才是标识符定界符；关闭时（默认
+// DelimitedIds=0）双引号是字符串字面量，`FROM "BDA_Store"` 会被解析成
+// `IDENTIFIER expected, LITERAL ('BDA_Store') found` 而不是表名。裸名在两种配置下都能
+// 解析，且未定界标识符大小写不敏感，所以不能像 PostgreSQL 那样一律加双引号。
 func irisQuoteIdent(name string) string {
 	text := cleanIRISIdentifier(name)
-	text = strings.ReplaceAll(text, `"`, `""`)
-	return `"` + text + `"`
+	if irisBareIdentifier(text) {
+		return text
+	}
+	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
 }
 
 func irisQuoteTable(raw string) string {

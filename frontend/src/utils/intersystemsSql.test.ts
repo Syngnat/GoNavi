@@ -60,9 +60,11 @@ describe('InterSystems table data pagination', () => {
     const tableSql = buildDataViewerBaseSelectSQL(dbType, 'Sample.Person', where);
     const order = buildOrderBySQL(dbType, [{ columnKey: 'ID', order: 'descend' }], ['ID']);
     const first = buildPaginatedSelectSQL(dbType, tableSql, order, 8, 0);
-    expect(first).toBe('SELECT TOP 8 * FROM "Sample"."Person" WHERE ("ID" > \'190\') ORDER BY "ID" DESC');
+    // IRIS/Caché 只在 DelimitedIds 打开时把双引号当定界符；裸名在开/关两种服务端配置下都能
+    // 解析，所以这里不加引号（加了反而在关闭 DelimitedIds 的服务端报 LITERAL found）。
+    expect(first).toBe('SELECT TOP 8 * FROM Sample.Person WHERE (ID > \'190\') ORDER BY ID DESC');
     const second = buildPaginatedSelectSQL(dbType, tableSql, order, 8, 7);
-    expect(second).toContain('SELECT TOP ALL * FROM "Sample"."Person" WHERE ("ID" > \'190\') ORDER BY "ID" DESC');
+    expect(second).toContain('SELECT TOP ALL * FROM Sample.Person WHERE (ID > \'190\') ORDER BY ID DESC');
     expect(second).toContain('WHERE __gonavi_page__.%VID > 7 AND __gonavi_page__.%VID <= 15');
     expect(second).toMatch(/ORDER BY __gonavi_page__.%VID$/);
     expectLegacyCompatible(first);
@@ -110,7 +112,7 @@ describe('InterSystems query result pagination', () => {
       sortInfo: [{ columnKey: 'Name', order: 'ascend' }],
     });
     expect(sql).toContain('SELECT TOP 10 ID, Name FROM Sample.Person ORDER BY ID DESC');
-    expect(sql).toContain(') __gonavi_query_page__ ORDER BY "Name" ASC');
+    expect(sql).toContain(') __gonavi_query_page__ ORDER BY Name ASC');
     expect(sql).toContain('%VID > 7 AND __gonavi_page__.%VID <= 14');
     expectLegacyCompatible(sql);
   });
