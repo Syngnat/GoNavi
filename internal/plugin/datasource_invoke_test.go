@@ -155,7 +155,10 @@ func TestDataSourceDedicatedDisableCancelsInFlight(t *testing.T) {
 	if _, err := manager.SetEnabled(ctx, status.Manifest.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if time.Since(start) > 300*time.Millisecond {
+	// 与 TestDisableNeverWaitsForBusyPlugin 同一套判断：这里要证明的是
+	// 「disable 不等 datasource 配合」，不是测调度精度。真正的等待会等满
+	// fixture 的阻塞时长（秒级），Windows CI 上 300ms 会被进程调度抖动打穿。
+	if time.Since(start) > time.Second {
 		t.Fatal("disable waited for datasource cooperation")
 	}
 	select {
