@@ -24,9 +24,10 @@ import {
   resolveNativeDetachPreferredBounds,
   shouldDetachAfterNativePointerCancel,
 } from '../../../utils/detachedWindow';
-import { installTabDetachDragGuards, DraggableTabNode } from '../tabDragGuards';
+import { installTabDetachDragGuards } from '../tabDragGuards';
 import { buildDetachDragPreviewState } from '../../DetachDragPreview';
-import { QueryEditorRunningTabsDock } from '../../queryEditor/QueryEditorRunningTabsDock';
+import { renderWorkbenchTabBar } from '../TabOverflowMenu';
+import { closeWorkbenchTabOverflowPopup } from '../tabOverflowModel';
 import { resolveConnectionEnvironmentPresentation } from '../../../utils/connectionEnvironment';
 import {
   resolveQueryTabRenameMenuState,
@@ -313,14 +314,30 @@ export const useTabManagerItems = ({
 
   const tabCloseButtonPosition = sanitizeTabCloseButtonPosition(appearance.tabCloseButtonPosition);
 
-  const renderTabBar: TabsProps['renderTabBar'] = (tabBarProps, DefaultTabBar) => (
-    // 探针子树计时（默认关闭时空操作）：标签条自身的渲染成本独立成一段归因。
-    <TabSwitchPhaseProfiler phase="tab-bar">
-      <DefaultTabBar {...tabBarProps} extra={<QueryEditorRunningTabsDock />}>
-        {(node) => <DraggableTabNode key={node.key} node={node} />}
-      </DefaultTabBar>
-    </TabSwitchPhaseProfiler>
-  );
+  const renderTabBar: TabsProps['renderTabBar'] = useMemo(() => renderWorkbenchTabBar({
+    tabs: dockedTabs,
+    activeTabId,
+    connections,
+    tabDisplay: appearance.tabDisplay,
+    connectionGroupNameById,
+    onActivate: (tabId) => {
+      setActiveTab(tabId);
+      closeWorkbenchTabOverflowPopup();
+    },
+    onClose: (tabId) => {
+      closeTabsWithSQLFilePrompt([tabId], () => closeTab(tabId));
+    },
+  }, t('tab_manager.overflow.more_aria')), [
+    activeTabId,
+    appearance.tabDisplay,
+    closeTab,
+    closeTabsWithSQLFilePrompt,
+    connectionGroupNameById,
+    connections,
+    dockedTabs,
+    languagePreference,
+    setActiveTab,
+  ]);
 
   const items = useMemo(() => dockedTabs.map((tab, index) => {
     const connection = connections.find((conn) => conn.id === tab.connectionId);

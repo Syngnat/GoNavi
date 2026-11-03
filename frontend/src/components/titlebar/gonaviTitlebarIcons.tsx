@@ -347,10 +347,12 @@ export function TitlebarDriverIcon({ size, className }: GonaviTitlebarIconProps)
 }
 
 /**
- * 插件（插件管理）：强调色拼图块（顶部 + 右侧各一个凸扣），与「驱动管理」同用强调色系，
- * 表达「扩展 / 管理类工具」；不用齿轮或立方体，避免与「设置」「驱动管理」混淆。
+ * 插件（插件管理）：2×2 圆角色块，零件和「新建查询」表格格、「数据工作流」节点一样——
+ * 主体色实心块 + 亮点色一块，铺满 24×24。不用拼图榫头，那套剪贴画和左侧象形标不是一家。
  */
 export function TitlebarPluginIcon({ size, className }: GonaviTitlebarIconProps) {
+  const primary = GONAVI_TITLEBAR_ICON_COLORS.primary;
+  const highlight = GONAVI_TITLEBAR_ICON_COLORS.highlight;
   return (
     <svg
       viewBox="0 0 24 24"
@@ -360,12 +362,10 @@ export function TitlebarPluginIcon({ size, className }: GonaviTitlebarIconProps)
       aria-hidden="true"
       focusable="false"
     >
-      <path
-        d="M5 8h3.3a2.2 2.2 0 1 1 4.4 0H16v3.3a2.2 2.2 0 1 1 0 4.4V19H5Z"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-        style={{ fill: GONAVI_TITLEBAR_ICON_COLORS.accent, stroke: GONAVI_TITLEBAR_ICON_COLORS.accent }}
-      />
+      <rect x="2.6" y="3.4" width="8.8" height="8.8" rx="2.4" style={{ fill: primary }} />
+      <rect x="13" y="3.4" width="8.8" height="8.8" rx="2.4" style={{ fill: primary }} />
+      <rect x="2.6" y="13.8" width="8.8" height="8.8" rx="2.4" style={{ fill: primary }} />
+      <rect x="13" y="13.8" width="8.8" height="8.8" rx="2.4" style={{ fill: highlight }} />
     </svg>
   );
 }
