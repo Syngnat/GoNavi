@@ -377,9 +377,9 @@ body[data-ui-version="v2"] .gn-v2-tab-label-secondary {
   min-width: 0;
   display: flex;
   align-items: center;
-  /* 间距收紧到 2px：10px 字号下 4px 的间隙显得松散，省下的宽度能让
-     前面几段完整显示更多字符。 */
-  gap: 2px;
+  /* 分隔符两侧不留间距：目标是「SQL·[KingBase]」这种紧凑写法，
+     有任何 gap 都会变成「SQL · [KingBase]」，既松散又浪费宽度。 */
+  gap: 0;
   overflow: hidden;
   color: var(--gn-fg-4);
   font-family: var(--gn-font-mono);
