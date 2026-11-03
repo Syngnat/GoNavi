@@ -14,7 +14,7 @@ import { closeWorkbenchTabOverflowPopup } from './tabOverflowModel';
 
 const TABS: TabData[] = [
   { id: 'tab-query', title: '新建查询', type: 'query', connectionId: 'conn-1' },
-  { id: 'tab-plugin', title: '插件', type: 'plugin-manager' },
+  { id: 'tab-plugin', title: '插件', type: 'plugin-manager', connectionId: '' },
 ];
 
 describe('TabOverflowMenu', () => {
@@ -114,7 +114,7 @@ describe('TabOverflowMenu', () => {
       onActivate: vi.fn(),
       onClose: vi.fn(),
     }, 'Show hidden tabs');
-    expect(more.getPopupContainer?.()).toBe(document.body);
+    expect(more.getPopupContainer?.(document.createElement('div'))).toBe(document.body);
     expect(more.overlayStyle).toEqual({ position: 'absolute' });
     expect(more.minOverlayWidthMatchTrigger).toBe(false);
     expect(React.isValidElement(more.overlay)).toBe(true);

@@ -29,6 +29,7 @@ const pluginTab: TabData = {
   id: 'tab-plugin',
   title: '插件',
   type: 'plugin-manager',
+  connectionId: '',
 };
 
 describe('tab overflow model', () => {
