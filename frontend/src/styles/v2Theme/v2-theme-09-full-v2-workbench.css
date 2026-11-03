@@ -696,14 +696,27 @@ body[data-ui-version="v2"] .gn-v2-tab-strip__list {
   min-width: 0;
 }
 
+/* 外层承担原来 .ant-tabs-tab + .ant-tabs-tab-btn 两层的职责：
+   固定宽度、flex 行内布局、内容垂直居中。.gn-v2-tab-label 依赖父级是
+   flex 容器（它自己只有 width/height/gap，没有 display），少了这层会
+   退化成普通流式盒，宽度算错、标签互相重叠。 */
 body[data-ui-version="v2"] .gn-v2-tab-strip__tab {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
   height: 30px;
   min-width: 0;
   padding: 0;
   border-radius: 8px;
   overflow: hidden;
   cursor: default;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__tab > * {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  width: 100%;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-strip__tab.is-active {
