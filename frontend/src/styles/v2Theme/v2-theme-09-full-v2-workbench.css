@@ -377,13 +377,15 @@ body[data-ui-version="v2"] .gn-v2-tab-label-secondary {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  /* 间距收紧到 2px：10px 字号下 4px 的间隙显得松散，省下的宽度能让
+     前面几段完整显示更多字符。 */
+  gap: 2px;
   overflow: hidden;
   color: var(--gn-fg-4);
   font-family: var(--gn-font-mono);
   font-size: 10px;
   font-weight: 650;
-  /* 12px 行高对 10px 字号余量太紧，中文字形的下缘会贴到盒底被 overflow 裁掉。 */
+  /* 14px 行高：12px 时中文字形的下缘会贴到盒底被 overflow 裁掉。 */
   line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -412,8 +414,9 @@ body[data-ui-version="v2"] .gn-v2-tab-label-part-object {
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-part-connection {
+  /* 不设 max-width：标签已是固定宽度，再给单个片断加 92px 上限会让
+     「[KingBase]」这类短文本也被截成「[KingBa…」，前面的内容永远显示不全。 */
   flex: 0 1 auto;
-  max-width: 92px;
   color: var(--gn-fg-2);
   font-family: var(--gn-font-mono);
   font-weight: 700;
@@ -423,8 +426,8 @@ body[data-ui-version="v2"] .gn-v2-tab-label-part-host,
 body[data-ui-version="v2"] .gn-v2-tab-label-part-database,
 body[data-ui-version="v2"] .gn-v2-tab-label-part-schema,
 body[data-ui-version="v2"] .gn-v2-tab-label-part-group {
+  /* 同上：宽度由标签容量决定，不再给单个片断设 112px 上限。 */
   flex: 0 2 auto;
-  max-width: 112px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-part-host {
@@ -689,6 +692,9 @@ body[data-ui-version="v2"] .gn-v2-tab-strip {
   padding: 0 6px;
   background: var(--gn-bg-panel-2);
   overflow: hidden;
+  /* 字号原先由 antd 的 .ant-tabs 提供，自绘后没有继承源，标题会落到
+     正文字号（16px）上，比第二行 10px 大出一大截。 */
+  font-size: var(--gn-font-size-sm, 12px);
 }
 
 /* 双行标签（标题 + 副标题）需要更高的行高；--gn-v2-tab-row-height 同时
