@@ -1,5 +1,4 @@
 /** @vitest-environment jsdom */
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import TestRenderer, { act } from 'react-test-renderer';
 
@@ -138,21 +137,5 @@ describe('refresh table data shortcut', () => {
         press(inner, 'F5');
         expect(onRefresh).not.toHaveBeenCalled();
         unmount();
-    });
-});
-
-describe('DataGrid → DataGridShell wiring', () => {
-    // 回归护栏：hook 挂在 DataGridShell，而 isActive / shortcutOptions 由 DataGrid
-    // 传入。漏传时 isActive 恒为 false、hook 静默不装监听——快捷键「完全没反应」，
-    // 单测却全绿。这里直接对源码断言，避免再次漏接。
-    it('passes isActive and shortcutOptions from DataGrid into the shell', () => {
-        // jsdom 环境下 import.meta.url 不是 file: 协议，按 vitest 的 root
-        // （frontend/）取相对路径。
-        const source = readFileSync('src/components/DataGrid.tsx', 'utf8');
-        const start = source.indexOf('<DataGridShell');
-        const block = source.slice(start, source.indexOf('}}', start));
-
-        expect(block).toMatch(/\bisActive\b/);
-        expect(block).toMatch(/\bshortcutOptions\b/);
     });
 });

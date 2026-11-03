@@ -1,4 +1,5 @@
 import { Space, Checkbox, AutoComplete, Input, Select } from 'antd';
+import type { QueryEditorMonacoLanguage } from '../queryEditor/queryEditorEditorState';
 import Modal from '../common/ResizableDraggableModal';
 import { t } from '../../i18n';
 import {
@@ -42,6 +43,7 @@ export interface TableDesignerDialogsProps {
   darkMode: TableDesignerStateApi['darkMode'];
   selectedColumns: TableDesignerColumnEditsApi['selectedColumns'];
   tab: TableDesignerProps['tab'];
+  sqlMonacoLanguage: QueryEditorMonacoLanguage;
   selectedSchema: TableDesignerStateApi['selectedSchema'];
   copyColumnsRpcConfig: TableDesignerDialectSupportApi['copyColumnsRpcConfig'];
   charset: TableDesignerStateApi['charset'];
@@ -100,7 +102,7 @@ export const TableDesignerDialogs = ({
   handleSaveColumnOptions, columnDefaultEnabled, setColumnDefaultEnabled, getDbType,
   commentEditorColumnType, columnDefaultValue, setColumnDefaultValue, columnCharset,
   setColumnCharset, setColumnCollation, charsetOptions, columnCollation, collationOptions,
-  commentEditorValue, setCommentEditorValue, isCopyColumnsModalOpen, darkMode, selectedColumns, tab,
+  commentEditorValue, setCommentEditorValue, isCopyColumnsModalOpen, darkMode, selectedColumns, tab, sqlMonacoLanguage,
   selectedSchema, copyColumnsRpcConfig, charset, collation, buildCreateTableSql,
   handleCopyColumnsExecute, setIsCopyColumnsModalOpen, isNewTable, isTableCommentModalOpen,
   setIsTableCommentModalOpen, handleSaveTableComment, tableCommentSaving, tableCommentDraft,
@@ -394,13 +396,12 @@ export const TableDesignerDialogs = ({
                 <div style={{ border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
                     <Editor
                         height="350px"
-                        language="sql"
+                        language={sqlMonacoLanguage}
                         theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                         value={selectedTrigger.statement}
                         options={{
                             readOnly: true,
                             minimap: { enabled: false },
-                            fontSize: 14,
                             lineNumbers: 'on',
                             scrollBeyondLastLine: false,
                             wordWrap: 'on',
@@ -434,13 +435,12 @@ export const TableDesignerDialogs = ({
         <div style={{ border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
             <Editor
                 height="350px"
-                language="sql"
-                theme={darkMode ? 'vs-dark' : 'light'}
+                language={sqlMonacoLanguage}
+                theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                 value={triggerEditSql}
                 onChange={(val) => setTriggerEditSql(val || '')}
                 options={{
                     minimap: { enabled: false },
-                    fontSize: 14,
                     lineNumbers: 'on',
                     scrollBeyondLastLine: false,
                     wordWrap: 'on',

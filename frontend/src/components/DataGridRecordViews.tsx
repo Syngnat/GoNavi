@@ -315,7 +315,6 @@ export const DataGridJsonView: React.FC<DataGridJsonViewProps> = ({
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             wordWrap: 'off',
-            fontSize: 12,
             tabSize: 2,
             automaticLayout: true,
           }}

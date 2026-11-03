@@ -7,10 +7,15 @@ import { DataGridShellToolbar } from './dataGrid/shell/DataGridShellToolbar';
 import { DataGridShellBody } from './dataGrid/shell/DataGridShellBody';
 import { DataGridShellRowEditorModal } from './dataGrid/shell/DataGridShellRowEditorModal';
 import { useDataGridCopyContent } from './dataGrid/copy/useDataGridCopyContent';
+import type { ShortcutOptions } from '../utils/shortcutDefinitions';
 import { DataGridCopyContentMenu } from './dataGrid/copy/DataGridCopyContentMenu';
 export { DataGridTableSurface } from './dataGrid/shell/DataGridTableSurface';
 
-export type DataGridShellProps = Record<string, any>;
+export type DataGridShellProps = Record<string, any> & {
+  // 刷新快捷键依赖这两项：漏传会让 hook 静默不装监听，这里用类型钉住而不是测试文本断言。
+  isActive: boolean;
+  shortcutOptions: ShortcutOptions;
+};
 
 const DataGridShell: React.FC<DataGridShellProps> = (props) => {
   const {

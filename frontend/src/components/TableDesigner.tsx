@@ -8,6 +8,7 @@ import type {
   SchemaExecutionResult,
 } from './tableDesigner/tableDesignerTypes';
 import { useTableDesignerState } from './tableDesigner/hooks/useTableDesignerState';
+import { resolveQueryEditorMonacoLanguage } from './queryEditor/queryEditorEditorState';
 import { useTableDesignerDataLoad } from './tableDesigner/hooks/useTableDesignerDataLoad';
 import { useTableDesignerTriggerList } from './tableDesigner/hooks/useTableDesignerTriggerList';
 import { useTableDesignerColumnEdits } from './tableDesigner/hooks/useTableDesignerColumnEdits';
@@ -77,6 +78,11 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
       indexColumns, setIndexColumns, resizeDragRef, resizeRafRef, latestResizeXRef, ghostRef,
       resizeBodyStyleRef, resizeListenerRef, sensors,
   } = useTableDesignerState({ tab });
+
+  // 设计器内的 SQL 视图与查询编辑器共用同一分词器，避免同一段 DDL/触发器 SQL 出现两套关键字配色。
+  const sqlMonacoLanguage = resolveQueryEditorMonacoLanguage(
+    connections.find((connection) => connection.id === tab.connectionId),
+  );
 
   const handleColumnChangeLate = useLateBoundCallback<(key: string, field: keyof EditableColumn, value: any) => void>();
   const handleDeleteColumnLate = useLateBoundCallback<(key: string) => void>();
@@ -264,7 +270,7 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
           openCopySelectedColumnsModal={openCopySelectedColumnsModal}
         />
         <TableDesignerTabs
-          activeKey={activeKey} setActiveKey={setActiveKey} embedded={embedded}
+          activeKey={activeKey} setActiveKey={setActiveKey} embedded={embedded} sqlMonacoLanguage={sqlMonacoLanguage}
           panelRadius={panelRadius} panelFrameColor={panelFrameColor} panelBodyBg={panelBodyBg}
           isTDengineNewTable={isTDengineNewTable} i18nLanguage={i18nLanguage}
           tdengineCombinedTabContent={tdengineCombinedTabContent}
@@ -310,7 +316,7 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
           i18nLanguage={i18nLanguage}
         />
         <TableDesignerDialogs
-          commentEditorColumnName={commentEditorColumnName} i18nLanguage={i18nLanguage}
+          commentEditorColumnName={commentEditorColumnName} i18nLanguage={i18nLanguage} sqlMonacoLanguage={sqlMonacoLanguage}
           isCommentModalOpen={isCommentModalOpen} closeCommentEditor={closeCommentEditor}
           handleSaveColumnOptions={handleSaveColumnOptions}
           columnDefaultEnabled={columnDefaultEnabled}

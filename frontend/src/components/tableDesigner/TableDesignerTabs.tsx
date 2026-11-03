@@ -1,4 +1,5 @@
 import { Tabs, Button, Table, Empty } from 'antd';
+import type { QueryEditorMonacoLanguage } from '../queryEditor/queryEditorEditorState';
 import React from 'react';
 import {
   PlusOutlined,
@@ -68,6 +69,7 @@ export interface TableDesignerTabsProps {
   triggersLoading: TableDesignerStateApi['triggersLoading'];
   setSelectedTrigger: TableDesignerStateApi['setSelectedTrigger'];
   ddl: TableDesignerStateApi['ddl'];
+  sqlMonacoLanguage: QueryEditorMonacoLanguage;
 }
 
 export const TableDesignerTabs = ({
@@ -80,7 +82,7 @@ export const TableDesignerTabs = ({
   openCreateForeignKeyModal, selectedForeignKey, openEditForeignKeyModal, handleDeleteForeignKey,
   groupedForeignKeys, foreignKeysLoading, tableHeight, setSelectedForeignKey, selectedTrigger,
   setIsTriggerModalOpen, handleCreateTrigger, handleEditTrigger, handleDeleteTrigger, triggers,
-  triggersLoading, setSelectedTrigger, ddl,
+  triggersLoading, setSelectedTrigger, ddl, sqlMonacoLanguage,
 }: TableDesignerTabsProps) => (
   <Tabs
       className={'gn-v2-designer-tabs'}
@@ -325,13 +327,12 @@ export const TableDesignerTabs = ({
                   <div className={'gn-v2-designer-ddl-shell'} style={{ height: '100%', minHeight: 320, border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
                       <Editor
                           height="100%"
-                          language="sql"
+                          language={sqlMonacoLanguage}
                           theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                           value={ddl}
                           options={{
                               readOnly: true,
                               minimap: { enabled: false },
-                              fontSize: 14,
                               lineNumbers: 'on',
                               scrollBeyondLastLine: true,
                               wordWrap: 'on',

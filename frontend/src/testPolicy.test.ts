@@ -29,6 +29,8 @@ const baseline = new Set(
 
 /** 经评审认可的全局不变式扫描用例：读源码是为了覆盖全仓库，而非锁定某个文件的实现文本 */
 const SANCTIONED_GLOBAL_SCANNERS = new Set([
+  // 全局不变式：所有 Monaco 调用点必须共用同一套排版与分词器设置
+  'components/monacoFontPinning.test.ts',
   'i18n/keyResolution.test.ts',
   'testPolicy.test.ts',
 ]);
