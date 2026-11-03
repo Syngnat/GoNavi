@@ -49,7 +49,6 @@ import {
   getCloseTabsToRightIds,
 } from '../tabManagerCloseHelpers';
 import { SortableTabLabel } from '../SortableTabLabel';
-import { WorkbenchTabStrip } from '../WorkbenchTabStrip';
 import WorkbenchTabContent from '../../WorkbenchTabContent';
 import { TabSwitchPhaseProfiler } from '../../../utils/tabSwitchProbe';
 import { getDataSourceCapabilities } from '../../../utils/dataSourceCapabilities';
@@ -314,19 +313,12 @@ export const useTabManagerItems = ({
 
   const tabCloseButtonPosition = sanitizeTabCloseButtonPosition(appearance.tabCloseButtonPosition);
 
-  // 自绘标签条：antd 自带的收纳把溢出项塞进大卡片，改成紧凑的单行「更多」。
-  // items 仍全量交给 Tabs，pane 的渲染与状态保留不受影响。
-  const renderTabBar: TabsProps['renderTabBar'] = (tabBarProps) => (
+  const renderTabBar: TabsProps['renderTabBar'] = (tabBarProps, DefaultTabBar) => (
+    // 探针子树计时（默认关闭时空操作）：标签条自身的渲染成本独立成一段归因。
     <TabSwitchPhaseProfiler phase="tab-bar">
-      <WorkbenchTabStrip
-        items={stripItems}
-        activeKey={tabBarProps.activeKey}
-        onTabClick={tabBarProps.onTabClick}
-        extra={<QueryEditorRunningTabsDock />}
-        renderTab={({ key, element }) => <DraggableTabNode key={key} node={element} />}
-        describeHiddenTab={describeStripTab}
-        t={t}
-      />
+      <DefaultTabBar {...tabBarProps} extra={<QueryEditorRunningTabsDock />}>
+        {(node) => <DraggableTabNode key={node.key} node={node} />}
+      </DefaultTabBar>
     </TabSwitchPhaseProfiler>
   );
 
@@ -439,27 +431,6 @@ export const useTabManagerItems = ({
       ),
     };
   }), [dockedTabs, tabs, connections, connectionGroupNameById, appearance.tabDisplay, appearance.tabCloseButtonPosition, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, true, languagePreference, shouldDestroyHiddenTab]);
-
-  // 标签条只需要 key + label；label 本身是完整的 SortableTabLabel（含右键菜单
-  // 与关闭按钮），所以自绘条不必再实现这些交互。
-  const stripItems = useMemo(
-    () => items.map((item) => ({ key: String(item.key), label: item.label })),
-    [items],
-  );
-  // 「更多」菜单是单行紧凑版：标题取完整标题，元信息取「类型 · 库 · 连接」。
-  const describeStripTab = useCallback((key: string) => {
-    const tab = dockedTabs.find((candidate) => candidate.id === key);
-    if (!tab) return { title: key };
-    const connection = connections.find((conn) => conn.id === tab.connectionId);
-    const model = buildTabDisplayModel(
-      tab, connection, appearance.tabDisplay, t,
-      getConnectionGroupName(connectionGroupNameById, tab.connectionId),
-    );
-    const meta = [tab.type, tab.dbName, connection?.name]
-      .filter(Boolean).join(' · ');
-    return { title: model.fullTitle, meta };
-  }, [dockedTabs, connections, appearance.tabDisplay, connectionGroupNameById, t]);
-
 
   const queryCapableConnections = useMemo(
     () => connections.filter((connection) => getDataSourceCapabilities(connection.config).supportsQueryEditor),
