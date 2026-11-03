@@ -244,7 +244,6 @@ export const NacosConfigDetailPane = ({
                 minimap: { enabled: false },
                 lineNumbers: 'on',
                 wordWrap: 'on',
-                fontSize: 13,
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
                 folding: true,

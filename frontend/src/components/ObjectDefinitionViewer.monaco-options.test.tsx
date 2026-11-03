@@ -21,6 +21,18 @@ const storeState = vi.hoisted(() => ({
         database: 'main',
       },
     },
+    {
+      id: 'conn-mysql',
+      name: 'mysql',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+        password: '',
+        database: 'main',
+      },
+    },
   ],
   theme: 'light',
   addTab: vi.fn(),
@@ -46,9 +58,11 @@ vi.mock('@ant-design/icons', () => ({
 }));
 
 vi.mock('./MonacoEditor', () => ({
-  default: ({ value, options }: any) => (
+  default: ({ value, options, gonaviTypography, language }: any) => (
     <pre
       data-editor="true"
+      data-language={String(language)}
+      data-typography={String(gonaviTypography)}
       data-readonly={String(options?.readOnly)}
       data-sticky-scroll-enabled={String(options?.stickyScroll?.enabled)}
       data-font-size={String(options?.fontSize)}
@@ -131,9 +145,11 @@ describe('Object definition viewers Monaco options', () => {
     });
 
     const editor = renderer.root.findByProps({ 'data-editor': 'true' });
+    expect(editor.props['data-typography']).toBe('sql');
+    expect(editor.props['data-language']).toBe('sql');
     expect(editor.props['data-sticky-scroll-enabled']).toBe('false');
-    expect(editor.props['data-font-size']).toBe('14');
-    expect(editor.props['data-line-height']).toBe('24');
+    expect(editor.props['data-font-size']).toBe('undefined');
+    expect(editor.props['data-line-height']).toBe('undefined');
     expect(editor.props['data-line-numbers-min-chars']).toBe('4');
   });
 
@@ -145,6 +161,35 @@ describe('Object definition viewers Monaco options', () => {
     });
 
     const editor = renderer.root.findByProps({ 'data-editor': 'true' });
+    expect(editor.props['data-typography']).toBe('sql');
+    expect(editor.props['data-language']).toBe('sql');
     expect(editor.props['data-sticky-scroll-enabled']).toBe('false');
+    expect(editor.props['data-font-size']).toBe('undefined');
+  });
+
+  // MySQL 系连接的编辑器用 mysql 分词器；查看器必须跟着走，否则关键字配色不一致。
+  it('uses the same keyword tokenizer as the editor for mysql-family connections', async () => {
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [{ routine_definition: 'CREATE PROCEDURE p() BEGIN END;', trigger_definition: 'CREATE TRIGGER t BEFORE INSERT ON audit.users FOR EACH ROW BEGIN END;' }],
+    });
+
+    let routineRenderer: any;
+    await act(async () => {
+      routineRenderer = create(
+        renderWithI18n(<DefinitionViewer tab={{ ...routineTab, connectionId: 'conn-mysql' }} />),
+      );
+      await flushPromises();
+    });
+    expect(routineRenderer.root.findByProps({ 'data-editor': 'true' }).props['data-language']).toBe('mysql');
+
+    let triggerRenderer: any;
+    await act(async () => {
+      triggerRenderer = create(
+        renderWithI18n(<TriggerViewer tab={{ ...triggerTab, connectionId: 'conn-mysql' }} />),
+      );
+      await flushPromises();
+    });
+    expect(triggerRenderer.root.findByProps({ 'data-editor': 'true' }).props['data-language']).toBe('mysql');
   });
 });

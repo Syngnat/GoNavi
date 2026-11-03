@@ -312,7 +312,6 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             wordWrap: 'on',
-            fontSize: 14,
             tabSize: 2,
             automaticLayout: true,
           }}
@@ -375,7 +374,6 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             wordWrap: 'off',
-            fontSize: 12,
             tabSize: 2,
             automaticLayout: true,
           }}
@@ -410,7 +408,6 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             wordWrap: 'off',
-            fontSize: 12,
             tabSize: 2,
             automaticLayout: true,
           }}

@@ -429,7 +429,6 @@ const JVMDiagnosticConsole: React.FC<JVMDiagnosticConsoleProps> = ({ tab }) => {
                         onMount={handleCommandEditorMount}
                         options={{
                           minimap: { enabled: false },
-                          fontSize: 13,
                           automaticLayout: true,
                           scrollBeyondLastLine: false,
                           wordWrap: "on",

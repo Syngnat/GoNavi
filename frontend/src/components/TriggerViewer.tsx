@@ -21,6 +21,7 @@ import {
 import { findTriggerDefinitionStatement } from '../utils/triggerDefinition';
 import { buildSqlServerObjectDefinitionQueries } from '../utils/sqlServerObjectDefinition';
 import { useI18n } from '../i18n/provider';
+import { resolveQueryEditorMonacoLanguage } from './queryEditor/queryEditorEditorState';
 
 interface TriggerViewerProps {
     tab: TabData;
@@ -127,6 +128,10 @@ const TriggerViewer: React.FC<TriggerViewerProps> = ({ tab }) => {
     const addTab = useStore(state => state.addTab);
     const setActiveContext = useStore(state => state.setActiveContext);
     const darkMode = theme === 'dark';
+    // 查看器必须与编辑器共用分词器：查看与编辑同一段 SQL 时关键字配色才能一致。
+    const monacoLanguage = resolveQueryEditorMonacoLanguage(
+        connections.find((connection) => connection.id === tab.connectionId),
+    );
     const objectIdentityKey = [
         tab.connectionId,
         tab.dbName,
@@ -746,15 +751,14 @@ ${safeSchemaName ? `  AND n.nspname = '${safeSchemaName}'\n` : ''}${safeTableNam
                 <Editor
                     path={editorModelPath}
                     height="100%"
-                    language="sql"
+                    gonaviTypography="sql"
+                    language={monacoLanguage}
                     theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                     value={displayedDefinition}
                     onMount={handleEditorMount}
                     options={{
                         readOnly: true,
                         minimap: { enabled: false },
-                        fontSize: 14,
-                        lineHeight: 24,
                         lineNumbers: 'on',
                         lineNumbersMinChars: 4,
                         stickyScroll: { enabled: false },
