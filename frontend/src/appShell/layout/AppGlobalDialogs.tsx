@@ -75,6 +75,7 @@ export interface AppGlobalDialogsProps {
   openDownloadedUpdateDirectory: AppUpdateAndDiagnosticsApi['openDownloadedUpdateDirectory'];
   handleInstallUpdateRequest: AppQuitAndUpdateApi['handleInstallUpdateRequest'];
   updateInstallActionLabel: AppSettingsPanesRenderApi['updateInstallActionLabel'];
+  cancelUpdate: AppUpdateAndDiagnosticsApi['cancelUpdate'];
   isThemeModalOpen: AppProxySettingsApi['isThemeModalOpen'];
   themeModalSection: AppProxySettingsApi['themeModalSection'];
   setIsThemeModalOpen: AppProxySettingsApi['setIsThemeModalOpen'];
@@ -100,7 +101,8 @@ export const AppGlobalDialogs = ({
   handleReleaseNotesModalOpen, lastUpdateInfo, updateDownloadProgress, aboutInfo, formatBytes,
   updateInstallAction, markUpdateProgressDismissed, isLatestUpdateDownloaded,
   handleDownloadUpdateWithNotes, updateDownloadActionLabel, openDownloadedUpdateDirectory,
-  handleInstallUpdateRequest, updateInstallActionLabel, isThemeModalOpen, themeModalSection,
+  handleInstallUpdateRequest, updateInstallActionLabel, cancelUpdate, isThemeModalOpen,
+  themeModalSection,
   setIsThemeModalOpen, renderThemeSettingsContent, isProxyModalOpen, handleCloseGlobalProxySettings,
   renderProxySettingsContent, builtinAIAnnouncement, builtinAIAnnouncementShortcutLabel,
 }: AppGlobalDialogsProps) => (
@@ -281,6 +283,16 @@ export const AppGlobalDialogs = ({
                     }}
                 >
                     {t('app.about.action.hide_to_background')}
+                </Button>
+            ) : null,
+            // 网络卡住时可直接中止，不必等下完；取消后同一弹窗留着「下载更新」可以重来。
+            (updateDownloadProgress.status === 'start' || updateDownloadProgress.status === 'downloading') ? (
+                <Button
+                    key="cancel"
+                    danger
+                    onClick={() => { void cancelUpdate(); }}
+                >
+                    {t('app.about.action.cancel_update')}
                 </Button>
             ) : null,
             lastUpdateInfo?.hasUpdate

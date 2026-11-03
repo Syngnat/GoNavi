@@ -27,6 +27,7 @@ export interface UseAppUpdateDownloadInput {
   updateUserDismissedRef: AppUpdateStateApi['updateUserDismissedRef'];
   updateDownloadProgressRef: AppUpdateStateApi['updateDownloadProgressRef'];
   setUpdateDownloadProgress: AppUpdateStateApi['setUpdateDownloadProgress'];
+  captureUpdateDownloadTaskSession: AppUpdateStateApi['captureUpdateDownloadTaskSession'];
   isCurrentUpdateDownloadTaskSession: AppUpdateStateApi['isCurrentUpdateDownloadTaskSession'];
   applyUpdateDownloadTaskSnapshot: AppUpdateStateApi['applyUpdateDownloadTaskSnapshot'];
   refreshUpdateDownloadTask: AppUpdateStateApi['refreshUpdateDownloadTask'];
@@ -44,7 +45,8 @@ export const useAppUpdateDownload = ({
   t, updateDownloadInFlightRef, updateDownloadTaskStatusRef, updateDownloadedVersionRef,
   updateDownloadMetaRef, advanceUpdateDownloadTaskSession, updateDownloadStartRequestRef,
   updateUserDismissedRef, updateDownloadProgressRef, setUpdateDownloadProgress,
-  isCurrentUpdateDownloadTaskSession, applyUpdateDownloadTaskSnapshot, refreshUpdateDownloadTask,
+  captureUpdateDownloadTaskSession, isCurrentUpdateDownloadTaskSession,
+  applyUpdateDownloadTaskSnapshot, refreshUpdateDownloadTask,
   setInstallMode, setLastUpdateInfo, setAboutUpdateStatus, formatAboutUpdateStatus, lastUpdateInfo,
   lastUpdateKey, updateDownloadProgress, updateInstallTriggeredVersionRef,
 }: UseAppUpdateDownloadInput) => {
@@ -319,6 +321,62 @@ export const useAppUpdateDownload = ({
     return true;
   }, [lastUpdateInfo, lastUpdateKey, t, updateDownloadProgress.status]);
 
+  /**
+   * 取消进行中的更新包下载。网络卡住时用户不必等整个包下完就能中止重来，
+   * 后端会中断正在读取的请求并把任务标记为 canceled。
+   */
+  const cancelUpdate = useCallback(async (): Promise<boolean> => {
+    if (!isUpdateDownloadTaskActive(updateDownloadTaskStatusRef.current)) {
+      return false;
+    }
+    const backendApp = (window as any).go?.app?.App;
+    if (typeof backendApp?.CancelUpdateDownload !== 'function') {
+      void message.error(t('app.about.message.cancel_update_failed_with_error', { error: t('common.unknown') }));
+      return false;
+    }
+    const session = captureUpdateDownloadTaskSession();
+    let res: any = null;
+    try {
+      res = await backendApp.CancelUpdateDownload();
+    } catch (error: any) {
+      void message.error(t('app.about.message.cancel_update_failed_with_error', {
+        error: error?.message || t('common.unknown'),
+      }));
+      return false;
+    }
+    if (!isCurrentUpdateDownloadTaskSession(session)) {
+      return false;
+    }
+    if (!res?.success) {
+      void message.error(t('app.about.message.cancel_update_failed_with_error', {
+        error: res?.message || t('common.unknown'),
+      }));
+      return false;
+    }
+    const task = normalizeUpdateDownloadTaskSnapshot(res?.data?.task ?? res?.data);
+    if (task && applyUpdateDownloadTaskSnapshot(task, { session, source: 'cancel', notifyTerminal: true })) {
+      return true;
+    }
+    if (!isUpdateDownloadTaskActive(updateDownloadTaskStatusRef.current)) {
+      // 往返期间任务已自行结束（例如刚好下完），保留它真实的终态。
+      return true;
+    }
+    // 后端没有给出可应用的快照时，本地也必须脱离「下载中」，否则进度条会一直转。
+    const canceledProgress: UpdateDownloadProgressState = {
+      ...updateDownloadProgressRef.current,
+      status: 'canceled',
+      message: t('app.about.download_progress.canceled'),
+    };
+    updateDownloadTaskStatusRef.current = 'canceled';
+    updateDownloadProgressRef.current = canceledProgress;
+    setUpdateDownloadProgress(canceledProgress);
+    void message.info(t('app.about.message.update_download_canceled'));
+    return true;
+  }, [
+    applyUpdateDownloadTaskSnapshot, captureUpdateDownloadTaskSession,
+    isCurrentUpdateDownloadTaskSession, t, updateDownloadTaskStatusRef,
+  ]);
+
   const openDownloadedUpdateDirectory = useCallback(async () => {
     const backendApp = (window as any).go?.app?.App;
     if (typeof backendApp?.OpenDownloadedUpdateDirectory !== 'function') {
@@ -333,7 +391,7 @@ export const useAppUpdateDownload = ({
     void message.success(res?.message || t('app.about.message.install_directory_opened_manual_replace'));
   }, [t]);
   return {
-    downloadUpdate, showUpdateDownloadProgress, hideUpdateDownloadProgress,
+    downloadUpdate, cancelUpdate, showUpdateDownloadProgress, hideUpdateDownloadProgress,
     isLatestUpdateDownloaded, isBackgroundProgressForLatestUpdate, canShowProgressEntry,
     handleInstallFromProgress, openDownloadedUpdateDirectory,
   };

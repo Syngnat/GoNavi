@@ -112,8 +112,9 @@ export const useAppUpdateEffects = ({
           setInstallMode(normalizeUpdateInstallMode(eventInfo.installMode));
         }
         const status = event.status || 'downloading';
-        const nextStatus: 'idle' | 'start' | 'downloading' | 'done' | 'error' =
-          status === 'start' || status === 'downloading' || status === 'done' || status === 'error'
+        const nextStatus: 'idle' | 'start' | 'downloading' | 'done' | 'error' | 'canceled' =
+          status === 'start' || status === 'downloading' || status === 'done'
+            || status === 'error' || status === 'canceled'
             ? status
             : 'downloading';
         const downloaded = typeof event.downloaded === 'number' ? event.downloaded : 0;
@@ -138,6 +139,8 @@ export const useAppUpdateEffects = ({
               : t('app.about.download_progress.ready_to_install');
           } else if (nextStatus === 'start' || nextStatus === 'downloading') {
             eventMessageText = t('app.about.download_progress.downloading');
+          } else if (nextStatus === 'canceled') {
+            eventMessageText = t('app.about.download_progress.canceled');
           }
         }
         const nextProgress: UpdateDownloadProgressState = {

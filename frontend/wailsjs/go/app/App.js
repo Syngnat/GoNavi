@@ -102,6 +102,10 @@ export function CancelSavedConnectionsHealthRun(arg1) {
   return window['go']['app']['App']['CancelSavedConnectionsHealthRun'](arg1);
 }
 
+export function CancelUpdateDownload() {
+  return window['go']['app']['App']['CancelUpdateDownload']();
+}
+
 export function CheckDriverNetworkStatus() {
   return window['go']['app']['App']['CheckDriverNetworkStatus']();
 }

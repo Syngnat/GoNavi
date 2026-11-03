@@ -179,7 +179,8 @@ function App() {
   const {
     useNativeMacWindowControls, activeShortcutPlatform, titleBarNewQueryShortcut,
     titleBarNewConnectionShortcut, updateCenterBridgeRef, openReleaseNotesOnManualCheckRef,
-    aboutDisplayVersion, aboutInfo, aboutLoading, aboutUpdateStatus, changeUpdateChannel,
+    aboutDisplayVersion, aboutInfo, aboutLoading, aboutUpdateStatus, cancelUpdate,
+    changeUpdateChannel,
     checkForUpdates, formatBytes, handleInstallFromProgress, hideUpdateDownloadProgress,
     isBackgroundProgressForLatestUpdate, isCheckingForUpdates, isLatestUpdateDownloaded,
     isUpdateChannelLoading, isUpdateChannelSaving, installMode, lastUpdateInfo,
@@ -604,6 +605,7 @@ function App() {
             openDownloadedUpdateDirectory={openDownloadedUpdateDirectory}
             handleInstallUpdateRequest={handleInstallUpdateRequest}
             updateInstallActionLabel={updateInstallActionLabel}
+            cancelUpdate={cancelUpdate}
             isThemeModalOpen={isThemeModalOpen} themeModalSection={themeModalSection}
             setIsThemeModalOpen={setIsThemeModalOpen}
             renderThemeSettingsContent={renderThemeSettingsContent}

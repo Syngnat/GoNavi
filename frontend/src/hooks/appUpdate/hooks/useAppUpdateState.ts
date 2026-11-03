@@ -187,6 +187,9 @@ export const useAppUpdateState = ({ updateCenterBridgeRef, runtimeBuildType, t }
     if (task.status === 'start' || task.status === 'downloading') {
       return t('app.about.download_progress.downloading');
     }
+    if (task.status === 'canceled') {
+      return t('app.about.download_progress.canceled');
+    }
     return t('common.unknown');
   }, [t]);
 
@@ -324,6 +327,12 @@ export const useAppUpdateState = ({ updateCenterBridgeRef, runtimeBuildType, t }
             : (resolvedInfo?.downloadPath
               ? t('app.about.message.download_ready_install_with_path', { path: resolvedInfo.downloadPath })
               : t('app.about.message.download_ready_install')),
+          duration: 4,
+        });
+      } else if (task.status === 'canceled') {
+        // 用户主动取消不是失败：用提示而不是报错，并说明可以重新下载。
+        void message.info({
+          content: t('app.about.message.update_download_canceled'),
           duration: 4,
         });
       } else {

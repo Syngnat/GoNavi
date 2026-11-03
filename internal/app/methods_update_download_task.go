@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -51,6 +52,52 @@ func (a *App) StartUpdateDownload() connection.QueryResult {
 	return connection.QueryResult{Success: true, Data: map[string]interface{}{
 		"task":           task,
 		"alreadyRunning": false,
+	}}
+}
+
+// CancelUpdateDownload stops the active update package download so a stalled
+// network read can be abandoned and retried. The task is marked terminal before
+// the worker is interrupted, which keeps late progress from the canceled
+// download from overwriting the canceled snapshot; the partial package and
+// staging directory are removed by the download path itself.
+func (a *App) CancelUpdateDownload() connection.QueryResult {
+	if a == nil {
+		return connection.QueryResult{Success: false, Message: "application is not initialized"}
+	}
+	a.updateMu.Lock()
+	task := a.updateState.task
+	if !a.updateState.downloading || task == nil {
+		a.updateMu.Unlock()
+		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_not_running", nil)}
+	}
+	if !task.Running || task.Status == "done" || task.Status == "error" || task.Status == "canceled" {
+		// A worker that already reached a terminal state did the real work;
+		// reporting it as canceled would misrepresent a finished download.
+		a.updateMu.Unlock()
+		return connection.QueryResult{Success: true, Data: map[string]interface{}{
+			"task":            snapshotUpdateDownloadTask(task),
+			"alreadyFinished": true,
+		}}
+	}
+	cancel := a.updateState.taskCancel
+	a.updateState.taskCancel = nil
+	task.Status = "canceled"
+	task.Message = a.appText("app.update.backend.message.download_canceled", nil)
+	task.Running = false
+	task.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	// Advancing the revision invalidates the in-flight download's staging checks,
+	// so a canceled download can never publish a staged package.
+	a.updateState.downloading = false
+	a.updateState.revision++
+	snapshot := snapshotUpdateDownloadTask(task)
+	a.updateMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	a.emitUpdateDownloadTaskSnapshot(*snapshot)
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{
+		"task": snapshot,
 	}}
 }
 
@@ -128,11 +175,19 @@ func (a *App) prepareUpdateDownloadTask(reuseActive bool) (*updateDownloadTaskWo
 	a.updateState.revision++
 	task := newActiveUpdateDownloadTask(*info)
 	a.updateState.task = task
+	parentContext := a.ctx
+	if parentContext == nil {
+		parentContext = context.Background()
+	}
+	taskContext, cancel := context.WithCancel(parentContext)
+	a.updateState.taskCancel = cancel
 	work := &updateDownloadTaskWork{
 		taskID:   task.TaskID,
 		info:     *info,
 		channel:  channel,
 		revision: a.updateState.revision,
+		ctx:      taskContext,
+		cancel:   cancel,
 	}
 	a.updateMu.Unlock()
 	return work, snapshotUpdateDownloadTask(task), nil, false
@@ -140,20 +195,33 @@ func (a *App) prepareUpdateDownloadTask(reuseActive bool) (*updateDownloadTaskWo
 
 func (a *App) runUpdateDownloadTask(work updateDownloadTaskWork) (result connection.QueryResult) {
 	result = connection.QueryResult{Success: false, Message: "update download did not run"}
+	ctx := work.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			result = connection.QueryResult{Success: false, Message: fmt.Sprintf("update download panic: %v", recovered)}
 		}
-		a.finishUpdateDownloadTask(work.taskID, result)
+		// Read the context error before releasing it: a user cancellation must be
+		// recorded as "canceled" rather than as a generic download failure.
+		a.finishUpdateDownloadTask(work.taskID, result, ctx.Err())
+		if work.cancel != nil {
+			work.cancel()
+		}
 	}()
 
 	info := snapshotUpdateInfo(&work.info)
 	downloadRevision := work.revision
 	a.emitUpdateDownloadProgress(info, "start", 0, info.AssetSize, "")
-	result, downloadErr := a.downloadAndStageUpdate(*info, downloadRevision)
+	result, downloadErr := a.downloadAndStageUpdate(ctx, *info, downloadRevision)
 	mismatchRetries := 0
 	waitForCurrentAssetRetry := func() bool {
 		if mismatchRetries >= updateCurrentDevAssetRetryLimit {
+			return false
+		}
+		// A cancellation must not sit through the dev-channel retry backoff.
+		if ctx.Err() != nil {
 			return false
 		}
 		delay := currentDevAssetRetryDelay(mismatchRetries)
@@ -182,7 +250,7 @@ func (a *App) runUpdateDownloadTask(work updateDownloadTaskWork) (result connect
 			if !waitForCurrentAssetRetry() {
 				break
 			}
-			result, downloadErr = a.downloadAndStageUpdate(*info, downloadRevision)
+			result, downloadErr = a.downloadAndStageUpdate(ctx, *info, downloadRevision)
 			continue
 		}
 
@@ -205,9 +273,11 @@ func (a *App) runUpdateDownloadTask(work updateDownloadTaskWork) (result connect
 				break
 			}
 		}
-		result, downloadErr = a.downloadAndStageUpdate(*info, downloadRevision)
+		result, downloadErr = a.downloadAndStageUpdate(ctx, *info, downloadRevision)
 	}
-	if !result.Success {
+	// A canceled download is not a failure to report: the canceled snapshot is
+	// published by CancelUpdateDownload, and an "error" event here would fight it.
+	if !result.Success && !errors.Is(ctx.Err(), context.Canceled) {
 		a.emitUpdateDownloadProgress(info, "error", 0, info.AssetSize, result.Message)
 	}
 	return result
@@ -281,7 +351,7 @@ func snapshotUpdateDownloadResultFromQueryResult(result connection.QueryResult) 
 	}
 }
 
-func (a *App) finishUpdateDownloadTask(taskID string, result connection.QueryResult) {
+func (a *App) finishUpdateDownloadTask(taskID string, result connection.QueryResult, contextErr error) {
 	if a == nil {
 		return
 	}
@@ -291,7 +361,11 @@ func (a *App) finishUpdateDownloadTask(taskID string, result connection.QueryRes
 		a.updateMu.Unlock()
 		return
 	}
-	terminalAlreadyEmitted := task.Status == "done" || task.Status == "error"
+	if task.Running && errors.Is(contextErr, context.Canceled) {
+		task.Status = "canceled"
+		task.Message = a.appText("app.update.backend.message.download_canceled", nil)
+	}
+	terminalAlreadyEmitted := task.Status == "done" || task.Status == "error" || task.Status == "canceled"
 	if !terminalAlreadyEmitted {
 		if result.Success {
 			task.Status = "done"
@@ -312,6 +386,7 @@ func (a *App) finishUpdateDownloadTask(taskID string, result connection.QueryRes
 	}
 	task.Running = false
 	task.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	a.updateState.taskCancel = nil
 	a.updateState.downloading = false
 	a.updateState.revision++
 	snapshot := snapshotUpdateDownloadTask(task)
@@ -499,7 +574,7 @@ func (a *App) emitUpdateDownloadTaskSnapshot(task UpdateDownloadTaskStatus) {
 
 func normalizeUpdateDownloadTaskStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "start", "downloading", "done", "error":
+	case "start", "downloading", "done", "error", "canceled":
 		return strings.ToLower(strings.TrimSpace(status))
 	default:
 		return "downloading"

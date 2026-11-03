@@ -104,6 +104,7 @@ export const useAppUpdateAndDiagnostics = ({
       aboutLoading,
       aboutUpdateStatus,
       canShowProgressEntry,
+      cancelUpdate,
       changeUpdateChannel,
       checkForUpdates,
       downloadUpdate,
@@ -428,7 +429,8 @@ export const useAppUpdateAndDiagnostics = ({
   return {
     useNativeMacWindowControls, activeShortcutPlatform, titleBarNewQueryShortcut,
     titleBarNewConnectionShortcut, updateCenterBridgeRef, openReleaseNotesOnManualCheckRef,
-    aboutDisplayVersion, aboutInfo, aboutLoading, aboutUpdateStatus, changeUpdateChannel,
+    aboutDisplayVersion, aboutInfo, aboutLoading, aboutUpdateStatus, cancelUpdate,
+    changeUpdateChannel,
     checkForUpdates, formatBytes, handleInstallFromProgress, hideUpdateDownloadProgress,
     isBackgroundProgressForLatestUpdate, isCheckingForUpdates, isLatestUpdateDownloaded,
     isUpdateChannelLoading, isUpdateChannelSaving, installMode, lastUpdateInfo,
