@@ -7,7 +7,6 @@ import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import SidebarFilterSlot from './SidebarFilterSlot';
 import * as sidebarTreeDrag from './sidebarTreeDragOrder';
 import { type SidebarTreeNode as TreeNode, resolveSidebarTreeRowHeight } from '../sidebarV2Utils';
-import { SidebarTreeDiag } from './SidebarTreeDiag';
 import type { SidebarToolbarModelApi } from './useSidebarToolbarModel';
 import type { SidebarSearchStateApi } from './useSidebarSearchState';
 import type { SidebarStoreStateApi } from './useSidebarStoreState';
@@ -75,7 +74,6 @@ export interface SidebarObjectExplorerProps {
   autoExpandParent: SidebarSearchStateApi['autoExpandParent'];
   selectedKeys: SidebarSearchStateApi['selectedKeys'];
   effectiveTreeHeight: SidebarObjectMenuActionsApi['effectiveTreeHeight'];
-  treeHeight: number;
   handleV2TreeContextMenu: SidebarTreeDndApi['handleV2TreeContextMenu'];
   onRightClick: SidebarTreeDndApi['onRightClick'];
 }
@@ -93,7 +91,7 @@ export const SidebarObjectExplorer = ({
   setSidebarTreeDragNodeType, sidebarTreeDragPreviewElementRef, setIsTreeDragging,
   restoreTreeSelectionAfterDrag, clearSidebarTreeDragVisuals, handleDrop, onLoadData,
   v2VisibleTreeData, onDoubleClick, onSelect, titleRender, renderSidebarSwitcherIcon, expandedKeys,
-  onExpand, loadedKeys, setLoadedKeys, autoExpandParent, selectedKeys, effectiveTreeHeight, treeHeight,
+  onExpand, loadedKeys, setLoadedKeys, autoExpandParent, selectedKeys, effectiveTreeHeight,
   handleV2TreeContextMenu, onRightClick,
 }: SidebarObjectExplorerProps) => (
   <div
@@ -257,7 +255,6 @@ export const SidebarObjectExplorer = ({
               onRightClick={onRightClick}
           />
       </div>
-      <SidebarTreeDiag treeHeight={treeHeight} treeRef={treeRef} />
   </div>
 
   </div>

@@ -500,7 +500,6 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
         {exportProgressModal}
         <SidebarConnectionRail {...v2ConnectionRailProps} />
         <SidebarObjectExplorer
-          treeHeight={treeHeight}
           v2RailSystemActionsLabel={v2RailSystemActionsLabel}
           v2ExplorerContext={v2ExplorerContext}
           collapsedSidebarActionsTarget={collapsedSidebarActionsTarget}
