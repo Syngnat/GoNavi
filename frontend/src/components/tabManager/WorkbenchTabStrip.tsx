@@ -1,15 +1,28 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Dropdown } from 'antd';
+import { CloseOutlined } from '@ant-design/icons';
 import type { MenuProps, TabsProps } from 'antd';
 
 import {
   formatHiddenTabCount,
   resolveTabOverflowLayout,
 } from './tabOverflowLayout';
-import { V2_WORKBENCH_TAB_MAX_WIDTH, resolveV2WorkbenchTabWidth } from './tabManagerShortcuts';
+import { V2_WORKBENCH_TAB_MAX_WIDTH } from './tabManagerShortcuts';
+import { SETTINGS_CENTER_WORKBENCH_TAB_ID } from '../../utils/settingsCenterTab';
 
 /** 相邻标签间距，与 .gn-v2-tab-strip__list 的 gap 保持一致。 */
 const TAB_GAP = 2;
+
+/** 「更多」按钮的占位宽度：数字 + 内边距 + 与标签的间距。 */
+const MORE_BUTTON_WIDTH = 34;
+
+/**
+ * 设置中心标签的宽度。
+ *
+ * 它固定在首位、不可拖动排序，内容也只有「设置中心 / SETTINGS」两行，
+ * 按普通标签的 260px 会给它留出一大片用不到的空白。
+ */
+const SETTINGS_TAB_WIDTH = 132;
 
 type StripItem = {
   key: string;
@@ -29,7 +42,9 @@ export type WorkbenchTabStripProps = {
   describeHiddenTab: (key: string) => { title: string; meta?: string };
   /** 标签是否为双行（标题 + 副标题）；双行需要更高的行高。 */
   doubleLine?: boolean;
-  t: (key: string) => string;
+  /** 关闭某个标签（「更多」菜单每行左侧的叉）。 */
+  onCloseTab?: (key: string) => void;
+  t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
 };
 
 /**
@@ -49,8 +64,11 @@ export const WorkbenchTabStrip = ({
   renderTab,
   describeHiddenTab,
   doubleLine = false,
+  onCloseTab,
   t,
 }: WorkbenchTabStripProps) => {
+  // 测量点是内部滚动区：它撑满可用宽度，其 clientWidth 就是标签的实际
+  // 可视宽度。
   const stripRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(0);
 
@@ -66,11 +84,11 @@ export const WorkbenchTabStrip = ({
     return () => observer.disconnect();
   }, []);
 
-  // 标签宽度统一：溢出时才启用「更多」，因此按「全部放下」的宽度上限算，
-  // 不做「均分收缩」——IDEA 的标签条也是固定宽度、超出的收进下拉。
-  const tabWidth = useMemo(
-    () => Math.min(V2_WORKBENCH_TAB_MAX_WIDTH, resolveV2WorkbenchTabWidth(availableWidth, items.length)),
-    [availableWidth, items.length],
+  // 标签固定宽度、不随数量压缩：标签多时横向滚动，而不是把标题挤成省略号。
+  const tabWidth = V2_WORKBENCH_TAB_MAX_WIDTH;
+
+  const itemWidth = (item: StripItem): number => (
+    item.key === SETTINGS_CENTER_WORKBENCH_TAB_ID ? SETTINGS_TAB_WIDTH : tabWidth
   );
 
   const layout = useMemo(
@@ -79,28 +97,56 @@ export const WorkbenchTabStrip = ({
       activeTabId: activeKey,
       availableWidth,
       tabWidth,
+      widthOf: (tab) => itemWidth(tab.item),
       tabGap: TAB_GAP,
-      // availableWidth 量的是 __scroll 的宽度，「更多」按钮是它的兄弟节点，
-      // flex 已经把按钮占的位置排除在外，这里再减一次会白收一个标签。
-      moreButtonWidth: 0,
+      moreButtonWidth: MORE_BUTTON_WIDTH,
     }),
     [items, activeKey, availableWidth, tabWidth],
   );
 
+  // 「更多」列全部标签：滚动会改变可视范围，若只列「当前不可见」的那批，
+  // 用户滚一下菜单内容就变了，反而找不到目标。溢出的数量只体现在按钮上。
+  // 切到被滚出可视区的标签时，把它滚回来（IDEA 同样行为）。
+  useEffect(() => {
+    const node = stripRef.current;
+    if (!node || !activeKey) return;
+    const target = node.querySelector<HTMLElement>(
+      `[data-tab-strip-tab="${activeKey.replace(/"/g, '\\"')}"]`,
+    );
+    target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeKey]);
+
   const hiddenMenu: MenuProps['items'] = useMemo(
-    () => layout.hidden.map(({ item }) => {
+    () => items.map((item) => {
       const { title, meta } = describeHiddenTab(item.key);
       return {
         key: item.key,
         label: (
           <div className="gn-v2-tab-more-row" data-tab-more-item={item.key}>
+            {onCloseTab ? (
+              <button
+                type="button"
+                className="gn-v2-tab-more-row__close"
+                data-tab-more-close={item.key}
+                aria-label={t('tab_manager.close_aria', { title })}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  // 阻止冒泡到菜单项：点叉只关闭，不切换过去再关。
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onCloseTab(item.key);
+                }}
+              >
+                <CloseOutlined />
+              </button>
+            ) : null}
             <span className="gn-v2-tab-more-row__title">{title}</span>
             {meta ? <span className="gn-v2-tab-more-row__meta">{meta}</span> : null}
           </div>
         ),
       };
     }),
-    [layout.hidden, describeHiddenTab],
+    [layout.hidden, describeHiddenTab, onCloseTab, t],
   );
 
   return (
@@ -111,7 +157,7 @@ export const WorkbenchTabStrip = ({
     >
       <div className="gn-v2-tab-strip__scroll" ref={stripRef}>
         <div className="gn-v2-tab-strip__list" role="tablist">
-          {layout.visible.map(({ item }) => {
+          {items.map((item) => {
             const active = item.key === activeKey;
             const element = (
               <div
@@ -120,7 +166,7 @@ export const WorkbenchTabStrip = ({
                 aria-selected={active}
                 className={`gn-v2-tab-strip__tab${active ? ' is-active' : ''}`}
                 data-tab-strip-tab={item.key}
-                style={{ width: tabWidth }}
+                style={{ width: itemWidth(item) }}
                 onClick={(event) => onTabClick(item.key, event)}
               >
                 {item.label}

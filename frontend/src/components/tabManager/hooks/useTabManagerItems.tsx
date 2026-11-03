@@ -326,6 +326,7 @@ export const useTabManagerItems = ({
         renderTab={({ key, element }) => <DraggableTabNode key={key} node={element} />}
         describeHiddenTab={describeStripTab}
         doubleLine={hasDoubleLineTabLabel}
+        onCloseTab={(key) => closeTabsWithSQLFilePrompt([key], () => closeTab(key))}
         t={t}
       />
     </TabSwitchPhaseProfiler>

@@ -37,6 +37,7 @@ export const resolveTabOverflowLayout = <T extends TabOverflowItem>({
   availableWidth,
   tabWidth,
   tabGap = 2,
+  widthOf,
   moreButtonWidth = 0,
 }: {
   tabs: T[];
@@ -45,6 +46,11 @@ export const resolveTabOverflowLayout = <T extends TabOverflowItem>({
   tabWidth: number;
   /** 相邻标签之间的间距（与 CSS 的 gap 保持一致），必须计入总宽。 */
   tabGap?: number;
+  /**
+   * 单个标签的宽度。默认所有标签等宽（tabWidth）；设置中心这类固定宽度
+   * 的标签需要更窄时，用它可以算准能放下几个。
+   */
+  widthOf?: (tab: T, index: number) => number;
   /**
    * 为「更多」按钮额外预留的宽度。
    *
@@ -68,11 +74,22 @@ export const resolveTabOverflowLayout = <T extends TabOverflowItem>({
   }
 
   const gap = Math.max(0, tabGap);
-  // n 个标签需要 n*tabWidth + (n-1)*gap；反解时每个标签连同其后的间距占
-  // (tabWidth + gap)，首项没有前置间距，所以最后要补回一个 gap。
-  const capacityFor = (width: number): number => {
-    if (width < tabWidth) return 0;
-    return Math.floor((width + gap) / (tabWidth + gap));
+  const widthAt = (index: number): number => {
+    const resolved = widthOf ? widthOf(tabs[index]!, index) : tabWidth;
+    return Number.isFinite(resolved) && resolved > 0 ? resolved : tabWidth;
+  };
+  // 逐个累加而不是「总宽 ÷ 单项宽」：标签宽度可能不同（如设置中心更窄），
+  // 除法只能处理等宽。
+  const capacityFor = (available: number): number => {
+    let used = 0;
+    let count = 0;
+    for (let index = 0; index < total; index += 1) {
+      const next = used + widthAt(index) + (index === 0 ? 0 : gap);
+      if (next > available) break;
+      used = next;
+      count += 1;
+    }
+    return count;
   };
   const usable = Math.max(0, availableWidth - Math.max(0, moreButtonWidth));
   // 全部放得下：不需要「更多」按钮，可用宽度不必再扣它。

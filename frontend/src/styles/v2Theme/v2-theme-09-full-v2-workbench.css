@@ -343,7 +343,7 @@ body[data-ui-version="v2"] .gn-v2-tab-label-content {
 
 body[data-ui-version="v2"] .gn-v2-tab-label-double {
   padding-top: 4px;
-  padding-bottom: 3px;
+  padding-bottom: 6px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-content {
@@ -383,9 +383,17 @@ body[data-ui-version="v2"] .gn-v2-tab-label-secondary {
   font-family: var(--gn-font-mono);
   font-size: 10px;
   font-weight: 650;
-  line-height: 12px;
+  /* 12px 行高对 10px 字号余量太紧，中文字形的下缘会贴到盒底被 overflow 裁掉。 */
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 第二行（SQL · 连接 · 库）在窄标签里放不下时，优先保住前面的内容：
+   只有最后一段（库名/对象名）允许收缩并显示省略号，前面各段保持完整。
+   全部均分收缩会让每一段都变成「[KingBa…」「gonavi_king…」，反而更不可读。 */
+body[data-ui-version="v2"] .gn-v2-tab-label-secondary > .gn-v2-tab-label-part:last-of-type {
+  flex: 0 1 auto;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-part {
@@ -686,15 +694,28 @@ body[data-ui-version="v2"] .gn-v2-tab-strip {
 /* 双行标签（标题 + 副标题）需要更高的行高；--gn-v2-tab-row-height 同时
    驱动条高与每个 tab 的高度，避免两者不一致导致裁切。 */
 body[data-ui-version="v2"] .gn-v2-tab-strip[data-double="true"] {
-  --gn-v2-tab-row-height: 46px;
-  height: 46px;
-  flex-basis: 46px;
+  /* 46px 时第二行文字的下缘（g/p 这类下伸部）会贴到标签底边被裁掉，
+     多留 4px 缓冲。 */
+  --gn-v2-tab-row-height: 50px;
+  height: 50px;
+  flex-basis: 50px;
 }
 
+/* 标签保持固定宽度不压缩，放不下时横向滚动（IDEA 的行为）。
+   滚动条本身隐藏：它会在 36px 的条里再占一行，且与「更多」按钮的语义重复。 */
 body[data-ui-version="v2"] .gn-v2-tab-strip__scroll {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-strip__list {
@@ -755,11 +776,18 @@ body[data-ui-version="v2"] .gn-v2-tab-strip__more:hover {
   color: var(--gn-fg-1);
 }
 
+/* extra 即使在无内容时也会被渲染成空 div（调用方传的是 <Component /> 元素，
+   恒为 truthy）。空 div 上的 margin-left:auto 会吃掉整段剩余空间，表现为
+   标签条右侧一大片空白。:empty 时直接不参与布局。 */
 body[data-ui-version="v2"] .gn-v2-tab-strip__extra {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   margin-left: auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__extra:empty {
+  display: none;
 }
 
 /* 「更多」菜单：单行紧凑列表，标题 + 右侧灰字定位信息，与 IDEA 的
@@ -784,6 +812,36 @@ body[data-ui-version="v2"] .gn-v2-tab-more-row {
   gap: 10px;
   min-width: 0;
   max-width: 420px;
+}
+
+/* 「更多」菜单每行左侧的关闭叉：默认淡、悬停变深，占位固定不随标题长短跳动。 */
+body[data-ui-version="v2"] .gn-v2-tab-more-row__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-fg-5);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-more-menu .ant-dropdown-menu-item:hover .gn-v2-tab-more-row__close,
+body[data-ui-version="v2"] .gn-v2-tab-more-row__close:focus-visible {
+  opacity: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-more-row__close:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-1);
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-more-row__title {

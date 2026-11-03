@@ -80,14 +80,13 @@ describe('WorkbenchTabStrip', () => {
     ).toBe('false');
   });
 
-  // 溢出时收起多余项，并出现「更多」按钮；按钮上只显示数字，宽度稳定。
-  it('collapses the overflow behind a compact more button', () => {
+  // 规格：标签固定宽度不压缩、全部渲染，放不下时横向滚动；「更多」只做
+  // 收纳入口，不再把标签从 DOM 里摘掉。
+  it('keeps every tab mounted and exposes a more button when overflowing', () => {
     const { container } = render();
-    // 260px 时按最小宽度 112 只放得下 1~2 个，「更多」必须出现。
     measure(260);
 
-    const visible = container.querySelectorAll('[data-tab-strip-tab]');
-    expect(visible.length).toBeLessThan(3);
+    expect(container.querySelectorAll('[data-tab-strip-tab]')).toHaveLength(3);
     const more = container.querySelector('[data-tab-strip-more]');
     expect(more).not.toBeNull();
     expect(more?.textContent).toMatch(/^\d+\+?$/);
@@ -107,15 +106,55 @@ describe('WorkbenchTabStrip', () => {
     expect(onTabClick.mock.calls[0]![0]).toBe('b');
   });
 
-  // 「更多」菜单的标题与元信息由 describeHiddenTab 提供，是单行布局的数据源。
-  it('describes hidden tabs for the more menu', () => {
+  // 收纳区只描述「放不下」的那批，这一点由 tabOverflowLayout 的纯函数
+  // 用例覆盖（组件层依赖 ResizeObserver 时序，不适合断言精确数量）。
+  it('describes the overflow tabs for the more menu', () => {
     const describeHiddenTab = vi.fn((key: string) => ({ title: `T-${key}`, meta: `M-${key}` }));
-    render({ describeHiddenTab });
+    const { container } = render({ describeHiddenTab });
     measure(260);
 
-    expect(describeHiddenTab).toHaveBeenCalled();
-    const describedKey = describeHiddenTab.mock.calls[0]![0];
-    expect(describedKey).toMatch(/^[abc]$/);
+    expect([...new Set(describeHiddenTab.mock.calls.map(([key]) => key))].length).toBeGreaterThan(0);
+    // 标签条本身仍然渲染全部（供横向滚动），两者不矛盾。
+    expect(container.querySelectorAll('[data-tab-strip-tab]')).toHaveLength(3);
+  });
+
+  // 「更多」菜单每行左侧要有独立的关闭叉：点它只关闭，不切换过去再关。
+  it('offers a close button on every more-menu row', () => {
+    const onCloseTab = vi.fn();
+    const { container } = render({ onCloseTab });
+    measure(260);
+
+    // Dropdown 是懒渲染：先点开「更多」，菜单内容才会挂到 body 上。
+    act(() => {
+      container.querySelector<HTMLElement>('[data-tab-strip-more]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const closeButtons = document.querySelectorAll('[data-tab-more-close]');
+    expect(closeButtons.length).toBeGreaterThan(0);
+    const first = closeButtons[0] as HTMLElement;
+    const key = first.getAttribute('data-tab-more-close');
+    expect(key).toBeTruthy();
+
+    act(() => {
+      first.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(onCloseTab).toHaveBeenCalledWith(key);
+  });
+
+  // 设置中心固定在首位、不可排序，内容也短，不需要普通标签那么宽。
+  it('renders the pinned settings tab narrower than the others', () => {
+    const { container } = render({
+      items: [
+        { key: 'settings-center', label: 'S' },
+        { key: 'a', label: 'A' },
+      ],
+    });
+    measure(2000);
+
+    const settings = container.querySelector<HTMLElement>('[data-tab-strip-tab="settings-center"]');
+    const normal = container.querySelector<HTMLElement>('[data-tab-strip-tab="a"]');
+    expect(parseFloat(settings!.style.width)).toBeLessThan(parseFloat(normal!.style.width));
   });
 
   it('keeps rendering everything before any measurement', () => {
