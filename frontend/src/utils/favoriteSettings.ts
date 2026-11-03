@@ -1,7 +1,7 @@
 export const QUICK_PREFERENCE_KEYS = {
   layout: 'app.theme.appearance.navicat_layout_title', scale: 'app.theme.appearance.ui_scale_title',
   collapse: 'app.theme.appearance.workbench_sidebar_auto_collapse_title', singleDatabase: 'app.theme.appearance.single_database_expansion_title',
-  doubleClick: 'app.theme.data_table.table_double_click_action', log: 'app.theme.data_table.auto_show_sql_execution_log',
+  doubleClick: 'app.theme.data_table.table_double_click_action', log: 'app.theme.data_table.show_sql_execution_log',
   rows: 'app.theme.data_table.row_number', borders: 'app.theme.data_table.vertical_borders', density: 'app.theme.data_table.density',
   motion: 'app.theme.appearance.reduce_motion', lowSpec: 'app.theme.appearance.low_spec_mode',
 } as const;

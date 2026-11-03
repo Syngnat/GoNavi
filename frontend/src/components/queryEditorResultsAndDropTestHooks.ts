@@ -75,7 +75,7 @@ export const setUpQueryEditorResultsAndDropTest = () => {
       showColumnComment: true,
       showColumnType: true,
       showQueryResultsPanel: false,
-      autoShowSqlExecutionLog: true,
+      showSqlExecutionLog: true,
     };
     storeState.sqlEditorTransactionOptions = {
       commitMode: 'manual',

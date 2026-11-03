@@ -37,6 +37,7 @@ vi.mock('antd', () => ({
 vi.mock('@ant-design/icons', () => {
   const Icon = () => <span />;
   return {
+    BugOutlined: Icon,
     BulbOutlined: Icon,
     CheckOutlined: Icon,
     DatabaseOutlined: Icon,
@@ -91,6 +92,7 @@ const buildProps = (overrides: Record<string, unknown> = {}) => ({
   toggleQueryResultsPanelShortcutBinding: disabledShortcut,
   activeShortcutPlatform: 'windows' as const,
   isResultPanelVisible: true,
+  showSqlExecutionLog: true,
   wordWrapEnabled: false,
   loading: false,
   saveMoreMenuItems: [{ key: 'save-file', label: 'save file' }],
@@ -109,6 +111,7 @@ const buildProps = (overrides: Record<string, unknown> = {}) => ({
   onFormat: vi.fn(),
   onTriggerSqlAiCompletion: vi.fn(),
   onToggleResultPanelVisibility: vi.fn(),
+  onToggleSqlExecutionLog: vi.fn(),
   onAIAction: vi.fn(),
   ...overrides,
 });
