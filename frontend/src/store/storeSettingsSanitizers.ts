@@ -312,8 +312,13 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
       : false;
   const showQueryResultsPanel =
     typeof raw.showQueryResultsPanel === "boolean" ? raw.showQueryResultsPanel : false;
-  const autoShowSqlExecutionLog =
-    typeof raw.autoShowSqlExecutionLog === "boolean" ? raw.autoShowSqlExecutionLog : true;
+  // 旧键 autoShowSqlExecutionLog 只控制「无结果时是否展开面板」，语义已并入日志标签显隐。
+  const showSqlExecutionLog =
+    typeof raw.showSqlExecutionLog === "boolean"
+      ? raw.showSqlExecutionLog
+      : typeof raw.autoShowSqlExecutionLog === "boolean"
+        ? raw.autoShowSqlExecutionLog
+        : true;
   const queryEditorEditorHeightRatio = sanitizeQueryEditorEditorHeightRatio(
     raw.queryEditorEditorHeightRatio,
   );
@@ -329,7 +334,7 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
       showColumnType,
       alignNumericTemporalCellsRight,
       showQueryResultsPanel,
-      autoShowSqlExecutionLog,
+      showSqlExecutionLog,
       queryEditorEditorHeightRatio,
     };
   }
@@ -344,7 +349,7 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
     showColumnType,
     alignNumericTemporalCellsRight,
     showQueryResultsPanel,
-    autoShowSqlExecutionLog,
+    showSqlExecutionLog,
     queryEditorEditorHeightRatio,
   };
 };

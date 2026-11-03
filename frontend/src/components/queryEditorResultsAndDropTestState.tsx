@@ -49,7 +49,7 @@ export const storeState = (() => ({
     showColumnComment: true,
     showColumnType: true,
     showQueryResultsPanel: false,
-    autoShowSqlExecutionLog: true,
+    showSqlExecutionLog: true,
   },
   setQueryOptions: vi.fn(),
   sqlEditorTransactionOptions: {

@@ -283,8 +283,8 @@ export const useAppThemeSettingsRender = ({
                                   t('app.theme.data_table.title'),
                                   <DataTableSettingsFields
                                     renderThemeSettingsRow={renderThemeSettingsRow} t={t}
-                                    autoShowSqlExecutionLog={queryOptions.autoShowSqlExecutionLog}
-                                    setAutoShowSqlExecutionLog={(enabled) => setQueryOptions({ autoShowSqlExecutionLog: enabled })}
+                                    showSqlExecutionLog={queryOptions.showSqlExecutionLog}
+                                    setShowSqlExecutionLog={(enabled) => setQueryOptions({ showSqlExecutionLog: enabled })}
                                     appearance={appearance} setAppearance={setAppearance}
                                     tableDoubleClickAction={tableDoubleClickAction}
                                     queryTableCtrlClickAction={queryTableCtrlClickAction}

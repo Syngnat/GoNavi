@@ -38,6 +38,7 @@ import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorToolbarRunAction } from './queryEditor/QueryEditorToolbarRunAction';
 import QueryEditorToolbarMaxRowsSelect from './queryEditor/QueryEditorToolbarMaxRowsSelect';
 import { QueryEditorToolbarAnalysisAction } from './queryEditor/QueryEditorToolbarAnalysisAction';
+import { QueryEditorToolbarLogAction } from './queryEditor/QueryEditorToolbarLogAction';
 
 export type QueryEditorMode = "sql" | "elasticsearch";
 
@@ -71,6 +72,7 @@ export type QueryEditorToolbarProps = {
   toggleQueryResultsPanelShortcutBinding: ShortcutPlatformBinding;
   activeShortcutPlatform: ShortcutPlatform;
   isResultPanelVisible: boolean;
+  showSqlExecutionLog: boolean;
   wordWrapEnabled: boolean;
   loading: boolean;
   contextSelectionDisabled?: boolean;
@@ -96,6 +98,7 @@ export type QueryEditorToolbarProps = {
   onFormat: () => void;
   onTriggerSqlAiCompletion: () => void;
   onToggleResultPanelVisibility: () => void;
+  onToggleSqlExecutionLog: () => void;
   onAIAction: (action: "generate" | "explain" | "optimize" | "schema") => void;
   /** 编辑器全屏/还原按钮（由调用方注入，避免本文件继续膨胀） */
   editorFullscreenAction?: React.ReactNode;
@@ -190,6 +193,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   toggleQueryResultsPanelShortcutBinding,
   activeShortcutPlatform,
   isResultPanelVisible,
+  showSqlExecutionLog,
   wordWrapEnabled,
   loading,
   contextSelectionDisabled = false,
@@ -214,6 +218,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   onFormat,
   onTriggerSqlAiCompletion,
   onToggleResultPanelVisibility,
+  onToggleSqlExecutionLog,
   onAIAction,
   editorFullscreenAction,
   showViewDataVerify = false,
@@ -525,6 +530,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           onRun={onRun}
           onCancel={onCancel}
         />
+        <QueryEditorToolbarLogAction enabled={showSqlExecutionLog} onToggle={onToggleSqlExecutionLog} />
         {isElasticsearchMode && onRunAll && (
           <Tooltip title={t("query_editor.elasticsearch.action.run_all")}>
             <Button

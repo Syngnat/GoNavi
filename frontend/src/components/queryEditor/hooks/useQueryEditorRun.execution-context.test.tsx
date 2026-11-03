@@ -99,7 +99,7 @@ function createRunInput(sql: string): UseQueryEditorRunInput {
         queryOptions: {
             maxRows: 0, wordWrap: false, showColumnComment: false, showColumnType: false,
             alignNumericTemporalCellsRight: false, showQueryResultsPanel: true,
-            autoShowSqlExecutionLog: true, queryEditorEditorHeightRatio: 0.5,
+            showSqlExecutionLog: true, queryEditorEditorHeightRatio: 0.5,
         },
         setExecutionTimingActive: vi.fn(),
         setQueryId: id => { currentQueryIdRef.current = id; },

@@ -550,17 +550,17 @@ describe('store appearance persistence', () => {
 
   it('persists the SQL execution log auto-show preference with an enabled default', async () => {
     const { useStore } = await importStore();
-    expect(useStore.getState().queryOptions.autoShowSqlExecutionLog).toBe(true);
+    expect(useStore.getState().queryOptions.showSqlExecutionLog).toBe(true);
 
-    useStore.getState().setQueryOptions({ autoShowSqlExecutionLog: false });
-    expect(useStore.getState().queryOptions.autoShowSqlExecutionLog).toBe(false);
+    useStore.getState().setQueryOptions({ showSqlExecutionLog: false });
+    expect(useStore.getState().queryOptions.showSqlExecutionLog).toBe(false);
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.state.queryOptions.autoShowSqlExecutionLog).toBe(false);
+    expect(persisted.state.queryOptions.showSqlExecutionLog).toBe(false);
 
     vi.resetModules();
     const reloaded = await importStore();
-    expect(reloaded.useStore.getState().queryOptions.autoShowSqlExecutionLog).toBe(false);
+    expect(reloaded.useStore.getState().queryOptions.showSqlExecutionLog).toBe(false);
   });
 
   it('persists zero as the unlimited SQL query row limit', async () => {
