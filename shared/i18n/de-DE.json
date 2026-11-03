@@ -1792,6 +1792,7 @@
   "ai_service.backend.database_context.value_no": "Nein",
   "ai_service.backend.database_context.value_yes": "Ja",
   "ai_service.backend.error.active_provider_not_found": "Aktiver AI Provider wurde nicht gefunden",
+  "ai_service.backend.error.codebuddy_cli_auth_required": "Die CodeBuddy CLI ist nicht angemeldet. Führen Sie codebuddy in einem lokalen Terminal aus, um sich anzumelden, oder geben Sie einen API Key / Auth Token an, um die lokale Sitzung zu überschreiben",
   "ai_service.backend.error.config_dir_create_failed": "Konfigurationsverzeichnis konnte nicht erstellt werden: {{detail}}",
   "ai_service.backend.error.config_load_failed": "AI-Konfiguration konnte nicht geladen werden: {{detail}}",
   "ai_service.backend.error.config_read_failed": "AI-Konfiguration konnte nicht gelesen werden: {{detail}}",

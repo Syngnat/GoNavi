@@ -1792,6 +1792,7 @@
   "ai_service.backend.database_context.value_no": "否",
   "ai_service.backend.database_context.value_yes": "是",
   "ai_service.backend.error.active_provider_not_found": "未找到活跃 AI Provider",
+  "ai_service.backend.error.codebuddy_cli_auth_required": "CodeBuddy CLI 未登录：请先在本机终端运行 codebuddy 完成登录，或填写 API Key / Auth Token 覆盖本机登录态",
   "ai_service.backend.error.config_dir_create_failed": "创建配置目录失败: {{detail}}",
   "ai_service.backend.error.config_load_failed": "加载 AI 配置失败: {{detail}}",
   "ai_service.backend.error.config_read_failed": "读取 AI 配置失败: {{detail}}",

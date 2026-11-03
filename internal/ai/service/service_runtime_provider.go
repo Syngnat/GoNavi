@@ -56,5 +56,5 @@ func (s *Service) getActiveProviderRuntimeWithContext(ctx context.Context, optio
 		normalized = resolved
 	}
 	instance, err := provider.NewProvider(normalized)
-	return instance, normalized, err
+	return s.withCodeBuddyCLILocalization(instance, normalized), normalized, err
 }
