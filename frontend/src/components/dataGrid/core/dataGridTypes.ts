@@ -75,7 +75,7 @@ export interface DataGridProps {
     onDataChange?: (rows: any[]) => void;
     /** Workbench tab that owns editable changes in this grid. */
     workbenchTabId?: string;
-    /** Metadata already loaded while preparing a query execution plan. */
+    /** Prepared metadata; an empty query-result map prevents table fallback, while undefined permits it. */
     initialColumnMetaMap?: Record<string, ColumnMeta>;
     initialUniqueKeyGroups?: string[][];
     sessionState?: DataGridSessionStateProps;

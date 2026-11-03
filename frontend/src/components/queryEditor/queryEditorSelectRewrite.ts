@@ -7,6 +7,7 @@ import {
 } from './queryEditorResultMessages';
 import { maskQueryEditorSqlLiteralsAndComments } from './queryEditorSqlScan';
 import { supportsSqlHashLineComment } from '../../utils/sqlStatementSelection';
+import { isQueryResultBareValueKeyword } from '../../utils/queryResultValueKeywords';
 import { QUERY_EDITOR_SQL_IDENTIFIER_PATH_PATTERN } from './queryEditorIdentifierPaths';
 
 export const splitTopLevelComma = (text: string, dbType = ''): string[] => {
@@ -127,7 +128,7 @@ export type SelectItemInfo = {
     sourceName?: string;
 };
 
-export const resolveSelectItemInfo = (item: string): SelectItemInfo | 'all' | undefined => {
+export const resolveSelectItemInfo = (item: string, dbType = ''): SelectItemInfo | 'all' | undefined => {
     const text = String(item || '').trim();
     if (!text) return undefined;
     if (text === '*' || /\.\s*\*$/.test(text)) return 'all';
@@ -150,13 +151,13 @@ export const resolveSelectItemInfo = (item: string): SelectItemInfo | 'all' | un
     }
 
     if (!alias && !SIMPLE_IDENTIFIER_PATH_RE.test(expr)) return undefined;
-    const sourceName = SIMPLE_IDENTIFIER_PATH_RE.test(expr) ? getLastIdentifierPart(expr) : '';
+    const sourceName = SIMPLE_IDENTIFIER_PATH_RE.test(expr) && !isQueryResultBareValueKeyword(expr, dbType) ? getLastIdentifierPart(expr) : '';
     const resultName = alias || sourceName;
     return resultName ? { expression: expr, resultName, sourceName: sourceName || undefined } : undefined;
 };
 
-export const resolveSimpleSelectItemColumn = (item: string): { resultName: string; sourceName: string } | 'all' | undefined => {
-    const resolved = resolveSelectItemInfo(item);
+export const resolveSimpleSelectItemColumn = (item: string, dbType = ''): { resultName: string; sourceName: string } | 'all' | undefined => {
+    const resolved = resolveSelectItemInfo(item, dbType);
     if (!resolved || resolved === 'all' || !resolved.sourceName) return resolved === 'all' ? 'all' : undefined;
     return { resultName: resolved.resultName, sourceName: resolved.sourceName };
 };
@@ -177,7 +178,7 @@ export const parseSimpleSelectInfo = (sql: string, dbType = ''): SimpleSelectInf
     let selectsBareAll = false;
     for (const item of splitTopLevelComma(selectList, dbType)) {
         const trimmedItem = String(item || '').trim();
-        const resolved = resolveSimpleSelectItemColumn(item);
+        const resolved = resolveSimpleSelectItemColumn(item, dbType);
         if (!resolved) continue;
         if (resolved === 'all') {
             selectsAll = true;
@@ -319,7 +320,7 @@ export const rewriteOracleDuplicateSelectColumns = (sql: string, tableColumnName
 
     const parsedItems = selectItems.map((item) => ({
         raw: String(item || '').trimEnd(),
-        info: resolveSelectItemInfo(item),
+        info: resolveSelectItemInfo(item, dbType),
     }));
     const hasWildcard = parsedItems.some(({ info }) => info === 'all');
     if (!hasWildcard) return undefined;

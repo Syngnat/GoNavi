@@ -120,5 +120,5 @@ func (s *Service) resolveAgentProvider(ctx context.Context, request runharness.M
 		}
 		return builtinAIPromptProvider{Provider: agentProvider, readOnlyNotice: notice, lookup: s.builtinAIContextFor, columns: s.builtinAIColumnsFor, resultHeading: heading}, nil
 	}
-	return agentProvider, nil
+	return s.withCodeBuddyCLILocalization(agentProvider, resolved), nil
 }

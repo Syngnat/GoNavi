@@ -3,10 +3,9 @@ import type { ColumnDefinition } from '../../types';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import {
   extractQueryResultSourceTables,
-  maskQueryResultSqlStructure,
   type QueryResultSourceTable,
 } from '../../utils/queryResultTable';
-import { buildColumnMetaMap, hasUsableColumnMeta, type ColumnMeta } from '../dataGridColumnMeta';
+import { buildColumnMetaMap, type ColumnMeta } from '../dataGridColumnMeta';
 import {
   LOCATOR_META_TTL_MS,
   getLocatorMetaCacheKey,
@@ -16,8 +15,10 @@ import { SIDEBAR_DATABASE_REFRESH_EVENT } from '../../utils/sidebarDatabaseRefre
 import { isOracleLikeDialect } from '../../utils/sqlDialect';
 import { resolveSqlEditorOperationKeyword } from '../../utils/sqlEditorTransaction';
 import { resolveOracleLikeExecutionSchemaName } from './queryEditorIdentifierPaths';
-import { splitTopLevelComma } from './queryEditorSelectRewrite';
 import { withSoftTimeout } from './queryEditorResultMessages';
+import { isKingbaseColumnMetaDialect as isKingbaseDialect, projectQueryResultColumnMeta } from './queryEditorColumnMetaProjection';
+export { mergeColumnMetaMapsByPriority, resolveQueryResultSelectAliasEntries } from './queryEditorColumnMetaProjection';
+export type { QueryResultSelectAliasEntry } from './queryEditorColumnMetaProjection';
 
 type RpcConfigSource = Parameters<typeof buildRpcConnectionConfig>[0];
 type RpcConnectionConfig = Parameters<typeof DBGetColumns>[0];
@@ -36,10 +37,6 @@ export type QueryResultBackfillSchemaInput = {
   schemaName?: string;
   config: RpcConfigSource;
 };
-
-const isKingbaseDialect = (dbType: string): boolean => (
-  ['kingbase', 'kingbase8', 'kingbasees', 'kingbasev8'].includes(String(dbType || '').trim().toLowerCase())
-);
 
 export const getQueryResultLocatorMetaCacheKey = (config: RpcConfigSource, dbName: string, tableName: string): string => {
   const key = getLocatorMetaCacheKey(config, dbName, tableName);
@@ -129,23 +126,6 @@ export const clearQueryResultColumnMetaBackfillCache = (): void => {
   backfillCacheGeneration += 1;
   backfillColumnCache.clear();
   backfillInFlight.clear();
-};
-
-/** 合并多张候选表的列元数据：按列名（大小写无关）先到先得，主表在前。 */
-export const mergeColumnMetaMapsByPriority = (
-  maps: Array<Record<string, ColumnMeta>>,
-): Record<string, ColumnMeta> => {
-  const merged: Record<string, ColumnMeta> = {};
-  const seen = new Set<string>();
-  maps.forEach((map) => {
-    Object.entries(map || {}).forEach(([name, meta]) => {
-      const key = String(name || '').trim().toLowerCase();
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      merged[name] = meta;
-    });
-  });
-  return merged;
 };
 
 const fetchCandidateColumns = async (
@@ -243,120 +223,6 @@ const isSelectStatement = (statement: string, dbType: string): boolean => (
   resolveSqlEditorOperationKeyword(statement, dbType) === 'select'
 );
 
-const columnMetaKeyOf = (name: string): string => String(name || '').trim().toLowerCase();
-
-const findColumnMeta = (
-  metaMap: Record<string, ColumnMeta>,
-  columnName: string,
-): ColumnMeta | undefined => {
-  const direct = metaMap[columnName];
-  if (direct) return direct;
-  const target = columnMetaKeyOf(columnName);
-  if (!target) return undefined;
-  const hits = Object.entries(metaMap).filter(([name]) => columnMetaKeyOf(name) === target);
-  return hits.length === 1 ? hits[0][1] : undefined;
-};
-
-export type QueryResultSelectAliasEntry = {
-  /** 结果集里出现的列名（别名） */
-  resultColumn: string;
-  /** 对应的源列名 */
-  sourceColumn: string;
-  /** 表达式里的表限定词（`c.name` 的 `c`），没有则为空串 */
-  qualifier: string;
-};
-
-/** 最外层 SELECT 列表在原文里的区间；拿不到（如 WITH 开头）就返回 undefined。 */
-const resolveOuterSelectListRange = (statement: string, dbType: string): { start: number; end: number } | undefined => {
-  const structural = maskQueryResultSqlStructure(statement, dbType);
-  const head = /^\s*SELECT\s+/i.exec(structural);
-  if (!head) return undefined;
-  const listStart = head[0].length;
-  const fromMatch = /\s+FROM\s+/i.exec(structural.slice(listStart));
-  if (!fromMatch) return undefined;
-  return { start: listStart, end: listStart + fromMatch.index + fromMatch[0].search(/FROM/i) };
-};
-
-const SQL_IDENTIFIER_PATTERN = '(?:`[^`]+`|"[^"]+"|\\[[^\\]]+\\]|[\\p{L}_][\\p{L}\\p{N}_$#]*)';
-const COLUMN_PATH_ONLY_REGEX = new RegExp(`^${SQL_IDENTIFIER_PATTERN}(?:\\s*\\.\\s*${SQL_IDENTIFIER_PATTERN}){0,3}$`, 'u');
-const SELECT_ITEM_AS_ALIAS_REGEX = new RegExp(`^([\\s\\S]+?)\\s+AS\\s+(${SQL_IDENTIFIER_PATTERN})\\s*$`, 'iu');
-const SELECT_ITEM_BARE_ALIAS_REGEX = new RegExp(`^([\\s\\S]+?)\\s+(${SQL_IDENTIFIER_PATTERN})\\s*$`, 'u');
-
-const stripAliasQuotes = (value: string): string => String(value || '').replace(/^["`\[]|["`\]]$/g, '');
-
-const splitColumnPath = (expr: string): string[] => (
-  expr.split('.').map((part) => stripAliasQuotes(part.trim())).filter(Boolean)
-);
-
-/**
- * 解析单个 SELECT 项：只有**纯列引用**（`c.name`、`name`，可带中文/引号别名）才产出映射；
- * 聚合、窗口、函数与常量表达式源列类型本就不同，直接跳过。
- */
-const resolveSelectItemMapping = (item: string): QueryResultSelectAliasEntry | 'all' | undefined => {
-  const text = String(item || '').trim();
-  if (!text) return undefined;
-  if (/^\*$/.test(text) || /\.\s*\*$/.test(text)) return 'all';
-
-  const buildEntry = (expr: string, alias: string): QueryResultSelectAliasEntry | undefined => {
-    if (!COLUMN_PATH_ONLY_REGEX.test(expr)) return undefined;
-    const parts = splitColumnPath(expr);
-    if (parts.length === 0) return undefined;
-    return {
-      resultColumn: alias || parts[parts.length - 1],
-      sourceColumn: parts[parts.length - 1],
-      qualifier: parts.length >= 2 ? parts[parts.length - 2] : '',
-    };
-  };
-
-  const asMatch = SELECT_ITEM_AS_ALIAS_REGEX.exec(text);
-  if (asMatch) return buildEntry(asMatch[1].trim(), stripAliasQuotes(asMatch[2]));
-
-  if (COLUMN_PATH_ONLY_REGEX.test(text)) return buildEntry(text, '');
-
-  // 没有 AS 的别名：只在前面是纯列引用时才认，避免把表达式误当别名映射
-  const bareMatch = SELECT_ITEM_BARE_ALIAS_REGEX.exec(text);
-  if (!bareMatch) return undefined;
-  return buildEntry(bareMatch[1].trim(), stripAliasQuotes(bareMatch[2]));
-};
-
-/**
- * 解析最外层 SELECT 列表的「结果列名 → 源列名」：显式别名（`c.name AS 姓名`）与
- * 纯列引用（`c.name`）都会产出，聚合/窗口/函数表达式不产出（源列类型本就对不上）。
- */
-export const resolveQueryResultSelectAliasEntries = (
-  statement: string,
-  dbType: string,
-): QueryResultSelectAliasEntry[] => {
-  const range = resolveOuterSelectListRange(statement, dbType);
-  if (!range) return [];
-  // DISTINCT 只是修饰符，不是选择项的一部分
-  const listText = statement.slice(range.start, range.end).replace(/^\s*DISTINCT\s+/i, '');
-  const entries: QueryResultSelectAliasEntry[] = [];
-  splitTopLevelComma(listText, dbType).forEach((item) => {
-    const resolved = resolveSelectItemMapping(item);
-    if (!resolved || resolved === 'all') return;
-    entries.push(resolved);
-  });
-  return entries;
-};
-
-const resolveQualifiedTableMeta = (
-  tables: QueryResultSourceTable[],
-  metaMaps: Array<Record<string, ColumnMeta>>,
-  qualifier: string,
-  sourceColumn: string,
-): ColumnMeta | undefined => {
-  const target = columnMetaKeyOf(qualifier);
-  if (!target) return undefined;
-  const candidates = tables.map((table, position) => ({ table, position })).filter(({ table, position }) => (
-    Boolean(metaMaps[position])
-    && (columnMetaKeyOf(table.alias) === target
-      || columnMetaKeyOf(table.ref.metadataTableName.split('.').pop() || '') === target)
-  ));
-  if (candidates.length !== 1) return undefined;
-  return findColumnMeta(metaMaps[candidates[0].position], sourceColumn);
-};
-
 export const resolveQueryResultColumnMetaByCandidateTables = async ({
   statement,
   dbType,
@@ -364,95 +230,17 @@ export const resolveQueryResultColumnMetaByCandidateTables = async ({
   defaultSchema,
   config,
 }: QueryResultColumnMetaBackfillParams): Promise<Record<string, ColumnMeta> | undefined> => {
-  // 只有 SELECT 结果集需要列元数据；PL/SQL 块、DDL、DML 里出现的 FROM 不是结果列来源
   if (!isSelectStatement(statement, dbType)) return undefined;
   const tables = extractQueryResultSourceTables(statement, dbType, currentDb, defaultSchema);
   if (tables.length === 0) return undefined;
-
   const perTableColumns = await Promise.all(
-    tables.map((table) => loadCandidateColumns(config, table.ref).catch(() => [] as ColumnDefinition[])),
+    tables.map(table => loadCandidateColumns(config, table.ref).catch(() => [] as ColumnDefinition[])),
   );
-  const metaMaps = perTableColumns.map((columns) => buildColumnMetaMap(columns));
-  const usableMaps = metaMaps.filter((map) => hasUsableColumnMeta(map));
-  if (usableMaps.length === 0) return undefined;
-
-  const merged = isKingbaseDialect(dbType)
-    ? Object.assign({}, ...usableMaps) as Record<string, ColumnMeta>
-    : mergeColumnMetaMapsByPriority(usableMaps);
-  if (!isKingbaseDialect(dbType)) {
-    resolveQueryResultSelectAliasEntries(statement, dbType).forEach(({ resultColumn, sourceColumn, qualifier }) => {
-      if (findColumnMeta(merged, resultColumn)) return;
-      const meta = resolveQualifiedTableMeta(tables, metaMaps, qualifier, sourceColumn) || findColumnMeta(merged, sourceColumn);
-      if (meta) merged[resultColumn] = meta;
-    });
-    return merged;
-  }
-  Object.keys(merged).forEach((name) => {
-    if (metaMaps.some((map) => !hasUsableColumnMeta(map))
-      || metaMaps.filter((map) => findColumnMeta(map, name)).length !== 1) delete merged[name];
-  });
-  const range = resolveOuterSelectListRange(statement, dbType);
-  if (!range) return undefined;
-  const projected: Record<string, ColumnMeta> = {};
-  const seenResults = new Set<string>();
-  const duplicateResults = new Set<string>();
-  const recordResultColumn = (name: string): void => {
-    if (seenResults.has(name)) duplicateResults.add(name);
-    seenResults.add(name);
-  };
-  splitTopLevelComma(statement.slice(range.start, range.end).replace(/^\s*DISTINCT\s+/i, ''), dbType).forEach((item) => {
-    const mapping = resolveSelectItemMapping(item);
-    if (mapping !== 'all') {
-      const alias = SELECT_ITEM_AS_ALIAS_REGEX.exec(item.trim()) || SELECT_ITEM_BARE_ALIAS_REGEX.exec(item.trim());
-      if (mapping) {
-        recordResultColumn(mapping.resultColumn);
-      } else if (alias) {
-        // 表达式的显式标签不借用通配符展开或纯列引用的同名元数据。
-        duplicateResults.add(stripAliasQuotes(alias[2]));
-      }
-      return;
-    }
-    const qualifier = stripAliasQuotes(item.trim().replace(/\s*\.\s*\*$/, ''));
-    if (item.trim() === '*') Object.assign(projected, merged);
-    const candidates = tables.map((table, index) => ({ table, index })).filter(({ table }) => (
-      item.trim() === '*' || table.alias === qualifier || table.ref.metadataTableName === qualifier
-        || table.ref.metadataTableName.split('.').pop() === qualifier
-    ));
-    if (item.trim() !== '*' && candidates.length !== 1) return;
-    candidates.forEach(({ table, index }) => {
-      if (item.trim() !== '*') Object.assign(projected, metaMaps[index]);
-      [table.alias, table.ref.metadataTableName].filter(Boolean).forEach((prefix) => {
-        Object.entries(metaMaps[index]).forEach(([name, meta]) => { projected[`${prefix}.${name}`] = meta; });
-      });
-    });
-  });
-  resolveQueryResultSelectAliasEntries(statement, dbType).forEach(({ resultColumn, sourceColumn, qualifier }) => {
-    const meta = qualifier
-      ? resolveQualifiedTableMeta(tables, metaMaps, qualifier, sourceColumn)
-      : findColumnMeta(merged, sourceColumn);
-    if (meta) {
-      projected[resultColumn] = meta;
-      if (resultColumn === sourceColumn) {
-        tables.forEach((table, index) => {
-          if (findColumnMeta(metaMaps[index], sourceColumn) !== meta) return;
-          [table.alias, table.ref.metadataTableName].filter(Boolean).forEach((prefix) => {
-            projected[`${prefix}.${sourceColumn}`] = meta;
-          });
-        });
-      }
-    }
-  });
-  Object.keys(projected).forEach((name) => {
-    if (duplicateResults.has(name)) delete projected[name];
-  });
-  return projected;
+  return projectQueryResultColumnMeta({ statement, dbType, tables, metaMaps: perTableColumns.map(buildColumnMetaMap) });
 };
 
-/**
- * 多语句一次性回填：先并行预热全部候选表（去重、只等一次软超时），
- * 再逐条合并（全部命中缓存），避免每条语句各等一轮把执行拖慢。
- * 返回与 requests 同序的元数据映射，拿不到的为 undefined。
- */
+// 多语句并行回填，共享在途请求保证同一张表只等一轮，失败也不在本批次立即重试。
+// 返回与 requests 同序的元数据映射，拿不到的为 undefined。
 export const resolveQueryResultColumnMetaForStatements = async (
   requests: QueryResultColumnMetaBackfillRequest[],
 ): Promise<Array<Record<string, ColumnMeta> | undefined>> => {
@@ -464,8 +252,6 @@ export const resolveQueryResultColumnMetaForStatements = async (
     defaultSchema: resolveQueryResultBackfillDefaultSchema(request),
     config: request.config,
   } : undefined));
-  const selectParamsList = paramsList.filter((params): params is NonNullable<typeof params> => Boolean(params));
-  await prewarmQueryResultColumnMeta(selectParamsList);
   return Promise.all(paramsList.map((params) => (
     params ? resolveQueryResultColumnMetaByCandidateTables(params).catch(() => undefined) : undefined
   )));
