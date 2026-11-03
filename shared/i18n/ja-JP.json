@@ -1792,6 +1792,7 @@
   "ai_service.backend.database_context.value_no": "いいえ",
   "ai_service.backend.database_context.value_yes": "はい",
   "ai_service.backend.error.active_provider_not_found": "アクティブな AI Provider が見つかりません",
+  "ai_service.backend.error.codebuddy_cli_auth_required": "CodeBuddy CLI にログインしていません。ローカル端末で codebuddy を実行してログインするか、API Key / Auth Token を入力してローカルセッションを上書きしてください",
   "ai_service.backend.error.config_dir_create_failed": "設定ディレクトリの作成に失敗しました: {{detail}}",
   "ai_service.backend.error.config_load_failed": "AI 設定の読み込みに失敗しました: {{detail}}",
   "ai_service.backend.error.config_read_failed": "AI 設定の読み取りに失敗しました: {{detail}}",
