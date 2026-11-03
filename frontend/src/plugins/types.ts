@@ -73,6 +73,12 @@ export interface PluginStatus {
   generation: number;
   lastError?: string;
   installedAt: string;
+  /**
+   * 清单已无法按当前契约解码：宿主升级后新增的校验会拒绝早期已安装的插件（例如
+   * 声明 window 却没带 ui.html-panel）。此时 manifest 只保留身份字段，其余声明
+   * 一律不可信也不渲染；该条目的用途只剩「展示原因 + 允许卸载」。
+   */
+  manifestDegraded?: boolean;
 }
 export interface PluginInspection {
   manifest: PluginManifest;

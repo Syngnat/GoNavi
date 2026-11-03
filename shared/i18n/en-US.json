@@ -9480,6 +9480,8 @@
   "plugin.backend.error.timeout": "The marketplace request timed out. Try again.",
   "plugin.backend.error.window_unavailable": "The isolated plugin window is unavailable.",
   "plugin.backend.filter.plugin_package": "Plugin package (*.zip;*.tgz)",
+  "plugin.card.manifest_incompatible": "Plugin manifest is incompatible with this host",
+  "plugin.card.manifest_incompatible_hint": "The manifest this plugin declared at install time can no longer be parsed under the current rules, so its buttons, data sources and pages are disabled. Update the plugin, or remove and reinstall it.",
   "plugin.card.last_error": "Last error",
   "plugin.commands.arguments": "Arguments (JSON)",
   "plugin.commands.effect_warning": "Commands may change data. Review their input and run only actions you understand.",

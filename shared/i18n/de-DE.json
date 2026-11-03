@@ -9480,6 +9480,8 @@
   "plugin.backend.error.timeout": "Zeitüberschreitung bei der Marktplatzanfrage. Erneut versuchen.",
   "plugin.backend.error.window_unavailable": "Das isolierte Plugin-Fenster ist nicht verfügbar.",
   "plugin.backend.filter.plugin_package": "Plugin-Paket (*.zip;*.tgz)",
+  "plugin.card.manifest_incompatible": "Plugin-Manifest ist mit diesem Host nicht kompatibel",
+  "plugin.card.manifest_incompatible_hint": "Das beim Installieren deklarierte Manifest lässt sich mit den aktuellen Regeln nicht mehr lesen, daher sind seine Schaltflächen, Datenquellen und Seiten deaktiviert. Aktualisieren Sie das Plugin oder entfernen und installieren Sie es erneut.",
   "plugin.card.last_error": "Letzter Fehler",
   "plugin.commands.arguments": "Argumente (JSON)",
   "plugin.commands.effect_warning": "Befehle können Daten ändern. Prüfen Sie Eingaben und führen Sie nur bekannte Aktionen aus.",

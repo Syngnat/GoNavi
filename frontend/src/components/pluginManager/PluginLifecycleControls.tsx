@@ -20,8 +20,9 @@ export function PluginLifecycleControls({ plugin, allowed, safeMode, busy, onEna
       <Tag color={stateTag.color}>{t('plugin.state.' + stateTag.key)}</Tag>
     </div>
     <Space wrap>
-      <Button onClick={() => onEnabled(true)} disabled={!allowed || safeMode || busy || plugin.state === 'running' || plugin.state === 'starting'}>{t('plugin.action.enable')}</Button>
-      <Button danger onClick={() => onEnabled(false)} disabled={!allowed}>{t('plugin.action.disable')}</Button>
+      {/* 清单已降级的插件不能启用：宿主会再次拒绝它，启用只会换来一条失败提示。 */}
+      <Button onClick={() => onEnabled(true)} disabled={!allowed || safeMode || busy || Boolean(plugin.manifestDegraded) || plugin.state === 'running' || plugin.state === 'starting'}>{t('plugin.action.enable')}</Button>
+      <Button danger onClick={() => onEnabled(false)} disabled={!allowed || Boolean(plugin.manifestDegraded)}>{t('plugin.action.disable')}</Button>
       <Popconfirm title={t('plugin.remove.confirm')} description={t('plugin.remove.keep_data')}
         okText={t('plugin.action.remove')} cancelText={t('common.cancel')} onConfirm={onRemove} disabled={!allowed}>
         <Button type="text" disabled={!allowed}>{t('plugin.action.remove')}</Button>

@@ -416,9 +416,66 @@ export function decodeStatus(data: unknown): PluginStatus {
     || typeof s.generation !== 'number' || !Number.isSafeInteger(s.generation) || typeof s.installedAt !== 'string') invalid();
   return { ...s, manifest } as unknown as PluginStatus;
 }
+/**
+ * 单条状态解码失败时降级成「仅身份」清单，而不是整表抛错。
+ *
+ * 宿主升级后新增的清单规则会拒绝早期合法安装的插件（00021c5bc 让 window 必须声明
+ * ui.html-panel 就是一次）。宿主侧已经隔离了这条记录（internal/plugin/state.go 的
+ * quarantine），但前端原先只要有一条解码失败就整份列表 invalid_response，插件面板
+ * 直接空白、连卸载入口都没有 —— 用户看到的是「怎么都看不看了」。
+ *
+ * 降级只保留身份字段（id/name/version），权限、contributes、window、backend 一律清空：
+ * 无法按契约解码的声明不可信，不能拿去渲染按钮或发起调用。state 强制 blocked、desired
+ * 强制 false，与宿主隔离时的语义一致。
+ */
+function decodeStatusDegraded(raw: Record<string, unknown>): PluginStatus | null {
+  const rawManifest = raw.manifest;
+  if (rawManifest == null || typeof rawManifest !== 'object' || Array.isArray(rawManifest)) return null;
+  const manifest = rawManifest as Record<string, unknown>;
+  const id = manifest.id;
+  const name = manifest.name;
+  const version = manifest.version;
+  // 身份字段本身不合法就无法安全地列出或卸载这一条，交给调用方丢弃。
+  if (typeof id !== 'string' || !validPluginID(id)) return null;
+  if (typeof name !== 'string' || name.trim() === '' || !utf8Within(name, 256)) return null;
+  if (typeof version !== 'string' || !validVersion(version)) return null;
+  if (typeof raw.digest !== 'string' || !/^[a-f0-9]{64}$/i.test(raw.digest)) return null;
+  if (typeof raw.generation !== 'number' || !Number.isSafeInteger(raw.generation)) return null;
+  if (typeof raw.installedAt !== 'string') return null;
+  const lastError = typeof raw.lastError === 'string' && raw.lastError.length <= 8192 ? raw.lastError : undefined;
+  return {
+    manifest: {
+      schemaVersion: 1,
+      apiVersion: 1,
+      id,
+      name,
+      version,
+      permissions: [],
+    },
+    digest: raw.digest,
+    state: 'blocked',
+    desiredEnabled: false,
+    generation: raw.generation,
+    ...(lastError ? { lastError } : {}),
+    installedAt: raw.installedAt,
+    manifestDegraded: true,
+  };
+}
 export function decodeStatuses(data: unknown): PluginStatus[] {
   if (!Array.isArray(data) || data.length > 500) return invalid();
-  return data.map(decodeStatus);
+  const decoded: PluginStatus[] = [];
+  for (const item of data) {
+    if (item == null || typeof item !== 'object' || Array.isArray(item)) return invalid();
+    try {
+      decoded.push(decodeStatus(item));
+    } catch (cause) {
+      if (!(cause instanceof PluginAPIError) || cause.key !== 'plugin.error.invalid_response') throw cause;
+      const degraded = decodeStatusDegraded(item as Record<string, unknown>);
+      // 身份字段也解不出来：这一条没有任何可用信息，跳过它但不牵连其余插件。
+      if (degraded) decoded.push(degraded);
+    }
+  }
+  return decoded;
 }
 export function decodeInspection(data: unknown): PluginInspection {
   const i = requireRecord(data);

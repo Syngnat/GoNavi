@@ -9480,6 +9480,8 @@
   "plugin.backend.error.timeout": "Время ожидания каталога истекло. Повторите попытку.",
   "plugin.backend.error.window_unavailable": "Отдельное окно плагина недоступно.",
   "plugin.backend.filter.plugin_package": "Пакет плагина (*.zip;*.tgz)",
+  "plugin.card.manifest_incompatible": "Манифест плагина несовместим с текущей версией хоста",
+  "plugin.card.manifest_incompatible_hint": "Манифест, объявленный при установке, больше не разбирается по текущим правилам, поэтому его кнопки, источники данных и страницы отключены. Обновите плагин либо удалите и установите его заново.",
   "plugin.card.last_error": "Последняя ошибка",
   "plugin.commands.arguments": "Аргументы (JSON)",
   "plugin.commands.effect_warning": "Команды могут изменять данные. Проверьте ввод и выполняйте только понятные вам действия.",

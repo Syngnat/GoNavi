@@ -48,6 +48,8 @@ export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpda
         {t('plugin.market.details')}
       </Button>
     </header>
+    {plugin.manifestDegraded && <Alert showIcon type="warning" message={t('plugin.card.manifest_incompatible')}
+      description={t('plugin.card.manifest_incompatible_hint')} />}
     {plugin.lastError && <Alert showIcon type="error" message={t('plugin.card.last_error')} description={plugin.lastError} />}
     <PluginLifecycleControls plugin={plugin} allowed={manager.runtime.managementAllowed} safeMode={manager.runtime.safeMode}
       busy={Boolean(manager.busy[id])} onEnabled={(enabled) => void manager.setEnabled(id, enabled)} onRemove={() => void manager.remove(id, false)} />

@@ -9480,6 +9480,8 @@
   "plugin.backend.error.timeout": "市集請求逾時，請重試。",
   "plugin.backend.error.window_unavailable": "外掛獨立視窗無法使用。",
   "plugin.backend.filter.plugin_package": "外掛套件 (*.zip;*.tgz)",
+  "plugin.card.manifest_incompatible": "外掛清單與目前主程式版本不相容",
+  "plugin.card.manifest_incompatible_hint": "此外掛安裝時宣告的清單已無法依目前規則解析，因此它的按鈕、資料來源與頁面皆已停用。升級外掛或解除安裝後重新安裝即可恢復。",
   "plugin.card.last_error": "最近一次錯誤",
   "plugin.commands.arguments": "參數（JSON）",
   "plugin.commands.effect_warning": "命令可能變更資料。請檢查輸入，僅執行您了解的操作。",

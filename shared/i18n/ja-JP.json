@@ -9480,6 +9480,8 @@
   "plugin.backend.error.timeout": "マーケットへの要求がタイムアウトしました。再試行してください。",
   "plugin.backend.error.window_unavailable": "独立したプラグインウィンドウを利用できません。",
   "plugin.backend.filter.plugin_package": "プラグインパッケージ (*.zip;*.tgz)",
+  "plugin.card.manifest_incompatible": "プラグインのマニフェストが現在のホストと互換性がありません",
+  "plugin.card.manifest_incompatible_hint": "インストール時に宣言されたマニフェストを現在の規則で解析できないため、ボタン、データソース、ページは無効になっています。プラグインを更新するか、削除して再インストールしてください。",
   "plugin.card.last_error": "直近のエラー",
   "plugin.commands.arguments": "引数（JSON）",
   "plugin.commands.effect_warning": "コマンドはデータを変更する場合があります。入力と動作を確認して実行してください。",
