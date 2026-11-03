@@ -69,7 +69,7 @@ func ParseManifest(data []byte) (Manifest, error) {
 }
 
 // ValidateManifest rejects unsupported schemas and unsafe declarations, without execution.
-func ValidateManifest(m Manifest) error {
+func validateManifestLegacy(m Manifest) error {
 	if m.SchemaVersion != 1 || m.APIVersion != 1 {
 		return fmt.Errorf("unsupported plugin schema or api version")
 	}
