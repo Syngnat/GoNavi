@@ -74,12 +74,28 @@ describe('resolveTabOverflowLayout', () => {
     expect(layout.hidden).toHaveLength(3);
   });
 
+  // 3 个 200px 标签 + 2 个 2px 间距 = 604px。间距必须计入，否则最后一个
+  // 会被容器裁掉一截，而「更多」按钮又不会出现——用户没有任何办法看到它。
+  it('counts the inter-tab gap when deciding whether everything fits', () => {
+    const exact = resolveTabOverflowLayout({
+      tabs: tabs(3), activeTabId: 't0', availableWidth: 604, tabWidth: 200, tabGap: 2,
+    });
+    expect(exact.visible).toHaveLength(3);
+    expect(exact.hidden).toHaveLength(0);
+
+    const onePixelShort = resolveTabOverflowLayout({
+      tabs: tabs(3), activeTabId: 't0', availableWidth: 603, tabWidth: 200, tabGap: 2,
+    });
+    expect(onePixelShort.visible.length).toBeLessThan(3);
+    expect(onePixelShort.hidden.length).toBeGreaterThan(0);
+  });
+
   it('does not reserve the more button when everything fits', () => {
-    // 可用宽度刚好放下 3 个，但扣掉「更多」按钮就不够。此时不该出现按钮，
-    // 也不能因此把 tab 收起来。
+    // 可用宽度刚好放下 3 个（含间距），但扣掉「更多」按钮的 52px 就不够。
+    // 此时不该出现按钮，也不能因此把 tab 收起来。
     const layout = resolveTabOverflowLayout({
-      tabs: tabs(3), activeTabId: 't0', availableWidth: 600, tabWidth: 200,
-      moreButtonWidth: 52,
+      tabs: tabs(3), activeTabId: 't0', availableWidth: 604, tabWidth: 200,
+      tabGap: 2, moreButtonWidth: 52,
     });
     expect(layout.visible).toHaveLength(3);
     expect(layout.hidden).toHaveLength(0);

@@ -325,6 +325,7 @@ export const useTabManagerItems = ({
         extra={<QueryEditorRunningTabsDock />}
         renderTab={({ key, element }) => <DraggableTabNode key={key} node={element} />}
         describeHiddenTab={describeStripTab}
+        doubleLine={hasDoubleLineTabLabel}
         t={t}
       />
     </TabSwitchPhaseProfiler>

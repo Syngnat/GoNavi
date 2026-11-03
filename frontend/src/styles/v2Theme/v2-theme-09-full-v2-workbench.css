@@ -317,13 +317,19 @@ body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-tab-btn {
   height: 100%;
 }
 
+/* display 自己声明：原先依赖 .main-tabs .tab-dnd-label 提供 inline-flex，
+   那是工作台标签条注入的样式，与标签组件本身无关。自绘标签条不在该作用域
+   下时会退化成行内盒，宽度与基线都随父级行盒变化。 */
 body[data-ui-version="v2"] .gn-v2-tab-label {
+  display: flex;
+  align-items: center;
   position: relative;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
   padding: 0 8px 0 10px;
   gap: 7px;
+  overflow: hidden;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-content {
@@ -677,8 +683,10 @@ body[data-ui-version="v2"] .gn-v2-tab-strip {
   overflow: hidden;
 }
 
-body[data-ui-version="v2"].gn-v2-tab-strip-double .gn-v2-tab-strip,
+/* 双行标签（标题 + 副标题）需要更高的行高；--gn-v2-tab-row-height 同时
+   驱动条高与每个 tab 的高度，避免两者不一致导致裁切。 */
 body[data-ui-version="v2"] .gn-v2-tab-strip[data-double="true"] {
+  --gn-v2-tab-row-height: 46px;
   height: 46px;
   flex-basis: 46px;
 }
@@ -704,7 +712,9 @@ body[data-ui-version="v2"] .gn-v2-tab-strip__tab {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  height: 30px;
+  /* 与 antd 原生的 .ant-tabs-tab 等高：普通行 36px、双行 46px。
+     这里写死 30px 会把「标题 + 副标题」的双行标签压扁，内容溢出错位。 */
+  height: var(--gn-v2-tab-row-height, 36px);
   min-width: 0;
   padding: 0;
   border-radius: 8px;

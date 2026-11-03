@@ -8,8 +8,8 @@ import {
 } from './tabOverflowLayout';
 import { V2_WORKBENCH_TAB_MAX_WIDTH, resolveV2WorkbenchTabWidth } from './tabManagerShortcuts';
 
-/** 「更多」按钮占位宽度：数字 + 内边距 + 左右间距。 */
-const MORE_BUTTON_WIDTH = 52;
+/** 相邻标签间距，与 .gn-v2-tab-strip__list 的 gap 保持一致。 */
+const TAB_GAP = 2;
 
 type StripItem = {
   key: string;
@@ -27,6 +27,8 @@ export type WorkbenchTabStripProps = {
   renderTab?: (input: { key: string; element: React.ReactElement }) => React.ReactNode;
   /** 「更多」菜单里每一项的标题与元信息。 */
   describeHiddenTab: (key: string) => { title: string; meta?: string };
+  /** 标签是否为双行（标题 + 副标题）；双行需要更高的行高。 */
+  doubleLine?: boolean;
   t: (key: string) => string;
 };
 
@@ -46,6 +48,7 @@ export const WorkbenchTabStrip = ({
   extra,
   renderTab,
   describeHiddenTab,
+  doubleLine = false,
   t,
 }: WorkbenchTabStripProps) => {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -76,7 +79,10 @@ export const WorkbenchTabStrip = ({
       activeTabId: activeKey,
       availableWidth,
       tabWidth,
-      moreButtonWidth: MORE_BUTTON_WIDTH,
+      tabGap: TAB_GAP,
+      // availableWidth 量的是 __scroll 的宽度，「更多」按钮是它的兄弟节点，
+      // flex 已经把按钮占的位置排除在外，这里再减一次会白收一个标签。
+      moreButtonWidth: 0,
     }),
     [items, activeKey, availableWidth, tabWidth],
   );
@@ -98,7 +104,11 @@ export const WorkbenchTabStrip = ({
   );
 
   return (
-    <div className="gn-v2-tab-strip" data-tab-strip="true">
+    <div
+      className="gn-v2-tab-strip"
+      data-tab-strip="true"
+      data-double={doubleLine ? 'true' : 'false'}
+    >
       <div className="gn-v2-tab-strip__scroll" ref={stripRef}>
         <div className="gn-v2-tab-strip__list" role="tablist">
           {layout.visible.map(({ item }) => {
