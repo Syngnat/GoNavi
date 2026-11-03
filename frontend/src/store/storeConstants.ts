@@ -7,7 +7,6 @@ import { DEFAULT_TITLEBAR_ACTIONS_PLACEMENT_SETTINGS } from "../utils/titlebarAc
 import {
   DEFAULT_TAB_APPEARANCE_STYLE,
   DEFAULT_TAB_CLOSE_BUTTON_POSITION,
-  DEFAULT_TAB_OVERFLOW_MODE,
 } from "../utils/tabAppearance";
 import type { LanguagePreference } from "../i18n";
 import { DEFAULT_TAB_DISPLAY_SETTINGS } from "../utils/tabDisplay";
@@ -57,7 +56,6 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   tabEnvironmentAccentThickness: DEFAULT_TAB_ENVIRONMENT_ACCENT_THICKNESS,
   tabAppearanceStyle: DEFAULT_TAB_APPEARANCE_STYLE,
   tabCloseButtonPosition: DEFAULT_TAB_CLOSE_BUTTON_POSITION,
-  tabOverflowMode: DEFAULT_TAB_OVERFLOW_MODE,
   toolbarButtonColorOverrides: { ...DEFAULT_TOOLBAR_BUTTON_COLOR_OVERRIDES },
   sidebarSingleDatabaseExpansion: false,
   workbenchSidebarAutoCollapse: false,

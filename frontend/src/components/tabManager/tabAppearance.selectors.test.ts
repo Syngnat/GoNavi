@@ -44,14 +44,6 @@ const renderWorkbench = (appearance: string, closePosition: string) => `
           </div>
         </div>
       </div>
-      <div class="gn-v2-tab-strip" data-tab-strip="true" data-overflow-mode="fixed">
-        <div class="gn-v2-tab-strip__scroll">
-          <div class="gn-v2-tab-strip__list">
-            <div class="gn-v2-tab-strip__tab is-active"></div>
-            <div class="gn-v2-tab-strip__tab"></div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>`;
 
@@ -75,7 +67,7 @@ const readParsedSelectors = (sheet: CSSStyleSheet) =>
   [...sheet.cssRules].map((rule) => normalizeSelector((rule as CSSStyleRule).selectorText));
 
 describe('main workbench tab appearance selectors', () => {
-  it('parses every rule and never overrides the card workbench', () => {
+  it('parses every rule and never targets the card workbench', () => {
     const sheet = mountWorkbenchFixtures();
     const rules = [...sheet.cssRules] as CSSStyleRule[];
 
@@ -87,9 +79,6 @@ describe('main workbench tab appearance selectors', () => {
       const matched = [...document.querySelectorAll(rule.selectorText)];
       expect(matched.length, rule.selectorText).toBeGreaterThan(0);
       matched.forEach((element) => {
-        // 自绘标签条的无限定规则就是 card 的基础样式：antd 的 .ant-tabs-tab
-        // 已不在 DOM 里，底色与圆角只能由这些规则提供。
-        if (rule.selectorText.includes('.gn-v2-tab-strip__tab')) return;
         expect(element.closest("[data-tab-appearance='card']"), rule.selectorText).toBeNull();
       });
     });

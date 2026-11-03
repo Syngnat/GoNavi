@@ -41,9 +41,6 @@ describe('main workbench tab appearance styles', () => {
     expect(selectors.length).toBeGreaterThan(0);
     selectors.forEach((selector) => {
       expect(selector).toContain('.gn-v2-tab-workbench');
-      // 自绘标签条（.gn-v2-tab-strip__tab）不经过 antd 的 nav 结构，只要求
-      // 仍然锚定在工作台根节点下。
-      if (selector.includes('.gn-v2-tab-strip__tab')) return;
       expect(selector).toContain('.gn-v2-main-tabs');
       // navicat 布局的激活页签规则到 (0,6,1)，多这一层 class 才能稳定压过它。
       expect(selector).toContain('.ant-tabs-nav-list');
