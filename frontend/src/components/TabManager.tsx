@@ -330,6 +330,7 @@ body[data-theme='dark'] .main-tabs .ant-tabs-tab.ant-tabs-tab-active {
                 onEdit={onEdit}
                 items={items}
                 hideAdd
+                popupClassName="gn-v2-tab-overflow-popup"
                 renderTabBar={renderTabBar}
             />
           </SortableContext>

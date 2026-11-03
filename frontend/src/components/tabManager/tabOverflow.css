@@ -1,0 +1,312 @@
+/* IDEA-style workbench tab overflow: chevron trigger + compact searchable list.
+   The popup is portaled (not under .ant-tabs-nav-list), so these rules live here
+   instead of tabAppearance.css. */
+
+body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-operations {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-more {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  margin: 0 2px 0 4px !important;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-fg-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-more:hover,
+body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-more[aria-expanded="true"] {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-1);
+}
+
+/* Portaled by rc-trigger. antd's position:absolute lives on a hashed
+   selector; overwriting popupClassName without that hash drops the node
+   into document flow (bottom-left of the workbench). Pin position here
+   and never set left/top — the trigger writes those as inline offsets. */
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup {
+  position: absolute;
+  z-index: 1100;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-menu {
+  width: min(360px, calc(100vw - 24px));
+  min-width: 320px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: var(--gn-v2-menu-surface-radius, 10px);
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-1);
+  box-shadow: var(--gn-shadow-lg);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border-bottom: 0.5px solid var(--gn-br-1);
+  color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--gn-fg-1);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search input::placeholder {
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-list {
+  min-width: 100%;
+  max-height: min(320px, 50vh);
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gn-fg-4) 55%, transparent) color-mix(in srgb, var(--gn-fg-4) 12%, var(--gn-bg-panel));
+  margin: 0;
+  padding: 4px 4px 4px 6px;
+  list-style: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-list::-webkit-scrollbar-track {
+  margin: 2px 0;
+  background: color-mix(in srgb, var(--gn-fg-4) 12%, var(--gn-bg-panel));
+  border-radius: 999px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-list::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-fg-4) 48%, transparent);
+  background-clip: padding-box;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--gn-accent) 50%, var(--gn-fg-4));
+  background-clip: padding-box;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-empty {
+  margin: 0;
+  padding: 10px 12px 12px;
+  color: var(--gn-fg-4);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: var(--gn-v2-menu-row-height, 28px);
+  margin: 0;
+  padding: 0 8px 0 6px;
+  border-radius: var(--gn-v2-menu-item-radius, 5px);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item-main:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: -2px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item:hover,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-highlighted {
+  background: var(--gn-bg-active);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active {
+  background: var(--gn-bg-selected);
+  box-shadow: inset 2px 0 0 var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active.is-highlighted,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active:hover {
+  background: var(--gn-bg-selected);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-kind {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gn-fg-4);
+  font-size: 14px;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active .gn-v2-tab-overflow-kind {
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-title {
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 52%;
+  overflow: hidden;
+  color: var(--gn-fg-1);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-subtitle {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--gn-fg-4);
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-close {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-fg-4);
+  opacity: 0;
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item:hover .gn-v2-tab-overflow-close,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-highlighted .gn-v2-tab-overflow-close {
+  opacity: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-close:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-1);
+}
+
+/* Fallback: if the cloned antd overflow labels ever leak through, flatten them
+   into the same compact row instead of a workbench tab card. */
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .ant-tabs-dropdown-menu {
+  min-width: 240px;
+  max-width: 360px;
+  max-height: min(420px, 70vh);
+  padding: 4px !important;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: var(--gn-v2-menu-surface-radius, 10px);
+  background: var(--gn-bg-panel) !important;
+  box-shadow: var(--gn-shadow-lg);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .ant-tabs-dropdown-menu-item {
+  height: var(--gn-v2-menu-row-height, 28px) !important;
+  min-height: var(--gn-v2-menu-row-height, 28px) !important;
+  min-width: 0 !important;
+  margin: 0;
+  padding: 0 6px 0 8px !important;
+  overflow: hidden;
+  border-radius: var(--gn-v2-menu-item-radius, 5px);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .ant-tabs-dropdown-menu-item > span {
+  display: flex !important;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .gn-v2-tab-label {
+  width: 100%;
+  height: 28px !important;
+  padding: 0 2px !important;
+  gap: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .gn-v2-tab-label-double,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .gn-v2-tab-label-double .gn-v2-tab-label-content {
+  flex-direction: row;
+  padding: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .gn-v2-tab-label-secondary,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-popup .gn-tab-environment-accent {
+  display: none;
+}

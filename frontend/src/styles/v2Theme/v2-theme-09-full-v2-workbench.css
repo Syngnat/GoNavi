@@ -276,8 +276,8 @@ body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav {
 }
 
 body[data-ui-version="v2"] .gn-v2-main-tabs-double > .ant-tabs-nav {
-  height: 46px;
-  flex: 0 0 46px;
+  height: 50px;
+  flex: 0 0 50px;
 }
 
 body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-wrap,
@@ -287,7 +287,7 @@ body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-list {
 
 body[data-ui-version="v2"] .gn-v2-main-tabs-double > .ant-tabs-nav .ant-tabs-nav-wrap,
 body[data-ui-version="v2"] .gn-v2-main-tabs-double > .ant-tabs-nav .ant-tabs-nav-list {
-  min-height: 46px;
+  min-height: 50px;
 }
 
 body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-tab {
@@ -309,19 +309,24 @@ body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-tab.ant-ta
 }
 
 body[data-ui-version="v2"] .gn-v2-main-tabs-double > .ant-tabs-nav .ant-tabs-tab {
-  height: 46px;
+  height: 50px;
 }
 
 body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-tab-btn {
+  display: flex;
   width: 100%;
   height: 100%;
+  align-items: stretch;
+  line-height: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label {
   position: relative;
+  display: flex;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
+  align-items: center;
   padding: 0 8px 0 10px;
   gap: 7px;
 }
@@ -337,20 +342,26 @@ body[data-ui-version="v2"] .gn-v2-tab-label-content {
 
 body[data-ui-version="v2"] .gn-v2-tab-label-double {
   padding-top: 4px;
-  padding-bottom: 3px;
+  padding-bottom: 5px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-content {
   align-items: stretch;
   justify-content: flex-start;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-main {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   gap: 5px;
   line-height: 17px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-secondary {
+  flex: 0 0 auto;
+  min-height: 14px;
+  line-height: 14px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-label-main {
@@ -371,13 +382,14 @@ body[data-ui-version="v2"] .gn-v2-tab-label-secondary {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  /* 分隔符两侧不留间距：目标是「SQL·[KingBase]」，有 gap 会变成「SQL · [KingBase]」。 */
+  gap: 0;
   overflow: hidden;
   color: var(--gn-fg-4);
   font-family: var(--gn-font-mono);
   font-size: 10px;
   font-weight: 650;
-  line-height: 12px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -423,6 +435,8 @@ body[data-ui-version="v2"] .gn-v2-tab-label-part-database {
 
 body[data-ui-version="v2"] .gn-v2-tab-label-separator {
   flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
   color: var(--gn-fg-5);
 }
 
@@ -602,7 +616,7 @@ body[data-ui-version="v2"] .gn-v2-query-running-menu-dot[data-status="error"] {
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-kind {
-  height: 17px;
+  height: 14px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -613,6 +627,7 @@ body[data-ui-version="v2"] .gn-v2-tab-kind {
   font-family: var(--gn-font-mono);
   font-size: 9.5px;
   font-weight: 750;
+  line-height: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-conn {
