@@ -171,12 +171,15 @@ describe('SELECT 别名映射回填', () => {
     });
   });
 
-  it('qualified star only projects that table and quoted aliases remain case-sensitive', async () => {
+  it('qualified star keeps the first same-named result column and quoted aliases stay case-sensitive', async () => {
     const params = { statement: 'SELECT c.*, o.id AS "ID", o.id AS "id" FROM lab_customers c JOIN lab_orders o ON o.customer_id=c.id', dbType: 'kingbase', currentDb: config.database, defaultSchema: '', config };
     const metaMap = await resolveQueryResultColumnMetaByCandidateTables(params);
     expect(metaMap?.customer_id).toBeUndefined();
     expect(metaMap?.ID?.comment).toBe('订单ID');
-    expect(metaMap?.id?.comment).toBe('订单ID');
+    // 后端按投影顺序给重复列名加 _2 后缀：裸 id 属于 c.* 展开出的 lab_customers.id，
+    // 后面的 o.id AS "id" 落在 id_2 上，不再覆盖，也不替它猜注释。
+    expect(metaMap?.id?.comment).toBe('客户ID, 主键自增');
+    expect(metaMap?.id_2).toBeUndefined();
     expect(metaMap?.name?.comment).toBe('客户姓名');
   });
 
@@ -249,6 +252,86 @@ describe('SELECT 别名映射回填', () => {
     });
     expect(metaMap?.cnt).toBeUndefined();
     expect(metaMap?.total).toBeUndefined();
+  });
+
+  it('非金仓方言同样不把实体列注释借给同名表达式标签', async () => {
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [
+      { name: 'status', type: 'int(11)', comment: '状态' },
+      { name: 'order_name', type: 'varchar(100)', comment: '监测任务名称' },
+    ] });
+    const mysqlConfig = { ...config, dbType: 'mysql' };
+    const aggregate = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT COUNT(*) AS status FROM biz_command_order',
+      dbType: 'mysql', currentDb: 'ecom_test_0705', defaultSchema: '', config: mysqlConfig,
+    });
+    expect(aggregate?.status).toBeUndefined();
+    const plain = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT order_name FROM biz_command_order',
+      dbType: 'mysql', currentDb: 'ecom_test_0705', defaultSchema: '', config: mysqlConfig,
+    });
+    expect(plain?.order_name?.comment).toBe('监测任务名称');
+  });
+
+  it('同批候选表里有一张取不到元数据时，不清空其它表的裸列注释', async () => {
+    backendApp.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => (
+      String(table).includes('lab_customers')
+        ? Promise.resolve({ success: true, data: customerColumns })
+        : Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] })
+    ));
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT * FROM lab_customers c JOIN lab_orders o ON o.customer_id = c.id',
+      dbType: 'kingbase', currentDb: 'gonavi_kingbase_lab', defaultSchema: 'dbms_job', config,
+    });
+    expect(metaMap?.name?.comment).toBe('客户姓名');
+    expect(metaMap?.id?.comment).toBe('客户ID, 主键自增');
+    // 取不到元数据的那张表仍然保守：不猜它的列注释。
+    expect(metaMap?.total_amount).toBeUndefined();
+  });
+
+  it('靠前的候选表取不到元数据时，不把后面表的注释借给它的裸列', async () => {
+    backendApp.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => (
+      String(table).includes('lab_customers')
+        ? Promise.resolve({ success: true, data: customerColumns })
+        : Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] })
+    ));
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT * FROM lab_orders o JOIN lab_customers c ON c.id = o.customer_id',
+      dbType: 'kingbase', currentDb: 'gonavi_kingbase_lab', defaultSchema: 'dbms_job', config,
+    });
+    // 投影里第一个 id 属于 lab_orders，本轮拿不到它的列定义，宁可不给注释也不能张冠李戴。
+    expect(metaMap?.id).toBeUndefined();
+    expect(metaMap?.name).toBeUndefined();
+  });
+
+  it('三张表里中间那张取不到元数据时，只有排在它前面的表保留裸列注释', async () => {
+    backendApp.DBGetColumns.mockImplementation((_cfg: unknown, _db: string, table: string) => {
+      const key = String(table);
+      if (key.includes('lab_orders')) {
+        return Promise.resolve({ success: false, message: 'Timed out while loading columns', data: [] });
+      }
+      if (key.includes('lab_items')) {
+        return Promise.resolve({ success: true, data: [{ name: 'item_name', type: 'varchar', comment: '物料名称' }] });
+      }
+      return Promise.resolve({ success: true, data: customerColumns });
+    });
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: 'SELECT * FROM lab_customers c JOIN lab_orders o ON o.customer_id = c.id JOIN lab_items i ON i.order_id = o.id',
+      dbType: 'kingbase', currentDb: 'gonavi_kingbase_lab', defaultSchema: 'dbms_job', config,
+    });
+    expect(metaMap?.name?.comment).toBe('客户姓名');
+    // lab_items 排在取不到元数据的 lab_orders 后面，裸名归属不确定，不借注释。
+    expect(metaMap?.item_name).toBeUndefined();
+  });
+
+  it('非金仓方言在实体列先出现时保留同名实体列注释', async () => {
+    backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [
+      { name: 'order_name', type: 'varchar(100)', comment: '监测任务名称' },
+    ] });
+    const metaMap = await resolveQueryResultColumnMetaByCandidateTables({
+      statement: "SELECT t.*, COALESCE(t.order_name, '') AS order_name FROM biz_command_order t",
+      dbType: 'mysql', currentDb: 'ecom_test_0705', defaultSchema: '', config: { ...config, dbType: 'mysql' },
+    });
+    expect(metaMap?.order_name?.comment).toBe('监测任务名称');
   });
 
   it('解析选择项：AS / 裸别名 / 引号别名 / 表达式跳过', () => {

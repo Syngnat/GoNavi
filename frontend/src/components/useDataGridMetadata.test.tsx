@@ -146,10 +146,25 @@ describe('useDataGridMetadata execution context', () => {
     expect(controller?.columnMetaMap).toEqual({});
   });
 
-  it('keeps the previous non-Kingbase fallback when the supplied map is empty', async () => {
-    await act(async () => { renderer = create(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={{}} />); });
+  it('keeps the non-Kingbase fallback when prepared metadata is unavailable', async () => {
+    await act(async () => { renderer = create(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={undefined} />); });
     expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
     expect(controller?.columnMetaMap).toHaveProperty('public_value');
+  });
+
+  it('preserves an explicit empty non-Kingbase query projection', async () => {
+    await act(async () => { renderer = create(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={{}} />); });
+    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(controller?.columnMetaMap).toEqual({});
+  });
+
+  it('does not reuse projected aliases as physical table metadata', async () => {
+    const projected = { public_value: { type: 'bigint', comment: 'alias from another column' } };
+    await act(async () => { renderer = create(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={projected} />); });
+    expect(controller?.columnMetaMap.public_value.type).toBe('bigint');
+    await act(async () => { renderer?.update(<Harness connectionParamsOverride="search_path=public" initialColumnMetaMap={undefined} />); });
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+    expect(controller?.columnMetaMap.public_value.type).toBe('text');
   });
 
   it('uses execution-plan metadata without requesting the same table again', async () => {

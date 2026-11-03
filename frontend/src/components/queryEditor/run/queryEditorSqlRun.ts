@@ -7,7 +7,7 @@ import {
     resolveOracleExactCaseTableReference, rewriteLeadingSelectTableReference,
     type QueryStatementPlan, resolveQueryLocatorPlan,
 } from '../QueryEditorHelpers';
-import { resolveQueryResultColumnMetaForStatements } from '../queryEditorColumnMetaBackfill';
+import { backfillQueryEditorStatementPlans } from './queryEditorSqlRunMetadata';
 import { t as translate } from '../../../i18n';
 import {
     isQueryEditorTriggerDropStatement, hasSqlExecutionOutcomeUnknown, type QueryEditorRunScope,
@@ -307,33 +307,12 @@ export const runQueryEditorSqlStatements = async ({
         }
     }
 
-    // 结果页列类型/注释的批量回填：整批只等一次（候选表去重后并行），
-    // 全部命中缓存后再逐条合并，避免每条语句各等一轮把执行拖慢。
-    const backfillTargets = statementPlans
-        .map((plan, index) => ({
-            plan,
-            statement: executedSourceStatements[index] || sourceStatements[index] || '',
-        }))
-        .filter((target) => (normalizedDbType === 'kingbase' || !target.plan.tableRef) && String(target.statement || '').trim());
-    if (backfillTargets.length > 0) {
-        try {
-            const columnMetaMaps = await resolveQueryResultColumnMetaForStatements(
-                backfillTargets.map((target) => ({
-                    statement: target.statement,
-                    dbType: normalizedDbType,
-                    currentDb: executionDbName,
-                    schemaName: executionSchemaName,
-                    config: executionConfig,
-                })),
-            );
-            if (!isCurrentRun()) return;
-            columnMetaMaps.forEach((metaMap, index) => {
-                if (metaMap || normalizedDbType === 'kingbase') backfillTargets[index].plan.columnMetaMap = metaMap;
-            });
-        } catch {
-            // 回填失败只影响表头类型/注释，不影响执行
-        }
-    }
+    await backfillQueryEditorStatementPlans({
+        statementPlans, executedSourceStatements, sourceStatements,
+        dbType: normalizedDbType, currentDb: executionDbName, schemaName: executionSchemaName,
+        config: executionConfig, isCurrentRun,
+    });
+    if (!isCurrentRun()) return;
 
     // 自动给 SELECT 语句注入行数限制（防止大结果集卡死）
     const maxRowsForLimit = Number(queryOptions?.maxRows) || 0;

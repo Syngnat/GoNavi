@@ -82,7 +82,7 @@ const HASH_COMMENT_DIALECTS = new Set([
   'mysql', 'mariadb', 'oceanbase', 'starrocks', 'tidb', 'diros', 'goldendb', 'sphinx', 'clickhouse',
 ]);
 
-const skipSqlTrivia = (text: string, position: number, dialect: string): number => {
+export const skipSqlTrivia = (text: string, position: number, dialect: string): number => {
   const normalizedDialect = String(dialect || '').trim().toLowerCase();
   let index = Math.max(0, position);
   while (index < text.length) {
