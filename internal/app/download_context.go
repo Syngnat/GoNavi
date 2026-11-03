@@ -100,6 +100,36 @@ func newStrictDownloadHTTPClientWithContext(ctx context.Context, timeout time.Du
 	return client
 }
 
+// downloadFileWithHashWithExpectedSizeContext mirrors
+// downloadFileWithHashWithExpectedSize but binds the whole request chain to ctx,
+// so an update download that the user cancels stops streaming immediately
+// instead of running to completion in the background.
+func downloadFileWithHashWithExpectedSizeContext(ctx context.Context, url, filePath string, onProgress func(downloaded, total int64), expectedSize int64) (string, error) {
+	return downloadFileWithHashWithExpectedSizeContextPreferred(ctx, url, filePath, onProgress, expectedSize, DownloadSourceCst)
+}
+
+// downloadFileWithHashWithExpectedSizeContextPreferred is the canceled-aware
+// variant used when the update task has a preferred download source.
+func downloadFileWithHashWithExpectedSizeContextPreferred(ctx context.Context, url, filePath string, onProgress func(downloaded, total int64), expectedSize int64, preferred DownloadSource) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	client := newStrictDownloadHTTPClientWithContext(ctx, 10*time.Minute)
+	hash, err := downloadFileWithHashParallelAwareAndExpectedSizeWithClientPreferred(client, url, filePath, onProgress, expectedSize, preferred)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The transport-level failure is a consequence of the cancellation.
+			// Surface the context error so callers can classify it reliably.
+			return "", ctxErr
+		}
+		return "", err
+	}
+	return hash, nil
+}
+
 // downloadFileWithHashPreferredForAppContext mirrors
 // downloadFileWithHashPreferredForApp but lets the caller cancel the download.
 func downloadFileWithHashPreferredForAppContext(ctx context.Context, a *App, url, filePath string, onProgress func(downloaded, total int64)) (string, error) {

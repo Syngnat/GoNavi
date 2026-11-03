@@ -108,8 +108,44 @@ func TestIRISTableRefAndIdentifierQuoting(t *testing.T) {
 	if ref.Schema != "Sample" || ref.Table != `Person"Archive` {
 		t.Fatalf("unexpected qualified ref: %#v", ref)
 	}
-	if got := irisQuoteTable(`"Sample"."Person""Archive"`); got != `"Sample"."Person""Archive"` {
+	// 能裸写的名字保持裸写：DelimitedIds 关闭的服务端会把双引号当字符串字面量。
+	if got := irisQuoteTable(`"Sample"."Person"`); got != `Sample.Person` {
+		t.Fatalf("bare table = %s", got)
+	}
+	if got := irisQuoteTable(`"Sample"."Person""Archive"`); got != `Sample."Person""Archive"` {
 		t.Fatalf("quoted table = %s", got)
+	}
+}
+
+func TestIRISIdentifierQuotingOnlyWhenBareFormIsInvalid(t *testing.T) {
+	cases := map[string]string{
+		// 裸写可用：非保留字、字符集合法（含 % 开头的系统投影与混合大小写）。
+		"USER_TABLE":  "USER_TABLE",
+		"BDA_Store":   "BDA_Store",
+		"_private":    "_private",
+		"%ID":         "%ID",
+		"Order":       "Order",
+		"Value":       "Value",
+		"Index":       "Index",
+		"Key":         "Key",
+		"Name":        "Name",
+		"Status":      "Status",
+		// 保留字必须加引号，否则 SQL 解析失败。
+		"LEVEL":       `"LEVEL"`,
+		"User":        `"User"`,
+		"Select":      `"Select"`,
+		"top":         `"top"`,
+		// 非法字符必须加引号，且内部双引号要转义。
+		"has space":   `"has space"`,
+		"a-b":         `"a-b"`,
+		`we"ird`:      `"we""ird"`,
+		// 已带引号的输入先剥壳再判定。
+		`"BDA_Store"`: "BDA_Store",
+	}
+	for input, want := range cases {
+		if got := irisQuoteIdent(input); got != want {
+			t.Fatalf("irisQuoteIdent(%q) = %s, want %s", input, got, want)
+		}
 	}
 }
 

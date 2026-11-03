@@ -22,7 +22,10 @@ func TestRunningLifecycleNotificationIsDeliveredOnce(t *testing.T) {
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		loaded, err := os.ReadFile(path)
-		if err == nil {
+		// The fixture creates the file before writing its contents, so an early read can
+		// observe an empty or partial file. Wait for the delivered event instead of treating
+		// the first successful open as completion.
+		if err == nil && strings.Contains(string(loaded), "\"event\":\"running\"") {
 			body = loaded
 			break
 		}

@@ -49,6 +49,26 @@ describe('usePageBridge', () => {
     expect(api.pageCall).toHaveBeenCalledWith('test.pages', 'overview', 'app.info', '{}');
   });
 
+  it('routes results over the per-document port instead of the frame window', async () => {
+    const frame = addFrame();
+    let resolve!: (value: { ok: boolean }) => void;
+    api.pageCall.mockReturnValueOnce(new Promise<{ ok: boolean }>(yes => { resolve = yes; }));
+    const port = { postMessage: vi.fn(), onmessage: null as ((event: MessageEvent) => void) | null, close: vi.fn() };
+    const framePost = vi.spyOn(frame.contentWindow!, 'postMessage');
+    act(() => { renderer = create(<Harness frame={frame} />); });
+    const ready = new MessageEvent('message', { data: { type: 'gonavi:page-ready', token: TOKEN }, source: frame.contentWindow });
+    Object.defineProperty(ready, 'ports', { value: [port] });
+    window.dispatchEvent(ready);
+    port.onmessage!(new MessageEvent('message', { data: message }));
+    await act(async () => undefined);
+    expect(api.pageCall).toHaveBeenCalledWith('test.pages', 'overview', 'app.info', '{}');
+    framePost.mockClear();
+    await act(async () => { resolve({ ok: true }); });
+    expect(port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'gonavi:page-result', id: 'r1', ok: true }));
+    expect(framePost).not.toHaveBeenCalled();
+    port.close.mockClear(); framePost.mockRestore();
+  });
+
   it('drops a message whose token does not match the frame token', async () => {
     const frame = addFrame();
     act(() => {

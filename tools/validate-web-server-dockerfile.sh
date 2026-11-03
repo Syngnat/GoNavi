@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOCKERFILE="${ROOT}/Dockerfile.web-server"
 MCP_DOCKERFILE="${ROOT}/Dockerfile.mcp-server"
+CLI_DOCKERFILE="${ROOT}/Dockerfile.cli"
 COMPOSE_FILE="${ROOT}/docker-compose.web-server.yml"
 LOCAL_COMPOSE_FILE="${ROOT}/docker-compose.web-server.local.yml"
 ENV_EXAMPLE="${ROOT}/docker.web-server.env.example"
@@ -15,6 +16,10 @@ if [[ ! -f "${DOCKERFILE}" ]]; then
 fi
 if [[ ! -f "${MCP_DOCKERFILE}" ]]; then
   echo "missing Dockerfile.mcp-server" >&2
+  exit 1
+fi
+if [[ ! -f "${CLI_DOCKERFILE}" ]]; then
+  echo "missing Dockerfile.cli" >&2
   exit 1
 fi
 if [[ ! -f "${COMPOSE_FILE}" || ! -f "${ENV_EXAMPLE}" ]]; then
@@ -29,6 +34,41 @@ fi
 fail() {
   echo "validate-web-server-dockerfile: $*" >&2
   exit 1
+}
+
+# go.mod 的 replace ./path 必须在 go mod download 之前 COPY 进镜像，
+# 否则 download 会去读还不存在的 /src/<path>/go.mod（sdk/go 进 replace 后
+# Docker Images 就是这样红的）。
+assert_local_replace_modules_copied_before_mod_download() {
+  local dockerfile="$1"
+  local label="$2"
+  local download_line path copy_line
+
+  download_line="$(awk '$0 == "RUN go mod download" { print NR; exit }' "${dockerfile}")"
+  [[ -n "${download_line}" ]] || fail "${label}: missing RUN go mod download"
+
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    copy_line="$(awk -v needle="${path}/go.mod" 'index($0, needle) && $1 == "COPY" { print NR; exit }' "${dockerfile}")"
+    [[ -n "${copy_line}" ]] \
+      || fail "${label}: go.mod replace ${path} must be COPY'd before go mod download (open /src/${path}/go.mod: no such file)"
+    (( copy_line < download_line )) \
+      || fail "${label}: COPY ${path}/go.mod must precede RUN go mod download"
+    if [[ -f "${ROOT}/${path}/go.sum" ]]; then
+      grep -F "${path}/go.sum" "${dockerfile}" >/dev/null \
+        || fail "${label}: ${path}/go.sum exists but is not COPY'd before go mod download"
+    fi
+  done < <(awk '
+    /^replace / {
+      for (i = 1; i <= NF; i++) {
+        if ($i == "=>" && (i+1) <= NF && $(i+1) ~ /^\.\//) {
+          dest = $(i+1)
+          sub(/^\.\//, "", dest)
+          print dest
+        }
+      }
+    }
+  ' "${ROOT}/go.mod")
 }
 
 assert_target_driver_revisions_generated_before_build() {
@@ -126,6 +166,10 @@ grep -Fq '../../../shared/i18n/' "${FRONTEND_CATALOG}" \
 
 assert_target_driver_revisions_generated_before_build "${DOCKERFILE}" "Dockerfile.web-server"
 assert_target_driver_revisions_generated_before_build "${MCP_DOCKERFILE}" "Dockerfile.mcp-server"
+assert_target_driver_revisions_generated_before_build "${CLI_DOCKERFILE}" "Dockerfile.cli"
+assert_local_replace_modules_copied_before_mod_download "${DOCKERFILE}" "Dockerfile.web-server"
+assert_local_replace_modules_copied_before_mod_download "${MCP_DOCKERFILE}" "Dockerfile.mcp-server"
+assert_local_replace_modules_copied_before_mod_download "${CLI_DOCKERFILE}" "Dockerfile.cli"
 grep -Fq 'GONAVI_WEB_PASSWORD: ${GONAVI_WEB_PASSWORD:-}' "${COMPOSE_FILE}" \
   || fail "docker-compose.web-server.yml must forward GONAVI_WEB_PASSWORD"
 grep -Eq '^GONAVI_WEB_PASSWORD=$' "${ENV_EXAMPLE}" \

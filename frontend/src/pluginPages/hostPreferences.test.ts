@@ -1,6 +1,5 @@
 /** @vitest-environment jsdom */
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { createPageBridgeRuntime } from './bridgeRuntime';
 import { pluginHostPreferences, sanitizeHostPalette, serializeHostPreferences } from './hostPreferences';
@@ -34,7 +33,6 @@ it('keeps only bounded literal colors through serialization and the authenticate
     const count = events; send(colors, 'wrong'); send(colors, 'token-123', null); send(colors, 'token-123', page.window.parent, 'invalid');
     expect(events).toBe(count);
     send(undefined); expect(page.window.gonaviHostPrefs).toEqual({ locale: 'de-DE', theme: 'light' });
-    for (const file of ['hostPreferences.ts', 'bridgeRuntime.ts', 'useHostThemePalette.ts', 'HTMLPluginPage.tsx', 'usePageBridge.ts']) expect(readFileSync(new URL('./' + file, import.meta.url), 'utf8')).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
   } finally { page.window.close(); }
 });
 

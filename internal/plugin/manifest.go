@@ -69,7 +69,7 @@ func ParseManifest(data []byte) (Manifest, error) {
 }
 
 // ValidateManifest rejects unsupported schemas and unsafe declarations, without execution.
-func ValidateManifest(m Manifest) error {
+func validateManifestLegacy(m Manifest) error {
 	if m.SchemaVersion != 1 || m.APIVersion != 1 {
 		return fmt.Errorf("unsupported plugin schema or api version")
 	}
@@ -140,6 +140,10 @@ func ValidateManifest(m Manifest) error {
 	if err := validateExporters(m, commands); err != nil {
 		return err
 	}
+	// Panels and pages can only invoke commands the page gateway dispatches. Commands owned by
+	// a data source, AI provider or exporter are reserved for that contribution, so a button
+	// referencing one would pass installation and fail on click; validate against the public set.
+	publicCommands := publicDeclaredCommands(m, commands)
 	panels := make(map[string]bool)
 	nodes := 0
 	for _, p := range m.Contributes.Panels {
@@ -162,14 +166,19 @@ func ValidateManifest(m Manifest) error {
 		if p.Body.Type == "" {
 			return fmt.Errorf("panel declares no body")
 		}
-		if err := validateNode(p.Body, commands, 0, &nodes); err != nil {
+		if err := validateNode(p.Body, publicCommands, 0, &nodes); err != nil {
 			return err
 		}
 	}
-	if err := validatePages(m, permissions, commands); err != nil {
+	if err := validatePages(m, permissions, publicCommands); err != nil {
 		return err
 	}
 	if m.Window != nil {
+		// A window runs package HTML/JS in a native WebView with the window bridge; like a
+		// custom HTML page it needs the explicit sandboxed-HTML permission.
+		if !permissions[CustomPanelPermission] {
+			return fmt.Errorf("window requires the %s permission", CustomPanelPermission)
+		}
 		if err := safePackagePath(m.Window.Entry); err != nil {
 			return fmt.Errorf("invalid window entry: %w", err)
 		}
@@ -177,10 +186,29 @@ func ValidateManifest(m Manifest) error {
 			return fmt.Errorf("invalid window dimensions or title")
 		}
 	}
-	if err := validateConnectionActions(m, permissions); err != nil {
-		return err
+	return validateConnectionActions(m, permissions)
+}
+
+// publicDeclaredCommands returns the commands a panel or page may invoke: everything except
+// the commands reserved by data sources, AI providers and exporters.
+func publicDeclaredCommands(m Manifest, declared map[string]bool) map[string]bool {
+	reserved := make(map[string]bool)
+	for _, source := range m.Contributes.DataSources {
+		reserved[source.Command] = true
 	}
-	return validateSchema(m.ConfigSchema)
+	for _, provider := range m.Contributes.AIProviders {
+		reserved[provider.Command] = true
+	}
+	for _, exporter := range m.Contributes.Exporters {
+		reserved[exporter.Command] = true
+	}
+	public := make(map[string]bool, len(declared))
+	for id := range declared {
+		if !reserved[id] {
+			public[id] = true
+		}
+	}
+	return public
 }
 func validPluginID(id string) bool {
 	if len(id) > 128 || !pluginIDPattern.MatchString(id) {
@@ -197,7 +225,7 @@ func validText(s string, limit int) bool {
 	return strings.TrimSpace(s) != "" && len(s) <= limit && !strings.ContainsRune(s, 0)
 }
 func validVersion(s string) bool {
-	return strings.Count(strings.SplitN(strings.SplitN(s, "+", 2)[0], "-", 2)[0], ".") == 2 && !strings.HasPrefix(s, "v") && semver.IsValid("v"+s)
+	return len(s) <= 128 && strings.Count(strings.SplitN(strings.SplitN(s, "+", 2)[0], "-", 2)[0], ".") == 2 && !strings.HasPrefix(s, "v") && semver.IsValid("v"+s)
 }
 func versionAtLeast(value, minimum string) bool { return semver.Compare("v"+value, "v"+minimum) >= 0 }
 func validateBackend(b *Backend) error {

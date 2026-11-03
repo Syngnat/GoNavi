@@ -40,6 +40,8 @@ export interface UseQueryEditorExecutionStatusInput {
     activeResultKey: QueryEditorCoreStateApi['activeResultKey'];
     setActiveResultKey: QueryEditorCoreStateApi['setActiveResultKey'];
     sqlEditorTransactionOptions: QueryEditorConnectionContextApi['sqlEditorTransactionOptions'];
+    showSqlExecutionLog: boolean;
+    setShowSqlExecutionLog: (enabled: boolean) => void;
 }
 
 export const useQueryEditorExecutionStatus = ({
@@ -47,6 +49,7 @@ export const useQueryEditorExecutionStatus = ({
     rpcLostWithoutResultRef, setLoading, setExecutionTimingActive, setExecutionError, setResultSets,
     currentQueryId, loading, isActive, executionAwaitingDriverRef, executionTimingActive, editorRef,
     isResultPanelVisible, activeResultKey, setActiveResultKey, sqlEditorTransactionOptions,
+    showSqlExecutionLog, setShowSqlExecutionLog,
 }: UseQueryEditorExecutionStatusInput) => {
     const updateResultPanelVisibility = useCallback((visible: boolean) => {
         isResultPanelVisibleRef.current = visible;
@@ -120,9 +123,13 @@ export const useQueryEditorExecutionStatus = ({
             updateResultPanelVisibility(false);
             return;
         }
+        // 日志标签关闭时，任何「显示日志」入口都先把标签重新打开。
+        if (!showSqlExecutionLog) {
+            setShowSqlExecutionLog(true);
+        }
         updateResultPanelVisibility(true);
         setActiveResultKey(QUERY_EDITOR_SQL_LOG_TAB_KEY);
-    }, [activeResultKey, isActive, isResultPanelVisible, updateResultPanelVisibility]);
+    }, [activeResultKey, isActive, isResultPanelVisible, setShowSqlExecutionLog, showSqlExecutionLog, updateResultPanelVisibility]);
     const sqlEditorCommitMode: SqlEditorCommitMode = sqlEditorTransactionOptions?.commitMode === 'auto' ? 'auto' : 'manual';
     const sqlEditorAutoCommitDelayMs = SQL_EDITOR_AUTO_COMMIT_DELAY_OPTIONS.some((item) => item.value === sqlEditorTransactionOptions?.autoCommitDelayMs)
         ? Number(sqlEditorTransactionOptions?.autoCommitDelayMs)

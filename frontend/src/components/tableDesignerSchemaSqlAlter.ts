@@ -80,7 +80,40 @@ const buildMySqlAlterPreviewSql = (input: BuildAlterTablePreviewInput, dbType: s
     }
   }
 
-  return alters.length === 0 ? '' : `ALTER TABLE ${tableName}\n${alters.join(',\n')};`;
+  // CONVERT TO 会重写整表，不能和列变更拼进同一条 ALTER：单独成句，用户
+  // 可以先只执行列变更、稍后再做字符集迁移。
+  const charsetStatement = buildCharsetConvertStatement(input, tableName);
+  const blocks = [
+    alters.length === 0 ? '' : `ALTER TABLE ${tableName}\n${alters.join(',\n')};`,
+    charsetStatement,
+  ].filter(Boolean);
+  return blocks.join('\n\n');
+};
+
+/**
+ * 生成字符集迁移语句。
+ *
+ * 只有目标值显式给出、且与当前值不同才会生成；两者都没给时返回空串，
+ * 避免把「用户没动过这个字段」误判成「改成空字符集」。
+ */
+const buildCharsetConvertStatement = (
+  input: BuildAlterTablePreviewInput,
+  tableName: string,
+): string => {
+  const charset = String(input.charset || '').trim();
+  const collation = String(input.collation || '').trim();
+  if (!charset) return '';
+  const originalCharset = String(input.originalCharset || '').trim();
+  const originalCollation = String(input.originalCollation || '').trim();
+  if (
+    charset.toLowerCase() === originalCharset.toLowerCase() &&
+    collation.toLowerCase() === originalCollation.toLowerCase()
+  ) {
+    return '';
+  }
+  const target = collation ? `${charset} COLLATE ${collation}` : charset;
+  return `-- 注意：CONVERT TO 会重写整表所有文本列，大表可能长时间锁表且不可逆\n`
+    + `ALTER TABLE ${tableName} CONVERT TO CHARACTER SET ${target};`;
 };
 
 const buildDorisAlterPreviewSql = (input: BuildAlterTablePreviewInput, dbType: string): string => {

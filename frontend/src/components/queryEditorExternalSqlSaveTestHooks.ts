@@ -125,7 +125,7 @@ export const setUpQueryEditorExternalSqlSaveTest = () => {
       showColumnComment: true,
       showColumnType: true,
       showQueryResultsPanel: false,
-      autoShowSqlExecutionLog: true,
+      showSqlExecutionLog: true,
       queryEditorEditorHeightRatio: 0.5,
     };
     storeState.sqlEditorTransactionOptions = {

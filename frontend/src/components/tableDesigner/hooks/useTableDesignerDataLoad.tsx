@@ -1,3 +1,5 @@
+import { fetchTableInfo } from '../../../utils/backendTableInfo';
+import { collationToCharset } from '../../../components/tableOverview/tableOverviewModel';
 import React, { useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { Input, AutoComplete, Checkbox, Tooltip, Button, message } from 'antd';
 import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
@@ -85,6 +87,9 @@ export interface UseTableDesignerDataLoadInput {
     isTableCommentModalOpen: TableDesignerStateApi['isTableCommentModalOpen'];
     setTableCommentDraft: TableDesignerStateApi['setTableCommentDraft'];
     selectedSchema: TableDesignerStateApi['selectedSchema'];
+    setCharset: TableDesignerStateApi['setCharset'];
+    setCollation: TableDesignerStateApi['setCollation'];
+    setOriginalCollation: TableDesignerStateApi['setOriginalCollation'];
 }
 
 export const useTableDesignerDataLoad = ({
@@ -96,7 +101,7 @@ export const useTableDesignerDataLoad = ({
     resolveTableInfo, columns, originalColumns, setColumns, setOriginalColumns,
     setSelectedColumnRowKeys, setIndexes, setFks,
     setTriggers, setDdl, setTableComment, isTableCommentModalOpen, setTableCommentDraft,
-    selectedSchema,
+    selectedSchema, setCharset, setCollation, setOriginalCollation,
 }: UseTableDesignerDataLoadInput) => {
     useEffect(() => {
         const dbType = getDbType();
@@ -422,6 +427,21 @@ export const useTableDesignerDataLoad = ({
             originalColumns: columnDraftRef.current.originalColumns,
             columns: columnDraftRef.current.columns,
         });
+
+      // 表级字符集/排序规则只在编辑已有表时需要，建表时由用户在工具栏选择。
+      // 失败静默：拿不到就保持空值，「表选项」区域不显示，不影响列编辑。
+      if (!isNewTable) {
+          void fetchTableInfo(rpcConfig, dbName, tableInfo.schema, tableInfo.table)
+              .then((result) => {
+                  if (!isCurrentRequest() || !result.success || !result.details) return;
+                  const collationValue = result.details.collation || '';
+                  if (!collationValue) return;
+                  setCollation(collationValue);
+                  setOriginalCollation(collationValue);
+                  setCharset(collationToCharset(collationValue));
+              })
+              .catch(() => undefined);
+      }
 
       const loadColumns = loadTableDesignerStructure({
           ...structureCache('columns'),

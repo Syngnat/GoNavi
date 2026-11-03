@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	urlpkg "net/url"
@@ -69,7 +70,15 @@ func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
 	}
 }
 
-func (a *App) downloadAndStageUpdate(info UpdateInfo, expectedRevision uint64) (connection.QueryResult, error) {
+func (a *App) downloadAndStageUpdate(ctx context.Context, info UpdateInfo, expectedRevision uint64) (connection.QueryResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		// The only cancellation source for an update task is the user, so the
+		// message is the canceled one rather than a generic failure.
+		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_canceled", nil)}, err
+	}
 	workspaceCandidates := resolveUpdateWorkspaceDirCandidatesForInstallMode(info.LatestVersion, updateInstallMode(info.InstallMode))
 	workspaceDir, stagedDir, prepareErr := prepareUpdateWorkspaceAndStagingDirs(workspaceCandidates, info.Channel, info.LatestVersion)
 	if prepareErr != nil {
@@ -102,6 +111,7 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo, expectedRevision uint64) (
 	var err error
 	if preferred == DownloadSourceCst {
 		_, err = downloadUpdateAssetWithFallback(
+			ctx,
 			[]string{info.AssetURL, info.AssetAPIURL},
 			assetPath,
 			info.SHA256,
@@ -110,6 +120,7 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo, expectedRevision uint64) (
 		)
 	} else {
 		_, err = downloadUpdateAssetWithFallbackPreferred(
+			ctx,
 			[]string{info.AssetURL, info.AssetAPIURL},
 			assetPath,
 			info.SHA256,
@@ -121,6 +132,11 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo, expectedRevision uint64) (
 	if err != nil {
 		_ = os.Remove(assetPath)
 		_ = os.RemoveAll(stagedDir)
+		if errors.Is(err, context.Canceled) {
+			// A user cancellation is not a download failure, so report it with the
+			// canceled message that matches the task's terminal state.
+			return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_canceled", nil)}, err
+		}
 		if errors.Is(err, errUpdateChecksumMismatch) {
 			message := a.appText("app.update.backend.message.checksum_failed", nil)
 			return connection.QueryResult{Success: false, Message: message}, err
@@ -161,6 +177,7 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo, expectedRevision uint64) (
 }
 
 func downloadUpdateAssetWithFallback(
+	ctx context.Context,
 	candidates []string,
 	assetPath string,
 	expectedSHA256 string,
@@ -168,6 +185,7 @@ func downloadUpdateAssetWithFallback(
 	onProgress func(downloaded, total int64),
 ) (string, error) {
 	return downloadUpdateAssetWithFallbackUsing(
+		ctx,
 		candidates,
 		assetPath,
 		expectedSHA256,
@@ -179,6 +197,7 @@ func downloadUpdateAssetWithFallback(
 }
 
 func downloadUpdateAssetWithFallbackPreferred(
+	ctx context.Context,
 	candidates []string,
 	assetPath string,
 	expectedSHA256 string,
@@ -187,6 +206,7 @@ func downloadUpdateAssetWithFallbackPreferred(
 	preferred DownloadSource,
 ) (string, error) {
 	return downloadUpdateAssetWithFallbackUsing(
+		ctx,
 		candidates,
 		assetPath,
 		expectedSHA256,
@@ -198,6 +218,7 @@ func downloadUpdateAssetWithFallbackPreferred(
 }
 
 func downloadUpdateAssetWithFallbackUsing(
+	ctx context.Context,
 	candidates []string,
 	assetPath string,
 	expectedSHA256 string,
@@ -229,14 +250,20 @@ func downloadUpdateAssetWithFallbackUsing(
 	expectedHash := strings.TrimSpace(expectedSHA256)
 	var lastErr error
 	for index, candidate := range urls {
+		// A cancellation must stop the fallback chain instead of quietly moving
+		// on to the next download source.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			_ = os.Remove(assetPath)
+			return "", ctxErr
+		}
 		candidate, requiresCurrentDevAsset := prepareUpdateDownloadCandidate(candidate, index == 0)
 		_ = os.Remove(assetPath)
 		var actualHash string
 		var err error
 		if usePreferredDownloader {
-			actualHash, err = updateDownloadFileWithExpectedSizePreferred(candidate, assetPath, onProgress, expectedSize, preferred)
+			actualHash, err = updateDownloadFileWithExpectedSizePreferred(ctx, candidate, assetPath, onProgress, expectedSize, preferred)
 		} else {
-			actualHash, err = updateDownloadFileWithExpectedSize(candidate, assetPath, onProgress, expectedSize)
+			actualHash, err = updateDownloadFileWithExpectedSize(ctx, candidate, assetPath, onProgress, expectedSize)
 		}
 		if err == nil && expectedSize > 0 {
 			stat, statErr := os.Stat(assetPath)
@@ -251,6 +278,11 @@ func downloadUpdateAssetWithFallbackUsing(
 		}
 		if err == nil {
 			return actualHash, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// Surface the context error rather than a transport error caused by it.
+			_ = os.Remove(assetPath)
+			return "", ctxErr
 		}
 		if errors.Is(err, errInvalidDownloadDispatcherURL) ||
 			(requiresCurrentDevAsset && isCurrentDevAssetTerminalError(err)) {

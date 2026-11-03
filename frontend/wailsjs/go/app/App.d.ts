@@ -67,6 +67,8 @@ export function CancelSQLFileExecution(arg1:string):Promise<connection.QueryResu
 
 export function CancelSavedConnectionsHealthRun(arg1:string):Promise<connection.ConnectionHealthRun>;
 
+export function CancelUpdateDownload():Promise<connection.QueryResult>;
+
 export function CheckDriverNetworkStatus():Promise<connection.QueryResult>;
 
 export function CheckForUpdates():Promise<connection.QueryResult>;
@@ -94,6 +96,8 @@ export function CloudBackupSyncNow():Promise<app.CloudBackupStatus>;
 export function ConfigureDriverRuntimeDirectory(arg1:string):Promise<connection.QueryResult>;
 
 export function ConfigureGlobalProxy(arg1:boolean,arg2:connection.ProxyConfig):Promise<connection.QueryResult>;
+
+export function CopyDatabase(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
 export function CopyTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 

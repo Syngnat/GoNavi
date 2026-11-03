@@ -82,6 +82,7 @@ export const QueryEditorResultsArea = ({
         executionLifecycle={executionLifecycle}
         executionError={executionError}
         sqlLogCount={sqlLogCount}
+        showSqlLogTab={queryOptions?.showSqlExecutionLog !== false}
         darkMode={darkMode}
         currentDb={currentDb}
         currentConnectionId={currentConnectionId}

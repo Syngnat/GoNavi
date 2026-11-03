@@ -2,6 +2,7 @@ import React from 'react';
 import { Button, Spin, Alert } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 import Editor from './MonacoEditor';
+import { resolveQueryEditorMonacoLanguage } from './queryEditor/queryEditorEditorState';
 import { TabData } from '../types';
 import { JobManagementButton } from './databaseJobs/JobManagementButton';
 import { useDefinitionViewerState } from './definitionViewer/hooks/useDefinitionViewerState';
@@ -44,6 +45,11 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
       isMountedRef, t,
     });
 
+    // 查看器必须与编辑器共用分词器：左侧查看与右侧编辑同一段 SQL 时，关键字配色才能一致。
+    const monacoLanguage = resolveQueryEditorMonacoLanguage(
+        connections.find((connection) => connection.id === tab.connectionId),
+    );
+
     if (loading) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -85,15 +91,13 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
                     path={editorModelPath}
                     height="100%"
                     gonaviTypography="sql"
-                    language="sql"
+                    language={monacoLanguage}
                     theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                     value={displayedDefinition}
                     onMount={handleEditorMount}
                     options={{
                         readOnly: true,
                         minimap: { enabled: false },
-                        fontSize: 14,
-                        lineHeight: 24,
                         lineNumbers: 'on',
                         lineNumbersMinChars: 4,
                         stickyScroll: { enabled: false },

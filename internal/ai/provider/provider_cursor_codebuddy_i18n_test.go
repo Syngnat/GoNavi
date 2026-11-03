@@ -193,8 +193,6 @@ func TestCursorAndCodeBuddySourceUseEnglishErrorWrappers(t *testing.T) {
 			rawMessages: []string{
 				`"创建 stdout 管道失败: %w"`,
 				`"启动 CodeBuddy CLI 失败: %w"`,
-				`"CodeBuddy CLI 鉴权失败: %s"`,
-				`"CodeBuddy CLI 返回错误: %s"`,
 				`"CodeBuddy CLI 执行超时`,
 				`"CodeBuddy CLI 异常退出: %v"`,
 				`"CodeBuddy CLI 异常退出: %s"`,
@@ -202,8 +200,6 @@ func TestCursorAndCodeBuddySourceUseEnglishErrorWrappers(t *testing.T) {
 			requiredTexts: []string{
 				`"create stdout pipe failed: %w"`,
 				`"start CodeBuddy CLI failed: %w"`,
-				`"CodeBuddy CLI authentication failed: %s"`,
-				`"CodeBuddy CLI returned an error: %s"`,
 				`"CodeBuddy CLI timed out`,
 				`"CodeBuddy CLI exited unexpectedly: %v"`,
 				`"CodeBuddy CLI exited unexpectedly: %s"`,

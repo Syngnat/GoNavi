@@ -1,4 +1,4 @@
-import type { DataSyncCheckpointSummary, DataSyncCompareMode, DataSyncCompareResult, DataSyncErrorRow, DataSyncRunEvent, DataSyncRunPageSize, DataSyncRunRecord, DataSyncWorkbenchFamily } from './model';
+import type { DataSyncCheckpointSummary, DataSyncCompareMode, DataSyncCompareResult, DataSyncErrorRow, DataSyncRunEvent, DataSyncRunPageSize, DataSyncRunRecord, DataSyncTableDiffSummary, DataSyncWorkbenchFamily } from './model';
 import type { DataSyncWorkbenchTranslate } from './text';
 export type DataSyncRunHistoryProps = {
   runs: DataSyncRunRecord[];
@@ -40,6 +40,15 @@ export type DataSyncRunHistoryProps = {
   onExportCompareHtml?: () => Promise<CompareHtmlExportOutcome>;
   /** Opens an already-exported report with the OS default program. */
   onOpenExportedFile?: (path: string) => Promise<boolean>;
+  /**
+   * Renders repair SQL for exactly the tables the user can see and copies it.
+   * Resolves to the copied text, or '' when the clipboard refused.
+   */
+  onCopyCompareSql?: (tables: DataSyncTableDiffSummary[]) => Promise<string>;
+  /** Renders repair SQL for the visible tables in the target dialect. */
+  onRenderMigrationSql?: (tables: DataSyncTableDiffSummary[]) => string;
+  /** Copies text through the same channel the workbench uses. */
+  copyCompareText?: (text: string) => Promise<boolean>;
 };
 
 export type CompareHtmlExportOutcome =

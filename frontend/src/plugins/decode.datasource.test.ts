@@ -13,7 +13,9 @@ describe('data source manifest decoding', () => {
     expect(decodeInspection(inspection('unknown')).manifest.contributes?.commands?.[0].effect).toBe('unknown');
     expect(() => decodeInspection(inspection('write'))).toThrow();
     expect(() => decodeInspection(inspection('WRITE'))).toThrow();
-    expect(() => decodeInspection(inspection(undefined, false))).toThrow();
+    // Writable sources are part of the host contract; only read-only ones constrain effects.
+    expect(decodeInspection(inspection('write', false)).manifest.contributes?.dataSources?.[0].command).toBe('database');
+    expect(decodeInspection(inspection(undefined, false)).manifest.contributes?.dataSources?.[0].command).toBe('database');
     const upper = inspection();
     (upper.manifest.contributes.dataSources[0] as { dialect: string }).dialect = 'SQLite';
     expect(() => decodeInspection(upper)).toThrow();

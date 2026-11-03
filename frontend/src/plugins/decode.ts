@@ -17,11 +17,13 @@ const utf8Within = (value: string, limit: number) => new TextEncoder().encode(va
 function validDataSource(source: Record<string, unknown>, command: Record<string, unknown> | undefined): boolean {
   const effect = command?.effect;
   const port = source.defaultPort;
+  const readOnly = source.readOnly;
   return typeof source.id === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(source.id)
     && typeof source.name === 'string' && source.name.trim() !== '' && utf8Within(source.name, 256) && !source.name.includes('\u0000')
-    && typeof source.command === 'string' && source.readOnly === true
+    && typeof source.command === 'string' && typeof readOnly === 'boolean'
     && (source.dialect === 'mysql' || source.dialect === 'postgres' || source.dialect === 'sqlite') && command != null
-    && (effect == null || effect === '' || effect === 'read' || effect === 'unknown')
+    // Only a read-only source constrains its command effect; writable sources accept write.
+    && (readOnly === false || effect == null || effect === '' || effect === 'read' || effect === 'unknown')
     && (port == null || (typeof port === 'number' && Number.isInteger(port) && port >= 0 && port <= 65535));
 }
 function validExporter(exporter: Record<string, unknown>, commands: Map<string, Record<string, unknown>>): boolean {
@@ -154,17 +156,24 @@ function validatePages(pages: unknown, permissions: readonly string[]): Set<stri
   }
   return seen;
 }
-function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>): void {
+function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>, hasWindow: boolean): void {
   if (!Array.isArray(entries) || entries.length > PAGE_CONTRIBUTION_LIMIT) invalid();
   const seen = new Set<string>();
   for (const item of entries) {
     const entry = requireRecord(item);
-    onlyKeys(entry, ['id', 'title', 'page', 'location', 'order']);
+    onlyKeys(entry, ['id', 'title', 'target', 'page', 'location', 'order']);
     const order = entry.order;
     if (!validLocalID(entry.id) || seen.has(entry.id) || !validLocalTitle(entry.title)
-      || typeof entry.page !== 'string' || !pageIDs.has(entry.page)
       || entry.location !== 'tools'
       || (order != null && (typeof order !== 'number' || !Number.isInteger(order) || order < -1000 || order > 1000))) invalid();
+    const target = entry.target == null || entry.target === '' ? 'page' : entry.target;
+    if (target === 'page') {
+      if (typeof entry.page !== 'string' || !pageIDs.has(entry.page)) invalid();
+    } else if (target === 'window') {
+      if (!hasWindow || (entry.page != null && entry.page !== '')) invalid();
+    } else {
+      invalid();
+    }
     seen.add(entry.id as string);
   }
 }
@@ -191,7 +200,7 @@ export const MANIFEST_JSON_LIMITS = { bytes: 1 << 20, text: 256 << 10, depth: 64
 export function decodeManifest(data: unknown): PluginManifest {
   boundedJSON(data, MANIFEST_JSON_LIMITS.bytes, MANIFEST_JSON_LIMITS.text, MANIFEST_JSON_LIMITS.depth, MANIFEST_JSON_LIMITS.values);
   const raw = requireRecord(data);
-  const allowed = new Set(['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window', 'configSchema']);
+  const allowed = new Set(['schemaVersion', 'apiVersion', 'id', 'name', 'version', 'description', 'author', 'license', 'icon', 'minHostVersion', 'permissions', 'permissionNotes', 'requires', 'backend', 'contributes', 'window']);
   if (Object.keys(raw).some((key) => !allowed.has(key))) invalid();
   const m: Record<string, unknown> = { ...raw, permissions: raw.permissions ?? [] };
   if (m.schemaVersion !== 1 || m.apiVersion !== 1 || typeof m.id !== 'string' || typeof m.name !== 'string'
@@ -354,12 +363,14 @@ export function decodeManifest(data: unknown): PluginManifest {
       const pages = c.pages ?? [];
       const navigation = c.navigation ?? [];
       // Empty arrays declare nothing, so they must not require the permission the
-      // host also only enforces for a non-empty declaration.
-      const declares = (Array.isArray(pages) && pages.length > 0)
-        || (Array.isArray(navigation) && navigation.length > 0);
+      // host also only enforces for a non-empty declaration. A window target only
+      // opens the plugin's own window and needs no page permission.
+      const pageNavigation = Array.isArray(navigation)
+        && navigation.some((entry) => requireRecord(entry).target !== 'window');
+      const declares = (Array.isArray(pages) && pages.length > 0) || pageNavigation;
       if (declares && !permissions.includes('ui.pages')) invalid();
       const pageIDs = validatePages(pages, permissions);
-      validateNavigation(navigation, pageIDs);
+      validateNavigation(navigation, pageIDs, m.window != null);
     }
     if (c.skills != null) {
       if (!Array.isArray(c.skills) || c.skills.length > 16 || !(m.permissions as string[]).includes('ai.skills')) return invalid();
@@ -383,8 +394,8 @@ export function decodeManifest(data: unknown): PluginManifest {
       for (const entry of Object.values(requireRecord(backend.platforms))) onlyKeys(requireRecord(entry), entryKeys);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(m, 'configSchema') && !validSchema(m.configSchema)) invalid();
   if (m.window != null) {
+    if (!(m.permissions as string[]).includes('ui.html-panel')) invalid();
     const view = requireRecord(m.window);
     onlyKeys(view, ['entry', 'title', 'width', 'height']);
     if (!validWindowEntry(view.entry)) invalid();
@@ -405,9 +416,66 @@ export function decodeStatus(data: unknown): PluginStatus {
     || typeof s.generation !== 'number' || !Number.isSafeInteger(s.generation) || typeof s.installedAt !== 'string') invalid();
   return { ...s, manifest } as unknown as PluginStatus;
 }
+/**
+ * 单条状态解码失败时降级成「仅身份」清单，而不是整表抛错。
+ *
+ * 宿主升级后新增的清单规则会拒绝早期合法安装的插件（00021c5bc 让 window 必须声明
+ * ui.html-panel 就是一次）。宿主侧已经隔离了这条记录（internal/plugin/state.go 的
+ * quarantine），但前端原先只要有一条解码失败就整份列表 invalid_response，插件面板
+ * 直接空白、连卸载入口都没有 —— 用户看到的是「怎么都看不看了」。
+ *
+ * 降级只保留身份字段（id/name/version），权限、contributes、window、backend 一律清空：
+ * 无法按契约解码的声明不可信，不能拿去渲染按钮或发起调用。state 强制 blocked、desired
+ * 强制 false，与宿主隔离时的语义一致。
+ */
+function decodeStatusDegraded(raw: Record<string, unknown>): PluginStatus | null {
+  const rawManifest = raw.manifest;
+  if (rawManifest == null || typeof rawManifest !== 'object' || Array.isArray(rawManifest)) return null;
+  const manifest = rawManifest as Record<string, unknown>;
+  const id = manifest.id;
+  const name = manifest.name;
+  const version = manifest.version;
+  // 身份字段本身不合法就无法安全地列出或卸载这一条，交给调用方丢弃。
+  if (typeof id !== 'string' || !validPluginID(id)) return null;
+  if (typeof name !== 'string' || name.trim() === '' || !utf8Within(name, 256)) return null;
+  if (typeof version !== 'string' || !validVersion(version)) return null;
+  if (typeof raw.digest !== 'string' || !/^[a-f0-9]{64}$/i.test(raw.digest)) return null;
+  if (typeof raw.generation !== 'number' || !Number.isSafeInteger(raw.generation)) return null;
+  if (typeof raw.installedAt !== 'string') return null;
+  const lastError = typeof raw.lastError === 'string' && raw.lastError.length <= 8192 ? raw.lastError : undefined;
+  return {
+    manifest: {
+      schemaVersion: 1,
+      apiVersion: 1,
+      id,
+      name,
+      version,
+      permissions: [],
+    },
+    digest: raw.digest,
+    state: 'blocked',
+    desiredEnabled: false,
+    generation: raw.generation,
+    ...(lastError ? { lastError } : {}),
+    installedAt: raw.installedAt,
+    manifestDegraded: true,
+  };
+}
 export function decodeStatuses(data: unknown): PluginStatus[] {
   if (!Array.isArray(data) || data.length > 500) return invalid();
-  return data.map(decodeStatus);
+  const decoded: PluginStatus[] = [];
+  for (const item of data) {
+    if (item == null || typeof item !== 'object' || Array.isArray(item)) return invalid();
+    try {
+      decoded.push(decodeStatus(item));
+    } catch (cause) {
+      if (!(cause instanceof PluginAPIError) || cause.key !== 'plugin.error.invalid_response') throw cause;
+      const degraded = decodeStatusDegraded(item as Record<string, unknown>);
+      // 身份字段也解不出来：这一条没有任何可用信息，跳过它但不牵连其余插件。
+      if (degraded) decoded.push(degraded);
+    }
+  }
+  return decoded;
 }
 export function decodeInspection(data: unknown): PluginInspection {
   const i = requireRecord(data);

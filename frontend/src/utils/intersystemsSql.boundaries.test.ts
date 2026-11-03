@@ -57,7 +57,7 @@ describe('InterSystems pagination result boundaries', () => {
       baseSql: `${base} ORDER BY ID DESC; -- tail`, dbType: 'custom', driver: 'intersystems-cache',
       page: 2, pageSize: 0, sortInfo: [{ columnKey: 'Name', order: 'ascend' }],
     });
-    expect(sql).toBe(`SELECT * FROM (SELECT TOP ALL ID, Name FROM Sample.Person ORDER BY ID DESC\n) __gonavi_query_page__ ORDER BY "Name" ASC; -- tail`);
+    expect(sql).toBe(`SELECT * FROM (SELECT TOP ALL ID, Name FROM Sample.Person ORDER BY ID DESC\n) __gonavi_query_page__ ORDER BY Name ASC; -- tail`);
     assertLegacySyntax(sql);
   });
 
@@ -66,7 +66,7 @@ describe('InterSystems pagination result boundaries', () => {
       baseSql: 'WITH p AS (SELECT ID, Name FROM Sample.Person) SELECT TOP 10 ID, Name FROM p ORDER BY ID DESC;',
       dbType: 'iris', page: 1, pageSize: 0, sortInfo: [{ columnKey: 'Name', order: 'ascend' }],
     });
-    expect(sql).toBe('WITH p AS (SELECT ID, Name FROM Sample.Person) SELECT * FROM (SELECT TOP 10 ID, Name FROM p ORDER BY ID DESC\n) __gonavi_query_page__ ORDER BY "Name" ASC;');
+    expect(sql).toBe('WITH p AS (SELECT ID, Name FROM Sample.Person) SELECT * FROM (SELECT TOP 10 ID, Name FROM p ORDER BY ID DESC\n) __gonavi_query_page__ ORDER BY Name ASC;');
   });
 
   it('removes multiline ordering before counting and retains an explicit TOP boundary', () => {

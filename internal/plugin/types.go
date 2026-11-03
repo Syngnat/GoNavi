@@ -27,7 +27,6 @@ type Manifest struct {
 	Backend         *Backend          `json:"backend,omitempty"`
 	Contributes     Contributions     `json:"contributes,omitempty"`
 	Window          *Window           `json:"window,omitempty"`
-	ConfigSchema    json.RawMessage   `json:"configSchema,omitempty"`
 }
 
 // Dependency declares an installed dependency; dependencies are never downloaded implicitly.
@@ -115,12 +114,15 @@ type Page struct {
 	HTML  *HTMLPanel `json:"html,omitempty"`
 }
 
-// Navigation attaches a declared page to a host location. Location stays an
-// enumeration, and order only reorders entries of the same plugin.
+// Navigation attaches a declared page or the plugin's own window to a host
+// location. Target stays an enumeration: "page" (the default) opens the page in
+// a workbench tab, "window" opens the window declared by the manifest. Location
+// stays an enumeration, and order only reorders entries of the same plugin.
 type Navigation struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Page     string `json:"page"`
+	Target   string `json:"target,omitempty"`
+	Page     string `json:"page,omitempty"`
 	Location string `json:"location"`
 	Order    int    `json:"order,omitempty"`
 }
@@ -239,3 +241,8 @@ var ErrClosed = errors.New("plugin manager is closed")
 
 // ErrDigestMismatch rejects changed packages after inspection.
 var ErrDigestMismatch = errors.New("plugin package digest mismatch")
+
+// ErrHostTooOld rejects a package whose declared minimum host version this build
+// does not satisfy. Installing it anyway leaves a record the runtime can only
+// quarantine: the user gets a plugin that never runs and has to remove it again.
+var ErrHostTooOld = errors.New("plugin requires a newer host version")

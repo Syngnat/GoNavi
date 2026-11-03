@@ -179,3 +179,49 @@ func TestPageDeclarationsRoundTripJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidatePagesAcceptsWindowTargetNavigation(t *testing.T) {
+	manifest := pageManifest()
+	manifest.Window = &Window{Entry: "index.html"}
+	manifest.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "window", Location: PageLocationTools}}
+	if err := ValidatePages(manifest); err != nil {
+		t.Fatalf("window navigation without ui.pages: %v", err)
+	}
+
+	withoutWindow := pageManifest()
+	withoutWindow.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "window", Location: PageLocationTools}}
+	if err := ValidatePages(withoutWindow); err == nil {
+		t.Fatal("window navigation without a window was accepted")
+	}
+
+	withPage := pageManifest()
+	withPage.Window = &Window{Entry: "index.html"}
+	withPage.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "window", Page: "overview", Location: PageLocationTools}}
+	if err := ValidatePages(withPage); err == nil {
+		t.Fatal("window navigation with a page was accepted")
+	}
+
+	unknown := pageManifest()
+	unknown.Window = &Window{Entry: "index.html"}
+	unknown.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "popover", Location: PageLocationTools}}
+	if err := ValidatePages(unknown); err == nil {
+		t.Fatal("unknown navigation target was accepted")
+	}
+}
+
+func TestValidatePagesRejectsNodesTheRendererCannotDraw(t *testing.T) {
+	reserved := pageManifest(PagesPermission, "data.sources")
+	reserved.Backend = &Backend{Default: &Entry{Executable: "backend"}}
+	reserved.Contributes.Commands = []Command{{ID: "query", Title: "Query", Effect: "read"}}
+	reserved.Contributes.DataSources = []DataSource{{ID: "db", Name: "DB", Dialect: "mysql", Command: "query", ReadOnly: true}}
+	reserved.Contributes.Pages = []Page{{ID: "main", Title: "Main", Body: &UINode{Type: "button", Title: "Run", Command: "query"}}}
+	if err := ValidatePages(reserved); err == nil {
+		t.Fatal("page button referencing a data source command was accepted")
+	}
+
+	fields := pageManifest(PagesPermission)
+	fields.Contributes.Pages = []Page{{ID: "text", Title: "Text", Body: &UINode{Type: "text", Text: "x", Children: []UINode{{Type: "text"}}}}}
+	if err := ValidatePages(fields); err == nil {
+		t.Fatal("text node with children was accepted")
+	}
+}

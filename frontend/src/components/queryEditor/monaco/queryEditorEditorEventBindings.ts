@@ -23,6 +23,7 @@ import type { SavedConnection } from '../../../typeDefs/connectionTypes';
 import type { createQueryEditorImeAndDropHandlers } from './queryEditorImeAndDropHandlers';
 import type { createQueryEditorAiInlineGhostActions } from './queryEditorAiInlineGhostActions';
 import type { createQueryEditorNavigationHover } from './queryEditorNavigationHover';
+import { bindQueryEditorLastLineMouseEvents } from './queryEditorLastLineMouseBindings';
 
 export interface BindQueryEditorEditorEventsInput {
     monaco: Parameters<OnMount>[1];
@@ -402,9 +403,11 @@ export const bindQueryEditorEditorEvents = ({
     const unsubscribeActivation = subscribeQueryEditorTabActivation(tab.id, syncWindowListenerActivation);
     // 订阅后立刻对齐一次：bind 发生在挂载时，此前的激活翻转不会再回调到订阅方。
     syncWindowListenerActivation();
+    const disposeLastLineMouseEvents = bindQueryEditorLastLineMouseEvents(editor, monaco, editorDomNode);
     editor.onDidDispose?.(() => {
         unsubscribeActivation();
         detachWindowListeners(false);
+        disposeLastLineMouseEvents();
     });
 
     editorDomNode?.addEventListener('beforeinput', handleImeBeforeInput, true);

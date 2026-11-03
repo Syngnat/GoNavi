@@ -269,13 +269,12 @@ const TableDesignerSqlPreview: React.FC<TableDesignerSqlPreviewProps> = ({
       <Editor
         beforeMount={registerSqlPreviewThemes}
         defaultLanguage="sql"
+        gonaviTypography="sql"
         height={height}
         language="sql"
         onMount={handleEditorMount}
         options={{
           automaticLayout: true,
-          fontFamily: 'var(--gn-font-mono)',
-          fontSize: 13,
           lineNumbers: 'on',
           lineDecorationsWidth: 14,
           minimap: { enabled: false },

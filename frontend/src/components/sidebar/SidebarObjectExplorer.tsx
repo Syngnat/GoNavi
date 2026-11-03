@@ -242,7 +242,14 @@ export const SidebarObjectExplorer = ({
               // large databases that added ~0.7s to locating a table in WebKit.
               motion={false}
               height={effectiveTreeHeight}
-              itemHeight={30}
+              // rc-tree 在展开时会把 motionType 置为 'show'，此时它会强制
+              // itemHeightFixed=false 并禁用 itemHeightResolver，退回用固定的
+              // itemHeight 估算可见范围。行高有 30 与 36 两种，按 30 估算范围
+              // 会偏小，展开后下方就是一片空白，直到滚动触发重算。
+              // 显式传 itemHeightFixed={false} 让解析器始终生效；itemHeight 取
+              // 较大的 36，保证过渡期按「多算」而不是「少算」留白。
+              itemHeight={36}
+              itemHeightFixed={false}
               itemHeightResolver={resolveSidebarTreeRowHeight}
               onContextMenu={handleV2TreeContextMenu}
               onRightClick={onRightClick}

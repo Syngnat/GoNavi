@@ -29,7 +29,7 @@ export interface AIModel { id: string; name: string; contextWindow: number; maxO
 /** Requires ai.providers and an exact backend command; images are not supported in v1. */
 export interface AIProvider {
   id: string; name: string; command: string; icon?: string; models: AIModel[];
-  supportsTools: boolean; supportsImages: false;
+  supportsTools: boolean; supportsImages: boolean;
 }
 /** Requires data.export and a backend command; metadata grants no filesystem access. */
 export interface Exporter { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }
@@ -37,8 +37,8 @@ export interface Exporter { id: string; name: string; command: string; extension
 export interface PageHTML { source: string }
 /** Requires ui.pages and exactly one of body or html; html also requires ui.html-panel. */
 export interface Page { id: string; title: string; body?: UINode; html?: PageHTML }
-/** Requires ui.pages; location is the tools menu and order only reorders entries of one plugin. */
-export interface Navigation { id: string; title: string; page: string; location: 'tools'; order?: number }
+/** `page` opens a declared page in a tab; `window` opens the manifest window and needs no page. */
+export interface Navigation { id: string; title: string; target?: 'page' | 'window'; page?: string; location: 'tools'; order?: number }
 export interface LaunchTarget { type: 'window' | 'page'; page?: string }
 /** Declared connection/database/collection menu entry; the host owns the launch context. */
 export interface ConnectionAction { id: string; title: string; description?: string; connectionTypes: string[]; scopes?: ('connection' | 'database' | 'collection')[]; target: LaunchTarget }
@@ -52,9 +52,8 @@ export interface Manifest {
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
   backend?: { default?: Entry; platforms?: Record<string, Entry> };
-  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body: UINode }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
+  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body?: UINode; html?: PageHTML }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
   window?: { entry: string; title?: string; width?: number; height?: number };
-  configSchema?: JSONValue;
 }
 export interface InitializeParams {
   apiVersion: 1; pluginId: string; version: string; generation: number;

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -48,6 +49,7 @@ func TestDownloadUpdateAssetWithFallbackRetriesChecksumMismatch(t *testing.T) {
 
 	assetPath := filepath.Join(t.TempDir(), "GoNavi.bin")
 	actualHash, err := downloadUpdateAssetWithFallback(
+		context.Background(),
 		[]string{primary.URL, fallback.URL},
 		assetPath,
 		expectedHash,

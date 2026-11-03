@@ -153,7 +153,7 @@ export interface QueryOptions {
   showColumnType: boolean;
   alignNumericTemporalCellsRight: boolean;
   showQueryResultsPanel: boolean;
-  autoShowSqlExecutionLog: boolean;
+  showSqlExecutionLog: boolean;
   queryEditorEditorHeightRatio: number;
 }
 

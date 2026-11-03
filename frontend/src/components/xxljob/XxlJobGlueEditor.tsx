@@ -25,7 +25,6 @@ export const XxlJobGlueEditor: React.FC<Props> = ({ language, value, onChange, h
     }}
     options={{
       minimap: { enabled: false },
-      fontSize: 12,
       scrollBeyondLastLine: false,
       automaticLayout: true,
       tabSize: 4,

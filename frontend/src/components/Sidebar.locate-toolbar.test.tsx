@@ -764,9 +764,20 @@ describe('Sidebar locate toolbar', () => {
     const treePatch = readSourceFile('../../patches/rc-tree+5.13.1.patch');
     const virtualListPatch = readSourceFile('../../patches/rc-virtual-list+3.19.2.patch');
 
-    expect(source).toContain('itemHeight={30}');
+    // rc-tree 展开时会把 motionType 置为 'show'，期间它强制禁用 resolver、
+    // 退回用 itemHeight 估算可见范围。行高有 30 与 36 两种，按 30 估会偏小，
+    // 展开后下方留白（滚动一下才恢复）。因此 itemHeight 取较大值 36，
+    // 让过渡期按「多算」而不是「少算」布局。
+    expect(source).toContain('itemHeight={36}');
+    expect(source).toContain('itemHeightFixed={false}');
     expect(source).toContain('itemHeightResolver={resolveSidebarTreeRowHeight}');
     expect(treePatch).toContain('itemHeightResolver: itemHeightResolver');
+    // rc-tree 原来的写法是 `motionType ? false : itemHeightFixed`：只要展开过一次，
+    // motionType 就会停在 'show'，此后 resolver 永久失效、高度按固定 itemHeight
+    // 估算，展开大的库后下方出现空白（滚动一下才恢复）。补丁把条件收紧成
+    // `motion && motionType`，在 motion=false 时解析器始终生效。
+    expect(treePatch).toContain('itemHeightFixed: motion && motionType ? false : itemHeightFixed');
+    expect(treePatch).toContain('itemHeightResolver: !(motion && motionType) && itemHeightResolver');
     expect(treePatch).not.toContain('itemHorizontalOffsetComposited');
     expect(treePatch).toContain('itemHeightResolver?: (item: TreeDataType, index: number) => number;');
     expect(virtualListPatch).toContain('fixedItemOffsets[startMid + 1] >= fixedOffsetTop');

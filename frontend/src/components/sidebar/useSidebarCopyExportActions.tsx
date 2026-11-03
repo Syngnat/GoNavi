@@ -11,6 +11,7 @@ import {
 import { resolveCopyObjectNameLabel } from './sidebarCopyObjectName';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { confirmCopyTable } from '../tableCopyAction';
+import { confirmCopyDatabase } from '../databaseCopyAction';
 import { resolveSidebarNodeConnectionId } from '../sidebarV2Utils';
 import { buildBatchTableExportWorkbenchTab, buildTableExportTab } from '../../utils/tableExportTab';
 import { useStore } from '../../store';
@@ -97,6 +98,24 @@ export const useSidebarCopyExportActions = ({
       sourceTableName: tableName,
       onSuccess: async () => {
         await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
+      },
+    });
+  };
+
+  // 整库复制：与复制表同一套交互（确认 → 执行 → 刷新树）。
+  const handleCopyDatabase = async (node: any) => {
+    const conn = node?.dataRef;
+    if (!conn) return;
+    const database = String(node?.title || conn?.dbName || '').trim();
+    if (!database) return;
+    if (!await confirmSidebarMutation(conn, database)) return;
+    const config = buildRuntimeConfig(conn, database);
+    confirmCopyDatabase({
+      config: buildRpcConnectionConfig(config) as any,
+      dbName: database,
+      onSuccess: async () => {
+        // 新库是同一个连接下的兄弟节点，刷新该节点的表清单即可带出新库。
+        await loadTables(getDatabaseNodeRef(conn, database), { ensureFresh: true });
       },
     });
   };
@@ -249,7 +268,7 @@ export const useSidebarCopyExportActions = ({
   };
   return {
     confirmSidebarMutation, handleCopyStructure, handleCopyTableName, handleCopyTable,
-    handleCopyDatabaseName, handleExport, openExportDialog, handleCopyTableAsInsert,
+    handleCopyDatabase, handleCopyDatabaseName, handleExport, openExportDialog, handleCopyTableAsInsert,
     openTableDdlInDesigner, openTableInERView, injectTablePromptToAI,
   };
 };

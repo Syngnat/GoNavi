@@ -102,6 +102,10 @@ export function CancelSavedConnectionsHealthRun(arg1) {
   return window['go']['app']['App']['CancelSavedConnectionsHealthRun'](arg1);
 }
 
+export function CancelUpdateDownload() {
+  return window['go']['app']['App']['CancelUpdateDownload']();
+}
+
 export function CheckDriverNetworkStatus() {
   return window['go']['app']['App']['CheckDriverNetworkStatus']();
 }
@@ -156,6 +160,10 @@ export function ConfigureDriverRuntimeDirectory(arg1) {
 
 export function ConfigureGlobalProxy(arg1, arg2) {
   return window['go']['app']['App']['ConfigureGlobalProxy'](arg1, arg2);
+}
+
+export function CopyDatabase(arg1, arg2) {
+  return window['go']['app']['App']['CopyDatabase'](arg1, arg2);
 }
 
 export function CopyTable(arg1, arg2, arg3, arg4) {

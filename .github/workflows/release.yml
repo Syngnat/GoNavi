@@ -10,6 +10,11 @@ on:
         description: Existing immutable release tag to rebuild (for example, v0.9.3)
         required: true
         type: string
+      drivers_only:
+        description: Rebuild only the GoNavi-DriverAgents assets for an existing tag (does not touch the GoNavi release)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -173,6 +178,7 @@ jobs:
       published_source_commit: ${{ steps.published_source.outputs.source_commit }}
       has_manifest: ${{ steps.published_source.outputs.has_manifest }}
       manifest_valid: ${{ steps.published_source.outputs.manifest_valid }}
+      replace_stale_release: ${{ steps.existing_driver_release.outputs.stale }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -227,6 +233,34 @@ jobs:
             echo "🧭 Unable to resolve published release source commit for ${PREV_TAG}; fallback to previous tag diff"
           fi
 
+      - name: Verify existing driver release provenance
+        id: existing_driver_release
+        env:
+          GH_TOKEN: ${{ secrets.DRIVER_RELEASE_TOKEN }}
+          DRIVER_RELEASE_TOKEN: ${{ secrets.DRIVER_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "stale=false" >> "$GITHUB_OUTPUT"
+          if ! gh release view "$RELEASE_TAG" --repo Syngnat/GoNavi-DriverAgents >/dev/null 2>&1; then
+            exit 0
+          fi
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          manifest_path="$RUNNER_TEMP/existing-driver-manifest.json"
+          manifest_url="https://github.com/Syngnat/GoNavi-DriverAgents/releases/download/${RELEASE_TAG}/GoNavi-DriverAgents-Manifest.json"
+          if ! curl --retry 3 --retry-delay 2 --retry-all-errors -fsSL "$manifest_url" -o "$manifest_path"; then
+            echo "⚠️ 已存在的驱动发布 ${RELEASE_TAG} 缺少 revision manifest，无法证明与当前提交一致；按陈旧处理"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if bash ./tools/validate-driver-release-manifest.sh --commit "$RELEASE_SHA" --manifest "$manifest_path"; then
+            echo "🧭 已存在的驱动发布 ${RELEASE_TAG} 与当前提交 ${RELEASE_SHA} 一致"
+          else
+            echo "⚠️ 已存在的驱动发布 ${RELEASE_TAG} 来自其他源码提交；将全量重建并替换资产"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Detect changed driver agents
         id: detect
         shell: bash
@@ -268,6 +302,15 @@ jobs:
           fi
           HAS_MANIFEST="${{ steps.published_source.outputs.has_manifest }}"
           MANIFEST_VALID="${{ steps.published_source.outputs.manifest_valid }}"
+          EXISTING_STALE="${{ steps.existing_driver_release.outputs.stale }}"
+          if [[ "$EXISTING_STALE" == "true" ]]; then
+            # The tag already has a driver release, but its manifest is bound to another commit:
+            # reusing it would publish assets the tag's binary rejects. Rebuild everything so the
+            # replacement set is complete, then overwrite the stale release below.
+            echo "⚠️ Driver release ${RELEASE_TAG} provenance mismatch; forcing a full rebuild and replacement"
+            BASE_REF="all"
+            RELEASE_SOURCE="all"
+          fi
           if [[ "$RELEASE_SOURCE" != "all" && "$HAS_MANIFEST" != "true" ]]; then
             echo "⚠️ Published driver release lacks revision manifest; forcing full rebuild to self-heal old assets"
             BASE_REF="all"
@@ -366,6 +409,7 @@ jobs:
 
   cli:
     name: Build CLI ${{ matrix.goos }}/${{ matrix.goarch }}
+    if: ${{ !inputs.drivers_only }}
     needs:
       - validate_release_tag
       - driver_revision_maps
@@ -1292,9 +1336,17 @@ jobs:
 
           Write-Host "📦 输出 7z SFX 便携版 EXE $portableExeName..."
           $finalExePath = (Resolve-Path -LiteralPath $finalExe).Path
-          & (Join-Path $releaseRoot "tools\\make-portable-sfx.ps1") -SourceExe $finalExePath -OutputExe (Join-Path $releaseRoot $portableExeName) -LicenseFile $licenseFile -NoticeFile $noticeFile
-          if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $portableExeName))) {
-              throw "SFX 便携版 EXE 生成失败: $portableExeName"
+          # SFX 便携版是附加产物，需要联网下载官方 LZMA SDK（偶发 DNS 失败）。
+          # 它失败不该拖垮同一次的 ZIP 与 MSI：降级为警告并在步骤摘要里说明。
+          $sfxOk = $true
+          try {
+              & (Join-Path $releaseRoot "tools\\make-portable-sfx.ps1") -SourceExe $finalExePath -OutputExe (Join-Path $releaseRoot $portableExeName) -LicenseFile $licenseFile -NoticeFile $noticeFile
+              if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $portableExeName))) {
+                  throw "SFX 便携版 EXE 未生成: $portableExeName"
+              }
+          } catch {
+              $sfxOk = $false
+              Write-Host "::warning title=SFX 便携版已跳过::SFX 便携版 EXE 生成失败，ZIP 与 MSI 继续构建。原因: $($_.Exception.Message)"
           }
 
           $portableDir = Join-Path $env:RUNNER_TEMP "gonavi-portable-$archName"
@@ -1500,6 +1552,7 @@ jobs:
   # Phase 2: Collect all artifacts and Publish Release (Single Job)
   release:
     name: Publish Release
+    if: ${{ always() && needs.validate_release_tag.result == 'success' && needs.driver_agents.result == 'success' && needs.build.result == 'success' && (inputs.drivers_only || needs.cli.result == 'success') }}
     needs:
       - validate_release_tag
       - build
@@ -1528,6 +1581,7 @@ jobs:
           merge-multiple: true
 
       - name: Download CLI artifacts
+        if: ${{ !inputs.drivers_only }}
         uses: actions/download-artifact@v7
         with:
           path: cli-assets
@@ -1535,6 +1589,7 @@ jobs:
           merge-multiple: true
 
       - name: Download GUI driver revision contracts
+        if: ${{ !inputs.drivers_only }}
         uses: actions/download-artifact@v7
         with:
           path: driver-revision-contract
@@ -1542,6 +1597,7 @@ jobs:
           merge-multiple: true
 
       - name: Download CLI driver revision contracts
+        if: ${{ !inputs.drivers_only }}
         uses: actions/download-artifact@v7
         with:
           path: driver-revision-contract
@@ -1549,12 +1605,14 @@ jobs:
           merge-multiple: true
 
       - name: Verify GUI and CLI driver revision contracts
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
           ./tools/verify-driver-revision-contract.sh --contracts-dir driver-revision-contract
 
       - name: Validate CLI artifact staging
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1580,10 +1638,12 @@ jobs:
           done
 
       - name: Add legal documents
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: install -m 0644 LICENSE NOTICE release-assets/
 
       - name: List Assets
+        if: ${{ !inputs.drivers_only }}
         run: ls -R release-assets cli-assets
 
       - name: Download Previous Driver Manifest
@@ -1710,6 +1770,7 @@ jobs:
           echo "has_driver_assets=true" >> "$GITHUB_OUTPUT"
 
       - name: Generate CLI checksums
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1725,6 +1786,7 @@ jobs:
           (cd cli-assets && sha256sum "${expected[@]}" > "gonavi-cli_${version}_checksums.txt")
 
       - name: Generate SHA256SUMS
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1749,6 +1811,7 @@ jobs:
           fi
 
       - name: Verify CLI release assets
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1811,6 +1874,7 @@ jobs:
           done < release-assets/SHA256SUMS
 
       - name: Generate WinGet CLI manifest
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1827,6 +1891,7 @@ jobs:
       # 静态更新清单：客户端优先下载 github.com/.../latest/download/latest.json，
       # 避免终端用户检查更新打爆 api.github.com 未认证配额。
       - name: Generate static update manifest (latest.json)
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1937,7 +2002,16 @@ jobs:
           EOF
 
           if gh release view "$RELEASE_TAG" --repo Syngnat/GoNavi-DriverAgents >/dev/null 2>&1; then
-            echo "🧭 Driver Agents release $RELEASE_TAG already exists; preserving immutable assets."
+            if [[ "${{ needs.driver_agents.outputs.replace_stale_release }}" == "true" ]]; then
+              # A stale release cannot be repaired by preserving its assets: the tag's own binary
+              # expects the revisions rebuilt above. Replace the whole set under the same tag.
+              echo "♻️ Replacing stale Driver Agents release $RELEASE_TAG assets."
+              gh release upload "$RELEASE_TAG" "${DRIVER_RELEASE_ASSETS[@]}" \
+                --repo Syngnat/GoNavi-DriverAgents \
+                --clobber
+            else
+              echo "🧭 Driver Agents release $RELEASE_TAG already exists; preserving immutable assets."
+            fi
           else
             gh release create "$RELEASE_TAG" "${DRIVER_RELEASE_ASSETS[@]}" \
               --repo Syngnat/GoNavi-DriverAgents \
@@ -1947,6 +2021,7 @@ jobs:
           fi
 
       - name: Checkout code for changelog
+        if: ${{ !inputs.drivers_only }}
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.validate_release_tag.outputs.tag }}
@@ -1954,6 +2029,7 @@ jobs:
           path: repo-for-changelog
 
       - name: Generate Changelog
+        if: ${{ !inputs.drivers_only }}
         id: changelog
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1990,6 +2066,7 @@ jobs:
           echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Annotate macOS signing status
+        if: ${{ !inputs.drivers_only }}
         env:
           CHANGELOG_FILE: ${{ steps.changelog.outputs.changelog_file }}
           MACOS_SIGNING_CERTIFICATE_P12: ${{ secrets.MACOS_SIGNING_CERTIFICATE_P12 }}
@@ -2008,6 +2085,7 @@ jobs:
 
       # 将同一份 changelog 写入 latest.json，供应用内「更新日志」弹窗使用（静态清单优先路径）。
       - name: Embed changelog into latest.json
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -2030,6 +2108,7 @@ jobs:
           echo "📄 latest.json releaseNotes embedded ($(jq -r '.releaseNotes | length' release-assets/latest.json) chars)"
 
       - name: Record release provenance
+        if: ${{ !inputs.drivers_only }}
         env:
           CHANGELOG_FILE: ${{ steps.changelog.outputs.changelog_file }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
@@ -2061,6 +2140,7 @@ jobs:
           PY
 
       - name: Create Release
+        if: ${{ !inputs.drivers_only }}
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.validate_release_tag.outputs.tag }}
@@ -2079,6 +2159,7 @@ jobs:
       # Publish Draft Release 工作流：它负责资产契约校验、发布草稿并把
       # latest.json 与产物部署到下载分发边缘节点——应用内检查更新读取该分发源。
       - name: Dispatch publish-release workflow
+        if: ${{ !inputs.drivers_only }}
         shell: bash
         run: |
           set -euo pipefail

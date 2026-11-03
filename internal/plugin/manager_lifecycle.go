@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"GoNavi-Wails/internal/buildversion"
 	"GoNavi-Wails/internal/logger"
 )
 
@@ -63,8 +63,10 @@ func (m *Manager) reconcile(ctx context.Context) {
 			continue
 		}
 		reason := dependencyReason(r, state.Records)
-		if r.Manifest.MinHostVersion != "" && !buildversion.SatisfiesMinimum(m.opts.HostVersion, r.Manifest.MinHostVersion) {
-			reason = "plugin requires a newer compatible host version"
+		// Same rule as installation: a package refused at install time must not be
+		// startable here, and a manifest rejected by this build stays blocked.
+		if hostReason := m.hostCompatibilityReason(r.Manifest); hostReason != "" {
+			reason = hostReason
 		}
 		if reason != "" {
 			if r.State != StateBlocked || r.LastError != reason {
@@ -138,7 +140,9 @@ func (m *Manager) runInstance(inst *instance) {
 	m.mu.Lock()
 	inst.ready = false
 	m.mu.Unlock()
-	if err != nil && inst.ctx.Err() == nil {
+	// ErrDisabled only means this instance was fenced (safe mode, disable, or a newer
+	// generation); quarantining would persist a fault onto that newer record.
+	if err != nil && inst.ctx.Err() == nil && !errors.Is(err, ErrDisabled) {
 		m.quarantine(inst, err)
 	}
 	if inst.process != nil {
@@ -269,7 +273,10 @@ func (m *Manager) quarantine(inst *instance, cause error) {
 	defer cancel()
 	message := cause.Error()
 	if len(message) > 1024 {
-		message = message[:1024]
+		// A byte slice can end inside a multi-byte rune; encoding/json would then expand the
+		// invalid bytes to U+FFFD, push LastError past the loadState limit and make the whole
+		// state file unreadable. Trim to a valid prefix before it is persisted.
+		message = strings.ToValidUTF8(message[:1024], "")
 	}
 	// A quarantined record survives restarts and only the persisted message reaches the card,
 	// so the log has to carry the same cause or the fault becomes unreproducible later.

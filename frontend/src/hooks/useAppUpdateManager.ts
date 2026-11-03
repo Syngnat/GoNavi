@@ -38,14 +38,15 @@ export const useAppUpdateManager = ({
   } = useAppUpdateState({ updateCenterBridgeRef, runtimeBuildType, t });
 
   const {
-    downloadUpdate, showUpdateDownloadProgress, hideUpdateDownloadProgress,
+    downloadUpdate, cancelUpdate, showUpdateDownloadProgress, hideUpdateDownloadProgress,
     isLatestUpdateDownloaded, isBackgroundProgressForLatestUpdate, canShowProgressEntry,
     handleInstallFromProgress, openDownloadedUpdateDirectory,
   } = useAppUpdateDownload({
     t, updateDownloadInFlightRef, updateDownloadTaskStatusRef, updateDownloadedVersionRef,
     updateDownloadMetaRef, advanceUpdateDownloadTaskSession, updateDownloadStartRequestRef,
     updateUserDismissedRef, updateDownloadProgressRef, setUpdateDownloadProgress,
-    isCurrentUpdateDownloadTaskSession, applyUpdateDownloadTaskSnapshot, refreshUpdateDownloadTask,
+    captureUpdateDownloadTaskSession, isCurrentUpdateDownloadTaskSession,
+    applyUpdateDownloadTaskSnapshot, refreshUpdateDownloadTask,
     setInstallMode, setLastUpdateInfo, setAboutUpdateStatus, formatAboutUpdateStatus,
     lastUpdateInfo, lastUpdateKey, updateDownloadProgress, updateInstallTriggeredVersionRef,
   });
@@ -81,6 +82,7 @@ export const useAppUpdateManager = ({
     aboutLoading,
     aboutUpdateStatus,
     canShowProgressEntry,
+    cancelUpdate,
     changeUpdateChannel,
     checkForUpdates,
     downloadUpdate,

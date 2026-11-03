@@ -78,6 +78,7 @@ type PluginDatabase struct {
 var _ Database = (*PluginDatabase)(nil)
 var _ QueryContexter = (*PluginDatabase)(nil)
 var _ ColumnDefinitionContexter = (*PluginDatabase)(nil)
+var _ ReadOnlyQueryContexter = (*PluginDatabase)(nil)
 
 // NewPluginDatabase accepts only a declared source in the current installed
 // generation. The validator is the host's read-only SQL safety policy.

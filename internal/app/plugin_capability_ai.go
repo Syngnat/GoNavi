@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/url"
 	"strings"
 
 	aiservice "GoNavi-Wails/internal/ai/service"
@@ -46,7 +47,7 @@ func pluginCapabilityAIProviders(_ context.Context, a *App, request pluginCapabi
 			Type:           strings.TrimSpace(provider.Type),
 			Name:           strings.TrimSpace(provider.Name),
 			AuthMode:       strings.TrimSpace(provider.AuthMode),
-			BaseURL:        strings.TrimSpace(provider.BaseURL),
+			BaseURL:        pluginCapabilityPublicBaseURL(provider.BaseURL),
 			Model:          strings.TrimSpace(provider.Model),
 			APIFormat:      strings.TrimSpace(provider.APIFormat),
 			SupportsImages: provider.SupportsImages,
@@ -59,4 +60,27 @@ func pluginCapabilityAIProviders(_ context.Context, a *App, request pluginCapabi
 		Providers:      items,
 		ActiveProvider: strings.TrimSpace(inspection.Snapshot.ActiveProvider),
 	}, ""
+}
+
+// pluginCapabilityPublicBaseURL strips credentials and fragments from a stored provider
+// endpoint before it is handed to a plugin. The capability promises metadata, not secrets;
+// a user who pasted a key into the URL must not have it echoed back to a page.
+func pluginCapabilityPublicBaseURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		if strings.Contains(trimmed, "@") {
+			return ""
+		}
+		return trimmed
+	}
+	if parsed.User == nil && parsed.Fragment == "" {
+		return trimmed
+	}
+	parsed.User = nil
+	parsed.Fragment = ""
+	return parsed.String()
 }

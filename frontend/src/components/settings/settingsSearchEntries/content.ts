@@ -68,7 +68,7 @@ export const CONTENT_SEARCH_ENTRIES: ReadonlyArray<SettingsCenterSearchEntry> = 
     'app.theme.titlebar_actions_placement.display.icon_text',
   ]),
   ...page('preferences', 'theme-workspace', [
-    'app.theme.data_table.auto_show_sql_execution_log_hint',
+    'app.theme.data_table.show_sql_execution_log_hint',
     'app.theme.query_template.hint',
     'app.theme.tab_display.row.primary',
     'app.theme.tab_display.row.secondary',

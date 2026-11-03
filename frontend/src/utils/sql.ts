@@ -3,6 +3,7 @@ import { buildOffsetLimitSelectSQL, buildRegistryPaginatedSelectSQL, resolveRegi
 import { splitQualifiedNameSegments, stripIdentifierQuotes } from './qualifiedName';
 import { isElasticsearchFamilyType } from './elasticsearchFamily';
 import { buildInterSystemsPaginatedSelectSQL, isInterSystemsDialect } from './intersystemsSql';
+import { quoteInterSystemsIdent } from './intersystemsIdentifiers';
 
 export type FilterValueSelection = {
   values: string[];
@@ -43,6 +44,13 @@ export const quoteIdentPart = (dbType: string, ident: string) => {
 
   if (registryQuoting === 'backtick' || dbTypeLower === 'mysql' || dbTypeLower === 'goldendb' || dbTypeLower === 'mariadb' || dbTypeLower === 'oceanbase' || dbTypeLower === 'diros' || dbTypeLower === 'starrocks' || dbTypeLower === 'sphinx' || dbTypeLower === 'tdengine' || dbTypeLower === 'iotdb' || dbTypeLower === 'clickhouse') {
     return `\`${raw.replace(/`/g, '``')}\``;
+  }
+
+  // IRIS/Caché 的双引号只在服务端开启 DelimitedIds 时才是标识符定界符，关闭时被当成
+  // 字符串字面量（`FROM "BDA_Store"` 报 LITERAL ('BDA_Store') found）。裸名在两种配置下
+  // 都能解析且大小写不敏感，因此与 PostgreSQL 不同：只有无法裸写的名字才加引号。
+  if (isInterSystemsDialect(dbTypeLower)) {
+    return quoteInterSystemsIdent(raw);
   }
 
   // 对于 KingBase/PostgreSQL，只在必要时加引号

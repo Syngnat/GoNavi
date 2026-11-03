@@ -27,6 +27,13 @@ const OpenExternalPermission = "system.open-external"
 // nothing.
 const PageLocationTools = "tools"
 
+// Navigation targets stay an enumeration. An empty target is the page target so
+// manifests written before windows could be attached keep their meaning.
+const (
+	PageTargetPage   = "page"
+	PageTargetWindow = "window"
+)
+
 // Page and navigation declarations are bounded per manifest, and navigation
 // order only reorders entries of the same plugin.
 const (
@@ -46,17 +53,26 @@ func validatePages(manifest Manifest, permissions, commands map[string]bool) err
 	if len(pages) == 0 && len(navigation) == 0 {
 		return nil
 	}
-	if !permissions[PagesPermission] {
-		return fmt.Errorf("pages or navigation require the %s permission", PagesPermission)
-	}
 	if len(pages) > MaxPages || len(navigation) > MaxNavigation {
 		return fmt.Errorf("too many pages or navigation entries")
+	}
+	// ui.pages gates page declarations and page navigation; a window target only opens
+	// the plugin's own window, exactly like a window connection action, so a manifest
+	// whose navigation entries all target the window needs no page permission.
+	declaresPages := len(pages) > 0
+	for _, item := range navigation {
+		if item.Target != PageTargetWindow {
+			declaresPages = true
+		}
+	}
+	if declaresPages && !permissions[PagesPermission] {
+		return fmt.Errorf("pages or navigation require the %s permission", PagesPermission)
 	}
 	declared, err := validatePageDeclarations(pages, permissions, commands)
 	if err != nil {
 		return err
 	}
-	return validateNavigationDeclarations(navigation, declared)
+	return validateNavigationDeclarations(navigation, declared, manifest.Window != nil)
 }
 
 // validatePageDeclarations returns the declared page ids for navigation
@@ -90,15 +106,27 @@ func validatePageDeclarations(pages []Page, permissions, commands map[string]boo
 	return declared, nil
 }
 
-func validateNavigationDeclarations(navigation []Navigation, pages map[string]bool) error {
+func validateNavigationDeclarations(navigation []Navigation, pages map[string]bool, hasWindow bool) error {
 	declared := make(map[string]bool, len(navigation))
 	for _, item := range navigation {
 		if !localIDPattern.MatchString(item.ID) || declared[item.ID] || !validText(item.Title, 256) {
 			return fmt.Errorf("invalid or duplicate navigation entry")
 		}
 		declared[item.ID] = true
-		if !pages[item.Page] {
-			return fmt.Errorf("navigation references an undeclared page")
+		switch item.Target {
+		case "", PageTargetPage:
+			if !pages[item.Page] {
+				return fmt.Errorf("navigation references an undeclared page")
+			}
+		case PageTargetWindow:
+			if !hasWindow {
+				return fmt.Errorf("window navigation requires a window")
+			}
+			if item.Page != "" {
+				return fmt.Errorf("window navigation cannot declare a page")
+			}
+		default:
+			return fmt.Errorf("unsupported navigation target")
 		}
 		if item.Location != PageLocationTools {
 			return fmt.Errorf("unsupported navigation location")

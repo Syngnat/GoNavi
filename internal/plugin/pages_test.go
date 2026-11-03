@@ -115,6 +115,8 @@ func TestPageDeclarationRejectsUnsafeDeclarations(t *testing.T) {
 		{"title bytes", []string{PagesPermission}, []Page{{ID: "long", Title: strings.Repeat("中", 86), Body: &UINode{Type: "text"}}}},
 		{"unsupported node", []string{PagesPermission}, []Page{{ID: "node", Title: "Node", Body: &UINode{Type: "html"}}}},
 		{"undeclared command", []string{PagesPermission}, []Page{{ID: "button", Title: "Button", Body: &UINode{Type: "button", Command: "run"}}}},
+		{"text with children", []string{PagesPermission}, []Page{{ID: "text", Title: "Text", Body: &UINode{Type: "text", Text: "x", Children: []UINode{{Type: "text", Text: "y"}}}}}},
+		{"button with rows", []string{PagesPermission}, []Page{{ID: "button", Title: "Button", Body: &UINode{Type: "button", Title: "Run", Command: "run", Rows: []map[string]json.RawMessage{{"a": json.RawMessage(`1`)}}}}}},
 		{"html without permission", []string{PagesPermission}, htmlPage("<p>ok</p>")},
 		{"empty html", []string{PagesPermission, CustomPanelPermission}, htmlPage("  \n ")},
 		{"nul html", []string{PagesPermission, CustomPanelPermission}, htmlPage("<p>a\x00b</p>")},
@@ -181,6 +183,60 @@ func TestNavigationDeclarationRejectsUnsafeEntries(t *testing.T) {
 	m.Contributes.Navigation = append(m.Contributes.Navigation, m.Contributes.Navigation[0])
 	if ValidateManifest(m) == nil {
 		t.Fatal("duplicate navigation id was accepted")
+	}
+}
+
+func TestPageButtonCannotInvokeAReservedCommand(t *testing.T) {
+	m := pagesManifest("example.reserved", PagesPermission, "data.sources")
+	m.Backend = &Backend{Default: &Entry{Executable: "backend"}}
+	m.Contributes.Commands = []Command{{ID: "query", Title: "Query", Effect: "read"}}
+	m.Contributes.DataSources = []DataSource{{ID: "db", Name: "DB", Dialect: "mysql", Command: "query", ReadOnly: true}}
+	m.Contributes.Pages = []Page{{ID: "main", Title: "Main", Body: &UINode{Type: "button", Title: "Run", Command: "query"}}}
+	if ValidateManifest(m) == nil {
+		t.Fatal("page button referencing a data source command was accepted")
+	}
+}
+
+func TestNavigationWindowTargetOpensThePluginWindow(t *testing.T) {
+	m := pagesManifest("example.window-nav", CustomPanelPermission)
+	m.Window = &Window{Entry: "index.html"}
+	m.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Location: PageLocationTools}}
+	if err := ValidateManifest(m); err != nil {
+		t.Fatalf("window navigation without ui.pages was rejected: %v", err)
+	}
+	encoded, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"target":"window"`) {
+		t.Fatalf("window target did not round-trip: %s", encoded)
+	}
+	parsed, err := ParseManifest(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Contributes.Navigation[0].Target != PageTargetWindow {
+		t.Fatalf("target = %q", parsed.Contributes.Navigation[0].Target)
+	}
+
+	withoutWindow := pagesManifest("example.window-nav")
+	withoutWindow.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Location: PageLocationTools}}
+	if ValidateManifest(withoutWindow) == nil {
+		t.Fatal("window navigation without a window was accepted")
+	}
+
+	withPage := pagesManifest("example.window-nav", CustomPanelPermission)
+	withPage.Window = &Window{Entry: "index.html"}
+	withPage.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: PageTargetWindow, Page: "overview", Location: PageLocationTools}}
+	if ValidateManifest(withPage) == nil {
+		t.Fatal("window navigation with a page was accepted")
+	}
+
+	unknown := pagesManifest("example.window-nav", CustomPanelPermission)
+	unknown.Window = &Window{Entry: "index.html"}
+	unknown.Contributes.Navigation = []Navigation{{ID: "ssh", Title: "SSH", Target: "popover", Location: PageLocationTools}}
+	if ValidateManifest(unknown) == nil {
+		t.Fatal("unknown navigation target was accepted")
 	}
 }
 

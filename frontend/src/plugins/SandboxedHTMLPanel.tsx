@@ -12,6 +12,9 @@ const PANEL_CSP = [
   "media-src data:",
   "connect-src 'none'",
   "form-action 'none'",
+  // navigate-to is not implemented by every engine, but where it is it stops the document
+  // from navigating itself to a network origin; the WebView-level check is still required.
+  "navigate-to 'none'",
   "base-uri 'none'",
   "frame-src 'none'",
   "object-src 'none'",

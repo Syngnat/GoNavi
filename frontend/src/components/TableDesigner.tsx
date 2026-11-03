@@ -8,6 +8,7 @@ import type {
   SchemaExecutionResult,
 } from './tableDesigner/tableDesignerTypes';
 import { useTableDesignerState } from './tableDesigner/hooks/useTableDesignerState';
+import { resolveQueryEditorMonacoLanguage } from './queryEditor/queryEditorEditorState';
 import { useTableDesignerDataLoad } from './tableDesigner/hooks/useTableDesignerDataLoad';
 import { useTableDesignerTriggerList } from './tableDesigner/hooks/useTableDesignerTriggerList';
 import { useTableDesignerColumnEdits } from './tableDesigner/hooks/useTableDesignerColumnEdits';
@@ -22,6 +23,7 @@ import { TABLE_DESIGNER_SHELL_CSS } from './tableDesigner/tableDesignerShellStyl
 import { TableDesignerToolbar } from './tableDesigner/TableDesignerToolbar';
 import { TableDesignerTabs } from './tableDesigner/TableDesignerTabs';
 import { TableDesignerDialogs } from './tableDesigner/TableDesignerDialogs';
+import { TableDesignerTableOptionsModal } from './tableDesigner/TableDesignerTableOptionsModal';
 
 export interface TableDesignerProps { tab: TabData; embedded?: boolean }
 
@@ -31,7 +33,9 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
       fks, setFks, triggers, setTriggers, ddl, setDdl, newTableName, setNewTableName, schemaOptions,
       setSchemaOptions, selectedSchema, setSelectedSchema, schemaSelectionOverride,
       setSchemaSelectionOverride, schemaReady, setSchemaReady, schemaLoading, setSchemaLoading,
-      charset, setCharset, collation, setCollation, starRocksTableKind, setStarRocksTableKind,
+      charset, setCharset, collation, setCollation, originalCollation, setOriginalCollation,
+      tableOptionsOpen, setTableOptionsOpen,
+      starRocksTableKind, setStarRocksTableKind,
       starRocksKeyModel, setStarRocksKeyModel, starRocksKeyColumns, setStarRocksKeyColumns,
       starRocksPartitionClause, setStarRocksPartitionClause, starRocksDistributionType,
       setStarRocksDistributionType, starRocksDistributionColumns, setStarRocksDistributionColumns,
@@ -75,6 +79,11 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
       resizeBodyStyleRef, resizeListenerRef, sensors,
   } = useTableDesignerState({ tab });
 
+  // 设计器内的 SQL 视图与查询编辑器共用同一分词器，避免同一段 DDL/触发器 SQL 出现两套关键字配色。
+  const sqlMonacoLanguage = resolveQueryEditorMonacoLanguage(
+    connections.find((connection) => connection.id === tab.connectionId),
+  );
+
   const handleColumnChangeLate = useLateBoundCallback<(key: string, field: keyof EditableColumn, value: any) => void>();
   const handleDeleteColumnLate = useLateBoundCallback<(key: string) => void>();
   const { handleResizeStart, handleIndexResizeStart, fetchData, normalizeDbType } = useTableDesignerDataLoad({
@@ -86,6 +95,7 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
       setDdlLoading, metadataLoadSeqRef, isNewTable, resolveTableInfo, columns, originalColumns,
       setColumns, setOriginalColumns, setSelectedColumnRowKeys, setIndexes, setFks, setTriggers, setDdl,
       setTableComment, isTableCommentModalOpen, setTableCommentDraft, selectedSchema,
+      setCharset, setCollation, setOriginalCollation,
   });
 
   const executeSchemaStatementsLate = useLateBoundCallback<(sqlText: string, options?: SchemaExecutionOptions) => Promise<SchemaExecutionResult>>();
@@ -170,7 +180,7 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
       foreignKeyModalMode, setFks, setForeignKeySaving, setSelectedForeignKey, newTableName,
       isTDengineChildNewTable, tdengineStableName, tdengineChildTagDefs, tdengineChildTagValues,
       tdengineTagValues, columns, isTDengineNewTable, tdengineTableKind, tdengineTagDefinitions,
-      buildCreateTableSql, charset, collation, tableComment, getIndexKindOptions, triggers,
+      buildCreateTableSql, charset, collation, originalCollation, tableComment, getIndexKindOptions, triggers,
       setPreviewSql, setIsPreviewOpen, resolveTableInfo, originalColumns, hasUnsavedDraftChanges,
       fetchData, executeSchemaStatements, previewSql, selectedSchema, getDbType,
       supportsTableDesignerSchemaSelection, designerSchemaTitle, tableColumns, handleResizeStart,
@@ -251,14 +261,16 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
           metadataLoading={metadataLoading} handleRefreshDesigner={handleRefreshDesigner}
           supportsTableCommentOps={supportsTableCommentOps}
           openTableCommentModal={openTableCommentModal}
-          isTDengineChildNewTable={isTDengineChildNewTable} handleAddColumn={handleAddColumn}
+          isTDengineChildNewTable={isTDengineChildNewTable}
+          setTableOptionsOpen={setTableOptionsOpen}
+          handleAddColumn={handleAddColumn}
           handleAddColumnAfterSelected={handleAddColumnAfterSelected}
           selectedColumnRowKeys={selectedColumnRowKeys} columnClipboard={columnClipboard}
           selectedColumns={selectedColumns}
           openCopySelectedColumnsModal={openCopySelectedColumnsModal}
         />
         <TableDesignerTabs
-          activeKey={activeKey} setActiveKey={setActiveKey} embedded={embedded}
+          activeKey={activeKey} setActiveKey={setActiveKey} embedded={embedded} sqlMonacoLanguage={sqlMonacoLanguage}
           panelRadius={panelRadius} panelFrameColor={panelFrameColor} panelBodyBg={panelBodyBg}
           isTDengineNewTable={isTDengineNewTable} i18nLanguage={i18nLanguage}
           tdengineCombinedTabContent={tdengineCombinedTabContent}
@@ -285,8 +297,26 @@ const TableDesigner: React.FC<TableDesignerProps> = ({ tab, embedded = false }) 
           setSelectedTrigger={setSelectedTrigger} ddl={ddl}
         />
 
+        <TableDesignerTableOptionsModal
+          open={tableOptionsOpen}
+          charset={charset}
+          collation={collation}
+          charsetOptions={charsetOptions}
+          collationOptions={collationOptions as any}
+          currentCollation={originalCollation}
+          disabled={readOnly}
+          titleText={t('table_designer.action.table_options', undefined, i18nLanguage)}
+          charsetLabel={t('table_designer.field.charset', undefined, i18nLanguage)}
+          collationLabel={t('table_designer.field.collation', undefined, i18nLanguage)}
+          warningText={t('table_designer.message.charset_convert_warning', undefined, i18nLanguage)}
+          onChangeCharset={setCharset}
+          onChangeCollation={setCollation}
+          onClose={() => setTableOptionsOpen(false)}
+          t={t as any}
+          i18nLanguage={i18nLanguage}
+        />
         <TableDesignerDialogs
-          commentEditorColumnName={commentEditorColumnName} i18nLanguage={i18nLanguage}
+          commentEditorColumnName={commentEditorColumnName} i18nLanguage={i18nLanguage} sqlMonacoLanguage={sqlMonacoLanguage}
           isCommentModalOpen={isCommentModalOpen} closeCommentEditor={closeCommentEditor}
           handleSaveColumnOptions={handleSaveColumnOptions}
           columnDefaultEnabled={columnDefaultEnabled}

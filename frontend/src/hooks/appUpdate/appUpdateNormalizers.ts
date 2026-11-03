@@ -38,7 +38,7 @@ export const normalizeUpdateInfo = (value: unknown): UpdateInfo => {
 };
 
 const isUpdateDownloadTaskStatus = (value: unknown): value is UpdateDownloadTaskStatus => (
-  value === 'start' || value === 'downloading' || value === 'done' || value === 'error'
+  value === 'start' || value === 'downloading' || value === 'done' || value === 'error' || value === 'canceled'
 );
 
 export const isUpdateDownloadTaskActive = (status: UpdateDownloadTaskStatus | 'idle' | undefined): boolean => (
@@ -46,7 +46,7 @@ export const isUpdateDownloadTaskActive = (status: UpdateDownloadTaskStatus | 'i
 );
 
 export const isUpdateDownloadTaskTerminal = (status: UpdateDownloadTaskStatus | 'idle' | undefined): boolean => (
-  status === 'done' || status === 'error'
+  status === 'done' || status === 'error' || status === 'canceled'
 );
 
 const normalizeFiniteNonNegativeNumber = (value: unknown): number => {

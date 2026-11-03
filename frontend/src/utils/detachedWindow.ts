@@ -24,6 +24,9 @@ export type DetachedQueryResultSnapshot = {
   columns: string[];
   messages?: string[];
   resultType?: 'grid' | 'message' | 'elasticsearch';
+  /** 批量写语句汇总（见 queryEditorRunStatementSummary），独立窗口沿用同一标题口径。 */
+  summaryKind?: string;
+  summaryStatementCount?: number;
   requestLabel?: string;
   httpStatus?: number;
   rawResponse?: string;
