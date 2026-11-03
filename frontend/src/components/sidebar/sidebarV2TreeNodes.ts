@@ -207,7 +207,11 @@ export const replaceSidebarTreeNodeChildren = (
 
 // Keep these values aligned with the V2 explorer tree layout in v2-theme.css.
 const V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX = 0;
-const V2_TREE_CONTENT_TOP_PADDING_PX = 4;
+// sidebar-tree-scroll-content 的上下内边距合计 14px（6 + 8，见
+// v2-theme-06-keep-the-current.css）。虚拟列表拿到的 height 必须扣掉它，
+// 否则 Tree 比可用空间高出一截：底部那一条既不在可视区内、又不会被
+// rc-virtual-list 渲染，表现为展开后下方留白，滚动一下才补上。
+const V2_TREE_CONTENT_VERTICAL_PADDING_PX = 14;
 
 export const resolveSidebarTreeVirtualHeight = (
   containerHeight: number,
@@ -217,7 +221,7 @@ export const resolveSidebarTreeVirtualHeight = (
   return Math.max(
     0,
     normalizedHeight - (
-      V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX + V2_TREE_CONTENT_TOP_PADDING_PX
+      V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX + V2_TREE_CONTENT_VERTICAL_PADDING_PX
     ),
   );
 };
