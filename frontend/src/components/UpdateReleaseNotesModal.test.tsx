@@ -112,4 +112,32 @@ describe('UpdateReleaseNotesModal', () => {
     expect(text).toContain('combined download panel');
     expect(text).toContain('42B / 100B');
   });
+
+  it('renders a canceled download as a neutral state without byte counters', () => {
+    let renderer!: ReactTestRenderer;
+    act(() => {
+      renderer = create(
+        <UpdateReleaseNotesModal
+          open
+          onClose={() => undefined}
+          version="0.9.1"
+          releaseNotes={"## Feature\n\n- cancel a stalled download\n"}
+          downloadProgress={{
+            status: 'canceled',
+            percent: 42,
+            downloaded: 42,
+            total: 100,
+            message: 'app.about.download_progress.canceled',
+          }}
+          formatBytes={(value) => `${value}B`}
+        />,
+      );
+    });
+    const modal = renderer.root.findByProps({ 'data-testid': 'release-notes-modal' });
+    const text = collectText(modal);
+    // 取消态只说明「可以重来」：既不显示中断时的字节数，也不能当成下载完成。
+    expect(text.split('app.about.download_progress.canceled')).toHaveLength(2);
+    expect(text).not.toContain('42B / 100B');
+    expect(text).not.toContain('app.about.download_progress.complete_hint');
+  });
 });

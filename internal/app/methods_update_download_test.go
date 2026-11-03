@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -154,7 +155,7 @@ func TestDownloadUpdateRefreshesDevReleaseAfterCachedAssetExpires(t *testing.T) 
 func stubDevUpdateDownloadFile(t *testing.T, handler func(url string, assetPath string, onProgress func(downloaded, total int64), expectedSize int64) (string, error)) {
 	t.Helper()
 	original := updateDownloadFileWithExpectedSize
-	updateDownloadFileWithExpectedSize = func(url string, assetPath string, onProgress func(downloaded, total int64), expectedSize int64) (string, error) {
+	updateDownloadFileWithExpectedSize = func(_ context.Context, url string, assetPath string, onProgress func(downloaded, total int64), expectedSize int64) (string, error) {
 		return handler(url, assetPath, onProgress, expectedSize)
 	}
 	t.Cleanup(func() {
@@ -239,7 +240,7 @@ func TestDownloadUpdateAssetWithFallbackRejectsMalformedDispatcherWithoutUsingNe
 		updateDownloadFileWithExpectedSize = original
 	})
 	var attempts []string
-	updateDownloadFileWithExpectedSize = func(rawURL string, _ string, _ func(downloaded, total int64), _ int64) (string, error) {
+	updateDownloadFileWithExpectedSize = func(_ context.Context, rawURL string, _ string, _ func(downloaded, total int64), _ int64) (string, error) {
 		attempts = append(attempts, rawURL)
 		if len(attempts) == 1 {
 			return "", errInvalidDownloadDispatcherURL
@@ -250,6 +251,7 @@ func TestDownloadUpdateAssetWithFallbackRejectsMalformedDispatcherWithoutUsingNe
 	validPath := "%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-current%2FGoNavi.zip"
 	malformedURL := "https://download-dispatch.syngnat.top/v1/resolve?path=" + validPath + "&path=" + validPath
 	_, err := downloadUpdateAssetWithFallback(
+		context.Background(),
 		[]string{malformedURL, "https://github.com/Syngnat/GoNavi/releases/download/dev-latest/GoNavi.zip"},
 		filepath.Join(t.TempDir(), "GoNavi.zip"),
 		"",
@@ -297,6 +299,7 @@ func TestDownloadUpdateAssetWithFallbackContinuesAfterGatedNetworkFailure(t *tes
 	})
 
 	gotHash, err := downloadUpdateAssetWithFallback(
+		context.Background(),
 		[]string{downloadDispatcherURLForPath(asset), cst, bero, github},
 		assetPath,
 		expectedHash,

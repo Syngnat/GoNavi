@@ -7,7 +7,7 @@ import Modal from './common/ResizableDraggableModal';
 import { t } from '../i18n';
 
 export type UpdateReleaseNotesDownloadProgress = {
-  status: 'idle' | 'start' | 'downloading' | 'done' | 'error';
+  status: 'idle' | 'start' | 'downloading' | 'done' | 'error' | 'canceled';
   percent: number;
   downloaded: number;
   total: number;
@@ -97,7 +97,10 @@ const UpdateReleaseNotesModal: React.FC<UpdateReleaseNotesModalProps> = ({
 
   const progressStatus = progress?.status === 'error'
     ? 'exception'
-    : (progress?.status === 'done' ? 'success' : 'active');
+    : (progress?.status === 'done'
+      ? 'success'
+      // 取消是用户主动中止，不是失败：进度条保持中性色而不是报错色。
+      : (progress?.status === 'canceled' ? 'normal' : 'active'));
 
   const title = progress
     ? (version
@@ -166,11 +169,13 @@ const UpdateReleaseNotesModal: React.FC<UpdateReleaseNotesModalProps> = ({
           <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)' }}>
             {progress.status === 'done'
               ? (progressHint || t('app.about.download_progress.complete_hint'))
-              : (formatBytes
-                ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}`
-                : `${Math.round(progress.percent)}%`)}
+              : (progress.status === 'canceled'
+                ? t('app.about.download_progress.canceled')
+                : (formatBytes
+                  ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}`
+                  : `${Math.round(progress.percent)}%`))}
           </div>
-          {progress.message ? (
+          {progress.message && progress.status !== 'canceled' ? (
             <div style={{
               fontSize: 12,
               color: progress.status === 'error'

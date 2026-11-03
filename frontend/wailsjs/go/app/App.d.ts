@@ -67,6 +67,8 @@ export function CancelSQLFileExecution(arg1:string):Promise<connection.QueryResu
 
 export function CancelSavedConnectionsHealthRun(arg1:string):Promise<connection.ConnectionHealthRun>;
 
+export function CancelUpdateDownload():Promise<connection.QueryResult>;
+
 export function CheckDriverNetworkStatus():Promise<connection.QueryResult>;
 
 export function CheckForUpdates():Promise<connection.QueryResult>;

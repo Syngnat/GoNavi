@@ -30,7 +30,7 @@ export type UpdateInfo = {
 
 export type UpdateDownloadProgressEvent = {
   taskId?: string;
-  status?: 'start' | 'downloading' | 'done' | 'error';
+  status?: 'start' | 'downloading' | 'done' | 'error' | 'canceled';
   percent?: number;
   downloaded?: number;
   total?: number;
@@ -49,7 +49,7 @@ export type UpdateDownloadResultData = {
   packageType?: UpdatePackageType | string;
 };
 
-export type UpdateDownloadTaskStatus = 'start' | 'downloading' | 'done' | 'error';
+export type UpdateDownloadTaskStatus = 'start' | 'downloading' | 'done' | 'error' | 'canceled';
 
 export type UpdateDownloadProgressState = {
   open: boolean;
@@ -80,7 +80,7 @@ export type UpdateDownloadTaskSession = {
   enforceChannel: boolean;
 };
 
-export type UpdateDownloadTaskSnapshotSource = 'hydration' | 'start' | 'event';
+export type UpdateDownloadTaskSnapshotSource = 'hydration' | 'start' | 'event' | 'cancel';
 
 /** 启动发现更新时打开「设置中心-关于」页（替代旧版关于弹窗） */
 export type UpdateCenterBridge = {

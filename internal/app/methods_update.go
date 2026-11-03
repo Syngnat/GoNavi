@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"sync"
@@ -47,8 +48,8 @@ var (
 	updateQuitSleep                             = time.Sleep
 	updateCurrentDevAssetRetrySleep             = time.Sleep
 	updateExitProcess                           = os.Exit
-	updateDownloadFileWithExpectedSize          = downloadFileWithHashWithExpectedSize
-	updateDownloadFileWithExpectedSizePreferred = downloadFileWithHashWithExpectedSizePreferred
+	updateDownloadFileWithExpectedSize          = downloadFileWithHashWithExpectedSizeContext
+	updateDownloadFileWithExpectedSizePreferred = downloadFileWithHashWithExpectedSizeContextPreferred
 )
 
 var errUpdateChecksumMismatch = errors.New("update package checksum mismatch")
@@ -58,7 +59,11 @@ type updateState struct {
 	downloading bool
 	staged      *stagedUpdate
 	task        *UpdateDownloadTaskStatus
-	revision    uint64
+	// taskCancel stops the in-flight download's request chain. It is non-nil
+	// only while a task is running, so a user cancellation can interrupt reads
+	// that are already streaming instead of waiting for the whole package.
+	taskCancel context.CancelFunc
+	revision   uint64
 }
 
 type UpdateInfo struct {
@@ -126,6 +131,11 @@ type updateDownloadTaskWork struct {
 	info     UpdateInfo
 	channel  updateChannel
 	revision uint64
+	// ctx is canceled when the user cancels the update, which interrupts the
+	// download's in-flight requests and streaming body reads. cancel releases
+	// that context once the task has recorded its terminal state.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type updateDownloadProgressPayload struct {
