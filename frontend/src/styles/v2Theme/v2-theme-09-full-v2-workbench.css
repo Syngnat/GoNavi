@@ -660,3 +660,122 @@ body[data-ui-version="v2"] .gn-v2-tab-context-menu-popup .ant-dropdown-menu-titl
   align-items: center;
 }
 
+
+/* ─── 工作台标签条（自绘，替代 antd 自带收纳） ─────────────────────────
+   原有实现把溢出的 tab 交给 antd 的 more 下拉：大卡片、每项两行、带关闭
+   按钮，和标签条本身的语言不连贯。这里改成自己算可见性，溢出的收进紧凑
+   单行的「更多」菜单。标签的宽度、圆角、选中态沿用上面的 --gn-v2-tab-width
+   与同一套 token，保证与旧观感连续。 */
+body[data-ui-version="v2"] .gn-v2-tab-strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  flex: 0 0 36px;
+  padding: 0 6px;
+  background: var(--gn-bg-panel-2);
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"].gn-v2-tab-strip-double .gn-v2-tab-strip,
+body[data-ui-version="v2"] .gn-v2-tab-strip[data-double="true"] {
+  height: 46px;
+  flex-basis: 46px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__tab {
+  flex: 0 0 auto;
+  height: 30px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: default;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__tab.is-active {
+  background: var(--gn-bg-panel);
+  box-shadow: var(--gn-shadow-card);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__more {
+  flex: 0 0 auto;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__more:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-strip__extra {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* 「更多」菜单：单行紧凑列表，标题 + 右侧灰字定位信息，与 IDEA 的
+   溢出列表一致；不再有每项两行与关闭按钮。 */
+body[data-ui-version="v2"] .gn-v2-tab-more-menu .ant-dropdown-menu {
+  padding: 4px;
+  border-radius: 8px;
+  box-shadow: var(--gn-shadow-lg);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-more-menu .ant-dropdown-menu-item {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  line-height: 26px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-more-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  max-width: 420px;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-more-row__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-1);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-more-row__meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--gn-fg-5);
+  font-size: 11px;
+  white-space: nowrap;
+}
