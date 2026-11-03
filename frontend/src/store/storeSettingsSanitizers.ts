@@ -14,6 +14,7 @@ import { sanitizeTitlebarActionsPlacementSettings } from "../utils/titlebarActio
 import {
   sanitizeTabAppearanceStyle,
   sanitizeTabCloseButtonPosition,
+  sanitizeTabOverflowMode,
 } from "../utils/tabAppearance";
 import { sanitizeFontFamilyInput } from "../utils/fontFamilies";
 import type { AIChatDetachedBoundsMemory, DetachedWindowBounds } from "../utils/detachedWindow";
@@ -559,6 +560,7 @@ export const sanitizeAppearance = (
       appearance.tabEnvironmentAccentThickness,
     ),
     tabAppearanceStyle: sanitizeTabAppearanceStyle(appearance.tabAppearanceStyle),
+    tabOverflowMode: sanitizeTabOverflowMode(appearance.tabOverflowMode),
     tabCloseButtonPosition: sanitizeTabCloseButtonPosition(
       appearance.tabCloseButtonPosition,
     ),

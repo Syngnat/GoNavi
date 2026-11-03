@@ -327,6 +327,7 @@ export const useTabManagerItems = ({
         describeHiddenTab={describeStripTab}
         doubleLine={hasDoubleLineTabLabel}
         onCloseTab={(key) => closeTabsWithSQLFilePrompt([key], () => closeTab(key))}
+        overflowMode={appearance.tabOverflowMode}
         t={t}
       />
     </TabSwitchPhaseProfiler>

@@ -80,16 +80,16 @@ describe('WorkbenchTabStrip', () => {
     ).toBe('false');
   });
 
-  // 规格：标签固定宽度不压缩、全部渲染，放不下时横向滚动；「更多」只做
-  // 收纳入口，不再把标签从 DOM 里摘掉。
-  it('keeps every tab mounted and exposes a more button when overflowing', () => {
-    const { container } = render();
+  // scroll 模式：全部标签都渲染，放不下时横向滚动；「更多」充当索引。
+  it('keeps every tab mounted in scroll mode', () => {
+    const { container } = render({ overflowMode: 'scroll' });
     measure(260);
 
     expect(container.querySelectorAll('[data-tab-strip-tab]')).toHaveLength(3);
     const more = container.querySelector('[data-tab-strip-more]');
     expect(more).not.toBeNull();
-    expect(more?.textContent).toMatch(/^\d+\+?$/);
+    // scroll 模式下收纳列全部标签，按钮只给一个索引符号，不显示数字。
+    expect(more?.textContent).toBe('⋯');
   });
 
   it('clicking a visible tab reports its key', () => {
@@ -108,14 +108,15 @@ describe('WorkbenchTabStrip', () => {
 
   // 收纳区只描述「放不下」的那批，这一点由 tabOverflowLayout 的纯函数
   // 用例覆盖（组件层依赖 ResizeObserver 时序，不适合断言精确数量）。
-  it('describes the overflow tabs for the more menu', () => {
+  // fixed 模式（默认）：只渲染放得下的，其余进收纳。
+  it('drops the overflow from the strip in fixed mode', () => {
     const describeHiddenTab = vi.fn((key: string) => ({ title: `T-${key}`, meta: `M-${key}` }));
-    const { container } = render({ describeHiddenTab });
-    measure(260);
+    const { container } = render({ describeHiddenTab, overflowMode: 'fixed' });
+    measure(700);
 
-    expect([...new Set(describeHiddenTab.mock.calls.map(([key]) => key))].length).toBeGreaterThan(0);
-    // 标签条本身仍然渲染全部（供横向滚动），两者不矛盾。
-    expect(container.querySelectorAll('[data-tab-strip-tab]')).toHaveLength(3);
+    const described = [...new Set(describeHiddenTab.mock.calls.map(([key]) => key))];
+    expect(described).toHaveLength(1);
+    expect(container.querySelectorAll('[data-tab-strip-tab]')).toHaveLength(2);
   });
 
   // 「更多」菜单每行左侧要有独立的关闭叉：点它只关闭，不切换过去再关。
@@ -155,6 +156,28 @@ describe('WorkbenchTabStrip', () => {
     const settings = container.querySelector<HTMLElement>('[data-tab-strip-tab="settings-center"]');
     const normal = container.querySelector<HTMLElement>('[data-tab-strip-tab="a"]');
     expect(parseFloat(settings!.style.width)).toBeLessThan(parseFloat(normal!.style.width));
+  });
+
+  // 回归护栏：菜单项数必须与按钮上的数字一致。
+  // 上一版菜单列了全部标签、数字却是「放不下的」数量，两者对不上。
+  it('lists exactly as many tabs as the more button announces', () => {
+    const { container } = render();
+    // 700px 能放下两个 260px 标签，第三个进收纳 —— 这样才验证得了「子集」。
+    measure(700);
+
+    const more = container.querySelector<HTMLElement>('[data-tab-strip-more]');
+    expect(more).not.toBeNull();
+    const announced = Number((more!.textContent || '').replace('+', ''));
+    expect(Number.isFinite(announced)).toBe(true);
+
+    act(() => {
+      more!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const listed = document.querySelectorAll('[data-tab-more-item]').length;
+    expect(listed).toBe(announced);
+    // 且必须是真子集：全部塞进收纳就不叫收纳了。
+    expect(listed).toBeLessThan(3);
   });
 
   it('keeps rendering everything before any measurement', () => {

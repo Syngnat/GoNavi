@@ -26,7 +26,7 @@ import type { AgentIntegrationSummaryView } from "../utils/agentConnectionTypes"
 import type { DataGridDisplaySettings } from "../utils/dataGridDisplay";
 import type { SqlEditorTypographySettings } from "../utils/sqlEditorTypography";
 import type { TitlebarActionsPlacementSettings } from "../utils/titlebarActionsPlacement";
-import type { TabAppearanceStyle, TabCloseButtonPosition } from "../utils/tabAppearance";
+import type { TabAppearanceStyle, TabCloseButtonPosition, TabOverflowMode } from "../utils/tabAppearance";
 import type {
   DetachedWorkbenchWindow,
   DetachedQueryResultWindow,
@@ -93,6 +93,7 @@ export interface AppearanceSettings
   v2SidebarRailScale: number;
   tabEnvironmentAccentThickness: number;
   tabAppearanceStyle: TabAppearanceStyle;
+  tabOverflowMode: TabOverflowMode;
   tabCloseButtonPosition: TabCloseButtonPosition;
   toolbarButtonColorOverrides: ToolbarButtonColorOverrides;
   sidebarSingleDatabaseExpansion: boolean;

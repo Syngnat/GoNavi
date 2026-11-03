@@ -9,9 +9,13 @@ import {
 } from './tabOverflowLayout';
 import { V2_WORKBENCH_TAB_MAX_WIDTH } from './tabManagerShortcuts';
 import { SETTINGS_CENTER_WORKBENCH_TAB_ID } from '../../utils/settingsCenterTab';
+import {
+  DEFAULT_TAB_OVERFLOW_MODE,
+  type TabOverflowMode,
+} from '../../utils/tabAppearance';
 
-/** 相邻标签间距，与 .gn-v2-tab-strip__list 的 gap 保持一致。 */
-const TAB_GAP = 2;
+/** 相邻标签间距，与 .gn-v2-tab-strip__list 的 gap 保持一致（首尾相接）。 */
+const TAB_GAP = 0;
 
 /** 「更多」按钮的占位宽度：数字 + 内边距 + 与标签的间距。 */
 const MORE_BUTTON_WIDTH = 34;
@@ -44,6 +48,12 @@ export type WorkbenchTabStripProps = {
   doubleLine?: boolean;
   /** 关闭某个标签（「更多」菜单每行左侧的叉）。 */
   onCloseTab?: (key: string) => void;
+  /**
+   * 溢出处理方式：
+   * - fixed：只渲染放得下的标签，其余进收纳（不滚动）
+   * - scroll：全部渲染，放不下时横向滚动，收纳列出全部
+   */
+  overflowMode?: TabOverflowMode;
   t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
 };
 
@@ -65,6 +75,7 @@ export const WorkbenchTabStrip = ({
   describeHiddenTab,
   doubleLine = false,
   onCloseTab,
+  overflowMode = DEFAULT_TAB_OVERFLOW_MODE,
   t,
 }: WorkbenchTabStripProps) => {
   // 测量点是内部滚动区：它撑满可用宽度，其 clientWidth 就是标签的实际
@@ -104,8 +115,12 @@ export const WorkbenchTabStrip = ({
     [items, activeKey, availableWidth, tabWidth],
   );
 
-  // 「更多」列全部标签：滚动会改变可视范围，若只列「当前不可见」的那批，
-  // 用户滚一下菜单内容就变了，反而找不到目标。溢出的数量只体现在按钮上。
+  // fixed：只渲染放得下的；scroll：全部渲染 + 横向滚动。
+  const isScrollMode = overflowMode === 'scroll';
+  const renderedItems = isScrollMode ? items : layout.visible.map(({ item }) => item);
+  const menuItems = isScrollMode ? items : layout.hidden.map(({ item }) => item);
+
+
   // 切到被滚出可视区的标签时，把它滚回来（IDEA 同样行为）。
   useEffect(() => {
     const node = stripRef.current;
@@ -116,8 +131,10 @@ export const WorkbenchTabStrip = ({
     target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [activeKey]);
 
+  // fixed 只列「放不下」的那批；scroll 模式下列全部（此时标签条本身可滚动，
+  // 收纳充当索引）。
   const hiddenMenu: MenuProps['items'] = useMemo(
-    () => items.map((item) => {
+    () => menuItems.map((item) => {
       const { title, meta } = describeHiddenTab(item.key);
       return {
         key: item.key,
@@ -146,7 +163,7 @@ export const WorkbenchTabStrip = ({
         ),
       };
     }),
-    [layout.hidden, describeHiddenTab, onCloseTab, t],
+    [menuItems, describeHiddenTab, onCloseTab, t],
   );
 
   return (
@@ -154,10 +171,11 @@ export const WorkbenchTabStrip = ({
       className="gn-v2-tab-strip"
       data-tab-strip="true"
       data-double={doubleLine ? 'true' : 'false'}
+      data-overflow-mode={overflowMode}
     >
       <div className="gn-v2-tab-strip__scroll" ref={stripRef}>
         <div className="gn-v2-tab-strip__list" role="tablist">
-          {items.map((item) => {
+          {renderedItems.map((item) => {
             const active = item.key === activeKey;
             const element = (
               <div
@@ -176,7 +194,7 @@ export const WorkbenchTabStrip = ({
           })}
         </div>
       </div>
-      {layout.hidden.length > 0 ? (
+      {menuItems.length > 0 && (isScrollMode || layout.hidden.length > 0) ? (
         <Dropdown
           trigger={['click']}
           placement="bottomRight"
@@ -194,7 +212,7 @@ export const WorkbenchTabStrip = ({
             title={t('query_editor.action.more')}
             aria-label={t('query_editor.action.more')}
           >
-            {formatHiddenTabCount(layout.hidden.length)}
+            {isScrollMode ? '⋯' : formatHiddenTabCount(layout.hidden.length)}
           </button>
         </Dropdown>
       ) : null}

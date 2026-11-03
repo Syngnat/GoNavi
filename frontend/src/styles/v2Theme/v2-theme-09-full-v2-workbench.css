@@ -718,6 +718,11 @@ body[data-ui-version="v2"] .gn-v2-tab-strip__scroll {
   -ms-overflow-style: none;
 }
 
+/* fixed 模式：只渲染放得下的标签，不需要滚动。 */
+body[data-ui-version="v2"] .gn-v2-tab-strip[data-overflow-mode="fixed"] .gn-v2-tab-strip__scroll {
+  overflow-x: hidden;
+}
+
 body[data-ui-version="v2"] .gn-v2-tab-strip__scroll::-webkit-scrollbar {
   display: none;
   width: 0;
@@ -727,7 +732,9 @@ body[data-ui-version="v2"] .gn-v2-tab-strip__scroll::-webkit-scrollbar {
 body[data-ui-version="v2"] .gn-v2-tab-strip__list {
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* 与改版前一致：antd 的 .ant-tabs-tab 是 margin:0，标签首尾相接，
+     由各自的圆角与底色形成分隔；留 gap 会多出一条缝。 */
+  gap: 0;
   min-width: 0;
 }
 
