@@ -155,9 +155,15 @@ func toSDKContributions(c Contributions) sdk.Contributions {
 			ListCommand: group.ListCommand, EmptyText: group.EmptyText, Order: group.Order,
 		}
 		if group.Open != nil {
-			converted.Open = &sdk.LaunchTarget{Type: group.Open.Type, Page: group.Open.Page}
+			converted.Open = &sdk.LaunchTarget{Type: group.Open.Type, Page: group.Open.Page, View: group.Open.View}
 		}
 		shared.Sidebar = append(shared.Sidebar, converted)
+	}
+	for _, view := range c.Views {
+		shared.Views = append(shared.Views, sdk.View{
+			ID: view.ID, Title: view.Title, Page: view.Page, Location: view.Location,
+			Icon: view.Icon, Order: view.Order,
+		})
 	}
 	return shared
 }

@@ -28,6 +28,10 @@ func validateSidebar(m Manifest, permissions, commands map[string]bool) error {
 	for _, page := range m.Contributes.Pages {
 		pages[page.ID] = true
 	}
+	views := make(map[string]bool, len(m.Contributes.Views))
+	for _, view := range m.Contributes.Views {
+		views[view.ID] = true
+	}
 	seen := make(map[string]bool, len(groups))
 	for _, group := range groups {
 		if !localIDPattern.MatchString(group.ID) || seen[group.ID] || !validText(group.Title, 128) {
@@ -63,6 +67,16 @@ func validateSidebar(m Manifest, permissions, commands map[string]bool) error {
 			}
 			if !pages[group.Open.Page] {
 				return fmt.Errorf("sidebar references an undeclared page")
+			}
+		case "panel":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("panel sidebar target requires the %s permission", PagesPermission)
+			}
+			if group.Open.Page != "" {
+				return fmt.Errorf("panel sidebar target cannot declare a page")
+			}
+			if !views[group.Open.View] {
+				return fmt.Errorf("sidebar references an undeclared view")
 			}
 		default:
 			return fmt.Errorf("unsupported sidebar target")

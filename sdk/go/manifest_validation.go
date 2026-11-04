@@ -88,6 +88,9 @@ func ValidateManifest(m Manifest) error {
 	if err := ValidatePages(m); err != nil {
 		return err
 	}
+	if err := validateManifestViews(m, permissions); err != nil {
+		return err
+	}
 	if err := validateManifestSidebar(m, permissions, publicCommands); err != nil {
 		return err
 	}
@@ -503,6 +506,49 @@ const SidebarPermission = "ui.sidebar"
 // maxManifestSidebarGroups bounds groups per manifest.
 const maxManifestSidebarGroups = 4
 
+// ViewLocationRight is the only docked surface version one accepts.
+const ViewLocationRight = "right"
+
+const maxManifestViews = 8
+
+func validateManifestViews(m Manifest, permissions map[string]bool) error {
+	contributes := manifestContributions(m)
+	views := contributes.Views
+	if len(views) == 0 {
+		return nil
+	}
+	if !permissions[PagesPermission] {
+		return fmt.Errorf("views require the %s permission", PagesPermission)
+	}
+	if len(views) > maxManifestViews {
+		return errors.New("too many views")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	seen := make(map[string]bool, len(views))
+	for _, view := range views {
+		if !manifestLocalIDPattern.MatchString(view.ID) || seen[view.ID] || !validManifestText(view.Title, 128) {
+			return errors.New("invalid or duplicate view")
+		}
+		seen[view.ID] = true
+		if !pages[view.Page] {
+			return errors.New("view references an undeclared page")
+		}
+		if view.Location != ViewLocationRight {
+			return errors.New("unsupported view location")
+		}
+		if view.Icon != "" && !validManifestIcon(view.Icon) {
+			return errors.New("invalid view icon")
+		}
+		if view.Order < minNavigationOrder || view.Order > maxNavigationOrder {
+			return errors.New("view order exceeds limit")
+		}
+	}
+	return nil
+}
+
 func validateManifestSidebar(m Manifest, permissions, commands map[string]bool) error {
 	contributes := manifestContributions(m)
 	groups := contributes.Sidebar
@@ -518,6 +564,10 @@ func validateManifestSidebar(m Manifest, permissions, commands map[string]bool) 
 	pages := make(map[string]bool, len(contributes.Pages))
 	for _, page := range contributes.Pages {
 		pages[page.ID] = true
+	}
+	views := make(map[string]bool, len(contributes.Views))
+	for _, view := range contributes.Views {
+		views[view.ID] = true
 	}
 	seen := make(map[string]bool, len(groups))
 	for _, group := range groups {
@@ -554,6 +604,16 @@ func validateManifestSidebar(m Manifest, permissions, commands map[string]bool) 
 			}
 			if !pages[group.Open.Page] {
 				return errors.New("sidebar references an undeclared page")
+			}
+		case "panel":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("panel sidebar target requires the %s permission", PagesPermission)
+			}
+			if group.Open.Page != "" {
+				return errors.New("panel sidebar target cannot declare a page")
+			}
+			if !views[group.Open.View] {
+				return errors.New("sidebar references an undeclared view")
 			}
 		default:
 			return errors.New("unsupported sidebar target")

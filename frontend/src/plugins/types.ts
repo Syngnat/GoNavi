@@ -52,7 +52,7 @@ export interface PluginManifest {
   permissions: string[];
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
-  contributes?: { commands?: PluginCommand[]; panels?: PluginPanel[]; dataSources?: { id: string; name: string; dialect: string; command: string; defaultPort?: number; readOnly: boolean }[]; aiProviders?: { id: string; name: string; command: string; icon?: string; supportsTools: boolean; supportsImages: boolean; models: { id: string; name: string; contextWindow: number; maxOutputTokens: number }[] }[]; exporters?: { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }[]; skills?: { id: string; name: string; description: string; entry: string; resources?: string[] }[]; pages?: PluginPage[]; navigation?: PluginNavigation[]; connectionActions?: PluginConnectionAction[]; sidebar?: PluginSidebarGroup[] };
+  contributes?: { commands?: PluginCommand[]; panels?: PluginPanel[]; dataSources?: { id: string; name: string; dialect: string; command: string; defaultPort?: number; readOnly: boolean }[]; aiProviders?: { id: string; name: string; command: string; icon?: string; supportsTools: boolean; supportsImages: boolean; models: { id: string; name: string; contextWindow: number; maxOutputTokens: number }[] }[]; exporters?: { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }[]; skills?: { id: string; name: string; description: string; entry: string; resources?: string[] }[]; pages?: PluginPage[]; navigation?: PluginNavigation[]; connectionActions?: PluginConnectionAction[]; sidebar?: PluginSidebarGroup[]; views?: PluginView[] };
   backend?: { default?: { executable: string; args?: string[]; runtime?: string }; platforms?: Record<string, { executable: string; args?: string[]; runtime?: string }> };
   window?: { entry: string; title?: string; width?: number; height?: number };
 }
@@ -72,7 +72,17 @@ export interface PluginSidebarGroup {
   icon?: string;
   listCommand: string;
   emptyText?: string;
-  open?: { type: 'page' | 'window'; page?: string };
+  open?: { type: 'page' | 'window' | 'panel'; page?: string; view?: string };
+  order?: number;
+}
+
+/** One page docked to a host surface; version one supports the right dock. */
+export interface PluginView {
+  id: string;
+  title: string;
+  page: string;
+  location: 'right';
+  icon?: string;
   order?: number;
 }
 

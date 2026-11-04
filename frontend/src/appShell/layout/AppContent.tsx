@@ -1,4 +1,5 @@
 import { Button, Spin } from 'antd';
+import { PluginViewDock } from '../../pluginViews/PluginViewDock';
 import React from 'react';
 import { Content } from '../appLayoutParts';
 import SecurityUpdateBanner from '../../components/SecurityUpdateBanner';
@@ -92,6 +93,8 @@ export const AppContent = ({
            onToggleAI={handleToggleOrFocusAIPanel}
          />
       </div>
+
+      <PluginViewDock />
 
       {aiPanelVisible && !aiChatDetached && (
          <div

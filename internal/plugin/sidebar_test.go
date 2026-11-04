@@ -55,7 +55,8 @@ func TestSidebarValidationRejectsUnsafeDeclarations(t *testing.T) {
 			m.Window = &Window{Entry: "index.html"}
 			m.Contributes.Sidebar[0].Open = &LaunchTarget{Type: "window", Page: "main"}
 		}},
-		{"unsupported target", func(m *Manifest) { m.Contributes.Sidebar[0].Open = &LaunchTarget{Type: "panel"} }},
+		{"unsupported target", func(m *Manifest) { m.Contributes.Sidebar[0].Open = &LaunchTarget{Type: "popover"} }},
+		{"panel target without a view", func(m *Manifest) { m.Contributes.Sidebar[0].Open = &LaunchTarget{Type: "panel"} }},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -80,6 +81,15 @@ func TestSidebarWindowTargetAcceptsDeclaredWindow(t *testing.T) {
 	manifest.Permissions = append(manifest.Permissions, CustomPanelPermission)
 	manifest.Window = &Window{Entry: "index.html"}
 	manifest.Contributes.Sidebar[0].Open = &LaunchTarget{Type: "window"}
+	if err := ValidateManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSidebarPanelTargetAcceptsDeclaredView(t *testing.T) {
+	manifest := sidebarManifest()
+	manifest.Contributes.Views = []View{{ID: "term", Title: "Terminal", Page: "main", Location: ViewLocationRight}}
+	manifest.Contributes.Sidebar[0].Open = &LaunchTarget{Type: "panel", View: "term"}
 	if err := ValidateManifest(manifest); err != nil {
 		t.Fatal(err)
 	}

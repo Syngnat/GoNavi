@@ -173,6 +173,9 @@ func validateManifestLegacy(m Manifest) error {
 	if err := validatePages(m, permissions, publicCommands); err != nil {
 		return err
 	}
+	if err := validateViews(m, permissions); err != nil {
+		return err
+	}
 	if err := validateSidebar(m, permissions, publicCommands); err != nil {
 		return err
 	}

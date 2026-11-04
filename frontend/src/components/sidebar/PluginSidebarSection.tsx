@@ -4,6 +4,7 @@ import { pluginAPI } from '../../plugins/api';
 import { pluginErrorText } from '../../plugins/apiResult';
 import { subscribePluginContributionInvalidation } from '../../plugins/invalidation';
 import { openPluginPageTab } from '../../pluginPages/openPluginPageTab';
+import { openPluginView } from '../../pluginViews/store';
 import { loadPluginSidebarNodes, openPluginSidebarWindow, type PluginSidebarNode } from '../../plugins/sidebarApi';
 import { t } from '../../i18n';
 import type { PluginSidebarGroup, PluginStatus } from '../../plugins/types';
@@ -109,6 +110,25 @@ export function PluginSidebarSection({ darkMode }: { darkMode: boolean }) {
     const target = node.open ?? entry.group.open;
     if (!target) return;
     const args = node.open?.arguments;
+    if (target.type === 'panel') {
+      const view = entry.plugin.manifest.contributes?.views?.find((candidate) => candidate.id === target.view);
+      if (!view) return;
+      openPluginView({
+        key: entry.plugin.manifest.id + ':' + view.id,
+        pluginID: entry.plugin.manifest.id,
+        viewID: view.id,
+        pageID: view.page,
+        title: node.label || view.title,
+        launch: {
+          kind: 'sidebar',
+          pluginId: entry.plugin.manifest.id,
+          groupId: entry.group.id,
+          nodeId: node.id,
+          arguments: args,
+        },
+      });
+      return;
+    }
     if (target.type === 'page') {
       if (!target.page) return;
       openPluginPageTab({

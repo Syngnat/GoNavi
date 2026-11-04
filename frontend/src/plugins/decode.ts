@@ -243,7 +243,7 @@ export function decodeManifest(data: unknown): PluginManifest {
   }
   if (m.contributes != null) {
     const c = requireRecord(m.contributes);
-    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar']);
+    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views']);
     const contributionLimits: Record<string, number> = { commands: 128, panels: 32 };
     for (const key of ['commands', 'panels']) {
       const entries = c[key];
@@ -358,6 +358,27 @@ export function decodeManifest(data: unknown): PluginManifest {
         }
       }
     }
+    if (c.views != null) {
+      if (!Array.isArray(c.views) || c.views.length > 8) return invalid();
+      if (!(m.permissions as string[]).includes('ui.pages')) invalid();
+      const pageIDs = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pageIDs.add(id);
+      }
+      const seenViews = new Set<string>();
+      for (const item of c.views) {
+        const view = requireRecord(item);
+        onlyKeys(view, ['id', 'title', 'page', 'location', 'icon', 'order']);
+        if (!validLocalID(view.id) || seenViews.has(view.id as string)
+          || typeof view.title !== 'string' || view.title.trim() === '' || !utf8Within(view.title, 128) || view.title.includes('\u0000')) invalid();
+        seenViews.add(view.id as string);
+        if (typeof view.page !== 'string' || !pageIDs.has(view.page)) invalid();
+        if (view.location !== 'right') invalid();
+        if (view.icon != null && !validPackageIcon(view.icon)) invalid();
+        if (view.order != null && (typeof view.order !== 'number' || !Number.isInteger(view.order) || view.order < -1000 || view.order > 1000)) invalid();
+      }
+    }
     if (c.sidebar != null) {
       if (!Array.isArray(c.sidebar) || c.sidebar.length > 4) invalid();
       if (!(m.permissions as string[]).includes('ui.sidebar')) invalid();
@@ -385,14 +406,22 @@ export function decodeManifest(data: unknown): PluginManifest {
         if (group.order != null && (typeof group.order !== 'number' || !Number.isInteger(group.order) || group.order < -1000 || group.order > 1000)) invalid();
         if (group.open != null) {
           const target = requireRecord(group.open);
-          onlyKeys(target, ['type', 'page']);
           if (target.type === 'window') {
             if (target.page != null || m.window == null) invalid();
           } else if (target.type === 'page') {
             if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pageIDs.has(target.page)) invalid();
+          } else if (target.type === 'panel') {
+            const viewIDs = new Set<string>();
+            for (const view of Array.isArray(c.views) ? c.views : []) {
+              const id = requireRecord(view).id;
+              if (typeof id === 'string') viewIDs.add(id);
+            }
+            if (typeof target.view !== 'string' || target.page != null
+              || !(m.permissions as string[]).includes('ui.pages') || !viewIDs.has(target.view)) invalid();
           } else {
             invalid();
           }
+          onlyKeys(target, ['type', 'page', 'view']);
         }
       }
     }

@@ -61,6 +61,18 @@ type Contributions struct {
 	Navigation        []Navigation       `json:"navigation,omitempty"`
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
 	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
+	Views             []View             `json:"views,omitempty"`
+}
+
+// View docks one declared page to a host surface. Version one supports the
+// right-hand workbench dock ("right"); the page keeps the page bridge.
+type View struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Page     string `json:"page"`
+	Location string `json:"location"`
+	Icon     string `json:"icon,omitempty"`
+	Order    int    `json:"order,omitempty"`
 }
 
 // SidebarGroup declares one expandable group in the host's left connection
@@ -87,10 +99,11 @@ type ConnectionAction struct {
 	Target          LaunchTarget `json:"target"`
 }
 
-// LaunchTarget selects the window or page opened for a contribution.
+// LaunchTarget selects the window, page or docked view opened for a contribution.
 type LaunchTarget struct {
 	Type string `json:"type"`
 	Page string `json:"page,omitempty"`
+	View string `json:"view,omitempty"`
 }
 
 // Skill declares an immutable UTF-8 SKILL.md document loaded only on explicit use.
