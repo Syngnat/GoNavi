@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "sdk.examples.sidebar",
+  "name": "Sidebar and docked views",
+  "version": "1.0.0",
+  "description": "Sidebar group, docked view, keybinding and status-bar entry backed by a small Go backend",
+  "author": "GoNavi examples",
+  "license": "Apache-2.0",
+  "permissions": [
+    "ui.pages",
+    "ui.sidebar",
+    "ui.html-panel",
+    "ui.progress",
+    "ui.dialog"
+  ],
+  "permissionNotes": {
+    "ui.pages": "Declares the terminal page, its views and the status-bar entry.",
+    "ui.sidebar": "Adds the SSH group to the left connection tree.",
+    "ui.html-panel": "Renders the terminal page as sandboxed HTML.",
+    "ui.progress": "Shows the demo upload progress notification.",
+    "ui.dialog": "Shows the native confirmation dialog in the demo page."
+  },
+  "backend": {
+    "default": {
+      "executable": "bin/plugin",
+      "runtime": "native"
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "list",
+        "title": "List hosts"
+      },
+      {
+        "id": "hello",
+        "title": "Say hello"
+      }
+    ],
+    "pages": [
+      {
+        "id": "terminal",
+        "title": "SSH 终端",
+        "html": {
+          "source": "<!doctype html>\n<html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>SSH 终端示例</title>\n<style>body{font:13px/1.6 system-ui,-apple-system,\"Segoe UI\",sans-serif;margin:16px;color:#1f1f1f}h1{font-size:16px;margin:0 0 8px}p{color:#595959}button{margin:0 8px 8px 0;padding:4px 10px}pre{background:#0d1117;color:#c9d1d9;padding:10px;border-radius:6px;min-height:80px;white-space:pre-wrap}</style>\n</head><body>\n<h1>SSH 终端示例</h1>\n<p id=\"target\">没有启动上下文</p>\n<button id=\"hello\" type=\"button\">调用插件命令</button>\n<button id=\"progress\" type=\"button\">模拟上传进度</button>\n<button id=\"confirm\" type=\"button\">确认操作</button>\n<pre id=\"out\"></pre>\n<script>\nconst launch = window.__gonaviLaunch;\nconst out = document.getElementById('out');\nconst log = (text) => { out.textContent += text + '\\n'; };\nif (launch) document.getElementById('target').textContent = JSON.stringify(launch);\ndocument.getElementById('hello').addEventListener('click', async () => {\n  try { log(JSON.stringify(await window.gonavi.call('plugin.invoke', { command: 'hello' }))); }\n  catch (error) { log(String(error)); }\n});\ndocument.getElementById('progress').addEventListener('click', async () => {\n  try {\n    await window.gonavi.call('progress.report', { id: 'demo', action: 'open', title: '示例上传', percent: 0 });\n    for (let percent = 20; percent <= 100; percent += 20) {\n      await window.gonavi.call('progress.report', { id: 'demo', action: 'update', detail: percent + '%', percent });\n    }\n    await window.gonavi.call('progress.report', { id: 'demo', action: 'close' });\n  } catch (error) { log(String(error)); }\n});\ndocument.getElementById('confirm').addEventListener('click', async () => {\n  try { log(JSON.stringify(await window.gonavi.call('dialog.confirm', { title: '示例', message: '继续执行示例操作？', confirmText: '继续', cancelText: '取消' }))); }\n  catch (error) { log(String(error)); }\n});\n</script>\n</body></html>"
+        }
+      }
+    ],
+    "views": [
+      {
+        "id": "terminal",
+        "title": "SSH 终端",
+        "page": "terminal",
+        "location": "right",
+        "order": 0
+      }
+    ],
+    "keybindings": [
+      {
+        "id": "open-terminal",
+        "title": "打开 SSH 终端",
+        "keys": "CmdOrCtrl+Shift+T",
+        "target": {
+          "type": "page",
+          "page": "terminal"
+        }
+      }
+    ],
+    "sidebar": [
+      {
+        "id": "ssh",
+        "title": "SSH",
+        "listCommand": "list",
+        "emptyText": "还没有主机",
+        "open": {
+          "type": "panel",
+          "view": "terminal"
+        }
+      }
+    ],
+    "navigation": [
+      {
+        "id": "terminal-status",
+        "title": "SSH 终端",
+        "page": "terminal",
+        "location": "statusbar",
+        "order": 0
+      }
+    ]
+  }
+}
