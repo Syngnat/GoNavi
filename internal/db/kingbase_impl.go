@@ -523,7 +523,7 @@ func (k *KingbaseDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := k.Query(buildPGLikeColumnsMetadataQuery(schema, table))
+	data, _, err := k.Query(buildKingbaseColumnsMetadataQuery(schema, table))
 	if err != nil {
 		return nil, err
 	}
