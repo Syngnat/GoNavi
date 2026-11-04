@@ -75,7 +75,11 @@ func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if !pluginMethod(w, r, http.MethodGet) {
 			return
 		}
-		http.Redirect(w, r, pluginAssetPrefix+entry.entry, http.StatusTemporaryRedirect)
+		// The Wails child consumes this handler's response as the window document,
+		// so a redirect is never followed: the WebView renders the redirect body
+		// ("Temporary Redirect.") instead. Serve the entry document in one response.
+		r.URL.Path = pluginAssetPrefix + entry.entry
+		c.serveAsset(w, r, entry)
 	default:
 		if !strings.HasPrefix(r.URL.Path, pluginAssetPrefix) {
 			http.NotFound(w, r)
