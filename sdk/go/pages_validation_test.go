@@ -100,7 +100,7 @@ func TestValidatePagesRejectsDuplicateAndMalformedDeclarations(t *testing.T) {
 		}},
 		{"unsupported location", func(m *Manifest) {
 			m.Contributes.Pages = []Page{textPage("overview", "Overview")}
-			m.Contributes.Navigation = []Navigation{{ID: "entry", Title: "One", Page: "overview", Location: "statusbar"}}
+			m.Contributes.Navigation = []Navigation{{ID: "entry", Title: "One", Page: "overview", Location: "sidebar"}}
 		}},
 		{"order below range", func(m *Manifest) {
 			m.Contributes.Pages = []Page{textPage("overview", "Overview")}
@@ -223,5 +223,14 @@ func TestValidatePagesRejectsNodesTheRendererCannotDraw(t *testing.T) {
 	fields.Contributes.Pages = []Page{{ID: "text", Title: "Text", Body: &UINode{Type: "text", Text: "x", Children: []UINode{{Type: "text"}}}}}
 	if err := ValidatePages(fields); err == nil {
 		t.Fatal("text node with children was accepted")
+	}
+}
+
+func TestValidatePagesAcceptsStatusBarNavigation(t *testing.T) {
+	manifest := pageManifest(PagesPermission)
+	manifest.Contributes.Pages = []Page{textPage("overview", "Overview")}
+	manifest.Contributes.Navigation = []Navigation{{ID: "entry", Title: "One", Page: "overview", Location: PageLocationStatusbar}}
+	if err := ValidatePages(manifest); err != nil {
+		t.Fatal(err)
 	}
 }
