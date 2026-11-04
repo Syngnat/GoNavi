@@ -164,7 +164,7 @@ function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>, hasW
     onlyKeys(entry, ['id', 'title', 'target', 'page', 'location', 'order']);
     const order = entry.order;
     if (!validLocalID(entry.id) || seen.has(entry.id) || !validLocalTitle(entry.title)
-      || entry.location !== 'tools'
+      || (entry.location !== 'tools' && entry.location !== 'statusbar' && entry.location !== 'command')
       || (order != null && (typeof order !== 'number' || !Number.isInteger(order) || order < -1000 || order > 1000))) invalid();
     const target = entry.target == null || entry.target === '' ? 'page' : entry.target;
     if (target === 'page') {
@@ -243,7 +243,7 @@ export function decodeManifest(data: unknown): PluginManifest {
   }
   if (m.contributes != null) {
     const c = requireRecord(m.contributes);
-    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions']);
+    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings']);
     const contributionLimits: Record<string, number> = { commands: 128, panels: 32 };
     for (const key of ['commands', 'panels']) {
       const entries = c[key];
@@ -355,6 +355,103 @@ export function decodeManifest(data: unknown): PluginManifest {
           if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pageIDs.has(target.page)) invalid();
         } else {
           invalid();
+        }
+      }
+    }
+    if (c.keybindings != null) {
+      if (!Array.isArray(c.keybindings) || c.keybindings.length > 16) return invalid();
+      const pages = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pages.add(id);
+      }
+      const seenBindings = new Set<string>();
+      const seenKeys = new Set<string>();
+      for (const item of c.keybindings) {
+        const binding = requireRecord(item);
+        onlyKeys(binding, ['id', 'title', 'keys', 'target']);
+        if (!validLocalID(binding.id) || seenBindings.has(binding.id as string)
+          || typeof binding.title !== 'string' || binding.title.trim() === '' || !utf8Within(binding.title, 128) || binding.title.includes('\u0000')) invalid();
+        seenBindings.add(binding.id as string);
+        if (typeof binding.keys !== 'string' || !/^((CmdOrCtrl|Ctrl|Cmd|Alt|Shift)\+){0,4}[A-Za-z0-9]{1,16}$/.test(binding.keys)) invalid();
+        const normalized = (binding.keys as string).toLowerCase();
+        if (seenKeys.has(normalized)) invalid();
+        seenKeys.add(normalized);
+        const target = requireRecord(binding.target);
+        onlyKeys(target, ['type', 'page']);
+        if (target.type === 'window') {
+          if (target.page != null || m.window == null) invalid();
+        } else if (target.type === 'page') {
+          if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pages.has(target.page)) invalid();
+        } else {
+          invalid();
+        }
+      }
+    }
+    if (c.views != null) {
+      if (!Array.isArray(c.views) || c.views.length > 8) return invalid();
+      if (!(m.permissions as string[]).includes('ui.pages')) invalid();
+      const pageIDs = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pageIDs.add(id);
+      }
+      const seenViews = new Set<string>();
+      for (const item of c.views) {
+        const view = requireRecord(item);
+        onlyKeys(view, ['id', 'title', 'page', 'location', 'icon', 'order']);
+        if (!validLocalID(view.id) || seenViews.has(view.id as string)
+          || typeof view.title !== 'string' || view.title.trim() === '' || !utf8Within(view.title, 128) || view.title.includes('\u0000')) invalid();
+        seenViews.add(view.id as string);
+        if (typeof view.page !== 'string' || !pageIDs.has(view.page)) invalid();
+        if (view.location !== 'right' && view.location !== 'bottom') invalid();
+        if (view.icon != null && !validPackageIcon(view.icon)) invalid();
+        if (view.order != null && (typeof view.order !== 'number' || !Number.isInteger(view.order) || view.order < -1000 || view.order > 1000)) invalid();
+      }
+    }
+    if (c.sidebar != null) {
+      if (!Array.isArray(c.sidebar) || c.sidebar.length > 4) invalid();
+      if (!(m.permissions as string[]).includes('ui.sidebar')) invalid();
+      const pageIDs = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pageIDs.add(id);
+      }
+      const commands = new Set<string>();
+      for (const command of Array.isArray(c.commands) ? c.commands : []) {
+        const id = requireRecord(command).id;
+        if (typeof id === 'string') commands.add(id);
+      }
+      const seenGroups = new Set<string>();
+      for (const item of c.sidebar) {
+        const group = requireRecord(item);
+        onlyKeys(group, ['id', 'title', 'icon', 'listCommand', 'emptyText', 'open', 'order']);
+        if (!validLocalID(group.id) || seenGroups.has(group.id as string)
+          || typeof group.title !== 'string' || group.title.trim() === '' || !utf8Within(group.title, 128) || group.title.includes('\u0000')) invalid();
+        seenGroups.add(group.id as string);
+        if (typeof group.listCommand !== 'string' || !commands.has(group.listCommand)) invalid();
+        if (group.emptyText != null
+          && (typeof group.emptyText !== 'string' || !utf8Within(group.emptyText, 128) || group.emptyText.includes('\u0000'))) invalid();
+        if (group.icon != null && !validPackageIcon(group.icon)) invalid();
+        if (group.order != null && (typeof group.order !== 'number' || !Number.isInteger(group.order) || group.order < -1000 || group.order > 1000)) invalid();
+        if (group.open != null) {
+          const target = requireRecord(group.open);
+          if (target.type === 'window') {
+            if (target.page != null || m.window == null) invalid();
+          } else if (target.type === 'page') {
+            if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pageIDs.has(target.page)) invalid();
+          } else if (target.type === 'panel') {
+            const viewIDs = new Set<string>();
+            for (const view of Array.isArray(c.views) ? c.views : []) {
+              const id = requireRecord(view).id;
+              if (typeof id === 'string') viewIDs.add(id);
+            }
+            if (typeof target.view !== 'string' || target.page != null
+              || !(m.permissions as string[]).includes('ui.pages') || !viewIDs.has(target.view)) invalid();
+          } else {
+            invalid();
+          }
+          onlyKeys(target, ['type', 'page', 'view']);
         }
       }
     }

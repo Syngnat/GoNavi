@@ -1,5 +1,5 @@
 /** Non-secret identity for a connection action opened as a workbench tab. */
-export interface PluginPageLaunch {
+export interface PluginConnectionActionLaunch {
   kind: 'connectionAction';
   actionId: string;
   connectionId: string;
@@ -10,6 +10,18 @@ export interface PluginPageLaunch {
   environmentType?: string;
   readOnly: boolean;
 }
+
+/** Non-secret identity for a sidebar node opened as a workbench tab. */
+export interface PluginSidebarLaunch {
+  kind: 'sidebar';
+  pluginId: string;
+  groupId: string;
+  nodeId: string;
+  /** Bounded data the plugin's own listCommand returned for this node. */
+  arguments?: unknown;
+}
+
+export type PluginPageLaunch = PluginConnectionActionLaunch | PluginSidebarLaunch;
 
 /** Escapes a JSON value for an inline script while preserving its data shape. */
 export function serializePluginPageLaunch(value: unknown): string {

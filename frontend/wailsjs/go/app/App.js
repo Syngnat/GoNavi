@@ -1402,6 +1402,10 @@ export function PluginMarketVersions(arg1) {
   return window['go']['app']['App']['PluginMarketVersions'](arg1);
 }
 
+export function PluginOpenSidebarWindow(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['PluginOpenSidebarWindow'](arg1, arg2, arg3, arg4);
+}
+
 export function PluginOpenWindow(arg1, arg2, arg3) {
   return window['go']['app']['App']['PluginOpenWindow'](arg1, arg2, arg3);
 }
@@ -1440,6 +1444,10 @@ export function PluginRuntimeInfo() {
 
 export function PluginSetEnabled(arg1, arg2) {
   return window['go']['app']['App']['PluginSetEnabled'](arg1, arg2);
+}
+
+export function PluginSidebarNodes(arg1, arg2) {
+  return window['go']['app']['App']['PluginSidebarNodes'](arg1, arg2);
 }
 
 export function PluginSkillRead(arg1, arg2, arg3, arg4) {

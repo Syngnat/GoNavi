@@ -149,6 +149,28 @@ func toSDKContributions(c Contributions) sdk.Contributions {
 			Target: sdk.LaunchTarget{Type: action.Target.Type, Page: action.Target.Page},
 		})
 	}
+	for _, group := range c.Sidebar {
+		converted := sdk.SidebarGroup{
+			ID: group.ID, Title: group.Title, Icon: group.Icon,
+			ListCommand: group.ListCommand, EmptyText: group.EmptyText, Order: group.Order,
+		}
+		if group.Open != nil {
+			converted.Open = &sdk.LaunchTarget{Type: group.Open.Type, Page: group.Open.Page, View: group.Open.View}
+		}
+		shared.Sidebar = append(shared.Sidebar, converted)
+	}
+	for _, binding := range c.Keybindings {
+		shared.Keybindings = append(shared.Keybindings, sdk.Keybinding{
+			ID: binding.ID, Title: binding.Title, Keys: binding.Keys,
+			Target: sdk.LaunchTarget{Type: binding.Target.Type, Page: binding.Target.Page},
+		})
+	}
+	for _, view := range c.Views {
+		shared.Views = append(shared.Views, sdk.View{
+			ID: view.ID, Title: view.Title, Page: view.Page, Location: view.Location,
+			Icon: view.Icon, Order: view.Order,
+		})
+	}
 	return shared
 }
 

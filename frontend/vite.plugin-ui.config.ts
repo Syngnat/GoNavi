@@ -13,9 +13,14 @@ export default defineConfig({
     emptyOutDir: false,
     cssCodeSplit: false,
     lib: {
-      entry: fileURLToPath(new URL('./src/ui-kit/index.ts', import.meta.url)),
+      // Monaco is a separate entry: windows that do not need it never download it.
+      entry: {
+        index: fileURLToPath(new URL('./src/ui-kit/index.ts', import.meta.url)),
+        monaco: fileURLToPath(new URL('./src/ui-kit/monacoEntry.ts', import.meta.url)),
+        chart: fileURLToPath(new URL('./src/ui-kit/chartEntry.ts', import.meta.url)),
+      },
       formats: ['es'],
-      fileName: () => 'index.js',
+      fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
       output: {

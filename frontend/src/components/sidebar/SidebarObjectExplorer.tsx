@@ -1,4 +1,5 @@
 import { V2ExplorerContextSummary } from './V2ExplorerContextSummary';
+import { PluginSidebarSection } from './PluginSidebarSection';
 import { V2ExplorerSearchAction, V2ExplorerToolbarActions } from './SidebarExplorerToolbar';
 import { Input, Tooltip, Tree } from 'antd';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
@@ -166,6 +167,8 @@ export const SidebarObjectExplorer = ({
       activeFilter={v2ExplorerFilter}
       onFilterChange={setV2ExplorerFilter}
   />
+
+  <PluginSidebarSection darkMode={darkMode} />
 
   <div
       ref={treeContainerRef}

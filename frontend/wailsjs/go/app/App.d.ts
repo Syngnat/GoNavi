@@ -717,6 +717,8 @@ export function PluginMarketSources():Promise<connection.QueryResult>;
 
 export function PluginMarketVersions(arg1:string):Promise<connection.QueryResult>;
 
+export function PluginOpenSidebarWindow(arg1:string,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
+
 export function PluginOpenWindow(arg1:string,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
 export function PluginPageCall(arg1:string,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
@@ -736,6 +738,8 @@ export function PluginRunConnectionAction(arg1:string,arg2:string,arg3:string,ar
 export function PluginRuntimeInfo():Promise<connection.QueryResult>;
 
 export function PluginSetEnabled(arg1:string,arg2:boolean):Promise<connection.QueryResult>;
+
+export function PluginSidebarNodes(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function PluginSkillRead(arg1:string,arg2:string,arg3:string,arg4:number):Promise<connection.QueryResult>;
 

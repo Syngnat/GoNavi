@@ -60,6 +60,43 @@ type Contributions struct {
 	Pages             []Page             `json:"pages,omitempty"`
 	Navigation        []Navigation       `json:"navigation,omitempty"`
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
+	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
+	Views             []View             `json:"views,omitempty"`
+	Keybindings       []Keybinding       `json:"keybindings,omitempty"`
+}
+
+// Keybinding opens a declared page or window from a host-wide shortcut.
+// Keys use CmdOrCtrl/Ctrl/Cmd/Alt/Shift plus one main key, e.g.
+// "CmdOrCtrl+Shift+T".
+type Keybinding struct {
+	ID     string       `json:"id"`
+	Title  string       `json:"title"`
+	Keys   string       `json:"keys"`
+	Target LaunchTarget `json:"target"`
+}
+
+// View docks one declared page to a host surface. Version one supports the
+// right-hand workbench dock ("right"); the page keeps the page bridge.
+type View struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Page     string `json:"page"`
+	Location string `json:"location"`
+	Icon     string `json:"icon,omitempty"`
+	Order    int    `json:"order,omitempty"`
+}
+
+// SidebarGroup declares one expandable group in the host's left connection
+// tree. The group's children come from ListCommand at runtime; the manifest
+// itself declares no node content. Requires the ui.sidebar permission.
+type SidebarGroup struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Icon        string        `json:"icon,omitempty"`
+	ListCommand string        `json:"listCommand"`
+	EmptyText   string        `json:"emptyText,omitempty"`
+	Open        *LaunchTarget `json:"open,omitempty"`
+	Order       int           `json:"order,omitempty"`
 }
 
 // ConnectionAction is a generic connection/database/collection context-menu
@@ -73,10 +110,11 @@ type ConnectionAction struct {
 	Target          LaunchTarget `json:"target"`
 }
 
-// LaunchTarget selects the window or page opened for a contribution.
+// LaunchTarget selects the window, page or docked view opened for a contribution.
 type LaunchTarget struct {
 	Type string `json:"type"`
 	Page string `json:"page,omitempty"`
+	View string `json:"view,omitempty"`
 }
 
 // Skill declares an immutable UTF-8 SKILL.md document loaded only on explicit use.

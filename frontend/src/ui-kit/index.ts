@@ -6,6 +6,13 @@ export * from './data';
 export * from './pagedTable';
 export * from './layout';
 export * from './hooks';
+export * from './terminal';
+export * from './fileTree';
+export * from './editableGrid';
+export * from './queryWorkbench';
+export * from './connectionPicker';
+export * from './connectionTree';
+export * from './tableDesigner';
 export * from './capabilityClient';
 
 export {

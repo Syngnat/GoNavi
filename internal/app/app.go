@@ -51,6 +51,7 @@ var (
 type App struct {
 	pluginMarket                  pluginMarketRuntimeState
 	plugins                       pluginRuntimeState
+	pluginEvents                  pluginEventBroker
 	schemaWritePlans              schemaWritePlanStore
 	schemaConfirm                 func(context.Context, string) (bool, error)
 	ctx                           context.Context
