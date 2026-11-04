@@ -60,6 +60,7 @@ type Contributions struct {
 	Pages             []Page             `json:"pages,omitempty"`
 	Navigation        []Navigation       `json:"navigation,omitempty"`
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
+	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
 }
 
 // ConnectionAction is a generic host surface entry rendered in connection, database
@@ -125,6 +126,19 @@ type Navigation struct {
 	Page     string `json:"page,omitempty"`
 	Location string `json:"location"`
 	Order    int    `json:"order,omitempty"`
+}
+
+// SidebarGroup declares one expandable group in the host's left connection tree.
+// The group's children are produced at runtime by ListCommand and validated by
+// the host; the manifest itself declares no node data.
+type SidebarGroup struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Icon        string        `json:"icon,omitempty"`
+	ListCommand string        `json:"listCommand"`
+	EmptyText   string        `json:"emptyText,omitempty"`
+	Open        *LaunchTarget `json:"open,omitempty"`
+	Order       int           `json:"order,omitempty"`
 }
 
 // UINode is a declarative element; HTML, scripts, expressions and styles are unsupported.

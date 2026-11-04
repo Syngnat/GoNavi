@@ -60,6 +60,20 @@ type Contributions struct {
 	Pages             []Page             `json:"pages,omitempty"`
 	Navigation        []Navigation       `json:"navigation,omitempty"`
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
+	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
+}
+
+// SidebarGroup declares one expandable group in the host's left connection
+// tree. The group's children come from ListCommand at runtime; the manifest
+// itself declares no node content. Requires the ui.sidebar permission.
+type SidebarGroup struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Icon        string        `json:"icon,omitempty"`
+	ListCommand string        `json:"listCommand"`
+	EmptyText   string        `json:"emptyText,omitempty"`
+	Open        *LaunchTarget `json:"open,omitempty"`
+	Order       int           `json:"order,omitempty"`
 }
 
 // ConnectionAction is a generic connection/database/collection context-menu

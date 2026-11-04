@@ -52,7 +52,7 @@ export interface PluginManifest {
   permissions: string[];
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
-  contributes?: { commands?: PluginCommand[]; panels?: PluginPanel[]; dataSources?: { id: string; name: string; dialect: string; command: string; defaultPort?: number; readOnly: boolean }[]; aiProviders?: { id: string; name: string; command: string; icon?: string; supportsTools: boolean; supportsImages: boolean; models: { id: string; name: string; contextWindow: number; maxOutputTokens: number }[] }[]; exporters?: { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }[]; skills?: { id: string; name: string; description: string; entry: string; resources?: string[] }[]; pages?: PluginPage[]; navigation?: PluginNavigation[]; connectionActions?: PluginConnectionAction[] };
+  contributes?: { commands?: PluginCommand[]; panels?: PluginPanel[]; dataSources?: { id: string; name: string; dialect: string; command: string; defaultPort?: number; readOnly: boolean }[]; aiProviders?: { id: string; name: string; command: string; icon?: string; supportsTools: boolean; supportsImages: boolean; models: { id: string; name: string; contextWindow: number; maxOutputTokens: number }[] }[]; exporters?: { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }[]; skills?: { id: string; name: string; description: string; entry: string; resources?: string[] }[]; pages?: PluginPage[]; navigation?: PluginNavigation[]; connectionActions?: PluginConnectionAction[]; sidebar?: PluginSidebarGroup[] };
   backend?: { default?: { executable: string; args?: string[]; runtime?: string }; platforms?: Record<string, { executable: string; args?: string[]; runtime?: string }> };
   window?: { entry: string; title?: string; width?: number; height?: number };
 }
@@ -63,6 +63,17 @@ export interface PluginConnectionAction {
   connectionTypes: string[];
   scopes?: string[];
   target: { type: 'window' | 'page'; page?: string };
+}
+
+/** One expandable group the plugin contributes to the left connection tree. */
+export interface PluginSidebarGroup {
+  id: string;
+  title: string;
+  icon?: string;
+  listCommand: string;
+  emptyText?: string;
+  open?: { type: 'page' | 'window'; page?: string };
+  order?: number;
 }
 
 export interface PluginStatus {

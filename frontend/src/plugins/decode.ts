@@ -243,7 +243,7 @@ export function decodeManifest(data: unknown): PluginManifest {
   }
   if (m.contributes != null) {
     const c = requireRecord(m.contributes);
-    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions']);
+    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar']);
     const contributionLimits: Record<string, number> = { commands: 128, panels: 32 };
     for (const key of ['commands', 'panels']) {
       const entries = c[key];
@@ -355,6 +355,44 @@ export function decodeManifest(data: unknown): PluginManifest {
           if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pageIDs.has(target.page)) invalid();
         } else {
           invalid();
+        }
+      }
+    }
+    if (c.sidebar != null) {
+      if (!Array.isArray(c.sidebar) || c.sidebar.length > 4) invalid();
+      if (!(m.permissions as string[]).includes('ui.sidebar')) invalid();
+      const pageIDs = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pageIDs.add(id);
+      }
+      const commands = new Set<string>();
+      for (const command of Array.isArray(c.commands) ? c.commands : []) {
+        const id = requireRecord(command).id;
+        if (typeof id === 'string') commands.add(id);
+      }
+      const seenGroups = new Set<string>();
+      for (const item of c.sidebar) {
+        const group = requireRecord(item);
+        onlyKeys(group, ['id', 'title', 'icon', 'listCommand', 'emptyText', 'open', 'order']);
+        if (!validLocalID(group.id) || seenGroups.has(group.id as string)
+          || typeof group.title !== 'string' || group.title.trim() === '' || !utf8Within(group.title, 128) || group.title.includes('\u0000')) invalid();
+        seenGroups.add(group.id as string);
+        if (typeof group.listCommand !== 'string' || !commands.has(group.listCommand)) invalid();
+        if (group.emptyText != null
+          && (typeof group.emptyText !== 'string' || !utf8Within(group.emptyText, 128) || group.emptyText.includes('\u0000'))) invalid();
+        if (group.icon != null && !validPackageIcon(group.icon)) invalid();
+        if (group.order != null && (typeof group.order !== 'number' || !Number.isInteger(group.order) || group.order < -1000 || group.order > 1000)) invalid();
+        if (group.open != null) {
+          const target = requireRecord(group.open);
+          onlyKeys(target, ['type', 'page']);
+          if (target.type === 'window') {
+            if (target.page != null || m.window == null) invalid();
+          } else if (target.type === 'page') {
+            if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pageIDs.has(target.page)) invalid();
+          } else {
+            invalid();
+          }
         }
       }
     }

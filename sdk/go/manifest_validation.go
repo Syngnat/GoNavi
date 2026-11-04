@@ -88,6 +88,9 @@ func ValidateManifest(m Manifest) error {
 	if err := ValidatePages(m); err != nil {
 		return err
 	}
+	if err := validateManifestSidebar(m, permissions, publicCommands); err != nil {
+		return err
+	}
 	if m.Window != nil {
 		// A window runs package HTML/JS in a native WebView with the window bridge;
 		// like a custom HTML page it needs the explicit sandboxed-HTML permission.
@@ -488,6 +491,73 @@ func validateManifestExporters(m Manifest, commands map[string]bool) error {
 			return errors.New("invalid exporter extension or content type")
 		}
 		ids[exporter.ID] = true
+	}
+	return nil
+}
+
+// SidebarPermission lets a package attach an expandable group to the host's
+// left connection tree. It grants no host capability: node data comes from a
+// declared command and is rendered as text by the host.
+const SidebarPermission = "ui.sidebar"
+
+// maxManifestSidebarGroups bounds groups per manifest.
+const maxManifestSidebarGroups = 4
+
+func validateManifestSidebar(m Manifest, permissions, commands map[string]bool) error {
+	contributes := manifestContributions(m)
+	groups := contributes.Sidebar
+	if len(groups) == 0 {
+		return nil
+	}
+	if !permissions[SidebarPermission] {
+		return fmt.Errorf("sidebar requires the %s permission", SidebarPermission)
+	}
+	if len(groups) > maxManifestSidebarGroups {
+		return errors.New("too many sidebar groups")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	seen := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		if !manifestLocalIDPattern.MatchString(group.ID) || seen[group.ID] || !validManifestText(group.Title, 128) {
+			return errors.New("invalid or duplicate sidebar group")
+		}
+		seen[group.ID] = true
+		if !commands[group.ListCommand] {
+			return errors.New("sidebar list command is not declared")
+		}
+		if group.EmptyText != "" && !validManifestText(group.EmptyText, 128) {
+			return errors.New("invalid sidebar empty text")
+		}
+		if group.Icon != "" && !validManifestIcon(group.Icon) {
+			return errors.New("invalid sidebar icon")
+		}
+		if group.Order < minNavigationOrder || group.Order > maxNavigationOrder {
+			return errors.New("sidebar order exceeds limit")
+		}
+		if group.Open == nil {
+			continue
+		}
+		switch group.Open.Type {
+		case "window":
+			if m.Window == nil {
+				return errors.New("window sidebar target requires a window")
+			}
+			if group.Open.Page != "" {
+				return errors.New("window sidebar target cannot declare a page")
+			}
+		case "page":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("page sidebar target requires the %s permission", PagesPermission)
+			}
+			if !pages[group.Open.Page] {
+				return errors.New("sidebar references an undeclared page")
+			}
+		default:
+			return errors.New("unsupported sidebar target")
+		}
 	}
 	return nil
 }
