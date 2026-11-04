@@ -80,6 +80,45 @@ WHERE c.relkind IN ('r', 'p')
 ORDER BY a.attnum`, buildPGLikeVisibleRelationPredicate("c", schemaName), escapePGLikeMetadataLiteral(tableName))
 }
 
+// buildKingbaseColumnsMetadataQuery 是 Kingbase 专用的列定义查询。
+//
+// 与 PG 版的唯一差别是 identity_generation 一列：PG 版用
+// `pg_catalog.to_jsonb(a)->>'attidentity'`，KingbaseES 会把右侧的
+// 'attidentity' 当成 jsonpath 解析并报
+// `syntax error, unexpected IDENT_P at end of jsonpath input`，
+// 导致整个查询失败——连带 col_description（注释）与 format_type（类型）
+// 一起丢失，结果集表头就没有注释和类型了。
+//
+// 这里固定返回空串：identity 信息只影响「自增列」的展示，而 column_default
+// 已经能表达序列默认值。宁可少一列展示，也不能让整条语句不可用。
+func buildKingbaseColumnsMetadataQuery(schemaName, tableName string) string {
+	return fmt.Sprintf(`
+SELECT
+	a.attname AS column_name,
+	pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+	CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+	pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
+	'' AS identity_generation,
+	col_description(a.attrelid, a.attnum) AS comment,
+	CASE WHEN pk.attname IS NOT NULL THEN 'PRI' ELSE '' END AS column_key
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid
+LEFT JOIN pg_attrdef ad ON ad.adrelid = c.oid AND ad.adnum = a.attnum
+LEFT JOIN (
+	SELECT i.indrelid, a3.attname
+	FROM pg_index i
+	JOIN pg_attribute a3 ON a3.attrelid = i.indrelid AND a3.attnum = ANY(i.indkey)
+	WHERE i.indisprimary
+) pk ON pk.indrelid = c.oid AND pk.attname = a.attname
+WHERE c.relkind IN ('r', 'p')
+  AND %s
+  AND c.relname = '%s'
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+ORDER BY a.attnum`, buildPGLikeVisibleRelationPredicate("c", schemaName), escapePGLikeMetadataLiteral(tableName))
+}
+
 func buildPGLikeIndexesMetadataQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`
 SELECT
