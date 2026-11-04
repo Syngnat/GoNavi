@@ -8,6 +8,9 @@ export * from './layout';
 export * from './hooks';
 export * from './terminal';
 export * from './fileTree';
+export * from './editableGrid';
+export * from './queryWorkbench';
+export * from './connectionPicker';
 export * from './capabilityClient';
 
 export {
