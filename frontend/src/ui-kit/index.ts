@@ -6,6 +6,8 @@ export * from './data';
 export * from './pagedTable';
 export * from './layout';
 export * from './hooks';
+export * from './terminal';
+export * from './fileTree';
 export * from './capabilityClient';
 
 export {
