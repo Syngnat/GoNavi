@@ -234,3 +234,12 @@ func TestValidatePagesAcceptsStatusBarNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidatePagesAcceptsCommandNavigation(t *testing.T) {
+	manifest := pageManifest(PagesPermission)
+	manifest.Contributes.Pages = []Page{textPage("overview", "Overview")}
+	manifest.Contributes.Navigation = []Navigation{{ID: "entry", Title: "One", Page: "overview", Location: PageLocationCommand}}
+	if err := ValidatePages(manifest); err != nil {
+		t.Fatal(err)
+	}
+}

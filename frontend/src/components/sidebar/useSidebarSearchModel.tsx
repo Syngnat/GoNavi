@@ -42,6 +42,7 @@ import {
   type V2CommandSearchItem,
 } from '../sidebarV2Utils';
 import { formatQueryDuration } from '../../utils/queryDurationFormat';
+import { usePluginCommandSearchItems } from './usePluginCommandSearchItems';
 
 const SEARCH_SCOPE_OPTIONS: Array<{ value: SearchScope; labelKey: string }> = [
   { value: 'smart', labelKey: 'sidebar.command_search.scope.smart' },
@@ -510,6 +511,8 @@ export const useSidebarSearchModel = ({
     }));
   }, [recentSqlLogs]);
 
+  const pluginCommandSearchItems = usePluginCommandSearchItems();
+
   const commandSearchActionItems = useMemo<V2CommandSearchItem[]>(() => [
     {
       key: 'action-new-query',
@@ -547,7 +550,8 @@ export const useSidebarSearchModel = ({
       icon: <BarsOutlined />,
       onRun: () => onToggleLogPanel?.(),
     },
-  ], [activeShortcutPlatform, onCreateConnection, onToggleAI, onToggleLogPanel, shortcutOptions]);
+    ...pluginCommandSearchItems,
+  ], [activeShortcutPlatform, onCreateConnection, onToggleAI, onToggleLogPanel, shortcutOptions, pluginCommandSearchItems]);
 
   const v2CommandSearchQuery = useMemo(
     () => parseV2CommandSearchQuery(deferredV2CommandSearchValue),

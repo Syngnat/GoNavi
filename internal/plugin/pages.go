@@ -28,6 +28,7 @@ const OpenExternalPermission = "system.open-external"
 const (
 	PageLocationTools     = "tools"
 	PageLocationStatusbar = "statusbar"
+	PageLocationCommand   = "command"
 )
 
 // Navigation targets stay an enumeration. An empty target is the page target so
@@ -132,7 +133,7 @@ func validateNavigationDeclarations(navigation []Navigation, pages map[string]bo
 			return fmt.Errorf("unsupported navigation target")
 		}
 		switch item.Location {
-		case PageLocationTools, PageLocationStatusbar:
+		case PageLocationTools, PageLocationStatusbar, PageLocationCommand:
 		default:
 			return fmt.Errorf("unsupported navigation location")
 		}

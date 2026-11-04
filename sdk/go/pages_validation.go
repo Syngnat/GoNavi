@@ -22,6 +22,7 @@ const PageCustomHTMLPermission = "ui.html-panel"
 const (
 	PageLocationTools     = "tools"
 	PageLocationStatusbar = "statusbar"
+	PageLocationCommand   = "command"
 )
 
 // Navigation targets stay an enumeration. An empty target is the page target so
@@ -150,7 +151,7 @@ func validatePageNavigation(navigation []Navigation, pages map[string]bool, hasW
 			return errors.New("unsupported navigation target")
 		}
 		switch item.Location {
-		case PageLocationTools, PageLocationStatusbar:
+		case PageLocationTools, PageLocationStatusbar, PageLocationCommand:
 		default:
 			return errors.New("unsupported navigation location")
 		}

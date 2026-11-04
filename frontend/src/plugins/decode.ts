@@ -164,7 +164,7 @@ function validateNavigation(entries: unknown, pageIDs: ReadonlySet<string>, hasW
     onlyKeys(entry, ['id', 'title', 'target', 'page', 'location', 'order']);
     const order = entry.order;
     if (!validLocalID(entry.id) || seen.has(entry.id) || !validLocalTitle(entry.title)
-      || (entry.location !== 'tools' && entry.location !== 'statusbar')
+      || (entry.location !== 'tools' && entry.location !== 'statusbar' && entry.location !== 'command')
       || (order != null && (typeof order !== 'number' || !Number.isInteger(order) || order < -1000 || order > 1000))) invalid();
     const target = entry.target == null || entry.target === '' ? 'page' : entry.target;
     if (target === 'page') {

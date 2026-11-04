@@ -35,7 +35,7 @@ export interface PluginNavigation {
   /** `page` opens the declared page in a tab; `window` opens the manifest window. */
   target?: 'page' | 'window';
   page?: string;
-  location: 'tools' | 'statusbar';
+  location: 'tools' | 'statusbar' | 'command';
   order?: number;
 }
 export interface PluginManifest {
