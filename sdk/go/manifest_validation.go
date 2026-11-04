@@ -506,8 +506,11 @@ const SidebarPermission = "ui.sidebar"
 // maxManifestSidebarGroups bounds groups per manifest.
 const maxManifestSidebarGroups = 4
 
-// ViewLocationRight is the only docked surface version one accepts.
-const ViewLocationRight = "right"
+// Docked surfaces: the right workbench dock and the bottom dock.
+const (
+	ViewLocationRight  = "right"
+	ViewLocationBottom = "bottom"
+)
 
 const maxManifestViews = 8
 
@@ -536,7 +539,9 @@ func validateManifestViews(m Manifest, permissions map[string]bool) error {
 		if !pages[view.Page] {
 			return errors.New("view references an undeclared page")
 		}
-		if view.Location != ViewLocationRight {
+		switch view.Location {
+		case ViewLocationRight, ViewLocationBottom:
+		default:
 			return errors.New("unsupported view location")
 		}
 		if view.Icon != "" && !validManifestIcon(view.Icon) {

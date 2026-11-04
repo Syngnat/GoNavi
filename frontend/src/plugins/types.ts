@@ -81,7 +81,7 @@ export interface PluginView {
   id: string;
   title: string;
   page: string;
-  location: 'right';
+  location: 'right' | 'bottom';
   icon?: string;
   order?: number;
 }

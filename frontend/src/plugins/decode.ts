@@ -374,7 +374,7 @@ export function decodeManifest(data: unknown): PluginManifest {
           || typeof view.title !== 'string' || view.title.trim() === '' || !utf8Within(view.title, 128) || view.title.includes('\u0000')) invalid();
         seenViews.add(view.id as string);
         if (typeof view.page !== 'string' || !pageIDs.has(view.page)) invalid();
-        if (view.location !== 'right') invalid();
+        if (view.location !== 'right' && view.location !== 'bottom') invalid();
         if (view.icon != null && !validPackageIcon(view.icon)) invalid();
         if (view.order != null && (typeof view.order !== 'number' || !Number.isInteger(view.order) || view.order < -1000 || view.order > 1000)) invalid();
       }

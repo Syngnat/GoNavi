@@ -1,16 +1,27 @@
 .gn-plugin-view-dock {
   display: flex;
-  flex: 0 0 420px;
   flex-direction: column;
+  border: 1px solid rgba(127, 127, 127, 0.18);
+  border-radius: var(--gonavi-border-radius, 8px);
+  background: var(--gn-panel-bg, #fff);
+  overflow: hidden;
+}
+
+.gn-plugin-view-dock.is-right {
+  flex: 0 0 420px;
   width: 420px;
   min-width: 280px;
   max-width: 60vw;
   height: 100%;
   margin-left: 8px;
-  border: 1px solid rgba(127, 127, 127, 0.18);
-  border-radius: var(--gonavi-border-radius, 8px);
-  background: var(--gn-panel-bg, #fff);
-  overflow: hidden;
+}
+
+.gn-plugin-view-dock.is-bottom {
+  flex: 0 0 280px;
+  width: 100%;
+  min-height: 160px;
+  height: 280px;
+  margin-top: 8px;
 }
 
 .gn-plugin-view-dock-head {

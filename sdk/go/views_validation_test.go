@@ -28,7 +28,7 @@ func TestValidateManifestRejectsUnsafeViews(t *testing.T) {
 	}{
 		{"missing pages permission", func(m *Manifest) { m.Permissions = nil }},
 		{"undeclared page", func(m *Manifest) { m.Contributes.Views[0].Page = "missing" }},
-		{"unsupported location", func(m *Manifest) { m.Contributes.Views[0].Location = "bottom" }},
+		{"unsupported location", func(m *Manifest) { m.Contributes.Views[0].Location = "left" }},
 		{"duplicate id", func(m *Manifest) { m.Contributes.Views = append(m.Contributes.Views, m.Contributes.Views[0]) }},
 		{"long title", func(m *Manifest) { m.Contributes.Views[0].Title = strings.Repeat("x", 200) }},
 		{"unsafe icon", func(m *Manifest) { m.Contributes.Views[0].Icon = "../secret.png" }},
@@ -67,5 +67,13 @@ func TestValidateManifestAcceptsAPanelSidebarTarget(t *testing.T) {
 	manifest.Contributes.Sidebar[0].Open.View = "missing"
 	if err := ValidateManifest(manifest); err == nil {
 		t.Fatal("sidebar accepted an undeclared view")
+	}
+}
+
+func TestValidateManifestAcceptsABottomView(t *testing.T) {
+	manifest := viewsTestManifest()
+	manifest.Contributes.Views[0].Location = ViewLocationBottom
+	if err := ValidateManifest(manifest); err != nil {
+		t.Fatal(err)
 	}
 }

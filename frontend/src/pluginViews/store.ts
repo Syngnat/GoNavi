@@ -7,6 +7,7 @@ export interface PluginViewEntry {
   viewID: string;
   pageID: string;
   title: string;
+  location: 'right' | 'bottom';
   launch?: unknown;
 }
 

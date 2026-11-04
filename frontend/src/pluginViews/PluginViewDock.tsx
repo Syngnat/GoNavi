@@ -10,8 +10,9 @@ import './pluginViewDock.css';
  * the page bridge and its permissions; the host owns the dock chrome and the
  * lifetime of the entry.
  */
-export const PluginViewDock = () => {
-  const views = usePluginViewStore((state) => state.views);
+export const PluginViewDock = ({ location }: { location: 'right' | 'bottom' }) => {
+  const allViews = usePluginViewStore((state) => state.views);
+  const views = allViews.filter((view) => view.location === location);
   const activeKey = usePluginViewStore((state) => state.activeKey);
   const activate = usePluginViewStore((state) => state.activate);
   const close = usePluginViewStore((state) => state.close);
@@ -27,7 +28,7 @@ export const PluginViewDock = () => {
   const active = views.find((view) => view.key === activeKey) ?? views[0];
 
   return (
-    <aside className="gn-plugin-view-dock" data-plugin-view-dock="true" aria-label={active.title}>
+    <aside className={`gn-plugin-view-dock is-${location}`} data-plugin-view-dock={location} aria-label={active.title}>
       <header className="gn-plugin-view-dock-head">
         <div className="gn-plugin-view-dock-tabs" role="tablist">
           {views.map((view) => (

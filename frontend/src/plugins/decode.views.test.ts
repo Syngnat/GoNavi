@@ -28,13 +28,18 @@ describe('manifest views', () => {
     expect(result.manifest.contributes?.views?.[0]).toMatchObject({ id: 'term', page: 'terminal', location: 'right' });
   });
 
+  it('accepts a bottom-dock view', () => {
+    const result = decodeInspection(inspection({ pages: [textPage('terminal')], views: [view({ location: 'bottom' })] }));
+    expect(result.manifest.contributes?.views?.[0]).toMatchObject({ location: 'bottom' });
+  });
+
   it('rejects views without ui.pages or a declared page', () => {
     rejects({ pages: [textPage('terminal')], views: [view()] }, []);
     rejects({ pages: [textPage('terminal')], views: [view({ page: 'missing' })] });
   });
 
   it('rejects unsupported or malformed declarations', () => {
-    rejects({ pages: [textPage('terminal')], views: [view({ location: 'bottom' })] });
+    rejects({ pages: [textPage('terminal')], views: [view({ location: 'left' })] });
     rejects({ pages: [textPage('terminal')], views: [view({ title: '' })] });
     rejects({ pages: [textPage('terminal')], views: [view(), view()] });
   });

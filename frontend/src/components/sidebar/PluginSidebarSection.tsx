@@ -119,6 +119,7 @@ export function PluginSidebarSection({ darkMode }: { darkMode: boolean }) {
         viewID: view.id,
         pageID: view.page,
         title: node.label || view.title,
+        location: view.location,
         launch: {
           kind: 'sidebar',
           pluginId: entry.plugin.manifest.id,

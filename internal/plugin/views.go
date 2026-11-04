@@ -2,9 +2,12 @@ package plugin
 
 import "fmt"
 
-// View locations stay an enumeration. Version one docks pages on the right side
-// of the workbench; the page keeps the page bridge and its permissions.
-const ViewLocationRight = "right"
+// Docked surfaces: the right workbench dock and the bottom dock. The page keeps
+// the page bridge and its permissions either way.
+const (
+	ViewLocationRight  = "right"
+	ViewLocationBottom = "bottom"
+)
 
 // MaxViews bounds docked views per manifest.
 const MaxViews = 8
@@ -33,7 +36,9 @@ func validateViews(m Manifest, permissions map[string]bool) error {
 		if !pages[view.Page] {
 			return fmt.Errorf("view references an undeclared page")
 		}
-		if view.Location != ViewLocationRight {
+		switch view.Location {
+		case ViewLocationRight, ViewLocationBottom:
+		default:
 			return fmt.Errorf("unsupported view location")
 		}
 		if view.Icon != "" && !validPackageIcon(view.Icon) {
