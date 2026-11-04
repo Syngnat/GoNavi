@@ -12,6 +12,7 @@ export * from './editableGrid';
 export * from './queryWorkbench';
 export * from './connectionPicker';
 export * from './connectionTree';
+export * from './tableDesigner';
 export * from './capabilityClient';
 
 export {
