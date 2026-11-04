@@ -11,6 +11,7 @@ export * from './fileTree';
 export * from './editableGrid';
 export * from './queryWorkbench';
 export * from './connectionPicker';
+export * from './connectionTree';
 export * from './capabilityClient';
 
 export {
