@@ -639,6 +639,28 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Timeout:        5 * time.Second,
 		Handler:        pluginCapabilityOpenExternal,
 	})
+	add(pluginCapabilitySpec{
+		Name:           "files.pick",
+		Permission:     pluginFilesPermission,
+		Description:    "Show the native file or folder picker and return the selected path; the plugin performs its own I/O.",
+		Channels:       shared,
+		Runtimes:       desktop,
+		MaxArgsBytes:   8 << 10,
+		MaxResultBytes: 8 << 10,
+		Timeout:        5 * time.Minute,
+		Handler:        pluginCapabilityFilesPick,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "files.save",
+		Permission:     pluginFilesPermission,
+		Description:    "Show the native save dialog and return the chosen path; the plugin writes the file itself.",
+		Channels:       shared,
+		Runtimes:       desktop,
+		MaxArgsBytes:   8 << 10,
+		MaxResultBytes: 8 << 10,
+		Timeout:        5 * time.Minute,
+		Handler:        pluginCapabilityFilesSave,
+	})
 	return capabilities
 }
 
