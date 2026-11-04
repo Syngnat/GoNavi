@@ -661,6 +661,61 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Timeout:        5 * time.Minute,
 		Handler:        pluginCapabilityFilesSave,
 	})
+	add(pluginCapabilitySpec{
+		Name:           "events.subscribe",
+		Permission:     pluginEventsPermission,
+		Description:    "Subscribe to bounded host events (preferences, lifecycle, connections); returns a subscription id and the current snapshot.",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 16 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityEventsSubscribe,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "events.poll",
+		Permission:     pluginEventsPermission,
+		Description:    "Long-poll one subscription for host events; returns an empty list at the deadline.",
+		Channels:       page | pluginCapabilityChannelWindow,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 64 << 10,
+		Timeout:        30 * time.Second,
+		Handler:        pluginCapabilityEventsPoll,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "events.unsubscribe",
+		Permission:     pluginEventsPermission,
+		Description:    "Release one event subscription.",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityEventsUnsubscribe,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "clipboard.read",
+		Permission:     pluginClipboardPermission,
+		Description:    "Read bounded plain text from the system clipboard.",
+		Channels:       shared,
+		Runtimes:       desktop,
+		MaxArgsBytes:   1 << 10,
+		MaxResultBytes: pluginClipboardMaxRead + 1<<10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityClipboardRead,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "clipboard.write",
+		Permission:     pluginClipboardPermission,
+		Description:    "Write bounded plain text to the system clipboard.",
+		Channels:       shared,
+		Runtimes:       desktop,
+		MaxArgsBytes:   pluginClipboardMaxWrite + 1<<10,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityClipboardWrite,
+	})
 	return capabilities
 }
 
