@@ -684,6 +684,17 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Handler:        pluginCapabilityEventsPoll,
 	})
 	add(pluginCapabilitySpec{
+		Name:           "events.publish",
+		Permission:     pluginEventsPermission,
+		Description:    "Queue one bounded plugin-defined event for the same plugin's pages and windows.",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   32 << 10,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityEventsPublish,
+	})
+	add(pluginCapabilitySpec{
 		Name:           "events.unsubscribe",
 		Permission:     pluginEventsPermission,
 		Description:    "Release one event subscription.",

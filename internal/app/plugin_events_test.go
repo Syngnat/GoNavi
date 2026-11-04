@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,7 +63,7 @@ func TestPluginEventsPollDeliversAChange(t *testing.T) {
 	done := make(chan pollResult, 1)
 	go func() {
 		value, code := pluginCapabilityEventsPoll(context.Background(), a, pluginCapabilityRequest{
-			Status: status,
+			Status:    status,
 			Arguments: json.RawMessage(fmt.Sprintf(`{"subscriptionId":%q,"waitMs":3000}`, id)),
 		})
 		done <- pollResult{value: value, code: code}
@@ -133,5 +134,70 @@ func TestPluginEventsUnsubscribeReleasesTheSubscription(t *testing.T) {
 		Status: status, Arguments: json.RawMessage(fmt.Sprintf(`{"subscriptionId":%q}`, id)),
 	}); code != "unknown_subscription" {
 		t.Fatalf("released subscription still readable: %s", code)
+	}
+}
+
+func TestPluginEventsPublishReachesTheSamePlugin(t *testing.T) {
+	a := newPluginTestApp(t)
+	status := pluginEventsTestStatus()
+	id, _ := subscribePluginEvents(t, a, status, `["custom"]`)
+	if _, code := pluginCapabilityEventsPublish(context.Background(), a, pluginCapabilityRequest{
+		Status: status, Arguments: json.RawMessage(`{"topic":"upload","data":{"percent":40}}`),
+	}); code != "" {
+		t.Fatalf("publish failed: %s", code)
+	}
+	value, code := pluginCapabilityEventsPoll(context.Background(), a, pluginCapabilityRequest{
+		Status: status, Arguments: json.RawMessage(fmt.Sprintf(`{"subscriptionId":%q,"waitMs":500}`, id)),
+	})
+	if code != "" {
+		t.Fatalf("poll failed: %s", code)
+	}
+	events := value.(map[string]any)["events"].([]pluginEvent)
+	if len(events) != 1 || events[0].Topic != "custom" {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	data, ok := events[0].Data.(map[string]any)
+	if !ok || data["topic"] != "upload" {
+		t.Fatalf("unexpected payload: %#v", events[0].Data)
+	}
+}
+
+func TestPluginEventsPublishIsIsolatedPerPlugin(t *testing.T) {
+	a := newPluginTestApp(t)
+	owner := pluginEventsTestStatus()
+	other := pluginEventsTestStatus()
+	other.Manifest.ID = "test.other"
+	id, _ := subscribePluginEvents(t, a, other, `["custom"]`)
+	if _, code := pluginCapabilityEventsPublish(context.Background(), a, pluginCapabilityRequest{
+		Status: owner, Arguments: json.RawMessage(`{"topic":"secret","data":1}`),
+	}); code != "" {
+		t.Fatalf("publish failed: %s", code)
+	}
+	value, code := pluginCapabilityEventsPoll(context.Background(), a, pluginCapabilityRequest{
+		Status: other, Arguments: json.RawMessage(fmt.Sprintf(`{"subscriptionId":%q,"waitMs":100}`, id)),
+	})
+	if code != "" {
+		t.Fatalf("poll failed: %s", code)
+	}
+	if events := value.(map[string]any)["events"].([]pluginEvent); len(events) != 0 {
+		t.Fatalf("events leaked to another plugin: %#v", events)
+	}
+}
+
+func TestPluginEventsPublishRejectsUnsafePayloads(t *testing.T) {
+	a := newPluginTestApp(t)
+	status := pluginEventsTestStatus()
+	cases := []string{
+		`{"topic":""}`,
+		`{"topic":"` + strings.Repeat("x", pluginEventsMaxTopicBytes+1) + `"}`,
+		`{"topic":"ok","data":{"v":"` + strings.Repeat("x", pluginEventsMaxCustomBytes) + `"}}`,
+		`{"topic":"ok","unknown":true}`,
+	}
+	for _, raw := range cases {
+		if _, code := pluginCapabilityEventsPublish(context.Background(), a, pluginCapabilityRequest{
+			Status: status, Arguments: json.RawMessage(raw),
+		}); code != "invalid_arguments" {
+			t.Fatalf("unsafe publish accepted: %s -> %s", raw, code)
+		}
 	}
 }
