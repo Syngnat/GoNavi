@@ -695,6 +695,17 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Handler:        pluginCapabilityEventsUnsubscribe,
 	})
 	add(pluginCapabilitySpec{
+		Name:           "progress.report",
+		Permission:     pluginProgressPermission,
+		Description:    "Publish one bounded task progress update (open/update/close) as a host notification.",
+		Channels:       shared,
+		Runtimes:       desktop,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityProgress,
+	})
+	add(pluginCapabilitySpec{
 		Name:           "clipboard.read",
 		Permission:     pluginClipboardPermission,
 		Description:    "Read bounded plain text from the system clipboard.",
