@@ -5,13 +5,19 @@ import { useMemo } from 'react';
 // changes. Inline scripts/styles stay allowed, and the host's own origin may serve the
 // page UI bundle and package-relative assets; no other network origin is permitted.
 export function panelCsp(hostOrigin?: string): string {
-  const origin = hostOrigin && hostOrigin !== 'null' && /^https?:\/\//.test(hostOrigin) ? ' ' + hostOrigin : '';
+  const raw = hostOrigin && hostOrigin !== 'null' ? hostOrigin : '';
+  // macOS WebViews serve the app from the `wails://` scheme, Windows/Linux from
+  // `http://wails.localhost`; both need an explicit host-source, and custom schemes
+  // also need a scheme-source for engines that do not match host-sources.
+  const host = /^(https?|wails):\/\/[^/]+$/.test(raw) ? ' ' + raw : '';
+  const scheme = raw.startsWith('wails://') ? ' wails:' : '';
+  const hostSources = host + scheme;
   return [
     "default-src 'none'",
-    `script-src 'unsafe-inline'${origin}`,
-    `style-src 'unsafe-inline'${origin}`,
-    `img-src data:${origin}`,
-    "font-src data:",
+    `script-src 'unsafe-inline'${hostSources}`,
+    `style-src 'unsafe-inline'${hostSources}`,
+    `img-src data: blob:${hostSources}`,
+    `font-src data:${hostSources}`,
     "media-src data:",
     "connect-src 'none'",
     "form-action 'none'",
