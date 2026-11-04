@@ -695,6 +695,17 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Handler:        pluginCapabilityEventsUnsubscribe,
 	})
 	add(pluginCapabilitySpec{
+		Name:           "dialog.confirm",
+		Permission:     pluginDialogPermission,
+		Description:    "Show one native confirmation dialog and return whether the user confirmed.",
+		Channels:       shared,
+		Runtimes:       desktop,
+		MaxArgsBytes:   8 << 10,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Minute,
+		Handler:        pluginCapabilityDialogConfirm,
+	})
+	add(pluginCapabilitySpec{
 		Name:           "progress.report",
 		Permission:     pluginProgressPermission,
 		Description:    "Publish one bounded task progress update (open/update/close) as a host notification.",

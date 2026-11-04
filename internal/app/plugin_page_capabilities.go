@@ -22,7 +22,7 @@ const (
 // pluginCapabilityAPIVersion is the capability catalogue generation exposed by
 // app.info. It is independent from the package manifest apiVersion so older
 // packages keep working while hosts add capabilities.
-const pluginCapabilityAPIVersion = 2
+const pluginCapabilityAPIVersion = 3
 
 // pluginPageAppInfoResult is the app.info payload. It exposes identity only;
 // no host paths, configuration or connection details.
