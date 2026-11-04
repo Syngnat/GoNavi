@@ -176,6 +176,9 @@ func validateManifestLegacy(m Manifest) error {
 	if err := validateViews(m, permissions); err != nil {
 		return err
 	}
+	if err := validateKeybindings(m, permissions); err != nil {
+		return err
+	}
 	if err := validateSidebar(m, permissions, publicCommands); err != nil {
 		return err
 	}

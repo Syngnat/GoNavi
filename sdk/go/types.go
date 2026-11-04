@@ -62,6 +62,17 @@ type Contributions struct {
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
 	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
 	Views             []View             `json:"views,omitempty"`
+	Keybindings       []Keybinding       `json:"keybindings,omitempty"`
+}
+
+// Keybinding opens a declared page or window from a host-wide shortcut.
+// Keys use CmdOrCtrl/Ctrl/Cmd/Alt/Shift plus one main key, e.g.
+// "CmdOrCtrl+Shift+T".
+type Keybinding struct {
+	ID     string       `json:"id"`
+	Title  string       `json:"title"`
+	Keys   string       `json:"keys"`
+	Target LaunchTarget `json:"target"`
 }
 
 // View docks one declared page to a host surface. Version one supports the

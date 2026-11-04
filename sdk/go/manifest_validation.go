@@ -94,6 +94,9 @@ func ValidateManifest(m Manifest) error {
 	if err := validateManifestSidebar(m, permissions, publicCommands); err != nil {
 		return err
 	}
+	if err := validateManifestKeybindings(m, permissions); err != nil {
+		return err
+	}
 	if m.Window != nil {
 		// A window runs package HTML/JS in a native WebView with the window bridge;
 		// like a custom HTML page it needs the explicit sandboxed-HTML permission.
@@ -622,6 +625,78 @@ func validateManifestSidebar(m Manifest, permissions, commands map[string]bool) 
 			}
 		default:
 			return errors.New("unsupported sidebar target")
+		}
+	}
+	return nil
+}
+
+const maxManifestKeybindings = 16
+
+var manifestKeybindingModifiers = map[string]bool{"CmdOrCtrl": true, "Ctrl": true, "Cmd": true, "Alt": true, "Shift": true}
+
+// validManifestKeybindingKeys requires modifiers followed by one main key.
+func validManifestKeybindingKeys(value string) bool {
+	parts := strings.Split(value, "+")
+	if len(parts) < 1 || len(parts) > 5 {
+		return false
+	}
+	main := strings.TrimSpace(parts[len(parts)-1])
+	if main == "" || len(main) > 16 || !regexp.MustCompile(`^[A-Za-z0-9]+$`).MatchString(main) {
+		return false
+	}
+	for _, modifier := range parts[:len(parts)-1] {
+		if !manifestKeybindingModifiers[strings.TrimSpace(modifier)] {
+			return false
+		}
+	}
+	return true
+}
+
+func validateManifestKeybindings(m Manifest, permissions map[string]bool) error {
+	contributes := manifestContributions(m)
+	bindings := contributes.Keybindings
+	if len(bindings) == 0 {
+		return nil
+	}
+	if len(bindings) > maxManifestKeybindings {
+		return errors.New("too many keybindings")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	seen := make(map[string]bool, len(bindings))
+	seenKeys := make(map[string]bool, len(bindings))
+	for _, binding := range bindings {
+		if !manifestLocalIDPattern.MatchString(binding.ID) || seen[binding.ID] || !validManifestText(binding.Title, 128) {
+			return errors.New("invalid or duplicate keybinding")
+		}
+		seen[binding.ID] = true
+		if !validManifestKeybindingKeys(binding.Keys) {
+			return errors.New("invalid keybinding keys")
+		}
+		key := strings.ToLower(binding.Keys)
+		if seenKeys[key] {
+			return errors.New("duplicate keybinding keys")
+		}
+		seenKeys[key] = true
+		switch binding.Target.Type {
+		case "window":
+			if m.Window == nil {
+				return errors.New("window keybinding requires a window")
+			}
+			if binding.Target.Page != "" {
+				return errors.New("window keybinding cannot declare a page")
+			}
+		case "page":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("page keybinding requires the %s permission", PagesPermission)
+			}
+			if !pages[binding.Target.Page] {
+				return errors.New("keybinding references an undeclared page")
+			}
+		default:
+			return errors.New("unsupported keybinding target")
 		}
 	}
 	return nil

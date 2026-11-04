@@ -159,6 +159,12 @@ func toSDKContributions(c Contributions) sdk.Contributions {
 		}
 		shared.Sidebar = append(shared.Sidebar, converted)
 	}
+	for _, binding := range c.Keybindings {
+		shared.Keybindings = append(shared.Keybindings, sdk.Keybinding{
+			ID: binding.ID, Title: binding.Title, Keys: binding.Keys,
+			Target: sdk.LaunchTarget{Type: binding.Target.Type, Page: binding.Target.Page},
+		})
+	}
 	for _, view := range c.Views {
 		shared.Views = append(shared.Views, sdk.View{
 			ID: view.ID, Title: view.Title, Page: view.Page, Location: view.Location,

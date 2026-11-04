@@ -62,6 +62,7 @@ type Contributions struct {
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
 	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
 	Views             []View             `json:"views,omitempty"`
+	Keybindings       []Keybinding       `json:"keybindings,omitempty"`
 }
 
 // ConnectionAction is a generic host surface entry rendered in connection, database
@@ -141,6 +142,14 @@ type SidebarGroup struct {
 	EmptyText   string        `json:"emptyText,omitempty"`
 	Open        *LaunchTarget `json:"open,omitempty"`
 	Order       int           `json:"order,omitempty"`
+}
+
+// Keybinding opens a declared page or window from a host-wide shortcut.
+type Keybinding struct {
+	ID     string       `json:"id"`
+	Title  string       `json:"title"`
+	Keys   string       `json:"keys"`
+	Target LaunchTarget `json:"target"`
 }
 
 // View docks one declared page to a host surface. Version one supports the

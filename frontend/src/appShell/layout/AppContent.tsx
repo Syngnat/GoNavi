@@ -1,5 +1,6 @@
 import { Button, Spin } from 'antd';
 import { PluginViewDock } from '../../pluginViews/PluginViewDock';
+import { usePluginKeybindings } from '../../plugins/usePluginKeybindings';
 import React from 'react';
 import { Content } from '../appLayoutParts';
 import SecurityUpdateBanner from '../../components/SecurityUpdateBanner';
@@ -62,7 +63,9 @@ export const AppContent = ({
   handleCloseAIPanel, aiPanelRenderNonce, handleAIPanelRenderError, aiPanelRenderWidth, bgContent,
   handleRetryAIPanelRender, LazyAIChatPanel, setAIPanelWidth, handleDetachAIPanel,
   registerAIPanelTerminalGuard,
-}: AppContentProps) => (
+}: AppContentProps) => {
+  usePluginKeybindings();
+  return (
   <Content
     style={{ background: 'var(--gn-bg-panel-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
   >
@@ -254,4 +257,5 @@ export const AppContent = ({
     </div>
 
   </Content>
-);
+  );
+};

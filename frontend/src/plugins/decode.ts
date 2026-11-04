@@ -243,7 +243,7 @@ export function decodeManifest(data: unknown): PluginManifest {
   }
   if (m.contributes != null) {
     const c = requireRecord(m.contributes);
-    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views']);
+    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings']);
     const contributionLimits: Record<string, number> = { commands: 128, panels: 32 };
     for (const key of ['commands', 'panels']) {
       const entries = c[key];
@@ -353,6 +353,36 @@ export function decodeManifest(data: unknown): PluginManifest {
           if (target.page != null || m.window == null) invalid();
         } else if (target.type === 'page') {
           if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pageIDs.has(target.page)) invalid();
+        } else {
+          invalid();
+        }
+      }
+    }
+    if (c.keybindings != null) {
+      if (!Array.isArray(c.keybindings) || c.keybindings.length > 16) return invalid();
+      const pages = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pages.add(id);
+      }
+      const seenBindings = new Set<string>();
+      const seenKeys = new Set<string>();
+      for (const item of c.keybindings) {
+        const binding = requireRecord(item);
+        onlyKeys(binding, ['id', 'title', 'keys', 'target']);
+        if (!validLocalID(binding.id) || seenBindings.has(binding.id as string)
+          || typeof binding.title !== 'string' || binding.title.trim() === '' || !utf8Within(binding.title, 128) || binding.title.includes('\u0000')) invalid();
+        seenBindings.add(binding.id as string);
+        if (typeof binding.keys !== 'string' || !/^((CmdOrCtrl|Ctrl|Cmd|Alt|Shift)\+){0,4}[A-Za-z0-9]{1,16}$/.test(binding.keys)) invalid();
+        const normalized = (binding.keys as string).toLowerCase();
+        if (seenKeys.has(normalized)) invalid();
+        seenKeys.add(normalized);
+        const target = requireRecord(binding.target);
+        onlyKeys(target, ['type', 'page']);
+        if (target.type === 'window') {
+          if (target.page != null || m.window == null) invalid();
+        } else if (target.type === 'page') {
+          if (typeof target.page !== 'string' || !(m.permissions as string[]).includes('ui.pages') || !pages.has(target.page)) invalid();
         } else {
           invalid();
         }
