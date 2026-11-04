@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CaretDownOutlined, CaretRightOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Dropdown, message } from 'antd';
 import { pluginAPI } from '../../plugins/api';
 import { pluginErrorText } from '../../plugins/apiResult';
 import { subscribePluginContributionInvalidation } from '../../plugins/invalidation';
 import { openPluginPageTab } from '../../pluginPages/openPluginPageTab';
 import { openPluginView } from '../../pluginViews/store';
-import { loadPluginSidebarNodes, openPluginSidebarWindow, type PluginSidebarNode } from '../../plugins/sidebarApi';
+import { loadPluginSidebarNodes, openPluginSidebarWindow, runPluginSidebarNodeAction, type PluginSidebarNode } from '../../plugins/sidebarApi';
 import { t } from '../../i18n';
 import type { PluginSidebarGroup, PluginStatus } from '../../plugins/types';
 import './PluginSidebarSection.css';
@@ -147,7 +148,21 @@ export function PluginSidebarSection({ darkMode }: { darkMode: boolean }) {
       });
       return;
     }
-    void openPluginSidebarWindow(entry.plugin.manifest.id, entry.group.id, node.id, args).catch(() => {});
+    void openPluginSidebarWindow(entry.plugin.manifest.id, entry.group.id, node.id, args)
+      .catch((cause) => { void message.error(pluginErrorText(cause)); });
+  };
+
+  const runNodeAction = async (entry: GroupEntry, node: PluginSidebarNode, actionID: string) => {
+    const action = node.actions?.find((candidate) => candidate.id === actionID);
+    if (!action) return;
+    try {
+      await runPluginSidebarNodeAction(
+        entry.plugin.manifest.id, entry.group.id, node.id, action.id, action.command, action.arguments,
+      );
+      await load(entry.plugin.manifest.id, entry.group.id, true);
+    } catch (cause) {
+      void message.error(pluginErrorText(cause));
+    }
   };
 
   const renderNodes = (entry: GroupEntry, nodes: PluginSidebarNode[], depth: number): ReactNode =>
@@ -156,8 +171,7 @@ export function PluginSidebarSection({ darkMode }: { darkMode: boolean }) {
       const hasChildren = (node.children?.length ?? 0) > 0;
       const isOpen = nodeExpanded[key] === true;
       const hasTarget = Boolean(node.open ?? entry.group.open);
-      return (
-        <div key={key}>
+      const row = (
           <button
             type="button"
             className="gn-plugin-sidebar-row"
@@ -176,6 +190,21 @@ export function PluginSidebarSection({ darkMode }: { darkMode: boolean }) {
             {node.description && <span className="gn-plugin-sidebar-desc">{node.description}</span>}
             {node.badge && <span className="gn-plugin-sidebar-badge">{node.badge}</span>}
           </button>
+      );
+      const actions = node.actions ?? [];
+      return (
+        <div key={key}>
+          {actions.length === 0 ? row : (
+            <Dropdown
+              trigger={['contextMenu']}
+              menu={{
+                items: actions.map((action) => ({ key: action.id, label: action.title })),
+                onClick: ({ key: actionKey }) => { void runNodeAction(entry, node, actionKey); },
+              }}
+            >
+              {row}
+            </Dropdown>
+          )}
           {hasChildren && isOpen && renderNodes(entry, node.children ?? [], depth + 1)}
         </div>
       );
