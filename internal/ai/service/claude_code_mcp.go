@@ -123,7 +123,7 @@ func (s *Service) AIGetMCPClientInstallStatuses() []ai.MCPClientInstallStatus {
 
 // AIInstallClaudeCodeMCP 把 GoNavi 的 MCP server 写入 Claude Code 用户级 MCP 配置。
 func (s *Service) AIInstallClaudeCodeMCP() (ai.MCPClientInstallResult, error) {
-	configPath, err := claudeCodeConfigPathFunc()
+	configPath, err := resolveClaudeMCPConfigPath()
 	if err != nil {
 		return ai.MCPClientInstallResult{}, fmt.Errorf("%s", s.serviceText("ai.service.mcp_client.claude_code.config_path_failed", map[string]any{"detail": localizeMCPClientPathDetail(s.serviceText, err)}))
 	}

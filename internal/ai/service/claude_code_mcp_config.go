@@ -12,7 +12,7 @@ import (
 
 func inspectClaudeCodeMCPInstallStatus(expectedCommand string, expectedArgs []string, expectedErr error, textFuncs ...mcpClientInstallTextFunc) ai.MCPClientInstallStatus {
 	text := firstMCPClientInstallText(textFuncs)
-	configPath, pathErr := claudeCodeConfigPathFunc()
+	configPath, pathErr := resolveClaudeMCPConfigPath()
 	clientDetected, clientPath := detectLocalCLICommand(claudeCodeClientCommandName)
 	status := ai.MCPClientInstallStatus{
 		Client:         "claude-code",

@@ -131,9 +131,14 @@ func localCLICommandShellCandidates() []string {
 	return result
 }
 
+// isLocalMCPClientCommandDetected 判定客户端是否可用：CLI 命令存在，或装了
+// 桌面客户端。只看 CLI 会把「装了 Claude Desktop / Cursor 但没装 CLI」的用户
+// 判成未安装，明明装了却接不进去。
 func isLocalMCPClientCommandDetected(commandName string) bool {
-	detected, _ := detectLocalCLICommand(commandName)
-	return detected
+	if detected, _ := detectLocalCLICommand(commandName); detected {
+		return true
+	}
+	return localMCPClientDesktopAppPathFunc(commandName) != ""
 }
 
 func requireLocalMCPClientCommand(commandName string, displayName string, textFuncs ...mcpClientInstallTextFunc) error {
