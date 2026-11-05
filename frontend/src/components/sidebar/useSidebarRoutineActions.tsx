@@ -302,6 +302,9 @@ ${String(result.data)}`;
       dbName,
       schemaName,
       query: template,
+      // 建对象脚本页：保存动作应执行 DDL 创建对象，而不是存进「已保存查询」。
+      queryMode: 'object-create',
+      routineType: type,
     });
   };
 

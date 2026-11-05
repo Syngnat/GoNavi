@@ -13836,5 +13836,6 @@
   "plugin.ai_provider.models_add": "新增模型 ID",
   "plugin.ai_provider.models_add_placeholder": "如 claude-fable-5-1",
   "plugin.ai_provider.models_source": "名稱與上下文視窗來自 models.dev；目錄裡沒有的模型顯示原始 ID。",
-  "plugin.ai_provider.models_catalog_unavailable": "models.dev 目錄暫時不可用，先顯示原始模型 ID。"
+  "plugin.ai_provider.models_catalog_unavailable": "models.dev 目錄暫時不可用，先顯示原始模型 ID。",
+  "query_editor.action.save_to_database": "儲存到資料庫"
 }

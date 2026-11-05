@@ -13836,5 +13836,6 @@
   "plugin.ai_provider.models_add": "モデル ID を追加",
   "plugin.ai_provider.models_add_placeholder": "例: claude-fable-5-1",
   "plugin.ai_provider.models_source": "名称とコンテキストウィンドウは models.dev から取得します。カタログに無いモデルは元の ID を表示します。",
-  "plugin.ai_provider.models_catalog_unavailable": "models.dev のカタログが一時的に利用できないため、元のモデル ID を表示します。"
+  "plugin.ai_provider.models_catalog_unavailable": "models.dev のカタログが一時的に利用できないため、元のモデル ID を表示します。",
+  "query_editor.action.save_to_database": "データベースに保存"
 }

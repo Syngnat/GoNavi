@@ -1042,4 +1042,43 @@ END;`;
     expect(editorState.editor.getModel().getValueLength).not.toHaveBeenCalled();
     expect(editorState.editor.getModel().getValue).not.toHaveBeenCalled();
   });
+
+  it('executes the DDL instead of saving a query for object-create tabs', async () => {
+    const createProcedureSql = [
+      'DELIMITER $$',
+      'CREATE PROCEDURE demo_proc()',
+      'BEGIN',
+      '  SELECT 1;',
+      'END$$',
+      'DELIMITER ;',
+    ].join('\n');
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        title: '创建存储过程',
+        query: createProcedureSql,
+        queryMode: 'object-create',
+        routineType: 'PROCEDURE',
+      })} />);
+    });
+
+    editorState.value = createProcedureSql;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({ success: true, data: [] });
+
+    await act(async () => {
+      await findButton(renderer!, '保存').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 建对象页签的「保存」必须把 DDL 发到数据库，而不是存进已保存查询。
+    expect(storeState.saveQuery).not.toHaveBeenCalled();
+    expect(backendApp.DBQueryMulti).toHaveBeenCalled();
+    const executedSql = String(backendApp.DBQueryMulti.mock.calls[0][2]);
+    expect(executedSql).toContain('CREATE PROCEDURE demo_proc');
+    expect(executedSql).not.toContain('DELIMITER');
+  });
 });

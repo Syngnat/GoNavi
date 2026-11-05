@@ -13836,5 +13836,6 @@
   "plugin.ai_provider.models_add": "Add model ID",
   "plugin.ai_provider.models_add_placeholder": "e.g. claude-fable-5-1",
   "plugin.ai_provider.models_source": "Names and context windows come from models.dev; models the catalog does not know keep their raw ID.",
-  "plugin.ai_provider.models_catalog_unavailable": "The models.dev catalog is unavailable right now; raw model IDs are shown."
+  "plugin.ai_provider.models_catalog_unavailable": "The models.dev catalog is unavailable right now; raw model IDs are shown.",
+  "query_editor.action.save_to_database": "Save to database"
 }

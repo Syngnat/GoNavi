@@ -92,7 +92,9 @@ export interface TabData {
   tableName?: string;
   query?: string;
   resultPanelVisible?: boolean;
-  queryMode?: "standard" | "object-edit";
+  // object-edit：修改已有对象的定义；object-create：从侧栏「创建函数/存储过程」
+  // 打开的建对象脚本页，保存动作执行 DDL 而不是存成查询。
+  queryMode?: "standard" | "object-edit" | "object-create";
   returnToTabId?: string;
   filePath?: string;
   /** Plugin page identity; the page host resolves the declaration and bridge from here. */

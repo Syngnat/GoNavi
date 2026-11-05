@@ -38,12 +38,18 @@ export interface UseQueryEditorSaveActionsInput {
     setSaveModalMode: QueryEditorCoreStateApi['setSaveModalMode'];
     saveForm: QueryEditorCoreStateApi['saveForm'];
     setIsSaveModalOpen: QueryEditorCoreStateApi['setIsSaveModalOpen'];
+    /**
+     * 建对象脚本页（queryMode=object-create）的保存：执行 DDL 创建对象。
+     * 必须执行整段脚本：光标常停在 DELIMITER 行，按「当前语句」取不到 DDL。
+     */
+    executeObjectCreateDefinition: () => Promise<void>;
 }
 
 export const useQueryEditorSaveActions = ({
     tab, getCurrentQuery, lastLocalQueryRef, savedQueries, currentConnectionId, currentDb,
     runQueuedSaveOperation, saveQuery, queryEditorMountedRef, currentConnectionIdRef, currentDbRef,
     addTab, setQuery, currentSavedQuery, setSaveModalMode, saveForm, setIsSaveModalOpen,
+    executeObjectCreateDefinition,
 }: UseQueryEditorSaveActionsInput) => {
     const resolveDefaultQueryName = () => {
         const rawTitle = String(tab.title || '').trim();
@@ -137,6 +143,12 @@ export const useQueryEditorSaveActions = ({
     };
 
     const handleQuickSave = async () => {
+        // 「创建函数/存储过程」页签保存的是数据库对象：执行编辑器里的 DDL，
+        // 由执行链路刷新侧栏对象列表。保存成已保存查询会让用户以为对象已建好。
+        if (tab.type === 'query' && tab.queryMode === 'object-create') {
+            await executeObjectCreateDefinition();
+            return;
+        }
         const filePath = String(tab.filePath || '').trim();
         if (filePath) {
             const sql = getCurrentQuery();

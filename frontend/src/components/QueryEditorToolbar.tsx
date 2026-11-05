@@ -93,6 +93,8 @@ export type QueryEditorToolbarProps = {
   onRunAll?: () => void;
   onCancel: () => void;
   onQuickSave: () => void;
+  /** 保存动作的自定义提示；建对象页签显示「保存到数据库」 */
+  quickSaveTitle?: string;
   onFindInEditor: () => void;
   onToggleWordWrap: () => void;
   onFormat: () => void;
@@ -213,6 +215,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   onRunAll,
   onCancel,
   onQuickSave,
+  quickSaveTitle,
   onFindInEditor,
   onToggleWordWrap,
   onFormat,
@@ -562,8 +565,10 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
       >
         <Tooltip
           title={
-            saveQueryShortcutBinding.enabled && saveQueryShortcutBinding.combo
-              ? t("query_editor.action.save_with_shortcut", {
+            quickSaveTitle
+              ? quickSaveTitle
+              : saveQueryShortcutBinding.enabled && saveQueryShortcutBinding.combo
+                ? t("query_editor.action.save_with_shortcut", {
                   shortcut: getShortcutDisplayLabel(
                     saveQueryShortcutBinding.combo,
                     activeShortcutPlatform,

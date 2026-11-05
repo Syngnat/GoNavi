@@ -13836,5 +13836,6 @@
   "plugin.ai_provider.models_add": "Добавить ID модели",
   "plugin.ai_provider.models_add_placeholder": "напр. claude-fable-5-1",
   "plugin.ai_provider.models_source": "Названия и размер контекста берутся из models.dev; для неизвестных моделей показывается исходный ID.",
-  "plugin.ai_provider.models_catalog_unavailable": "Каталог models.dev сейчас недоступен; показываются исходные ID моделей."
+  "plugin.ai_provider.models_catalog_unavailable": "Каталог models.dev сейчас недоступен; показываются исходные ID моделей.",
+  "query_editor.action.save_to_database": "Сохранить в базу данных"
 }

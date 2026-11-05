@@ -13836,5 +13836,6 @@
   "plugin.ai_provider.models_add": "Modell-ID hinzufügen",
   "plugin.ai_provider.models_add_placeholder": "z. B. claude-fable-5-1",
   "plugin.ai_provider.models_source": "Namen und Kontextfenster stammen von models.dev; unbekannte Modelle behalten ihre rohe ID.",
-  "plugin.ai_provider.models_catalog_unavailable": "Der models.dev-Katalog ist derzeit nicht verfügbar; es werden rohe Modell-IDs angezeigt."
+  "plugin.ai_provider.models_catalog_unavailable": "Der models.dev-Katalog ist derzeit nicht verfügbar; es werden rohe Modell-IDs angezeigt.",
+  "query_editor.action.save_to_database": "In Datenbank speichern"
 }
