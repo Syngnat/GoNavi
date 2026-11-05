@@ -739,6 +739,8 @@ export function PluginRuntimeInfo():Promise<connection.QueryResult>;
 
 export function PluginSetEnabled(arg1:string,arg2:boolean):Promise<connection.QueryResult>;
 
+export function PluginSidebarNodeAction(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<connection.QueryResult>;
+
 export function PluginSidebarNodes(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function PluginSkillRead(arg1:string,arg2:string,arg3:string,arg4:number):Promise<connection.QueryResult>;

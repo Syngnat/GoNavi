@@ -21,18 +21,30 @@ const (
 	pluginSidebarMaxTextBytes  = 256
 	pluginSidebarMaxArguments  = 4 << 10
 	pluginSidebarMaxResultSize = 256 << 10
+	pluginSidebarMaxActions    = 8
 	pluginSidebarCallTimeout   = 10 * time.Second
 )
 
 // pluginSidebarNode is one host-rendered tree entry. Labels are always text;
 // the plugin never supplies markup, styles or host paths.
 type pluginSidebarNode struct {
-	ID          string              `json:"id"`
-	Label       string              `json:"label"`
-	Description string              `json:"description,omitempty"`
-	Badge       string              `json:"badge,omitempty"`
-	Children    []pluginSidebarNode `json:"children,omitempty"`
-	Open        *pluginSidebarOpen  `json:"open,omitempty"`
+	ID          string                `json:"id"`
+	Label       string                `json:"label"`
+	Description string                `json:"description,omitempty"`
+	Badge       string                `json:"badge,omitempty"`
+	Children    []pluginSidebarNode   `json:"children,omitempty"`
+	Open        *pluginSidebarOpen    `json:"open,omitempty"`
+	Actions     []pluginSidebarAction `json:"actions,omitempty"`
+}
+
+// pluginSidebarAction is one node context-menu entry. The host calls the
+// declared command with {nodeId, actionId, arguments}; it never runs arbitrary
+// code and never resolves anything outside the plugin's own commands.
+type pluginSidebarAction struct {
+	ID        string          `json:"id"`
+	Title     string          `json:"title"`
+	Command   string          `json:"command"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 type pluginSidebarOpen struct {
@@ -165,8 +177,9 @@ func decodePluginSidebarNodes(manifest plugin.Manifest, raw []byte) ([]pluginSid
 	var payload struct {
 		Items []pluginSidebarNode `json:"items"`
 	}
+	// Unknown fields are ignored: a plugin that adds metadata must not lose the
+	// whole group to one extra key.
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {
 		return nil, err
 	}
@@ -175,40 +188,78 @@ func decodePluginSidebarNodes(manifest plugin.Manifest, raw []byte) ([]pluginSid
 	}
 	count := 0
 	seen := make(map[string]bool, len(payload.Items))
-	if err := validatePluginSidebarNodes(payload.Items, manifest, 0, &count, seen); err != nil {
+	nodes, err := sanitizePluginSidebarNodes(payload.Items, manifest, 0, &count, seen)
+	if err != nil {
 		return nil, err
 	}
-	return payload.Items, nil
+	return nodes, nil
 }
 
-func validatePluginSidebarNodes(nodes []pluginSidebarNode, manifest plugin.Manifest, depth int, count *int, seen map[string]bool) error {
+// sanitizePluginSidebarNodes keeps every valid node and drops only the invalid
+// one (with its subtree), so one malformed entry never hides the whole group.
+func sanitizePluginSidebarNodes(nodes []pluginSidebarNode, manifest plugin.Manifest, depth int, count *int, seen map[string]bool) ([]pluginSidebarNode, error) {
 	if depth > pluginSidebarMaxDepth {
-		return fmt.Errorf("sidebar node depth exceeded")
+		return nil, nil
 	}
+	result := make([]pluginSidebarNode, 0, len(nodes))
 	for _, node := range nodes {
-		*count++
-		if *count > pluginSidebarMaxNodes {
-			return fmt.Errorf("sidebar node count exceeded")
+		if *count >= pluginSidebarMaxNodes {
+			return nil, fmt.Errorf("sidebar node count exceeded")
 		}
 		id := strings.TrimSpace(node.ID)
 		if id == "" || len(id) > pluginSidebarMaxIDBytes || seen[id] {
-			return fmt.Errorf("invalid or duplicate sidebar node")
+			continue
 		}
-		seen[id] = true
 		if strings.TrimSpace(node.Label) == "" || len(node.Label) > pluginSidebarMaxTextBytes ||
 			len(node.Description) > pluginSidebarMaxTextBytes || len(node.Badge) > pluginSidebarMaxTextBytes {
-			return fmt.Errorf("invalid sidebar node text")
+			continue
 		}
 		if node.Open != nil {
 			if err := validatePluginSidebarOpen(manifest, *node.Open); err != nil {
-				return err
+				continue
 			}
 		}
-		if err := validatePluginSidebarNodes(node.Children, manifest, depth+1, count, seen); err != nil {
-			return err
+		actions := sanitizePluginSidebarActions(node.Actions)
+		if len(actions) == 0 {
+			actions = nil
+		}
+		children, err := sanitizePluginSidebarNodes(node.Children, manifest, depth+1, count, seen)
+		if err != nil {
+			return nil, err
+		}
+		seen[id] = true
+		*count++
+		node.ID = id
+		node.Actions = actions
+		node.Children = children
+		result = append(result, node)
+	}
+	return result, nil
+}
+
+func sanitizePluginSidebarActions(actions []pluginSidebarAction) []pluginSidebarAction {
+	if len(actions) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(actions))
+	result := make([]pluginSidebarAction, 0, len(actions))
+	for _, action := range actions {
+		id := strings.TrimSpace(action.ID)
+		title := strings.TrimSpace(action.Title)
+		command := strings.TrimSpace(action.Command)
+		if id == "" || len(id) > pluginSidebarMaxIDBytes || seen[id] || title == "" || len(title) > pluginSidebarMaxTextBytes || command == "" {
+			continue
+		}
+		if len(action.Arguments) > pluginSidebarMaxArguments || (len(action.Arguments) > 0 && (!json.Valid(action.Arguments) || !jsonObject(action.Arguments))) {
+			continue
+		}
+		seen[id] = true
+		result = append(result, pluginSidebarAction{ID: id, Title: title, Command: command, Arguments: action.Arguments})
+		if len(result) >= pluginSidebarMaxActions {
+			break
 		}
 	}
-	return nil
+	return result
 }
 
 func validatePluginSidebarOpen(manifest plugin.Manifest, open pluginSidebarOpen) error {
@@ -240,4 +291,86 @@ func validatePluginSidebarOpen(manifest plugin.Manifest, open pluginSidebarOpen)
 func jsonObject(raw json.RawMessage) bool {
 	trimmed := bytes.TrimSpace(raw)
 	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+// PluginSidebarNodeAction runs one node context-menu action. The frontend only
+// supplies the plugin-declared command and bounded arguments the node itself
+// returned; the host re-checks that the command is public before invoking it.
+func (a *App) PluginSidebarNodeAction(pluginID, groupID, nodeID, actionID, command, argumentsJSON string) connection.QueryResult {
+	if a == nil || !a.pluginManagementAllowed() {
+		return a.pluginFailure("management_denied")
+	}
+	pluginID = strings.TrimSpace(pluginID)
+	groupID = strings.TrimSpace(groupID)
+	nodeID = strings.TrimSpace(nodeID)
+	actionID = strings.TrimSpace(actionID)
+	command = strings.TrimSpace(command)
+	if !pluginPageIdentityValid(pluginID) || !pluginPageIdentityValid(groupID) || !pluginPageIdentityValid(nodeID) || actionID == "" || command == "" {
+		return a.pluginFailure("sidebar_invalid_identity")
+	}
+	arguments := json.RawMessage(strings.TrimSpace(argumentsJSON))
+	if len(arguments) == 0 {
+		arguments = json.RawMessage(`{}`)
+	}
+	if len(arguments) > pluginSidebarMaxArguments || !json.Valid(arguments) || !jsonObject(arguments) {
+		return a.pluginFailure("sidebar_invalid_arguments")
+	}
+	ctx, cancel := context.WithTimeout(a.pluginContext(), pluginSidebarCallTimeout)
+	defer cancel()
+	status, code := a.pluginPageStatus(ctx, pluginID)
+	if code != "" {
+		return a.pluginFailure("sidebar_" + code)
+	}
+	if _, ok := resolvePluginSidebarGroup(status.Manifest, groupID); !ok {
+		return a.pluginFailure("sidebar_not_declared")
+	}
+	if !pluginPublicCommand(status.Manifest, command) {
+		return a.pluginFailure("sidebar_invalid_arguments")
+	}
+	manager, err := a.pluginManager(ctx)
+	if err != nil {
+		return a.pluginFailure("sidebar_internal")
+	}
+	payload, err := json.Marshal(map[string]any{
+		"nodeId": nodeID, "actionId": actionID, "arguments": arguments,
+	})
+	if err != nil {
+		return a.pluginFailure("sidebar_internal")
+	}
+	raw, err := manager.InvokeGeneration(ctx, status.Manifest.ID, status.Generation, command, payload)
+	if err != nil {
+		return a.pluginSidebarError(err)
+	}
+	return a.pluginResult(raw, nil)
+}
+
+// pluginPublicCommand reports whether a command is declared and not reserved by
+// a data source, AI provider or exporter.
+func pluginPublicCommand(manifest plugin.Manifest, command string) bool {
+	declared := false
+	for _, candidate := range manifest.Contributes.Commands {
+		if candidate.ID == command {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return false
+	}
+	for _, source := range manifest.Contributes.DataSources {
+		if source.Command == command {
+			return false
+		}
+	}
+	for _, provider := range manifest.Contributes.AIProviders {
+		if provider.Command == command {
+			return false
+		}
+	}
+	for _, exporter := range manifest.Contributes.Exporters {
+		if exporter.Command == command {
+			return false
+		}
+	}
+	return true
 }

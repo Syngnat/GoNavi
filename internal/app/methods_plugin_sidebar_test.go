@@ -30,14 +30,45 @@ func TestDecodePluginSidebarNodesAcceptsBoundedTree(t *testing.T) {
 	}
 }
 
-func TestDecodePluginSidebarNodesRejectsUnsafeTrees(t *testing.T) {
+func TestDecodePluginSidebarNodesIgnoresUnknownFields(t *testing.T) {
+	raw := []byte(`{"items":[{"id":"a","label":"A","icon":"ssh","meta":{"region":"eu"}}]}`)
+	nodes, err := decodePluginSidebarNodes(sidebarTestManifest(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].ID != "a" {
+		t.Fatalf("unknown fields must not drop the node: %#v", nodes)
+	}
+}
+
+func TestDecodePluginSidebarNodesSkipsOnlyInvalidNodes(t *testing.T) {
+	raw := []byte(`{"items":[{"label":"missing id"},{"id":"ok","label":"OK"},{"id":"bad-open","label":"Bad","open":{"type":"page","page":"missing"}}]}`)
+	nodes, err := decodePluginSidebarNodes(sidebarTestManifest(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].ID != "ok" {
+		t.Fatalf("invalid nodes should be skipped, got %#v", nodes)
+	}
+}
+
+func TestDecodePluginSidebarNodesSanitizesActions(t *testing.T) {
+	raw := []byte(`{"items":[{"id":"a","label":"A","actions":[{"id":"rename","title":"Rename","command":"rename","arguments":{"to":"x"}},{"id":"","title":"","command":""}]}]}`)
+	nodes, err := decodePluginSidebarNodes(sidebarTestManifest(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || len(nodes[0].Actions) != 1 || nodes[0].Actions[0].Command != "rename" {
+		t.Fatalf("unexpected actions: %#v", nodes)
+	}
+}
+
+func TestDecodePluginSidebarNodesDropsInvalidEntries(t *testing.T) {
 	cases := []struct {
 		name string
 		raw  string
 	}{
-		{"unknown node field", `{"items":[{"id":"a","label":"A","html":"<b>x</b>"}]}`},
 		{"missing id", `{"items":[{"label":"A"}]}`},
-		{"duplicate id", `{"items":[{"id":"a","label":"A"},{"id":"a","label":"B"}]}`},
 		{"empty label", `{"items":[{"id":"a","label":" "}]}`},
 		{"long label", `{"items":[{"id":"a","label":"` + strings.Repeat("x", 300) + `"}]}`},
 		{"undeclared page", `{"items":[{"id":"a","label":"A","open":{"type":"page","page":"missing"}}]}`},
@@ -45,15 +76,36 @@ func TestDecodePluginSidebarNodesRejectsUnsafeTrees(t *testing.T) {
 		{"unsupported target", `{"items":[{"id":"a","label":"A","open":{"type":"panel"}}]}`},
 		{"non object arguments", `{"items":[{"id":"a","label":"A","open":{"type":"page","page":"main","arguments":[1]}}]}`},
 		{"oversized arguments", `{"items":[{"id":"a","label":"A","open":{"type":"page","page":"main","arguments":{"v":"` + strings.Repeat("x", pluginSidebarMaxArguments) + `"}}}]}`},
-		{"too deep", deepSidebarTree(pluginSidebarMaxDepth + 1)},
-		{"too many nodes", manySidebarNodes(pluginSidebarMaxNodes + 1)},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := decodePluginSidebarNodes(sidebarTestManifest(), []byte(test.raw)); err == nil {
-				t.Fatal("unsafe sidebar tree was accepted")
+			nodes, err := decodePluginSidebarNodes(sidebarTestManifest(), []byte(test.raw))
+			if err != nil {
+				t.Fatalf("invalid entries must be skipped, not fail the group: %v", err)
+			}
+			if len(nodes) != 0 {
+				t.Fatalf("invalid entry survived: %#v", nodes)
 			}
 		})
+	}
+}
+
+func TestDecodePluginSidebarNodesKeepsTheFirstDuplicate(t *testing.T) {
+	nodes, err := decodePluginSidebarNodes(sidebarTestManifest(), []byte(`{"items":[{"id":"a","label":"A"},{"id":"a","label":"B"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].Label != "A" {
+		t.Fatalf("duplicate id must keep the first node: %#v", nodes)
+	}
+}
+
+func TestDecodePluginSidebarNodesStillBoundsTrees(t *testing.T) {
+	if _, err := decodePluginSidebarNodes(sidebarTestManifest(), []byte(manySidebarNodes(pluginSidebarMaxNodes+1))); err == nil {
+		t.Fatal("node count limit was not enforced")
+	}
+	if _, err := decodePluginSidebarNodes(sidebarTestManifest(), []byte(deepSidebarTree(pluginSidebarMaxDepth+1))); err != nil {
+		t.Fatalf("deep trees must be truncated, not rejected: %v", err)
 	}
 }
 

@@ -5,32 +5,37 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"GoNavi-Wails/internal/plugin"
 )
 
 // Event subscriptions stay bounded and die with the plugin's generation.
 const (
-	pluginEventsPermission   = "host.events"
-	pluginEventsMaxTopics    = 8
-	pluginEventsMaxPerPlugin = 4
-	pluginEventsMaxTotal     = 64
-	pluginEventsMaxQueued    = 64
-	pluginEventsDefaultWait  = 20 * time.Second
-	pluginEventsMaxWait      = 25 * time.Second
-	pluginEventsPollInterval = 400 * time.Millisecond
-	pluginEventsMaxIDBytes   = 64
+	pluginEventsPermission     = "host.events"
+	pluginEventsMaxTopics      = 8
+	pluginEventsMaxPerPlugin   = 4
+	pluginEventsMaxTotal       = 64
+	pluginEventsMaxQueued      = 64
+	pluginEventsDefaultWait    = 20 * time.Second
+	pluginEventsMaxWait        = 25 * time.Second
+	pluginEventsPollInterval   = 400 * time.Millisecond
+	pluginEventsMaxIDBytes     = 64
+	pluginEventsMaxTopicBytes  = 64
+	pluginEventsMaxCustomBytes = 16 << 10
 )
 
 var pluginEventKnownTopics = map[string]bool{
 	"preferences": true,
 	"lifecycle":   true,
 	"connections": true,
+	"custom":      true,
 }
 
 type pluginEvent struct {
@@ -54,8 +59,9 @@ type pluginEventSubscription struct {
 }
 
 type pluginEventBroker struct {
-	mu   sync.Mutex
-	subs map[string]*pluginEventSubscription
+	mu     sync.Mutex
+	subs   map[string]*pluginEventSubscription
+	custom map[string][]pluginEvent
 }
 
 type pluginEventsSubscribeArguments struct {
@@ -106,6 +112,37 @@ func pluginCapabilityEventsPoll(ctx context.Context, a *App, request pluginCapab
 		return nil, code
 	}
 	return map[string]any{"events": events}, ""
+}
+
+type pluginEventsPublishArguments struct {
+	Topic string          `json:"topic"`
+	Data  json.RawMessage `json:"data,omitempty"`
+}
+
+// pluginCapabilityEventsPublish queues one plugin-defined event for its own
+// pages and windows. It never reaches other plugins, and the payload is bounded
+// before it is stored.
+func pluginCapabilityEventsPublish(_ context.Context, a *App, request pluginCapabilityRequest) (any, string) {
+	if a == nil {
+		return nil, "internal"
+	}
+	var arguments pluginEventsPublishArguments
+	if !decodePluginPageArguments(request.Arguments, &arguments) {
+		return nil, "invalid_arguments"
+	}
+	topic := strings.TrimSpace(arguments.Topic)
+	if topic == "" || len(topic) > pluginEventsMaxTopicBytes || !utf8.ValidString(topic) {
+		return nil, "invalid_arguments"
+	}
+	data := arguments.Data
+	if len(data) == 0 {
+		data = json.RawMessage(`null`)
+	}
+	if len(data) > pluginEventsMaxCustomBytes || !json.Valid(data) {
+		return nil, "invalid_arguments"
+	}
+	a.pluginEvents.publish(request.Status.Manifest.ID, topic, data)
+	return map[string]any{"accepted": true}, ""
 }
 
 func pluginCapabilityEventsUnsubscribe(_ context.Context, a *App, request pluginCapabilityRequest) (any, string) {
@@ -215,6 +252,11 @@ func (b *pluginEventBroker) poll(ctx context.Context, a *App, status plugin.Stat
 		if ctx.Err() != nil {
 			return nil, "internal"
 		}
+		if b.customSubscribed(id, status.Manifest.ID) {
+			if events := b.drainCustom(status.Manifest.ID); len(events) > 0 {
+				return events, ""
+			}
+		}
 		b.mu.Lock()
 		current := b.subs[id]
 		if current == nil {
@@ -267,6 +309,31 @@ func (b *pluginEventBroker) poll(ctx context.Context, a *App, status plugin.Stat
 	}
 }
 
+// publish appends one plugin-defined event to that plugin's own queue.
+func (b *pluginEventBroker) publish(pluginID, topic string, data json.RawMessage) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.custom == nil {
+		b.custom = make(map[string][]pluginEvent)
+	}
+	queue := append(b.custom[pluginID], pluginEvent{Topic: "custom", Data: map[string]any{"topic": topic, "data": data}})
+	if len(queue) > pluginEventsMaxQueued {
+		queue = queue[len(queue)-pluginEventsMaxQueued:]
+	}
+	b.custom[pluginID] = queue
+}
+
+func (b *pluginEventBroker) drainCustom(pluginID string) []pluginEvent {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	queue := b.custom[pluginID]
+	if len(queue) == 0 {
+		return nil
+	}
+	b.custom[pluginID] = nil
+	return append([]pluginEvent(nil), queue...)
+}
+
 func (b *pluginEventBroker) unsubscribe(status plugin.Status, id string) bool {
 	id = strings.TrimSpace(id)
 	b.mu.Lock()
@@ -277,6 +344,13 @@ func (b *pluginEventBroker) unsubscribe(status plugin.Status, id string) bool {
 	}
 	delete(b.subs, id)
 	return true
+}
+
+func (b *pluginEventBroker) customSubscribed(id, pluginID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	sub := b.subs[id]
+	return sub != nil && sub.pluginID == pluginID && sub.topics["custom"]
 }
 
 func drainPluginEvents(sub *pluginEventSubscription) []pluginEvent {

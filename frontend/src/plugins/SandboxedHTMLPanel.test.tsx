@@ -26,3 +26,28 @@ describe('sandboxed custom HTML panel', () => {
     expect(document).toContain('<h1>Hello</h1><script>document.title = "ready"</script>');
   });
 });
+
+describe('page CSP host sources', () => {
+  it('allows the macOS wails scheme and its origin', async () => {
+    const { panelCsp } = await import('./SandboxedHTMLPanel');
+    const csp = panelCsp('wails://wails');
+    expect(csp).toContain("script-src 'unsafe-inline' wails://wails wails:");
+    expect(csp).toContain("style-src 'unsafe-inline' wails://wails wails:");
+    expect(csp).toContain("font-src data: wails://wails wails:");
+    expect(csp).toContain("connect-src 'none'");
+  });
+
+  it('allows the Windows/Linux wails.localhost origin only', async () => {
+    const { panelCsp } = await import('./SandboxedHTMLPanel');
+    const csp = panelCsp('http://wails.localhost');
+    expect(csp).toContain("script-src 'unsafe-inline' http://wails.localhost");
+    expect(csp).not.toContain('wails:');
+  });
+
+  it('adds no host source without a browser origin', async () => {
+    const { panelCsp } = await import('./SandboxedHTMLPanel');
+    const csp = panelCsp();
+    expect(csp).toContain("script-src 'unsafe-inline';");
+    expect(csp).not.toContain('wails://');
+  });
+});

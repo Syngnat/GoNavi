@@ -1446,6 +1446,10 @@ export function PluginSetEnabled(arg1, arg2) {
   return window['go']['app']['App']['PluginSetEnabled'](arg1, arg2);
 }
 
+export function PluginSidebarNodeAction(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['app']['App']['PluginSidebarNodeAction'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function PluginSidebarNodes(arg1, arg2) {
   return window['go']['app']['App']['PluginSidebarNodes'](arg1, arg2);
 }
