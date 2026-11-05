@@ -5475,6 +5475,7 @@
   "data_export.workbench.target.current_database": "Current database",
   "data_export.workbench.task.export_target": "Export {{name}}",
   "data_export.workbench.title": "Export Workbench",
+  "data_grid.cell.display_truncated": "{{total}} characters total; showing the first {{shown}}. Copy and export use the full value — double-click to view it.",
   "data_grid.action.apply": "Apply",
   "data_grid.ai_insight.prompt": "Please analyze the following query result data (first {{count}} sample rows):\n```json\n{{json}}\n```\n\nAnalyze data characteristics, find patterns, or provide business insights.",
   "data_grid.ai_prompt.analyze_page": "Please analyze the following query result data (first {{count}} sample rows):\n```json\n{{json}}\n```\n\nPlease analyze data characteristics, find patterns, or provide business insights.",

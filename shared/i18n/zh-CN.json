@@ -5475,6 +5475,7 @@
   "data_export.workbench.target.current_database": "当前数据库",
   "data_export.workbench.task.export_target": "导出 {{name}}",
   "data_export.workbench.title": "导出工作台",
+  "data_grid.cell.display_truncated": "共 {{total}} 字符，此处显示前 {{shown}}；复制与导出均为完整值，双击可查看",
   "data_grid.action.apply": "应用",
   "data_grid.ai_insight.prompt": "请帮我分析以下查询结果数据（取前 {{count}} 条示例）：\n```json\n{{json}}\n```\n\n请分析数据特征、发现规律，或者给出一些业务上的洞察。",
   "data_grid.ai_prompt.analyze_page": "请分析以下查询结果数据（前 {{count}} 行样本）：\n```json\n{{json}}\n```\n\n请分析数据特征、发现规律，或提供业务洞察。",

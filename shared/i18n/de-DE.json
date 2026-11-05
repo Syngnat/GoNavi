@@ -5475,6 +5475,7 @@
   "data_export.workbench.target.current_database": "Aktuelle Datenbank",
   "data_export.workbench.task.export_target": "{{name}} exportieren",
   "data_export.workbench.title": "Export-Workbench",
+  "data_grid.cell.display_truncated": "Insgesamt {{total}} Zeichen; hier werden die ersten {{shown}} angezeigt. Kopieren und Export verwenden den vollständigen Wert – Doppelklick zum Ansehen.",
   "data_grid.action.apply": "Anwenden",
   "data_grid.ai_insight.prompt": "Analysiere bitte die folgenden Abfrageergebnisse (die ersten {{count}} Beispieldatensätze):\n```json\n{{json}}\n```\n\nAnalysiere Datenmerkmale, erkenne Muster oder liefere geschäftliche Erkenntnisse.",
   "data_grid.ai_prompt.analyze_page": "Analysiere bitte die folgenden Abfrageergebnisse (die ersten {{count}} Beispielzeilen):\n```json\n{{json}}\n```\n\nAnalysiere Datenmerkmale, erkenne Muster oder liefere geschäftliche Erkenntnisse.",

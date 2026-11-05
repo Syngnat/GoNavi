@@ -16,10 +16,11 @@ import { hasDataGridFindRenderVersionChanged } from '../../../utils/dataGridFind
 import type { Item } from './dataGridTypes';
 import {
     type CellDisplayConnectionLike,
+    describeCellOverflow,
     isCellValueEqualForRender,
     isCellValueEqualForDiff,
 } from './dataGridCellDisplay';
-import { GONAVI_ROW_KEY, useDataGridI18nLanguage } from './dataGridCellKeys';
+import { GONAVI_ROW_KEY, TABLE_CELL_PREVIEW_MAX_CHARS, useDataGridI18nLanguage } from './dataGridCellKeys';
 import {
     getCellFieldName,
     setCellFieldValue,
@@ -490,8 +491,20 @@ export const EditableCell: React.FC<EditableCellProps> = React.memo(({
     );
   } else if (cellContextMenuContext) {
     // 非编辑模式（只读查询结果）也绑定右键菜单，支持复制为 INSERT/JSON/CSV 等操作
+    // 内容被显示层截断时补一个 title：用户看到 `…` 能立刻知道总长度，
+    // 也就能判断复制/导出拿到的是完整值。不往单元格里加文字，避免挤列宽。
+    const overflow = describeCellOverflow(record?.[dataIndex]);
     childNode = (
-      <div onContextMenu={handleContextMenu} style={READONLY_CELL_WRAP_STYLE}>
+      <div
+        onContextMenu={handleContextMenu}
+        style={READONLY_CELL_WRAP_STYLE}
+        title={overflow
+          ? t('data_grid.cell.display_truncated', {
+              total: overflow.totalChars.toLocaleString(),
+              shown: TABLE_CELL_PREVIEW_MAX_CHARS.toLocaleString(),
+            })
+          : undefined}
+      >
         {children}
       </div>
     );
