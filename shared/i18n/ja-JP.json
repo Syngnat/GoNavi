@@ -5475,6 +5475,7 @@
   "data_export.workbench.target.current_database": "現在のデータベース",
   "data_export.workbench.task.export_target": "{{name}} をエクスポート",
   "data_export.workbench.title": "エクスポートワークベンチ",
+  "data_grid.cell.display_truncated": "全 {{total}} 文字。ここでは先頭 {{shown}} 文字を表示。コピーとエクスポートは完全な値です。ダブルクリックで表示。",
   "data_grid.action.apply": "適用",
   "data_grid.ai_insight.prompt": "次のクエリ結果データを分析してください（先頭 {{count}} 件のサンプル）：\n```json\n{{json}}\n```\n\nデータの特徴、パターン、または業務上の洞察を分析してください。",
   "data_grid.ai_prompt.analyze_page": "次のクエリ結果データ（先頭 {{count}} 件のサンプル行）を分析してください:\n```json\n{{json}}\n```\n\nデータの特徴、傾向、またはビジネス上の示唆を分析してください。",

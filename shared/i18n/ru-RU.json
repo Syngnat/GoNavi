@@ -5475,6 +5475,7 @@
   "data_export.workbench.target.current_database": "Текущая база данных",
   "data_export.workbench.task.export_target": "Экспорт {{name}}",
   "data_export.workbench.title": "Рабочая область экспорта",
+  "data_grid.cell.display_truncated": "Всего {{total}} символов; показаны первые {{shown}}. Копирование и экспорт используют полное значение — двойной щелчок для просмотра.",
   "data_grid.action.apply": "Применить",
   "data_grid.ai_insight.prompt": "Проанализируй следующие результаты запроса (первые {{count}} строк примера):\n```json\n{{json}}\n```\n\nПроанализируй характеристики данных, найди закономерности или предложи бизнес-инсайты.",
   "data_grid.ai_prompt.analyze_page": "Проанализируй следующие данные результата запроса (первые {{count}} строк-образцов):\n```json\n{{json}}\n```\n\nОпредели особенности данных, найди закономерности или дай бизнес-выводы.",

@@ -269,3 +269,20 @@ export const isCellValueEqualForRender = (left: any, right: any): boolean => {
     }
     return left === right;
 };
+
+/**
+ * 描述单元格内容是否被显示层截断。
+ *
+ * 单元格只显示前 TABLE_CELL_PREVIEW_MAX_CHARS 个字符，用户看到 `…` 时无法
+ * 分辨「只是显示省略」还是「值本身被截断」——后者会影响他敢不敢直接拿去执行。
+ * 这里只给出总字符数，由渲染层放进 title，不往单元格里塞额外文字（会挤列宽）。
+ *
+ * 复制与导出都走原始值，不受这个截断影响。
+ */
+export const describeCellOverflow = (
+    val: unknown,
+): { totalChars: number } | null => {
+    if (typeof val !== 'string') return null;
+    if (val.length <= TABLE_CELL_PREVIEW_MAX_CHARS) return null;
+    return { totalChars: val.length };
+};
