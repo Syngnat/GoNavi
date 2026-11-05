@@ -52,7 +52,7 @@ export interface PluginManifest {
   permissions: string[];
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
-  contributes?: { commands?: PluginCommand[]; panels?: PluginPanel[]; dataSources?: { id: string; name: string; dialect: string; command: string; defaultPort?: number; readOnly: boolean }[]; aiProviders?: { id: string; name: string; command: string; icon?: string; supportsTools: boolean; supportsImages: boolean; models: { id: string; name: string; contextWindow: number; maxOutputTokens: number }[] }[]; exporters?: { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }[]; skills?: { id: string; name: string; description: string; entry: string; resources?: string[] }[]; pages?: PluginPage[]; navigation?: PluginNavigation[]; connectionActions?: PluginConnectionAction[]; sidebar?: PluginSidebarGroup[]; views?: PluginView[]; keybindings?: PluginKeybinding[] };
+  contributes?: { commands?: PluginCommand[]; panels?: PluginPanel[]; dataSources?: { id: string; name: string; dialect: string; command: string; defaultPort?: number; readOnly: boolean }[]; aiProviders?: { id: string; name: string; command: string; icon?: string; supportsTools: boolean; supportsImages: boolean; models: { id: string; name: string; contextWindow: number; maxOutputTokens: number }[] }[]; exporters?: { id: string; name: string; command: string; extension: string; contentType: string; streaming?: boolean }[]; skills?: { id: string; name: string; description: string; entry: string; resources?: string[] }[]; pages?: PluginPage[]; navigation?: PluginNavigation[]; connectionActions?: PluginConnectionAction[]; sidebar?: PluginSidebarGroup[]; views?: PluginView[]; keybindings?: PluginKeybinding[]; settingsSections?: PluginSettingsSection[] };
   backend?: { default?: { executable: string; args?: string[]; runtime?: string }; platforms?: Record<string, { executable: string; args?: string[]; runtime?: string }> };
   window?: { entry: string; title?: string; width?: number; height?: number };
 }
@@ -83,6 +83,20 @@ export interface PluginKeybinding {
   /** e.g. `CmdOrCtrl+Shift+T`; modifiers are order-insensitive. */
   keys: string;
   target: { type: 'page' | 'window'; page?: string };
+}
+
+/**
+ * One plugin page embedded in a host-owned settings slot. The host keeps the
+ * slot position and fallback entry, so the setting stays in place whether or not
+ * a plugin provides it.
+ */
+export interface PluginSettingsSection {
+  id: string;
+  slot: 'appearance.background';
+  page: string;
+  title?: string;
+  description?: string;
+  order?: number;
 }
 
 /** One page docked to a host surface; version one supports the right dock. */

@@ -13900,5 +13900,11 @@
   "plugin.ai_provider.models_add_placeholder": "напр. claude-fable-5-1",
   "plugin.ai_provider.models_source": "Названия и размер контекста берутся из models.dev; для неизвестных моделей показывается исходный ID.",
   "plugin.ai_provider.models_catalog_unavailable": "Каталог models.dev сейчас недоступен; показываются исходные ID моделей.",
-  "query_editor.action.save_to_database": "Сохранить в базу данных"
+  "query_editor.action.save_to_database": "Сохранить в базу данных",
+  "app.theme.background.plugin.missing": "Настройки фонового изображения перенесены в плагин. Установите его, чтобы пользоваться этим разделом здесь.",
+  "app.theme.background.plugin.install": "Открыть менеджер плагинов",
+  "plugin.permission.host_appearance_read": "Читать настройки оформления хоста",
+  "plugin.permission.host_appearance_read.description": "Читать фоновое изображение, прозрачность, положение и состояние встроенной галереи",
+  "plugin.permission.host_appearance_write": "Изменять настройки оформления хоста",
+  "plugin.permission.host_appearance_write.description": "Менять фоновое изображение, прозрачность и положение, включать его и управлять встроенной галереей"
 }

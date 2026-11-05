@@ -13900,5 +13900,11 @@
   "plugin.ai_provider.models_add_placeholder": "如 claude-fable-5-1",
   "plugin.ai_provider.models_source": "名稱與上下文視窗來自 models.dev；目錄裡沒有的模型顯示原始 ID。",
   "plugin.ai_provider.models_catalog_unavailable": "models.dev 目錄暫時不可用，先顯示原始模型 ID。",
-  "query_editor.action.save_to_database": "儲存到資料庫"
+  "query_editor.action.save_to_database": "儲存到資料庫",
+  "app.theme.background.plugin.missing": "背景圖片設定已改為外掛，安裝外掛後在此處繼續使用。",
+  "app.theme.background.plugin.install": "開啟外掛管理",
+  "plugin.permission.host_appearance_read": "讀取宿主外觀設定",
+  "plugin.permission.host_appearance_read.description": "讀取背景圖片、透明度、位置與內建圖庫狀態",
+  "plugin.permission.host_appearance_write": "修改宿主外觀設定",
+  "plugin.permission.host_appearance_write.description": "更換背景圖片、調整透明度與位置、啟用開關及管理內建圖庫"
 }

@@ -13900,5 +13900,11 @@
   "plugin.ai_provider.models_add_placeholder": "如 claude-fable-5-1",
   "plugin.ai_provider.models_source": "名称与上下文窗口来自 models.dev；目录里没有的模型显示原始 ID。",
   "plugin.ai_provider.models_catalog_unavailable": "models.dev 目录暂不可用，先显示原始模型 ID。",
-  "query_editor.action.save_to_database": "保存到数据库"
+  "query_editor.action.save_to_database": "保存到数据库",
+  "app.theme.background.plugin.missing": "背景图片设置已改为插件，安装插件后在此处继续使用。",
+  "app.theme.background.plugin.install": "打开插件管理",
+  "plugin.permission.host_appearance_read": "读取宿主外观设置",
+  "plugin.permission.host_appearance_read.description": "读取背景图片、透明度、位置与内置图库状态",
+  "plugin.permission.host_appearance_write": "修改宿主外观设置",
+  "plugin.permission.host_appearance_write.description": "更换背景图片、调整透明度与位置、启用开关及管理内置图库"
 }

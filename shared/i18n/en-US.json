@@ -13900,5 +13900,11 @@
   "plugin.ai_provider.models_add_placeholder": "e.g. claude-fable-5-1",
   "plugin.ai_provider.models_source": "Names and context windows come from models.dev; models the catalog does not know keep their raw ID.",
   "plugin.ai_provider.models_catalog_unavailable": "The models.dev catalog is unavailable right now; raw model IDs are shown.",
-  "query_editor.action.save_to_database": "Save to database"
+  "query_editor.action.save_to_database": "Save to database",
+  "app.theme.background.plugin.missing": "Background image settings moved to a plugin. Install it to keep using this section here.",
+  "app.theme.background.plugin.install": "Open plugin manager",
+  "plugin.permission.host_appearance_read": "Read host appearance settings",
+  "plugin.permission.host_appearance_read.description": "Read the background image, opacity, position and built-in gallery state",
+  "plugin.permission.host_appearance_write": "Change host appearance settings",
+  "plugin.permission.host_appearance_write.description": "Replace the background image, adjust opacity and position, toggle it and manage the built-in gallery"
 }

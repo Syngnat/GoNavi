@@ -60,6 +60,13 @@ export function createPageBridgeRuntime(token: string, preferences?: PluginHostP
     '      }',
     '    });',
     '  }',
+    // Embedded settings sections need the frame to report its natural height: the
+    // host cannot measure content inside an opaque-origin document.
+    '  function resize(height) {',
+    '    var value = Number(height);',
+    '    if (!isFinite(value)) return;',
+    '    try { post({ type: "gonavi:page-resize", token: token, height: value }); } catch (error) { return; }',
+    '  }',
     '  function notify(message, type) {',
     '    try {',
     '      post({ type: "gonavi:page-call", token: token, id: "n" + (++seq).toString(36), method: "ui.notify", arguments: { message: String(message), type: type === undefined ? "info" : String(type) } });',
@@ -84,7 +91,7 @@ export function createPageBridgeRuntime(token: string, preferences?: PluginHostP
     '    }',
     '    if (!port) settle(data);',
     '  });',
-    '  window.gonavi = { call: call, notify: notify, __gonaviBridge: true };',
+    '  window.gonavi = { call: call, notify: notify, resize: resize, __gonaviBridge: true };',
     '  if (channel) {',
     '    try {',
     '      parentPost({ type: "gonavi:page-ready", token: token }, "*", [channel.port2]);',

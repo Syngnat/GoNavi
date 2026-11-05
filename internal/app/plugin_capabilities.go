@@ -661,6 +661,105 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Timeout:        5 * time.Minute,
 		Handler:        pluginCapabilityFilesSave,
 	})
+	// Appearance capabilities are executed by the frontend page bridge because the
+	// background store and gallery adapters live in the host window. The catalog
+	// still lists them so pages can discover the contract and see whether their
+	// manifest holds the matching permission.
+	frontendHosted := func(_ context.Context, _ *App, _ pluginCapabilityRequest) (any, string) {
+		return nil, "unsupported"
+	}
+	add(pluginCapabilitySpec{
+		Name:           "appearance.background.state",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Read the current background state (source, opacity, position, enabled).",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 16 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        frontendHosted,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "appearance.background.image",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Read the custom background image as a JPEG data URL.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 2 << 20,
+		Timeout:        5 * time.Second,
+		Handler:        frontendHosted,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "appearance.background.set-custom",
+		Permission:     plugin.AppearanceWritePermission,
+		Description:    "Replace the background with a prepared JPEG data URL.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		Mutating:       true,
+		MaxArgsBytes:   2 << 20,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        frontendHosted,
+	})
+	for _, name := range []string{
+		"appearance.background.clear", "appearance.background.reset",
+		"appearance.background.set-enabled", "appearance.background.set-opacity",
+		"appearance.background.set-position", "appearance.background.select-builtin",
+		"appearance.background.cancel-builtin", "appearance.background.resolve",
+	} {
+		add(pluginCapabilitySpec{
+			Name:           name,
+			Permission:     plugin.AppearanceWritePermission,
+			Description:    "Change one background setting; executed in the host window.",
+			Channels:       page,
+			Runtimes:       desktopWeb,
+			Mutating:       true,
+			MaxArgsBytes:   8 << 10,
+			MaxResultBytes: 1 << 10,
+			Timeout:        5 * time.Second,
+			Handler:        frontendHosted,
+		})
+	}
+	add(pluginCapabilitySpec{
+		Name:           "appearance.gallery.state",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Read the built-in background gallery catalog, installed entries and selection progress.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 256 << 10,
+		Timeout:        10 * time.Second,
+		Handler:        frontendHosted,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "appearance.gallery.thumbnail",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Fetch one validated gallery thumbnail as a data URL.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 512 << 10,
+		Timeout:        30 * time.Second,
+		Handler:        frontendHosted,
+	})
+	for _, name := range []string{
+		"appearance.gallery.refresh", "appearance.gallery.download",
+		"appearance.gallery.cancel", "appearance.gallery.remove",
+	} {
+		add(pluginCapabilitySpec{
+			Name:           name,
+			Permission:     plugin.AppearanceWritePermission,
+			Description:    "Manage background gallery downloads and installed entries.",
+			Channels:       page,
+			Runtimes:       desktopWeb,
+			Mutating:       true,
+			MaxArgsBytes:   8 << 10,
+			MaxResultBytes: 256 << 10,
+			Timeout:        10 * time.Second,
+			Handler:        frontendHosted,
+		})
+	}
 	add(pluginCapabilitySpec{
 		Name:           "events.subscribe",
 		Permission:     pluginEventsPermission,

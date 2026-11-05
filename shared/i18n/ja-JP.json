@@ -13900,5 +13900,11 @@
   "plugin.ai_provider.models_add_placeholder": "例: claude-fable-5-1",
   "plugin.ai_provider.models_source": "名称とコンテキストウィンドウは models.dev から取得します。カタログに無いモデルは元の ID を表示します。",
   "plugin.ai_provider.models_catalog_unavailable": "models.dev のカタログが一時的に利用できないため、元のモデル ID を表示します。",
-  "query_editor.action.save_to_database": "データベースに保存"
+  "query_editor.action.save_to_database": "データベースに保存",
+  "app.theme.background.plugin.missing": "背景画像の設定はプラグインに移動しました。インストールするとここで引き続き使用できます。",
+  "app.theme.background.plugin.install": "プラグイン管理を開く",
+  "plugin.permission.host_appearance_read": "ホストの外観設定を読み取る",
+  "plugin.permission.host_appearance_read.description": "背景画像・透明度・位置・内蔵ギャラリーの状態を読み取ります",
+  "plugin.permission.host_appearance_write": "ホストの外観設定を変更する",
+  "plugin.permission.host_appearance_write.description": "背景画像の変更、透明度・位置の調整、有効化、内蔵ギャラリーの管理を行います"
 }

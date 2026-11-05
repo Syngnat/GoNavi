@@ -243,7 +243,7 @@ export function decodeManifest(data: unknown): PluginManifest {
   }
   if (m.contributes != null) {
     const c = requireRecord(m.contributes);
-    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings']);
+    onlyKeys(c, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings', 'settingsSections']);
     const contributionLimits: Record<string, number> = { commands: 128, panels: 32 };
     for (const key of ['commands', 'panels']) {
       const entries = c[key];
@@ -407,6 +407,31 @@ export function decodeManifest(data: unknown): PluginManifest {
         if (view.location !== 'right' && view.location !== 'bottom') invalid();
         if (view.icon != null && !validPackageIcon(view.icon)) invalid();
         if (view.order != null && (typeof view.order !== 'number' || !Number.isInteger(view.order) || view.order < -1000 || view.order > 1000)) invalid();
+      }
+    }
+    if (c.settingsSections != null) {
+      if (!Array.isArray(c.settingsSections) || c.settingsSections.length > 8) invalid();
+      if (!(m.permissions as string[]).includes('ui.pages')) invalid();
+      const pageIDs = new Set<string>();
+      for (const page of Array.isArray(c.pages) ? c.pages : []) {
+        const id = requireRecord(page).id;
+        if (typeof id === 'string') pageIDs.add(id);
+      }
+      const seenSections = new Set<string>();
+      const seenSlots = new Set<string>();
+      for (const item of c.settingsSections) {
+        const section = requireRecord(item);
+        onlyKeys(section, ['id', 'slot', 'page', 'title', 'description', 'order']);
+        if (!validLocalID(section.id) || seenSections.has(section.id as string)) invalid();
+        seenSections.add(section.id as string);
+        if (typeof section.page !== 'string' || !pageIDs.has(section.page)) invalid();
+        if (section.slot !== 'appearance.background' || seenSlots.has(section.slot as string)) invalid();
+        seenSlots.add(section.slot as string);
+        if (section.title != null
+          && (typeof section.title !== 'string' || !utf8Within(section.title, 128) || section.title.includes('\u0000'))) invalid();
+        if (section.description != null
+          && (typeof section.description !== 'string' || !utf8Within(section.description, 512) || section.description.includes('\u0000'))) invalid();
+        if (section.order != null && (typeof section.order !== 'number' || !Number.isInteger(section.order) || section.order < -1000 || section.order > 1000)) invalid();
       }
     }
     if (c.sidebar != null) {
