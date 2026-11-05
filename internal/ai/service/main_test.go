@@ -23,6 +23,11 @@ func TestMain(m *testing.M) {
 	// 把那些 hook 的断言打成随机失败（expected lookup for opencode, got "zcode"）。
 	localCLICachePrewarmDisabled.Store(true)
 
+	// 桌面客户端检测默认关闭：开发机上真的装着 /Applications/Claude.app，
+	// 会让「未安装 CLI 应被拒绝」这类用例在本机通过、在 CI 失败（或反过来）。
+	// 需要验证桌面端的用例自己覆盖这个钩子。
+	localMCPClientDesktopAppPathFunc = func(string) string { return "" }
+
 	code := m.Run()
 	logger.Close()
 	_ = os.RemoveAll(testLogDir)
