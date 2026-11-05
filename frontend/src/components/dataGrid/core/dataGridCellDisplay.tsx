@@ -10,7 +10,7 @@ import {
     DATA_GRID_VIRTUAL_EDIT_RENDER_VERSION,
     CELL_KEY_SEP,
 } from './dataGridCellKeys';
-import { isPlainObject, normalizeDateTimeString } from './dataGridCellValues';
+import { isPlainObject, normalizeDateTimeString, shouldOpenModalEditor } from './dataGridCellValues';
 import type { Item, VirtualEditingCellState } from './dataGridTypes';
 
 // --- Helper: Format Value ---
@@ -286,3 +286,15 @@ export const describeCellOverflow = (
     if (val.length <= TABLE_CELL_PREVIEW_MAX_CHARS) return null;
     return { totalChars: val.length };
 };
+
+/**
+ * 只读单元格双击是否应打开查看器。
+ *
+ * 网格只渲染前 TABLE_CELL_PREVIEW_MAX_CHARS 个字符，并在 title 中提示
+ * 「双击可查看」；因此判定必须覆盖所有显示层已截断的值，否则 240~2000 字符的
+ * 单行文本既看不到完整内容、双击又没有反应。可编辑单元格仍走
+ * shouldOpenModalEditor（避免双击普通长文本误触发模态编辑）。
+ */
+export const shouldOpenReadOnlyCellViewer = (val: unknown): boolean => (
+    shouldOpenModalEditor(val) || describeCellOverflow(val) !== null
+);

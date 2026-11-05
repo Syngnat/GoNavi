@@ -48,6 +48,9 @@ describe('sqlEmbeddedWrite', () => {
       // FOR UPDATE 是行锁语义，其 update 不应被当作写操作。
       ['mysql', 'SELECT * FROM t WHERE id = 1 FOR UPDATE'],
       ['postgres', 'SELECT * FROM t WHERE id = 1 FOR UPDATE OF t NOWAIT'],
+      ['postgres', 'SELECT * FROM t FOR NO KEY UPDATE'],
+      ['postgres', 'SELECT * FROM t FOR NO KEY UPDATE OF t SKIP LOCKED'],
+      ['mysql', 'WITH x AS (SELECT 1) SELECT * FROM x FOR UPDATE'],
     ];
 
     for (const [dbType, sql] of cases) {

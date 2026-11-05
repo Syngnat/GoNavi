@@ -12,7 +12,7 @@ import { CancelQuery } from '../../../../wailsjs/go/app/App';
 import { getDataSourceCapabilities } from '../../../utils/dataSourceCapabilities';
 import {
     findConnectionMutatingStatements,
-    findPotentiallyMutatingConnectionStatements,
+    findPotentiallyStateChangingConnectionStatements,
 } from '../../../utils/connectionReadOnly';
 import { confirmProductionRisk } from '../../../utils/productionRiskConfirm';
 import type { ConnectionConfig } from '../../../types';
@@ -247,7 +247,9 @@ export const useQueryEditorRun = ({
 
       // 写操作判定要复用同一结果：生产确认和"不可撤销"提示必须基于同一判断，
       // 各算一遍会在边界 SQL 上出现"确认了却没提示"或反之的漂移。
-      const mutatingStatements = findPotentiallyMutatingConnectionStatements(conn.config, executableSQL);
+      // 生产确认只对「可能改变数据/结构/服务器状态」的语句弹窗：
+      // 会话级 SET/USE 不改变任何持久状态，不应要求逐条确认。
+      const mutatingStatements = findPotentiallyStateChangingConnectionStatements(conn.config, executableSQL);
       if (mutatingStatements.length > 0) {
           const approved = await confirmProductionRisk({
               connection: conn,

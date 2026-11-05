@@ -38,7 +38,7 @@ import { resolveReportedQueryDurationMs } from '../queryEditorExecutionTimer';
 import {
     collectOracleCompileTargets, loadOracleCompileErrors, formatOracleCompileErrors,
 } from '../../sidebar/oracleObjectCompilation';
-import { findPotentiallyMutatingConnectionStatements } from '../../../utils/connectionReadOnly';
+import { findPotentiallyDataOrSchemaChangingConnectionStatements } from '../../../utils/connectionReadOnly';
 import { dispatchSidebarSqlDataRefresh } from '../queryEditorSidebarRefresh';
 import { handleQueryEditorRunFailure } from './queryEditorRunFailure';
 import { collectQueryEditorRunResultSets } from './queryEditorRunResultSets';
@@ -47,7 +47,7 @@ import {
 } from '../queryEditorSqlServerResultMessages';
 import {
     aggregateQueryEditorStatementResults, collectQueryEditorStatementSummaryEntries,
-    countQueryEditorAffectedRowResults, isQueryEditorRowCountMeaninglessStatement,
+    countQueryEditorAffectedRowResults, collectQueryEditorUnmanagedRollbackableStatements,
 } from './queryEditorRunStatementSummary';
 import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 import type { TabData, ConnectionConfig } from '../../../types';
@@ -510,7 +510,7 @@ export const runQueryEditorSqlStatements = async ({
         ? sourceStatements
         : sourceStatements.slice(0, confirmedStatementCount);
     const dataChanged = !res.transactionPending && (!useManagedTransaction || res.success)
-        && findPotentiallyMutatingConnectionStatements(config, committedStatements.join(';\n')).length > 0;
+        && findPotentiallyDataOrSchemaChangingConnectionStatements(config, committedStatements.join(';\n')).length > 0;
     if (schemaChanged || dataChanged) {
         dispatchSidebarSqlDataRefresh({
             connectionId: conn.id,
@@ -534,11 +534,11 @@ export const runQueryEditorSqlStatements = async ({
     // 前端自己的 useManagedTransaction 判定比后端宽松，直接采信它会把 DDL 误报成"已托管"，
     // 所以这里以后端的实际响应为准。必须显式告知，不能静默假装已保护（§3.2 验收 3）。
     //
-    // 只对可回滚却被跳过事务的写语句告警：DDL / TRUNCATE 本身就没有回滚语义
-    // （MySQL 隐式提交），一次几百条 ALTER 时每条都要弹一次告警，纯噪音；
-    // 这类语句由结果区的「执行摘要」说明结构变更已直接生效。
-    const unmanagedRollbackableStatements = mutatingStatements.filter(
-        (statement) => !isQueryEditorRowCountMeaninglessStatement(statement, normalizedDbType),
+    // 只对「可回滚却被跳过事务」的写语句告警：DDL / TRUNCATE 本身没有回滚语义
+    // （MySQL 隐式提交），SET / USE 这类会话级命令也不修改业务数据；一次几百条
+    // ALTER 或每次 SET SESSION 都弹一次告警只会变成噪音。
+    const unmanagedRollbackableStatements = collectQueryEditorUnmanagedRollbackableStatements(
+        mutatingStatements, normalizedDbType,
     );
     if (res.success && unmanagedRollbackableStatements.length > 0 && !res.transactionPending) {
         message.warning(translate('query_editor.transaction.message.executed_without_transaction'), 6);

@@ -160,6 +160,7 @@ export const hasEmbeddedWriteStatement = (statement: string, dbType = ''): boole
 export const firstEmbeddedWriteKeyword = (statement: string, dbType = ''): string => {
   const text = String(statement || '');
   let previousToken = '';
+  let previousPreviousToken = '';
   let updateNeedsOfCheck = false;
 
   for (let index = 0; index < text.length;) {
@@ -179,23 +180,30 @@ export const firstEmbeddedWriteKeyword = (statement: string, dbType = ''): strin
     }
     const token = text.slice(start, index).toLowerCase();
 
-    // `FOR UPDATE OF`：update 属于只读行锁语法，仅当后继为 `of` 时豁免，
-    // 否则 `SELECT ... FOR UPDATE DELETE FROM t` 会漏判其中的 delete。
+    // `FOR UPDATE OF` / `FOR NO KEY UPDATE OF`：update 属于只读行锁语法，
+    // 仅当后继为 `of` 时豁免，否则 `SELECT ... FOR UPDATE DELETE FROM t`
+    // 会漏判其中的 delete。
     if (updateNeedsOfCheck) {
       updateNeedsOfCheck = false;
       if (token === 'of') {
+        previousPreviousToken = previousToken;
         previousToken = token;
         continue;
       }
     }
 
     if (token === 'with') {
+      previousPreviousToken = previousToken;
       previousToken = token;
       continue;
     }
-    if (token === 'update' && previousToken === 'for') {
-      // 交给下一轮确认后继是否为 `of`。
+    if (
+      token === 'update'
+      && (previousToken === 'for' || (previousToken === 'key' && previousPreviousToken === 'no'))
+    ) {
+      // `FOR UPDATE` / `FOR NO KEY UPDATE`：交给下一轮确认后继是否为 `of`。
       updateNeedsOfCheck = true;
+      previousPreviousToken = previousToken;
       previousToken = token;
       continue;
     }
@@ -207,6 +215,7 @@ export const firstEmbeddedWriteKeyword = (statement: string, dbType = ''): strin
       return token;
     }
 
+    previousPreviousToken = previousToken;
     previousToken = token;
   }
   return '';

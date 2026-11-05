@@ -6,6 +6,7 @@ import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 import {
     aggregateQueryEditorStatementResults,
     collectQueryEditorStatementSummaryEntries,
+    collectQueryEditorUnmanagedRollbackableStatements,
     countQueryEditorAffectedRowResults,
     isQueryEditorRowCountMeaninglessStatement,
     isQueryEditorStatementSummary,
@@ -58,6 +59,41 @@ describe('queryEditorRunStatementSummary', () => {
         expect(isQueryEditorRowCountMeaninglessStatement('TRUNCATE TABLE t')).toBe(true);
         expect(isQueryEditorRowCountMeaninglessStatement('UPDATE t SET c = 1')).toBe(false);
         expect(isQueryEditorRowCountMeaninglessStatement('DELETE FROM t WHERE id = 1')).toBe(false);
+    });
+
+    it('drops non-data statements from the unmanaged-write warning', () => {
+        const statements = [
+            'SET SESSION group_concat_max_len = 16777216',
+            'SET NAMES utf8mb4',
+            "SET @@SESSION.sql_mode = ''",
+            'SET @visit_count = 1',
+            'USE demo',
+            'BEGIN',
+            'COMMIT',
+            'ANALYZE TABLE t',
+            'UPDATE STATISTICS t',
+            'UPDATE t SET c = 1',
+            'CALL refresh_cache()',
+            'CREATE TABLE t (id int)',
+            'TRUNCATE TABLE t',
+            'SET GLOBAL max_connections = 1000',
+            "SET PASSWORD = 'secret'",
+            'SET @x = 1 DELETE FROM t',
+            "USE demo LOAD DATA INFILE '/tmp/a' INTO TABLE t",
+            'VACUUM FULL t',
+            'OPTIMIZE TABLE t',
+        ];
+        expect(collectQueryEditorUnmanagedRollbackableStatements(statements, 'mysql')).toEqual([
+            "SET @@SESSION.sql_mode = ''",
+            'UPDATE t SET c = 1',
+            'CALL refresh_cache()',
+            'SET GLOBAL max_connections = 1000',
+            "SET PASSWORD = 'secret'",
+            'SET @x = 1 DELETE FROM t',
+            "USE demo LOAD DATA INFILE '/tmp/a' INTO TABLE t",
+            'VACUUM FULL t',
+            'OPTIMIZE TABLE t',
+        ]);
     });
 
     it('keeps affected rows only for DML entries', () => {

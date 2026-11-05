@@ -100,13 +100,6 @@ func (a *App) dbQueryMulti(
 		}
 		return message
 	}
-	buildSequentialFallbackMessage := func(statementCount int) string {
-		return a.appText("db.backend.message.multi_statement_sequential_fallback", map[string]any{
-			"dbType": runConfig.Type,
-			"count":  statementCount,
-		})
-	}
-
 	query = sanitizeSQLForPgLike(resolveDDLDBType(config), query)
 	if err := a.ensureDataSourceQueryCapability(config); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
@@ -760,11 +753,11 @@ func (a *App) dbQueryMulti(
 	if resultSets == nil {
 		resultSets = []connection.ResultSetData{}
 	}
-	// 回退到逐条执行且有多条语句时，附加提示信息
-	var fallbackMsg string
+	// 逐条执行是实现细节：结果集已按语句序号返回，不再向界面发提示，
+	// 只在日志里保留一条记录，便于排查多语句批次的执行路径。
 	if len(statements) > 1 {
-		fallbackMsg = buildSequentialFallbackMessage(len(statements))
+		logger.Infof("DBQueryMulti 逐条执行多语句批次：%s 语句数=%d", formatConnSummary(runConfig), len(statements))
 	}
 	applyRowBudgetTruncation(resultSets, rowBudget)
-	return summarizeMultiStatementResultWithCommitMode(connection.QueryResult{Success: true, Data: resultSets, QueryID: queryID, Message: fallbackMsg}, executedCount, 0, summaryBoundaryMode, summaryCommitMode, false)
+	return summarizeMultiStatementResultWithCommitMode(connection.QueryResult{Success: true, Data: resultSets, QueryID: queryID}, executedCount, 0, summaryBoundaryMode, summaryCommitMode, false)
 }

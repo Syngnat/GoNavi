@@ -419,7 +419,7 @@ func TestMethodsDBQueryMultiFailureUsesEnglishMessages(t *testing.T) {
 	}
 }
 
-func TestMethodsDBQueryMultiSequentialFallbackUsesEnglishMessages(t *testing.T) {
+func TestMethodsDBQueryMultiSequentialFallbackAddsNoNotice(t *testing.T) {
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -445,8 +445,13 @@ func TestMethodsDBQueryMultiSequentialFallbackUsesEnglishMessages(t *testing.T) 
 	if !result.Success {
 		t.Fatalf("expected DBQueryMulti success, got failure: %+v", result)
 	}
-	if result.Message != "The current data source (mysql) did not use the native multi-statement result path for this execution. It was automatically split into 2 statements and executed sequentially." {
-		t.Fatalf("expected localized sequential fallback message, got %q", result.Message)
+	// 逐条执行属于实现细节：结果集已按语句序号返回，不再附加界面提示。
+	if result.Message != "" {
+		t.Fatalf("expected no sequential fallback notice, got %q", result.Message)
+	}
+	resultSets, ok := result.Data.([]connection.ResultSetData)
+	if !ok || len(resultSets) != 2 {
+		t.Fatalf("expected 2 result sets, got %#v", result.Data)
 	}
 }
 

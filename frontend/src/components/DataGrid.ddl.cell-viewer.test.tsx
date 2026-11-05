@@ -104,8 +104,7 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
-  // 只读结果集双击普通单行文本应保持浏览器默认选中行为，
-  // 不能弹查看器（与可编辑结果集走同一 shouldOpenModalEditor 判定）。
+  // 只读结果集双击普通单行文本应保持浏览器默认选中行为，不能弹查看器。
   it('leaves plain single-line text cells to the default double-click selection', async () => {
     const rows = [{ __gonavi_row_key__: 'row-1', payload: 'Ada' }];
 
@@ -157,6 +156,57 @@ describe('DataGrid DDL interactions', () => {
     expect(renderer!.root.findAllByProps({
       'data-modal-title': t('data_grid.cell_viewer.title_with_column', { column: 'payload' }),
     })).toHaveLength(0);
+    renderer!.unmount();
+  });
+
+  // 显示层只渲染前 240 字符并提示「双击可查看」；240~2000 字符的单行非 JSON
+  // 文本（例如拼接出来的 redis 命令）也必须能打开查看器，否则提示与行为不一致。
+  it('opens a truncated single-line non-JSON cell in the viewer on double-click', async () => {
+    const fullValue = `HSET Dialog:L01417 "${'L01417_c3e3beac_'.repeat(80)}" '{"@class":"com.mkefu.bean.cache.DialogueCacheInfoCompatibility"}'`;
+    expect(fullValue.length).toBeGreaterThan(240);
+    expect(fullValue.length).toBeLessThan(2000);
+
+    const rows = [{ __gonavi_row_key__: 'row-1', redis_cmd: fullValue }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['redis_cmd']}
+          loading={false}
+          tableName="query_result"
+          dbName="main"
+          connectionId="conn-1"
+          readOnly
+        />,
+      );
+    });
+    await waitForEffects();
+
+    expect(formatCellDisplayText(fullValue)).toContain('…');
+
+    const doubleClickSurface = renderer!.root.findAll(
+      (node) => typeof node.props.onDoubleClickCapture === 'function',
+    )[0];
+    expect(doubleClickSurface).toBeTruthy();
+
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    await act(async () => {
+      doubleClickSurface.props.onDoubleClickCapture({
+        target: createRenderedCellTarget('row-1', 'redis_cmd'),
+        preventDefault,
+        stopPropagation,
+      });
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    const viewer = renderer!.root.findByProps({
+      'data-modal-title': t('data_grid.cell_viewer.title_with_column', { column: 'redis_cmd' }),
+    });
+    expect(textContent(viewer)).toContain(fullValue);
     renderer!.unmount();
   });
 
