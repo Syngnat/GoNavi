@@ -256,6 +256,7 @@ export const useSidebarTableAndViewActions = ({
       dbName,
       schemaName,
       query: template,
+      queryMode: 'object-create',
     });
   };
 
@@ -280,6 +281,7 @@ export const useSidebarTableAndViewActions = ({
       dbName,
       schemaName,
       query: template,
+      queryMode: 'object-create',
     });
   };
 
@@ -293,6 +295,7 @@ export const useSidebarTableAndViewActions = ({
       connectionId: id,
       dbName,
       query: `CREATE EXTERNAL CATALOG catalog_name\nPROPERTIES (\n  "type" = "hive",\n  "hive.metastore.uris" = "thrift://127.0.0.1:9083"\n);`,
+      queryMode: 'object-create',
     });
   };
 
@@ -313,6 +316,7 @@ export const useSidebarTableAndViewActions = ({
       dbName,
       schemaName,
       query: `ALTER TABLE ${quotedTable}\nADD ROLLUP rollup_name (column1, column2);`,
+      queryMode: 'object-create',
     });
   };
 

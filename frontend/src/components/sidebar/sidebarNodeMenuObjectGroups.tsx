@@ -101,7 +101,8 @@ export const buildEventsGroupMenuItems = ({ node, context }: BuildEventsGroupMen
                   type: 'query',
                   connectionId: node.dataRef.id,
                   dbName: node.dataRef.dbName,
-                  query: `CREATE EVENT event_name\nON SCHEDULE EVERY 1 DAY\nDO\nBEGIN\n    -- event body\nEND;`
+                  query: `CREATE EVENT event_name\nON SCHEDULE EVERY 1 DAY\nDO\nBEGIN\n    -- event body\nEND;`,
+                  queryMode: 'object-create',
               });
           }
       },

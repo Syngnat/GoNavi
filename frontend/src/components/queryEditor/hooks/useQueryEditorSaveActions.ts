@@ -143,8 +143,9 @@ export const useQueryEditorSaveActions = ({
     };
 
     const handleQuickSave = async () => {
-        // 「创建函数/存储过程」页签保存的是数据库对象：执行编辑器里的 DDL，
-        // 由执行链路刷新侧栏对象列表。保存成已保存查询会让用户以为对象已建好。
+        // 「创建函数/存储过程/视图/事件」等建对象页签保存的是数据库对象：
+        // 执行编辑器里的 DDL，由执行链路刷新侧栏对象列表。保存成已保存查询
+        // 会让用户以为对象已建好。
         if (tab.type === 'query' && tab.queryMode === 'object-create') {
             await executeObjectCreateDefinition();
             return;
