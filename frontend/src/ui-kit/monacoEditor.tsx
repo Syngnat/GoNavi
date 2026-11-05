@@ -36,7 +36,11 @@ export interface GonaviMonacoEditorProps {
   readOnly?: boolean;
   theme?: 'light' | 'dark';
   placeholder?: string;
+  /** 编辑器字号；插件宿主用它对齐自身排版，未传时沿用默认值。 */
+  fontSize?: number;
 }
+
+const DEFAULT_EDITOR_FONT_SIZE = 12;
 
 /**
  * Full Monaco editor for plugin windows. Unlike `GonaviCodeEditor` (a plain
@@ -50,10 +54,26 @@ export const GonaviMonacoEditor: React.FC<GonaviMonacoEditorProps> = ({
   height = 240,
   readOnly = false,
   theme = 'light',
+  fontSize,
 }) => {
   useEffect(() => {
     configureGonaviMonaco();
   }, []);
+
+  // 选项在调用点之外构造：Monaco 界面的排版是仓库级约束（monacoFontPinning），
+  // 不允许在 <Editor> 里写死字号。插件宿主可通过 fontSize 对齐自己的字号档位。
+  const editorOptions = {
+    readOnly,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    fontSize: typeof fontSize === 'number' && Number.isFinite(fontSize)
+      ? fontSize
+      : DEFAULT_EDITOR_FONT_SIZE,
+    automaticLayout: true,
+    wordWrap: 'on' as const,
+    renderLineHighlight: 'none' as const,
+    overviewRulerLanes: 0,
+  };
 
   return (
     <div className="gonavi-monaco-editor" style={{ height }}>
@@ -63,16 +83,7 @@ export const GonaviMonacoEditor: React.FC<GonaviMonacoEditorProps> = ({
         theme={theme === 'dark' ? 'vs-dark' : 'light'}
         value={value ?? ''}
         onChange={(next) => onChange?.(next ?? '')}
-        options={{
-          readOnly,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          fontSize: 12,
-          automaticLayout: true,
-          wordWrap: 'on',
-          renderLineHighlight: 'none',
-          overviewRulerLanes: 0,
-        }}
+        options={editorOptions}
       />
     </div>
   );

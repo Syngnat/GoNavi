@@ -641,17 +641,15 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     }}
                     onPointerDown={(event) => handleResultTabPointerDown(event, rs.key)}
                 >
-                    <Tooltip title={rs.sql}>
-                        <span className="query-result-tab-text" data-query-result-tab-title="true">
-                            {rs.resultType === 'elasticsearch' && rs.requestLabel
-                                ? rs.requestLabel
-                                : rs.resultType === 'message'
-                                ? t(isQueryEditorStatementSummary(rs)
-                                    ? 'query_editor.results_panel.summary.title'
-                                    : 'query_editor.results_panel.tab.message', { index: idx + 1 })
-                                : t('query_editor.results_panel.tab.result', { index: idx + 1 })}
-                        </span>
-                    </Tooltip>
+                    <span className="query-result-tab-text" data-query-result-tab-title="true">
+                        {rs.resultType === 'elasticsearch' && rs.requestLabel
+                            ? rs.requestLabel
+                            : rs.resultType === 'message'
+                            ? t(isQueryEditorStatementSummary(rs)
+                                ? 'query_editor.results_panel.summary.title'
+                                : 'query_editor.results_panel.tab.message', { index: idx + 1 })
+                            : t('query_editor.results_panel.tab.result', { index: idx + 1 })}
+                    </span>
                     {rs.pinned ? (
                         <Tooltip title={t('query_editor.results_panel.menu.unpin')}>
                             <PushpinOutlined className="query-result-tab-pin" />
