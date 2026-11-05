@@ -85,6 +85,10 @@ func resetLocalMCPClientDesktopDetectCache() {
 	localMCPClientDesktopDetectMu.Unlock()
 }
 
+// claudeDesktopConfigPathFunc 是路径解析钩子，测试可替换——CI 的 Linux
+// 容器里 user home 未必可用，真实路径解析在那里会直接失败。
+var claudeDesktopConfigPathFunc = claudeDesktopConfigPath
+
 // claudeDesktopConfigPath 返回 Claude Desktop 的 MCP 配置路径。
 //
 // 与 Claude Code 的 ~/.claude.json 是两个完全独立的文件：桌面端只读它自己的
@@ -114,7 +118,7 @@ func resolveClaudeMCPConfigPath() (string, error) {
 		return claudeCodeConfigPathFunc()
 	}
 	if localMCPClientDesktopAppPathFunc(claudeCodeClientCommandName) != "" {
-		return claudeDesktopConfigPath()
+		return claudeDesktopConfigPathFunc()
 	}
 	return claudeCodeConfigPathFunc()
 }

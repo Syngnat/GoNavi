@@ -60,12 +60,18 @@ func TestClaudeMCPConfigPathPrefersCLIThenDesktop(t *testing.T) {
 	originalDesktop := localMCPClientDesktopAppPathFunc
 	originalCLI := localCLICommandPathFunc
 	originalConfigPath := claudeCodeConfigPathFunc
+	originalDesktopConfigPath := claudeDesktopConfigPathFunc
 	t.Cleanup(func() {
 		localMCPClientDesktopAppPathFunc = originalDesktop
 		localCLICommandPathFunc = originalCLI
 		claudeCodeConfigPathFunc = originalConfigPath
+		claudeDesktopConfigPathFunc = originalDesktopConfigPath
 		resetLocalMCPClientDesktopDetectCache()
 	})
+	// CI 的 Linux 容器里 user home 未必可用，真实路径解析会直接失败。
+	claudeDesktopConfigPathFunc = func() (string, error) {
+		return "/home/u/Library/Application Support/Claude/claude_desktop_config.json", nil
+	}
 
 	claudeCodeConfigPathFunc = func() (string, error) { return "/home/u/.claude.json", nil }
 
