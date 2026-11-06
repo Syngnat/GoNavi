@@ -4,6 +4,11 @@ import { filterVisibleDatabaseNames, isDatabaseVisible } from '../../../utils/da
 import { t } from '../../../i18n';
 import { confirmProductionMutation } from '../../../utils/productionRiskConfirm';
 import {
+  finishExportProgressTask,
+  startExportProgressTask,
+  updateExportProgressTask,
+} from '../../exportProgressTaskStore';
+import {
   DropDatabase,
   ExportQueryWithOptions,
   ExportTableWithOptions,
@@ -107,6 +112,30 @@ export const useTableExportRunActions = ({
       t,
     )) return;
 
+    const taskKey = tab.id;
+    const jobId = `batch-delete-databases-${Date.now()}`;
+    const started = startExportProgressTask(taskKey, {
+      open: true,
+      jobId,
+      title: t('sidebar.action.delete_database_count', { count: selectedDatabaseNames.length }),
+      targetName: connection?.name || effectiveConnectionId,
+      format: 'DROP',
+      startedAt: Date.now(),
+      finishedAt: 0,
+      status: 'running',
+      stage: selectedDatabaseNames[0] || '',
+      current: 0,
+      total: selectedDatabaseNames.length,
+      totalRowsKnown: true,
+      filePath: '',
+      message: '',
+      requestKey: '',
+    }, true);
+    if (!started) {
+      setDestructiveOperation(null);
+      void message.warning(t('data_export.message.already_running'));
+      return;
+    }
     setDestructiveOperation('delete-databases');
     const hide = message.loading(t('sidebar.message.deleting_selected_databases', { count: selectedDatabaseNames.length }), 0);
     const startTime = Date.now();
@@ -120,6 +149,11 @@ export const useTableExportRunActions = ({
           break;
         }
         succeededNames.push(databaseName);
+        updateExportProgressTask(taskKey, jobId, (prev) => ({
+          ...prev,
+          current: succeededNames.length,
+          stage: databaseName,
+        }));
       }
     } catch (error: any) {
       failed = {
@@ -130,6 +164,15 @@ export const useTableExportRunActions = ({
       hide();
       setDestructiveOperation(null);
     }
+    finishExportProgressTask(taskKey, jobId, (prev) => ({
+      ...prev,
+      open: true,
+      status: failed ? 'error' : 'done',
+      finishedAt: Date.now(),
+      current: failed ? succeededNames.length : selectedDatabaseNames.length,
+      stage: failed ? (failed.database || prev.stage) : prev.stage,
+      message: failed ? failed.error : '',
+    }));
 
     if (succeededNames.length > 0) {
       const succeededNameSet = new Set(succeededNames);
