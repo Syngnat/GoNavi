@@ -311,6 +311,30 @@ export const useTableExportBatchTableActions = ({
       t,
     )) return;
 
+    const taskKey = tab.id;
+    const jobId = `batch-${isTruncate ? 'truncate' : 'clear'}-${Date.now()}`;
+    const started = startExportProgressTask(taskKey, {
+      open: true,
+      jobId,
+      title: t(isTruncate ? 'sidebar.action.truncate_tables' : 'sidebar.action.clear_tables'),
+      targetName: selectedDbName,
+      format: isTruncate ? 'TRUNCATE' : 'CLEAR',
+      startedAt: Date.now(),
+      finishedAt: 0,
+      status: 'running',
+      stage: selectedDbName,
+      current: 0,
+      total: selectedTableNames.length,
+      totalRowsKnown: true,
+      filePath: '',
+      message: '',
+      requestKey: '',
+    }, true);
+    if (!started) {
+      setDestructiveOperation(null);
+      void message.warning(t('data_export.message.already_running'));
+      return;
+    }
     setDestructiveOperation(isTruncate ? 'truncate-tables' : 'clear-tables');
     const hide = message.loading(
       isTruncate
@@ -351,6 +375,13 @@ export const useTableExportBatchTableActions = ({
           dbName: selectedDbName,
           affectedRows: Number((res.data as any)?.count || 0),
         });
+        finishExportProgressTask(taskKey, jobId, (prev) => ({
+          ...prev,
+          open: true,
+          status: 'done',
+          finishedAt: Date.now(),
+          current: selectedTableNames.length,
+        }));
       } else if (res.message !== '已取消') {
         message.error(
           isTruncate
@@ -366,10 +397,32 @@ export const useTableExportBatchTableActions = ({
           message: res.message,
           dbName: selectedDbName,
         });
+        finishExportProgressTask(taskKey, jobId, (prev) => ({
+          ...prev,
+          open: true,
+          status: 'error',
+          finishedAt: Date.now(),
+          message: res.message,
+        }));
+      } else {
+        finishExportProgressTask(taskKey, jobId, (prev) => ({
+          ...prev,
+          open: true,
+          status: 'cancelled',
+          finishedAt: Date.now(),
+          message: res.message,
+        }));
       }
     } catch (error: any) {
       const duration = Date.now() - startTime;
       const errorMessage = error?.message || String(error);
+      finishExportProgressTask(taskKey, jobId, (prev) => ({
+        ...prev,
+        open: true,
+        status: 'error',
+        finishedAt: Date.now(),
+        message: errorMessage,
+      }));
       message.error(
         isTruncate
           ? t('sidebar.message.truncate_selected_tables_failed', { error: errorMessage })
