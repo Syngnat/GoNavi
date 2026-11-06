@@ -1071,6 +1071,16 @@ describe('store appearance persistence', () => {
             objectType: 'materialized-view',
           },
           {
+            id: 'query-create-routine-1',
+            title: '创建存储过程',
+            type: 'query',
+            connectionId: 'conn-1',
+            dbName: 'example',
+            query: 'CREATE PROCEDURE p1()\nBEGIN\n  SELECT 1;\nEND',
+            queryMode: 'object-create',
+            routineType: 'PROCEDURE',
+          },
+          {
             id: 'query-plain-1',
             title: '普通查询',
             type: 'query',
@@ -1104,6 +1114,12 @@ describe('store appearance persistence', () => {
       viewName: 'analytics.mv_daily',
       viewKind: 'materialized',
       objectType: 'materialized-view',
+    }));
+
+    // 建对象页签的保存语义依赖 queryMode，重启后必须保持 object-create。
+    const createRoutineTab = tabs.find((tab) => tab.id === 'query-create-routine-1');
+    expect(createRoutineTab).toEqual(expect.objectContaining({
+      queryMode: 'object-create',
     }));
 
     const plainTab = tabs.find((tab) => tab.id === 'query-plain-1');

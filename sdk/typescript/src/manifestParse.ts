@@ -51,7 +51,7 @@ export function parseManifest(data: unknown): Manifest {
   }
   if (record(data.contributes)) {
     const contributes = data.contributes;
-    only(contributes, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions']);
+    only(contributes, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings']);
     if (contributes.commands != null) list(contributes.commands, (item) => only(item, ['id', 'title', 'description', 'inputSchema', 'effect']));
     if (contributes.panels != null) list(contributes.panels, (item) => {
       only(item, ['id', 'title', 'body', 'html']);
@@ -62,6 +62,21 @@ export function parseManifest(data: unknown): Manifest {
       }
     });
     if (contributes.dataSources != null) list(contributes.dataSources, (item) => only(item, ['id', 'name', 'dialect', 'command', 'defaultPort', 'readOnly']));
+    if (contributes.views != null) list(contributes.views, (item) => only(item, ['id', 'title', 'page', 'location', 'icon', 'order']));
+    if (contributes.keybindings != null) list(contributes.keybindings, (item) => {
+      only(item, ['id', 'title', 'keys', 'target']);
+      if (item.target != null) {
+        if (!record(item.target)) throw new Error('invalid manifest JSON');
+        only(item.target, ['type', 'page', 'view']);
+      }
+    });
+    if (contributes.sidebar != null) list(contributes.sidebar, (item) => {
+      only(item, ['id', 'title', 'icon', 'listCommand', 'emptyText', 'open', 'order']);
+      if (item.open != null) {
+        if (!record(item.open)) throw new Error('invalid manifest JSON');
+        only(item.open, ['type', 'page', 'view']);
+      }
+    });
     if (contributes.skills != null) list(contributes.skills, (item) => only(item, ['id', 'name', 'description', 'entry', 'resources']));
     if (contributes.exporters != null) list(contributes.exporters, (item) => only(item, ['id', 'name', 'command', 'extension', 'contentType', 'streaming']));
     if (contributes.aiProviders != null) list(contributes.aiProviders, (item) => {

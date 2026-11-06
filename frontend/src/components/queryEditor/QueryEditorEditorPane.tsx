@@ -191,6 +191,9 @@ export const QueryEditorEditorPane = ({
     onRunAll={() => void handleElasticsearchRun(true)}
     onCancel={handleCancel}
     onQuickSave={handleQuickSave}
+    quickSaveTitle={tab.queryMode === 'object-create'
+      ? translate('query_editor.action.save_to_database')
+      : undefined}
     onFindInEditor={handleOpenEditorFind}
     onToggleWordWrap={() => setQueryOptions({ wordWrap: !wordWrapEnabled })}
     onFormat={handleFormat}

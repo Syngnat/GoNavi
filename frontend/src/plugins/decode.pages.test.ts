@@ -36,6 +36,14 @@ describe('manifest pages', () => {
     expect(result.manifest.contributes?.navigation?.[0]).toMatchObject({ page: 'overview', location: 'tools' });
   });
 
+  it('accepts command-palette navigation entries', () => {
+    const result = decodeInspection(inspection({
+      pages: [textPage('overview')],
+      navigation: [nav('cmd', 'overview', { location: 'command' })],
+    }));
+    expect(result.manifest.contributes?.navigation?.[0]).toMatchObject({ location: 'command' });
+  });
+
   it('requires ui.pages before a manifest may declare pages or navigation', () => {
     rejects({ pages: [textPage('overview')] }, []);
     rejects({ navigation: [nav('overview-tools', 'overview')] }, []);

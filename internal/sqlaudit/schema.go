@@ -78,6 +78,7 @@ func initializeSchema(conn *sql.Conn) error {
 	}{
 		{name: "mcp_request_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "mcp_client", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "user_name", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "executed_count", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "failed_index", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "outcome_unknown", definition: "INTEGER NOT NULL DEFAULT 0"},

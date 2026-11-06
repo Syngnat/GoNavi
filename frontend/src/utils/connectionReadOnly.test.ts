@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findConnectionMutatingStatements,
+  findPotentiallyDataOrSchemaChangingConnectionStatements,
   findPotentiallyMutatingConnectionStatements,
+  findPotentiallyStateChangingConnectionStatements,
   isConnectionDataEditRestricted,
   isConnectionDataImportRestricted,
   isConnectionScriptExecutionRestricted,
@@ -311,6 +313,8 @@ describe('connectionReadOnly', () => {
       ['mysql', 'EXPLAIN SELECT * FROM t'],
       ['mysql', 'EXPLAIN DELETE FROM t'],
       ['mysql', 'SELECT * FROM t WHERE id = 1 FOR UPDATE'],
+      ['postgres', 'SELECT * FROM t FOR NO KEY UPDATE'],
+      ['mysql', 'WITH cte AS (SELECT * FROM t) SELECT * FROM cte FOR UPDATE'],
     ];
 
     for (const [type, sql] of cases) {
@@ -320,5 +324,65 @@ describe('connectionReadOnly', () => {
         `${type}: ${sql}`,
       ).toEqual([]);
     }
+  });
+});
+
+describe('connectionReadOnly derived projections', () => {
+  const config = { type: 'mysql' } as const;
+
+  it('excludes only harmless session commands from the production-risk projection', () => {
+    const sql = [
+      'SET SESSION group_concat_max_len = 16777216',
+      'USE demo',
+      'BEGIN',
+      'COMMIT',
+      'ANALYZE TABLE t',
+      'UPDATE t SET c = 1',
+      'CREATE TABLE t2 (id int)',
+      'SET GLOBAL max_connections = 1000',
+    ].join(';\n');
+
+    expect(findPotentiallyStateChangingConnectionStatements(config, sql)).toEqual([
+      'BEGIN',
+      'COMMIT',
+      'ANALYZE TABLE t',
+      'UPDATE t SET c = 1',
+      'CREATE TABLE t2 (id int)',
+      'SET GLOBAL max_connections = 1000',
+    ]);
+  });
+
+  it('excludes session, transaction and pure-maintenance statements from sidebar refresh', () => {
+    const sql = [
+      'SET SESSION group_concat_max_len = 16777216',
+      'USE demo',
+      'BEGIN',
+      'COMMIT',
+      'ANALYZE TABLE t',
+      'UPDATE t SET c = 1',
+      'CALL refresh_cache()',
+      'CREATE TABLE t2 (id int)',
+      'TRUNCATE TABLE t3',
+      'SET @x = 1 DELETE FROM t4',
+    ].join(';\n');
+
+    expect(findPotentiallyDataOrSchemaChangingConnectionStatements(config, sql)).toEqual([
+      'UPDATE t SET c = 1',
+      'CALL refresh_cache()',
+      'CREATE TABLE t2 (id int)',
+      'TRUNCATE TABLE t3',
+      'SET @x = 1 DELETE FROM t4',
+    ]);
+  });
+
+  it('keeps read-only protection as broad as before', () => {
+    const sql = 'SET SESSION group_concat_max_len = 16777216;\nUSE demo';
+    expect(findConnectionMutatingStatements(
+      { type: 'mysql', protection: { restrictScriptExecution: true } },
+      sql,
+    )).toEqual([
+      'SET SESSION group_concat_max_len = 16777216',
+      'USE demo',
+    ]);
   });
 });

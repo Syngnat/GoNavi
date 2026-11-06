@@ -371,3 +371,27 @@ func TestBuildPGLikeIndexDefinitionsParsesStringUnique(t *testing.T) {
 		t.Fatalf("unexpected unique index metadata: %+v", indexes[0])
 	}
 }
+
+// KingbaseES 会把 `to_jsonb(a)->>'attidentity'` 里的 'attidentity' 当作
+// jsonpath 解析并报 syntax error，整条列定义查询失败 —— 结果集表头因此
+// 既没有注释也没有类型。Kingbase 必须走不带该写法的专用查询。
+func TestKingbaseColumnsMetadataQueryAvoidsJSONPath(t *testing.T) {
+	query := buildKingbaseColumnsMetadataQuery("", "bcs_barcode")
+
+	if strings.Contains(query, "to_jsonb") || strings.Contains(query, "->>") {
+		t.Fatalf("Kingbase 列定义查询不能包含 jsonb 取值写法，否则会触发 jsonpath 语法错误：%s", query)
+	}
+	// 这两列是结果集表头展示注释与类型的来源，必须仍在查询里。
+	if !strings.Contains(query, "col_description(a.attrelid, a.attnum) AS comment") {
+		t.Fatalf("列定义查询必须保留注释列：%s", query)
+	}
+	if !strings.Contains(query, "pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type") {
+		t.Fatalf("列定义查询必须保留类型列：%s", query)
+	}
+	if !strings.Contains(query, "'' AS identity_generation") {
+		t.Fatalf("identity_generation 应退化为空串常量：%s", query)
+	}
+	if !strings.Contains(query, "pg_catalog.pg_table_is_visible(c.oid)") {
+		t.Fatalf("应沿用可见关系谓词：%s", query)
+	}
+}

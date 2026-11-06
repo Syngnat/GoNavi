@@ -447,6 +447,9 @@ export const sanitizeQueryTabs = (value: unknown): TabData[] => {
     // object-edit 身份字段必须随 tab 持久化，否则重启/刷新后
     // 侧栏定位按钮会因解析不到对象身份而禁用。
     const isObjectEditTab = raw.queryMode === "object-edit";
+    // 建对象脚本页的保存语义与普通查询不同（保存即执行 DDL），必须随页签持久化，
+    // 否则重启后保存动作又退回「保存查询」。
+    const isObjectCreateTab = raw.queryMode === "object-create";
     const asViewKind = (value: unknown): TabData["viewKind"] =>
       value === "view" || value === "materialized" ? value : undefined;
     const asObjectType = (value: unknown): TabData["objectType"] =>
@@ -496,7 +499,11 @@ export const sanitizeQueryTabs = (value: unknown): TabData[] => {
         typeof raw.resultPanelVisible === "boolean"
           ? raw.resultPanelVisible
           : undefined,
-      queryMode: isObjectEditTab ? "object-edit" : undefined,
+      queryMode: isObjectEditTab
+        ? "object-edit"
+        : isObjectCreateTab
+          ? "object-create"
+          : undefined,
       ...(objectEditIdentity || {}),
       filePath: filePath || undefined,
       savedQueryId: savedQueryId || undefined,

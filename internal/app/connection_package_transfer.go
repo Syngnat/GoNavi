@@ -407,7 +407,11 @@ func (a *App) importConnectionPackagePayload(payload connectionPackagePayload) (
 	for _, item := range payload.Connections {
 		inputs = append(inputs, newSavedConnectionInputFromPackageItem(item))
 	}
-	return a.importSavedConnectionsSkippingDuplicates(inputs)
+	report, err := a.importSavedConnectionsSkippingDuplicates(inputs)
+	if err == nil {
+		a.notifySavedConnectionsChanged()
+	}
+	return report, err
 }
 
 func (a *App) importConnectionPackagePayloadUnlocked(repo *savedConnectionRepository, payload connectionPackagePayload) ([]connection.SavedConnectionView, error) {

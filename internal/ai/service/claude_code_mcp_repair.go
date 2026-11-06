@@ -57,7 +57,7 @@ func repairClaudeCodeMCPClientConfig(expectedCommand string, expectedArgs []stri
 	if !isLocalMCPClientCommandDetected(claudeCodeClientCommandName) {
 		return nil
 	}
-	configPath, err := claudeCodeConfigPathFunc()
+	configPath, err := resolveClaudeMCPConfigPath()
 	if err != nil {
 		return err
 	}

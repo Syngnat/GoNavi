@@ -4,7 +4,9 @@ export const PAGE_CALL_TYPE = 'gonavi:page-call';
 export const PAGE_RESULT_TYPE = 'gonavi:page-result';
 export const PAGE_MAX_CONCURRENCY = 8;
 export const PAGE_CALL_TIMEOUT_MS = 30_000;
-export const PAGE_MAX_ARGUMENT_BYTES = 64 * 1024;
+// One page-to-plugin call may carry up to 1 MiB, matching the backend
+// `plugin.invoke` limit; the page bridge itself still caps results at 256 KiB.
+export const PAGE_MAX_ARGUMENT_BYTES = 1024 * 1024;
 export const PAGE_CALL_RATE_LIMIT = 30;
 export const PAGE_NOTIFY_RATE_LIMIT = 10;
 export const PAGE_RATE_WINDOW_MS = 10_000;

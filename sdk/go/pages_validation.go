@@ -17,8 +17,13 @@ const PagesPermission = "ui.pages"
 // needs separate host.* permissions for every capability the bridge may call.
 const PageCustomHTMLPermission = "ui.html-panel"
 
-// PageLocationTools is the only navigation location version one accepts.
-const PageLocationTools = "tools"
+// Navigation locations stay an enumeration: the title-bar plugin menu and the
+// bottom application status bar.
+const (
+	PageLocationTools     = "tools"
+	PageLocationStatusbar = "statusbar"
+	PageLocationCommand   = "command"
+)
 
 // Navigation targets stay an enumeration. An empty target is the page target so
 // manifests written before windows could be attached keep their meaning. They stay
@@ -145,7 +150,9 @@ func validatePageNavigation(navigation []Navigation, pages map[string]bool, hasW
 		default:
 			return errors.New("unsupported navigation target")
 		}
-		if item.Location != PageLocationTools {
+		switch item.Location {
+		case PageLocationTools, PageLocationStatusbar, PageLocationCommand:
+		default:
 			return errors.New("unsupported navigation location")
 		}
 		if item.Order < minNavigationOrder || item.Order > maxNavigationOrder {

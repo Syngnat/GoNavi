@@ -2,6 +2,7 @@ import { normalizeQueryResultMessages, type QueryStatementPlan } from '../QueryE
 import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 import { GONAVI_ROW_KEY } from '../../DataGrid';
 import { createInitialQueryResultPagination } from '../../../utils/queryResultPagination';
+import { isSqlEditorNonDataStatement } from '../../../utils/sqlEditorTransaction';
 import type { QueryParamBindingInput } from '../params/queryEditorParamsModel';
 import type { QueryOptions } from '../../../store/storeStateTypes';
 
@@ -75,7 +76,11 @@ export const collectQueryEditorRunResultSets = ({
                 sqlServerStatementsWithConcreteResults.has(sourceStatementIndex)
                 || shouldUseTopLevelSqlServerMessages
             );
-        if (shouldHideSqlServerAffectedResult) {
+        // SET / USE / 事务控制等非数据语句只会产出“影响行数 0”的空结果页签，
+        // 既没有信息量，又会让页签数和成功提示里的“生成 N 个结果集”对不上。
+        const shouldHideNonDataAffectedResult = isAffectedResult
+            && isSqlEditorNonDataStatement(originalSql, normalizedDbType);
+        if (shouldHideSqlServerAffectedResult || shouldHideNonDataAffectedResult) {
             continue;
         }
 

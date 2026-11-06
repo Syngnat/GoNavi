@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	schemaVersion       = 3
+	schemaVersion       = 4
 	maxRetentionDays    = 3650
 	maxConfiguredEvents = 10_000_000
 )
@@ -203,14 +203,14 @@ func appendEventsLocked(conn *sql.Conn, settings Settings, inputEvents []Event) 
 			db_type, database_name, query_id, transaction_id, source, boundary_mode,
 			commit_mode, sql_text, sql_redacted, sql_fingerprint, statement_index,
 			statement_count, executed_count, failed_index, outcome_unknown, duration_ms, rows_affected, rows_returned, error_text,
-			prev_hash, record_hash, mcp_request_id, mcp_client
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			prev_hash, record_hash, mcp_request_id, mcp_client, user_name
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			event.ID, event.Timestamp, event.EventType, event.Status, event.ConnectionID,
 			event.ConnectionFingerprint, event.DBType, event.Database, event.QueryID,
 			event.TransactionID, event.Source, event.BoundaryMode, event.CommitMode,
 			event.SQLText, boolToInt(event.SQLRedacted), event.SQLFingerprint,
 			event.StatementIndex, event.StatementCount, event.ExecutedCount, event.FailedIndex, boolToInt(event.OutcomeUnknown), event.DurationMs,
-			event.RowsAffected, event.RowsReturned, event.Error, event.PrevHash, "", event.MCPRequestID, event.MCPClient,
+			event.RowsAffected, event.RowsReturned, event.Error, event.PrevHash, "", event.MCPRequestID, event.MCPClient, event.UserName,
 		)
 		if err != nil {
 			return fmt.Errorf("append sql audit event %d: %w", index+1, err)

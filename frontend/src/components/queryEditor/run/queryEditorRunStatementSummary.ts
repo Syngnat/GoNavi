@@ -1,5 +1,9 @@
 import { t as translate } from '../../../i18n';
-import { isSqlEditorSchemaChangingStatement, resolveSqlEditorOperationKeyword } from '../../../utils/sqlEditorTransaction';
+import { supportsSqlStatementClassification } from '../../../utils/connectionReadOnly';
+import {
+    isSqlEditorNonDataStatement, isSqlEditorSchemaChangingStatement,
+    resolveSqlEditorOperationKeyword,
+} from '../../../utils/sqlEditorTransaction';
 import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 
 /**
@@ -44,6 +48,30 @@ export const isQueryEditorRowCountMeaninglessStatement = (
     isSqlEditorSchemaChangingStatement(statement, dbType)
     || resolveSqlEditorOperationKeyword(statement, dbType) === 'truncate'
 );
+
+/**
+ * 「本可被托管事务保护、却以 autocommit 生效」的语句。
+ *
+ * 排除三类噪音：
+ * - DDL / TRUNCATE：本身没有回滚语义，结构变更已直接生效；
+ * - 会话级非数据命令（SET / USE）与会话复位（RESET / DISCARD / PREPARE 等）：
+ *   立即生效但从不修改业务数据；
+ * - 事务控制与纯统计维护（BEGIN / COMMIT、ANALYZE / CHECK / UPDATE STATISTICS 等）：
+ *   本身不写业务数据，也不存在可回滚的数据变更。
+ *
+ * 混合批次里真实的 DML 仍然保留，告警不会被整体关掉。
+ */
+export const collectQueryEditorUnmanagedRollbackableStatements = (
+    statements: string[],
+    dbType = '',
+): string[] => {
+    // Redis / MongoDB 等命令语言里 `SET key value` 是数据写入，不能套用 SQL 会话白名单。
+    if (!supportsSqlStatementClassification(dbType)) return statements;
+    return statements.filter((statement) => (
+        !isQueryEditorRowCountMeaninglessStatement(statement, dbType)
+        && !isSqlEditorNonDataStatement(statement, dbType)
+    ));
+};
 
 const summarizeStatementText = (statement: string, statementIndex: number): string => {
     const text = String(statement || '').replace(/\s+/g, ' ').trim();

@@ -27,6 +27,7 @@ func (a *App) recordSQLAuditQuery(input sqlAuditQueryInput) {
 		Database:              resolveSQLAuditDatabase(input.Config, input.Database),
 		QueryID:               strings.TrimSpace(input.QueryID),
 		Source:                normalizeSQLAuditSource(input.Source),
+		UserName:              strings.TrimSpace(input.Actor),
 		CommitMode:            normalizeSQLAuditCommitMode(input.CommitMode),
 		BoundaryMode:          normalizeSQLAuditBoundaryMode(input.Result.BoundaryMode),
 		SQLText:               input.SQL,
@@ -119,7 +120,19 @@ func (a *App) appendSQLAuditEvent(event sqlaudit.Event) {
 	a.appendSQLAuditEvents([]sqlaudit.Event{event})
 }
 
+// appendSQLAuditEvents 在 Web 运行时走异步批量写入，其余运行时保持同步。
+// 队列满时回退同步写：审计不能因为排队压力被静默丢弃。
 func (a *App) appendSQLAuditEvents(events []sqlaudit.Event) {
+	if len(events) == 0 {
+		return
+	}
+	if a.sqlAuditAsyncEnabled && a.sqlAuditAsync.enqueue(events, a.appendSQLAuditEventsSync) {
+		return
+	}
+	a.appendSQLAuditEventsSync(events)
+}
+
+func (a *App) appendSQLAuditEventsSync(events []sqlaudit.Event) {
 	if len(events) == 0 {
 		return
 	}

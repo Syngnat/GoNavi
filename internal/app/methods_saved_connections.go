@@ -50,6 +50,7 @@ func (a *App) SaveConnection(input connection.SavedConnectionInput) (connection.
 		return connection.SavedConnectionView{}, err
 	}
 	a.markCloudBackupDirty()
+	a.notifySavedConnectionsChanged()
 	return sanitizeSavedConnectionView(view), nil
 }
 
@@ -59,6 +60,7 @@ func (a *App) UpdateConnectionVisibility(input connection.ConnectionVisibilityIn
 		return connection.SavedConnectionView{}, err
 	}
 	a.markCloudBackupDirty()
+	a.notifySavedConnectionsChanged()
 	return sanitizeSavedConnectionView(view), nil
 }
 
@@ -66,6 +68,7 @@ func (a *App) DeleteConnection(id string) error {
 	err := a.savedConnectionRepository().Delete(id)
 	if err == nil {
 		a.markCloudBackupDirty()
+		a.notifySavedConnectionsChanged()
 	}
 	return err
 }
@@ -76,6 +79,7 @@ func (a *App) DeleteConnections(ids []string) error {
 	err := a.savedConnectionRepository().DeleteMany(ids)
 	if err == nil && len(ids) > 0 {
 		a.markCloudBackupDirty()
+		a.notifySavedConnectionsChanged()
 	}
 	return err
 }
@@ -90,6 +94,7 @@ func (a *App) DuplicateConnection(id string) (connection.SavedConnectionView, er
 		return connection.SavedConnectionView{}, err
 	}
 	a.markCloudBackupDirty()
+	a.notifySavedConnectionsChanged()
 	return sanitizeSavedConnectionView(view), nil
 }
 
@@ -99,6 +104,7 @@ func (a *App) ImportLegacyConnections(items []connection.LegacySavedConnection) 
 		return nil, err
 	}
 	a.markCloudBackupDirty()
+	a.notifySavedConnectionsChanged()
 	return sanitizeSavedConnectionViews(views), nil
 }
 

@@ -11,6 +11,7 @@ import {
     looksLikeJsonText,
 } from '../../DataGridCore';
 import { isWritableResultColumn } from '../../../utils/rowLocator';
+import { shouldOpenReadOnlyCellViewer } from '../core/dataGridCellDisplay';
 import { isTruncatedPreviewValue } from '../../../utils/dataGridTruncatedValue';
 import {
     formatJsonCellText,
@@ -496,9 +497,10 @@ export const useDataGridInlineEditor = ({
         const eventTarget = (event.currentTarget as EventTarget | null) ?? event.target;
         const cellInfo = resolveRenderedCellInfoFromElement(eventTarget);
         if (!cellInfo) return;
-        // 与可编辑结果集的双击判定保持一致：只有 JSON、超长或多行文本才值得
-        // 打开查看器；普通单元格双击保持浏览器默认的文本选中行为。
-        if (!shouldOpenModalEditor(cellInfo.record?.[cellInfo.dataIndex])) return;
+        // 只读单元格：JSON、多行、超长文本，以及一切显示层已截断的值
+        // （> TABLE_CELL_PREVIEW_MAX_CHARS）都应能打开查看器；
+        // 普通短文本双击保持浏览器默认的文本选中行为。
+        if (!shouldOpenReadOnlyCellViewer(cellInfo.record?.[cellInfo.dataIndex])) return;
         event.preventDefault();
         event.stopPropagation();
         openCellViewer(cellInfo.record, cellInfo.dataIndex, cellInfo.dataIndex);
@@ -527,9 +529,9 @@ export const useDataGridInlineEditor = ({
             return;
         }
         const readOnlyCell = !canModifyData || !isWritableResultColumn(cellInfo.dataIndex, effectiveEditLocator);
-        // 只读列与可编辑结果集共用同一判定：只有 JSON、超长或多行文本才值得
-        // 打开查看器。普通文本双击不拦截，保持浏览器默认的文本选中行为。
-        if (readOnlyCell && !shouldOpenModalEditor(cellInfo.record?.[cellInfo.dataIndex])) {
+        // 只读列：JSON、多行、超长文本，以及一切显示层已截断的值都能打开查看器。
+        // 普通文本双击不拦截，保持浏览器默认的文本选中行为。
+        if (readOnlyCell && !shouldOpenReadOnlyCellViewer(cellInfo.record?.[cellInfo.dataIndex])) {
             return;
         }
         event.preventDefault();

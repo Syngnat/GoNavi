@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -113,12 +114,16 @@ func (a *App) TestConnection(config connection.ConnectionConfig) connection.Quer
 // interactive test run. The ordinary TestConnection API remains available to
 // headless and older clients without an event listener.
 func (a *App) TestConnectionWithProgress(config connection.ConnectionConfig, runID string) connection.QueryResult {
+	return a.testConnectionWithProgressContext(nil, config, runID)
+}
+
+func (a *App) testConnectionWithProgressContext(ctx context.Context, config connection.ConnectionConfig, runID string) connection.QueryResult {
 	runID = strings.TrimSpace(runID)
 	if runID == "" || !config.UseSSH {
 		return a.testConnection(config, nil)
 	}
 	report := func(stage string, status string) {
-		uievents.Emit(a.ctx, connectionTestProgressEventName, connectionTestProgressEvent{
+		uievents.EmitWith(ctx, a.ctx, connectionTestProgressEventName, connectionTestProgressEvent{
 			RunID:  runID,
 			Stage:  stage,
 			Status: status,

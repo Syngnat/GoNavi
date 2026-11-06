@@ -9,17 +9,22 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"GoNavi-Wails/internal/uievents"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 const (
 	webAuthLanguageCookieName = "gonavi_web_lang"
 	webAuthFrontendStorageKey = "lite-db-storage"
+	webSetupGateHeaderName    = "X-GoNavi-Setup-Token"
 )
 
 var webAuthPageLocalizers sync.Map
 
 type webSetupCompleteRequest struct {
 	SetupToken           string `json:"setupToken"`
+	Username             string `json:"username"`
 	Password             string `json:"password"`
 	ConfirmPassword      string `json:"confirmPassword"`
 	Code                 string `json:"code"`
@@ -30,6 +35,7 @@ type webSetupCompleteRequest struct {
 }
 
 type webLoginRequest struct {
+	Username string `json:"username"`
 	Password string `json:"password"`
 	Code     string `json:"code"`
 }
@@ -65,6 +71,16 @@ func (s *Server) handleAuthSettings(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthJSONError(w, status, localizeWebAuthError(localizer, err), 0)
 		return
 	}
+	if actor, ok := webidentity.ActorFromContext(r.Context()); ok {
+		settings.CurrentUser = actor.Username
+		settings.CurrentRole = string(actor.Role)
+		settings.CurrentPasswordManaged = settings.PasswordManagedByEnvironment && actor.Username == webDefaultAdminUsername
+		settings.CurrentTOTPEnabled = s.auth.UserTOTPEnabled(actor.Username)
+		if actor.Role != webidentity.RoleAdmin {
+			// 账号列表只对管理员可见；只读账号仍可改自己的密码。
+			settings.Users = nil
+		}
+	}
 	s.writeJSON(w, http.StatusOK, settings)
 }
 
@@ -74,10 +90,14 @@ func (s *Server) handleSetupBootstrap(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, webAuthText(localizer, "web_auth.error.method_not_allowed", nil), http.StatusMethodNotAllowed)
 		return
 	}
-	payload, err := s.auth.BeginSetup(r.Host)
+	payload, err := s.auth.BeginSetup(r.Host, r.Header.Get(webSetupGateHeaderName))
 	if err != nil {
 		if err == errWebAuthAlreadyConfigured {
 			s.writeAuthJSONError(w, http.StatusConflict, webAuthText(localizer, "web_auth.error.already_configured", nil), 0)
+			return
+		}
+		if errors.Is(err, errWebAuthSetupGateRequired) {
+			s.writeAuthJSONError(w, http.StatusForbidden, webAuthText(localizer, "web_auth.error.setup_gate_required", nil), 0)
 			return
 		}
 		s.writeAuthJSONError(w, http.StatusInternalServerError, localizeWebAuthError(localizer, err), 0)
@@ -103,8 +123,13 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthJSONError(w, http.StatusBadRequest, webAuthText(localizer, "web_auth.error.password_confirmation_mismatch", nil), 0)
 		return
 	}
+	setupUsername := strings.TrimSpace(request.Username)
+	if setupUsername == "" {
+		setupUsername = webDefaultAdminUsername
+	}
 	cfg, sessionID, err := s.auth.CompleteSetup(
 		request.SetupToken,
+		setupUsername,
 		request.Password,
 		request.Code,
 		request.EnableTOTP,
@@ -142,7 +167,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthJSONError(w, http.StatusBadRequest, webAuthText(localizer, "web_auth.error.invalid_login_payload", nil), 0)
 		return
 	}
-	cfg, sessionID, usedRecoveryCode, retryAfter, err := s.auth.Login(request.Password, request.Code, clientIP(r))
+	cfg, sessionID, usedRecoveryCode, retryAfter, err := s.auth.Login(request.Username, request.Password, request.Code, clientIP(r))
 	if err != nil {
 		switch err {
 		case errWebAuthNotConfigured:
@@ -197,7 +222,8 @@ func (s *Server) handleAuthPasswordChange(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg, sessionID, usedRecoveryCode, err := s.auth.ChangePassword(request.CurrentPassword, request.Code, request.NewPassword)
+	actor, _ := webidentity.ActorFromContext(r.Context())
+	cfg, sessionID, usedRecoveryCode, err := s.auth.ChangePassword(actor.Username, request.CurrentPassword, request.Code, request.NewPassword)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch {
@@ -288,7 +314,17 @@ func (s *Server) requireWebAuth(next http.Handler) http.Handler {
 			s.writeAuthJSONError(w, http.StatusUnauthorized, webAuthText(newWebAuthLocalizer(resolveWebAuthLanguage(r)), "web_auth.error.auth_required", nil), 0)
 			return
 		}
-		next.ServeHTTP(w, r)
+		actor := webidentity.NormalizeActor(webidentity.Actor{
+			Username:             status.Username,
+			Role:                 webidentity.Role(status.Role),
+			AllowedConnectionIDs: s.auth.ConnectionACL(status.Username),
+		})
+		ctx := webidentity.WithActor(r.Context(), actor)
+		if sessionID != "" && s.events != nil {
+			// 请求内产生的事件只回发给当前登录会话，避免多客户端互相看到进度。
+			ctx = uievents.WithEmitter(ctx, s.events.emitterForSession(sessionID))
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -364,6 +400,12 @@ func (s *Server) writeAuthJSONError(w http.ResponseWriter, status int, message s
 func (s *Server) serveStaticPage(w http.ResponseWriter, r *http.Request, payload string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
+	// 认证页只加载本站资源、内联样式/脚本与 data: 二维码，适合严格 CSP。
+	// 主工作台包含 Monaco worker（blob:）等运行时，CSP 需单独评估，故不在此处统一加。
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
+			"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "+
+			"frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	http.ServeContent(w, r, "index.html", time.Time{}, strings.NewReader(payload))
 }

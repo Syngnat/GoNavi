@@ -88,6 +88,15 @@ func ValidateManifest(m Manifest) error {
 	if err := ValidatePages(m); err != nil {
 		return err
 	}
+	if err := validateManifestViews(m, permissions); err != nil {
+		return err
+	}
+	if err := validateManifestSidebar(m, permissions, publicCommands); err != nil {
+		return err
+	}
+	if err := validateManifestKeybindings(m, permissions); err != nil {
+		return err
+	}
 	if m.Window != nil {
 		// A window runs package HTML/JS in a native WebView with the window bridge;
 		// like a custom HTML page it needs the explicit sandboxed-HTML permission.
@@ -488,6 +497,207 @@ func validateManifestExporters(m Manifest, commands map[string]bool) error {
 			return errors.New("invalid exporter extension or content type")
 		}
 		ids[exporter.ID] = true
+	}
+	return nil
+}
+
+// SidebarPermission lets a package attach an expandable group to the host's
+// left connection tree. It grants no host capability: node data comes from a
+// declared command and is rendered as text by the host.
+const SidebarPermission = "ui.sidebar"
+
+// maxManifestSidebarGroups bounds groups per manifest.
+const maxManifestSidebarGroups = 4
+
+// Docked surfaces: the right workbench dock and the bottom dock.
+const (
+	ViewLocationRight  = "right"
+	ViewLocationBottom = "bottom"
+)
+
+const maxManifestViews = 8
+
+func validateManifestViews(m Manifest, permissions map[string]bool) error {
+	contributes := manifestContributions(m)
+	views := contributes.Views
+	if len(views) == 0 {
+		return nil
+	}
+	if !permissions[PagesPermission] {
+		return fmt.Errorf("views require the %s permission", PagesPermission)
+	}
+	if len(views) > maxManifestViews {
+		return errors.New("too many views")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	seen := make(map[string]bool, len(views))
+	for _, view := range views {
+		if !manifestLocalIDPattern.MatchString(view.ID) || seen[view.ID] || !validManifestText(view.Title, 128) {
+			return errors.New("invalid or duplicate view")
+		}
+		seen[view.ID] = true
+		if !pages[view.Page] {
+			return errors.New("view references an undeclared page")
+		}
+		switch view.Location {
+		case ViewLocationRight, ViewLocationBottom:
+		default:
+			return errors.New("unsupported view location")
+		}
+		if view.Icon != "" && !validManifestIcon(view.Icon) {
+			return errors.New("invalid view icon")
+		}
+		if view.Order < minNavigationOrder || view.Order > maxNavigationOrder {
+			return errors.New("view order exceeds limit")
+		}
+	}
+	return nil
+}
+
+func validateManifestSidebar(m Manifest, permissions, commands map[string]bool) error {
+	contributes := manifestContributions(m)
+	groups := contributes.Sidebar
+	if len(groups) == 0 {
+		return nil
+	}
+	if !permissions[SidebarPermission] {
+		return fmt.Errorf("sidebar requires the %s permission", SidebarPermission)
+	}
+	if len(groups) > maxManifestSidebarGroups {
+		return errors.New("too many sidebar groups")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	views := make(map[string]bool, len(contributes.Views))
+	for _, view := range contributes.Views {
+		views[view.ID] = true
+	}
+	seen := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		if !manifestLocalIDPattern.MatchString(group.ID) || seen[group.ID] || !validManifestText(group.Title, 128) {
+			return errors.New("invalid or duplicate sidebar group")
+		}
+		seen[group.ID] = true
+		if !commands[group.ListCommand] {
+			return errors.New("sidebar list command is not declared")
+		}
+		if group.EmptyText != "" && !validManifestText(group.EmptyText, 128) {
+			return errors.New("invalid sidebar empty text")
+		}
+		if group.Icon != "" && !validManifestIcon(group.Icon) {
+			return errors.New("invalid sidebar icon")
+		}
+		if group.Order < minNavigationOrder || group.Order > maxNavigationOrder {
+			return errors.New("sidebar order exceeds limit")
+		}
+		if group.Open == nil {
+			continue
+		}
+		switch group.Open.Type {
+		case "window":
+			if m.Window == nil {
+				return errors.New("window sidebar target requires a window")
+			}
+			if group.Open.Page != "" {
+				return errors.New("window sidebar target cannot declare a page")
+			}
+		case "page":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("page sidebar target requires the %s permission", PagesPermission)
+			}
+			if !pages[group.Open.Page] {
+				return errors.New("sidebar references an undeclared page")
+			}
+		case "panel":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("panel sidebar target requires the %s permission", PagesPermission)
+			}
+			if group.Open.Page != "" {
+				return errors.New("panel sidebar target cannot declare a page")
+			}
+			if !views[group.Open.View] {
+				return errors.New("sidebar references an undeclared view")
+			}
+		default:
+			return errors.New("unsupported sidebar target")
+		}
+	}
+	return nil
+}
+
+const maxManifestKeybindings = 16
+
+var manifestKeybindingModifiers = map[string]bool{"CmdOrCtrl": true, "Ctrl": true, "Cmd": true, "Alt": true, "Shift": true}
+
+// validManifestKeybindingKeys requires modifiers followed by one main key.
+func validManifestKeybindingKeys(value string) bool {
+	parts := strings.Split(value, "+")
+	if len(parts) < 1 || len(parts) > 5 {
+		return false
+	}
+	main := strings.TrimSpace(parts[len(parts)-1])
+	if main == "" || len(main) > 16 || !regexp.MustCompile(`^[A-Za-z0-9]+$`).MatchString(main) {
+		return false
+	}
+	for _, modifier := range parts[:len(parts)-1] {
+		if !manifestKeybindingModifiers[strings.TrimSpace(modifier)] {
+			return false
+		}
+	}
+	return true
+}
+
+func validateManifestKeybindings(m Manifest, permissions map[string]bool) error {
+	contributes := manifestContributions(m)
+	bindings := contributes.Keybindings
+	if len(bindings) == 0 {
+		return nil
+	}
+	if len(bindings) > maxManifestKeybindings {
+		return errors.New("too many keybindings")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	seen := make(map[string]bool, len(bindings))
+	seenKeys := make(map[string]bool, len(bindings))
+	for _, binding := range bindings {
+		if !manifestLocalIDPattern.MatchString(binding.ID) || seen[binding.ID] || !validManifestText(binding.Title, 128) {
+			return errors.New("invalid or duplicate keybinding")
+		}
+		seen[binding.ID] = true
+		if !validManifestKeybindingKeys(binding.Keys) {
+			return errors.New("invalid keybinding keys")
+		}
+		key := strings.ToLower(binding.Keys)
+		if seenKeys[key] {
+			return errors.New("duplicate keybinding keys")
+		}
+		seenKeys[key] = true
+		switch binding.Target.Type {
+		case "window":
+			if m.Window == nil {
+				return errors.New("window keybinding requires a window")
+			}
+			if binding.Target.Page != "" {
+				return errors.New("window keybinding cannot declare a page")
+			}
+		case "page":
+			if !permissions[PagesPermission] {
+				return fmt.Errorf("page keybinding requires the %s permission", PagesPermission)
+			}
+			if !pages[binding.Target.Page] {
+				return errors.New("keybinding references an undeclared page")
+			}
+		default:
+			return errors.New("unsupported keybinding target")
+		}
 	}
 	return nil
 }

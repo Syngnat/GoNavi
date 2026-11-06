@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   canReusePendingSqlEditorTransactionForType,
   hasTopLevelSqlEditorForUpdate,
+  isSqlEditorNonDataMaintenanceStatement,
+  isSqlEditorNonDataStatement,
   isSqlEditorSchemaChangingStatement,
+  isSqlEditorSessionResetStatement,
+  isSqlEditorSessionScopedNonDataStatement,
   resolveSqlEditorOperationKeyword,
   shouldUseSqlEditorManagedTransaction,
   shouldUseSqlEditorManagedTransactionForType,
@@ -251,5 +255,89 @@ describe('sqlEditorTransaction', () => {
         `${dbType}: ${sql}`,
       ).toBe(true);
     }
+  });
+});
+
+describe('sqlEditorTransaction non-data statements', () => {
+  it('treats non-sensitive session commands as non-data', () => {
+    const cases = [
+      ['mysql', 'SET SESSION group_concat_max_len = 16777216'],
+      ['mysql', 'SET NAMES utf8mb4'],
+      ['mysql', 'SET @visit_count = 1'],
+      ['postgres', 'SET search_path TO app, public'],
+      ['sqlserver', 'SET NOCOUNT ON'],
+      ['mysql', 'USE demo'],
+    ];
+    for (const [dbType, sql] of cases) {
+      expect(isSqlEditorSessionScopedNonDataStatement(sql, dbType), `${dbType}: ${sql}`).toBe(true);
+    }
+  });
+
+  it('keeps sensitive or server-scoped SET out of the non-data bucket', () => {
+    const cases = [
+      ['mysql', 'SET GLOBAL max_connections = 1000'],
+      ['mysql', 'SET PERSIST max_connections = 1000'],
+      ['mysql', "SET PASSWORD = 'secret'"],
+      ['mysql', 'SET ROLE app_role'],
+      ['mysql', 'SET DEFAULT ROLE app_role TO u'],
+      ['mysql', 'SET autocommit = 0'],
+      ['mysql', "SET SESSION sql_mode = ''"],
+      ['mysql', 'SET SESSION AUTHORIZATION admin'],
+      ['mysql', 'SET @@SESSION.sql_log_bin = 0'],
+      ['mysql', 'SET foreign_key_checks = 0'],
+    ];
+    for (const [dbType, sql] of cases) {
+      expect(isSqlEditorSessionScopedNonDataStatement(sql, dbType), `${dbType}: ${sql}`).toBe(false);
+    }
+  });
+
+  it('guards session commands against a missing-semicolon trailing write', () => {
+    const cases = [
+      'SET @x = 1 DELETE FROM t',
+      'SET @x = 1 CALL p_write()',
+      "USE demo LOAD DATA INFILE '/tmp/a' INTO TABLE t",
+      'USE demo EXEC p_write',
+      'SET @x = 1 PREPARE stmt FROM @sql',
+    ];
+    for (const sql of cases) {
+      expect(isSqlEditorSessionScopedNonDataStatement(sql, 'mysql'), sql).toBe(false);
+      expect(isSqlEditorNonDataStatement(sql, 'mysql'), sql).toBe(false);
+    }
+  });
+
+  it('recognizes pure maintenance and session reset statements', () => {
+    const maintenance = [
+      'ANALYZE TABLE t',
+      'ANALYZE t',
+      'CHECK TABLE t',
+      'CHECKSUM TABLE t',
+      'CHECKPOINT',
+      'VACUUM t',
+      'CACHE INDEX t IN cache1',
+      'LOAD INDEX INTO CACHE t',
+      'UPDATE STATISTICS t',
+    ];
+    for (const sql of maintenance) {
+      expect(isSqlEditorNonDataMaintenanceStatement(sql, 'mysql'), sql).toBe(true);
+    }
+    expect(isSqlEditorNonDataMaintenanceStatement('VACUUM FULL t', 'postgres')).toBe(false);
+    expect(isSqlEditorNonDataMaintenanceStatement('LOAD DATA INFILE \'/tmp/a\' INTO TABLE t', 'mysql')).toBe(false);
+    expect(isSqlEditorNonDataMaintenanceStatement('UPDATE statistics SET c = 1', 'mysql')).toBe(false);
+
+    expect(isSqlEditorSessionResetStatement('RESET ALL', 'postgres')).toBe(true);
+    expect(isSqlEditorSessionResetStatement('DISCARD ALL', 'postgres')).toBe(true);
+    expect(isSqlEditorSessionResetStatement('DEALLOCATE p', 'postgres')).toBe(true);
+    expect(isSqlEditorSessionResetStatement('LISTEN events', 'postgres')).toBe(true);
+    expect(isSqlEditorSessionResetStatement('RESET MASTER', 'mysql')).toBe(false);
+    expect(isSqlEditorSessionResetStatement("PREPARE TRANSACTION 'x'", 'postgres')).toBe(false);
+  });
+
+  it('treats transaction control as non-data without hiding a trailing DML', () => {
+    expect(isSqlEditorNonDataStatement('BEGIN', 'mysql')).toBe(true);
+    expect(isSqlEditorNonDataStatement('COMMIT', 'mysql')).toBe(true);
+    expect(isSqlEditorNonDataStatement('ROLLBACK', 'postgres')).toBe(true);
+    expect(isSqlEditorNonDataStatement('ABORT', 'postgres')).toBe(true);
+    expect(isSqlEditorNonDataStatement('XA START \'x\'', 'mysql')).toBe(true);
+    expect(isSqlEditorNonDataStatement('COMMIT DELETE FROM t', 'mysql')).toBe(false);
   });
 });

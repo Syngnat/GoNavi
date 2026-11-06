@@ -22,7 +22,7 @@ export function buildPluginPageTab({ pluginID, pageID, title, instanceKey, launc
     id: pluginPageTabId(pluginID, pageID, instanceKey),
     title: label,
     type: 'plugin-page',
-    connectionId: launch?.connectionId ?? '',
+    connectionId: launch?.kind === 'connectionAction' ? launch.connectionId : '',
     pluginPage: { pluginID, pageID, title: label, ...(launch ? { launch } : {}) },
   };
 }

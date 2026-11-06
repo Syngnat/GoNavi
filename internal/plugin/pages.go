@@ -22,10 +22,14 @@ const (
 // permissions must match ^[a-z][a-z0-9._:-]{0,127}$.
 const OpenExternalPermission = "system.open-external"
 
-// PageLocationTools is the only navigation location v1 accepts: the title-bar
-// plugin menu. Unknown values stay rejected so a typo cannot silently render
-// nothing.
-const PageLocationTools = "tools"
+// Navigation locations stay an enumeration: the title-bar plugin menu and the
+// bottom application status bar. Unknown values stay rejected so a typo cannot
+// silently render nothing.
+const (
+	PageLocationTools     = "tools"
+	PageLocationStatusbar = "statusbar"
+	PageLocationCommand   = "command"
+)
 
 // Navigation targets stay an enumeration. An empty target is the page target so
 // manifests written before windows could be attached keep their meaning.
@@ -128,7 +132,9 @@ func validateNavigationDeclarations(navigation []Navigation, pages map[string]bo
 		default:
 			return fmt.Errorf("unsupported navigation target")
 		}
-		if item.Location != PageLocationTools {
+		switch item.Location {
+		case PageLocationTools, PageLocationStatusbar, PageLocationCommand:
+		default:
 			return fmt.Errorf("unsupported navigation location")
 		}
 		if item.Order < MinNavigationOrder || item.Order > MaxNavigationOrder {

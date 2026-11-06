@@ -60,6 +60,9 @@ type Contributions struct {
 	Pages             []Page             `json:"pages,omitempty"`
 	Navigation        []Navigation       `json:"navigation,omitempty"`
 	ConnectionActions []ConnectionAction `json:"connectionActions,omitempty"`
+	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
+	Views             []View             `json:"views,omitempty"`
+	Keybindings       []Keybinding       `json:"keybindings,omitempty"`
 }
 
 // ConnectionAction is a generic host surface entry rendered in connection, database
@@ -77,6 +80,7 @@ type ConnectionAction struct {
 type LaunchTarget struct {
 	Type string `json:"type"`
 	Page string `json:"page,omitempty"`
+	View string `json:"view,omitempty"`
 }
 
 // Command declares one backend invocation and its claimed effect.
@@ -124,6 +128,38 @@ type Navigation struct {
 	Target   string `json:"target,omitempty"`
 	Page     string `json:"page,omitempty"`
 	Location string `json:"location"`
+	Order    int    `json:"order,omitempty"`
+}
+
+// SidebarGroup declares one expandable group in the host's left connection tree.
+// The group's children are produced at runtime by ListCommand and validated by
+// the host; the manifest itself declares no node data.
+type SidebarGroup struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Icon        string        `json:"icon,omitempty"`
+	ListCommand string        `json:"listCommand"`
+	EmptyText   string        `json:"emptyText,omitempty"`
+	Open        *LaunchTarget `json:"open,omitempty"`
+	Order       int           `json:"order,omitempty"`
+}
+
+// Keybinding opens a declared page or window from a host-wide shortcut.
+type Keybinding struct {
+	ID     string       `json:"id"`
+	Title  string       `json:"title"`
+	Keys   string       `json:"keys"`
+	Target LaunchTarget `json:"target"`
+}
+
+// View docks one declared page to a host surface. Version one supports the
+// right-hand workbench dock; the page keeps the page bridge.
+type View struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Page     string `json:"page"`
+	Location string `json:"location"`
+	Icon     string `json:"icon,omitempty"`
 	Order    int    `json:"order,omitempty"`
 }
 

@@ -81,6 +81,12 @@ func localizeWebAuthError(localizer *i18n.Localizer, err error) string {
 		return webAuthText(localizer, "web_auth.error.too_many_login_attempts", nil)
 	case errors.Is(err, errWebAuthPasswordManaged):
 		return webAuthText(localizer, "web_auth.error.password_managed_by_environment", nil)
+	case errors.Is(err, errWebAuthSetupGateRequired):
+		return webAuthText(localizer, "web_auth.error.setup_gate_required", nil)
+	case errors.Is(err, errWebAuthTOTPAlreadyEnabled):
+		return webAuthText(localizer, "web_auth.error.totp_already_enabled", nil)
+	case errors.Is(err, errWebAuthTOTPNotEnabled):
+		return webAuthText(localizer, "web_auth.error.totp_not_enabled", nil)
 	}
 
 	message := strings.TrimSpace(err.Error())

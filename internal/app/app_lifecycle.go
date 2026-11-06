@@ -206,6 +206,7 @@ func (a *App) Shutdown() {
 	closeJVMMonitoringSessions()
 	a.closeResultDiffSessions()
 	a.rollbackPendingSQLTransactionsOnShutdown()
+	a.sqlAuditAsync.stop(5 * time.Second)
 	a.closeSQLAuditStore()
 	a.closeCachedDatabasesForShutdown()
 	releasePluginTunnels()

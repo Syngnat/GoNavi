@@ -299,8 +299,10 @@ func TestGrokCLIProviderChatStreamReportsTimeout(t *testing.T) {
 
 func TestGrokCLIProviderChatStreamKeepsAliveAcrossThinkingGaps(t *testing.T) {
 	originalIdle, originalMax := cliStreamIdleTimeout, cliStreamMaxTimeout
-	cliStreamIdleTimeout = 100 * time.Millisecond
-	cliStreamMaxTimeout = 2 * time.Second
+	// 辅助进程的思考间隔是 60ms；CI 负载下 60ms 的 sleep 会抖到 120ms+，
+	// 空闲阈值必须留出足够余量，否则测的是调度抖动而不是 keepalive 逻辑。
+	cliStreamIdleTimeout = 500 * time.Millisecond
+	cliStreamMaxTimeout = 3 * time.Second
 	defer func() {
 		cliStreamIdleTimeout = originalIdle
 		cliStreamMaxTimeout = originalMax

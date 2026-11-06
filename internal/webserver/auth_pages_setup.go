@@ -44,6 +44,10 @@ func renderSetupBody(localizer *i18n.Localizer) string {
     <h2>` + webAuthHTML(localizer, "web_auth.page.setup.admin_title", nil) + `</h2>
     <div class="section-copy">` + webAuthHTML(localizer, "web_auth.page.setup.step_admin_hint", nil) + `</div>
     <label>
+      ` + webAuthHTML(localizer, "web_auth.page.setup.username_label", nil) + `
+      <input id="username" type="text" autocomplete="username" placeholder="` + webAuthHTML(localizer, "web_auth.page.setup.username_placeholder", nil) + `">
+    </label>
+    <label>
       ` + webAuthHTML(localizer, "web_auth.page.setup.password_label", nil) + `
       <input id="password" type="password" autocomplete="new-password" placeholder="` + webAuthHTML(localizer, "web_auth.page.setup.password_placeholder", nil) + `">
     </label>
@@ -303,11 +307,13 @@ async function bootstrapSetup() {
       window.location.replace(target);
       return;
     }
+    const setupGate = new URLSearchParams(window.location.search).get('setup') || '';
     const response = await fetch('` + internalRoutePrefix + `/auth/setup/bootstrap', {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        '` + webSetupGateHeaderName + `': setupGate
       },
       body: '{}'
     });
@@ -400,6 +406,7 @@ setupFormEl.addEventListener('submit', async (event) => {
       },
       body: JSON.stringify({
         setupToken: bootstrapState.setupToken,
+        username: document.getElementById('username').value || '',
         password: document.getElementById('password').value || '',
         confirmPassword: document.getElementById('confirm-password').value || '',
         code: document.getElementById('code').value || '',

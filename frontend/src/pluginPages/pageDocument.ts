@@ -12,5 +12,6 @@ export function sandboxedPageDocument(source: string, token: string, launch?: un
   const launchScript = launch === undefined
     ? ''
     : '<script>window.__gonaviLaunch=' + serializePluginPageLaunch(launch) + ';</script>';
-  return sandboxedPanelDocument('<script>' + createPageBridgeRuntime(token, preferences) + '</script>' + launchScript + source);
+  const hostOrigin = typeof window === 'undefined' ? undefined : window.location.origin;
+  return sandboxedPanelDocument('<script>' + createPageBridgeRuntime(token, preferences) + '</script>' + launchScript + source, hostOrigin);
 }

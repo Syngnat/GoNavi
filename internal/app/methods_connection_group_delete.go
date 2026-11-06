@@ -105,6 +105,7 @@ func (a *App) DeleteConnectionGroup(input connection.DeleteConnectionGroupInput)
 	})
 	if err == nil {
 		a.markCloudBackupDirty()
+		a.notifySavedConnectionsChanged()
 	}
 	return err
 }

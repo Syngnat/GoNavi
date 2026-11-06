@@ -346,3 +346,40 @@
   cursor: default;
   opacity: 0.5;
 }
+
+.gonavi-terminal {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border-radius: 6px;
+  background: #0d1117;
+  color: #c9d1d9;
+}
+
+.gonavi-terminal-output {
+  overflow: auto;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gonavi-terminal-input {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  outline: none;
+}
+
+.gonavi-file-tree {
+  overflow: auto;
+  padding: 4px;
+}

@@ -23,7 +23,7 @@ SPEC.loader.exec_module(MODULE)
 class ValidateNpmCLIPackageVersionTests(unittest.TestCase):
     def test_current_package_matches_the_release_tag(self) -> None:
         package_json = ROOT / "npm" / "gonavi-cli" / "package.json"
-        self.assertEqual(MODULE.validate_package_version("v1.2.1", package_json), "1.2.1")
+        self.assertEqual(MODULE.validate_package_version("v1.2.2", package_json), "1.2.2")
 
     def test_rejects_version_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

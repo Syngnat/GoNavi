@@ -38,20 +38,26 @@ func TestTOTPValidationAcceptsCurrentWindow(t *testing.T) {
 
 func TestConsumeRecoveryCodeRemovesUsedCode(t *testing.T) {
 	cfg := normalizeWebAuthConfig(webAuthConfig{
-		Enabled:            true,
-		TOTPEnabled:        true,
-		RecoveryCodeHashes: []string{hashRecoveryCode("ABCD-EFGH-IJKL"), hashRecoveryCode("MNOP-QRST-UVWX")},
+		Enabled: true,
+		Users: []webAuthUser{{
+			Username:           webDefaultAdminUsername,
+			PasswordHash:       "hash",
+			Role:               webRoleAdmin,
+			TOTPEnabled:        true,
+			TOTPSecret:         "JBSWY3DPEHPK3PXP",
+			RecoveryCodeHashes: []string{hashRecoveryCode("ABCD-EFGH-IJKL"), hashRecoveryCode("MNOP-QRST-UVWX")},
+		}},
 	})
 
-	next, consumed := consumeRecoveryCode(cfg, "abcd efgh ijkl")
+	next, consumed := consumeUserRecoveryCode(cfg, webDefaultAdminUsername, "abcd efgh ijkl")
 	if !consumed {
 		t.Fatalf("expected recovery code to be consumed")
 	}
-	if len(next.RecoveryCodeHashes) != 1 {
-		t.Fatalf("expected one recovery code to remain, got %d", len(next.RecoveryCodeHashes))
+	if len(next.Users[0].RecoveryCodeHashes) != 1 {
+		t.Fatalf("expected one recovery code to remain, got %d", len(next.Users[0].RecoveryCodeHashes))
 	}
-	if next.RecoveryCodeHashes[0] != hashRecoveryCode("MNOP-QRST-UVWX") {
-		t.Fatalf("unexpected remaining recovery code hash: %q", next.RecoveryCodeHashes[0])
+	if next.Users[0].RecoveryCodeHashes[0] != hashRecoveryCode("MNOP-QRST-UVWX") {
+		t.Fatalf("unexpected remaining recovery code hash: %q", next.Users[0].RecoveryCodeHashes[0])
 	}
 }
 
@@ -65,22 +71,22 @@ func TestWebSessionManagerExpiresIdleAndAbsolute(t *testing.T) {
 		SessionRememberDays:  1,
 	})
 	start := time.Unix(1_720_000_000, 0).UTC()
-	sessionID, err := manager.Create(cfg, start)
+	sessionID, err := manager.Create(cfg, webDefaultAdminUsername, webRoleAdmin, start)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	if !manager.Authenticate(sessionID, cfg, start.Add(4*time.Minute)) {
+	if _, ok := manager.Authenticate(sessionID, cfg, start.Add(4*time.Minute)); !ok {
 		t.Fatalf("expected session to remain valid before idle timeout")
 	}
-	if manager.Authenticate(sessionID, cfg, start.Add(10*time.Minute)) {
+	if _, ok := manager.Authenticate(sessionID, cfg, start.Add(10*time.Minute)); ok {
 		t.Fatalf("expected session to expire after idle timeout")
 	}
 
-	sessionID, err = manager.Create(cfg, start)
+	sessionID, err = manager.Create(cfg, webDefaultAdminUsername, webRoleAdmin, start)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	if manager.Authenticate(sessionID, cfg, start.Add(2*time.Hour)) {
+	if _, ok := manager.Authenticate(sessionID, cfg, start.Add(2*time.Hour)); ok {
 		t.Fatalf("expected session to expire after absolute timeout")
 	}
 }
@@ -107,33 +113,33 @@ func TestWebAuthManagerEnforcesSixCharacterPasswords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newWebAuthManager failed: %v", err)
 	}
-	setup, err := manager.BeginSetup("127.0.0.1:34116")
+	setup, err := manager.BeginSetup("127.0.0.1:34116", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("BeginSetup failed: %v", err)
 	}
 
-	if _, _, err := manager.CompleteSetup(setup.SetupToken, "12345", "", false, 30, 24, 7); err == nil || !strings.Contains(err.Error(), "at least 6") {
+	if _, _, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "12345", "", false, 30, 24, 7); err == nil || !strings.Contains(err.Error(), "at least 6") {
 		t.Fatalf("expected five-character setup password to be rejected, got %v", err)
 	}
-	cfg, _, err := manager.CompleteSetup(setup.SetupToken, "123456", "", false, 30, 24, 7)
+	cfg, _, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "123456", "", false, 30, 24, 7)
 	if err != nil {
 		t.Fatalf("expected six-character setup password to succeed, got %v", err)
 	}
-	if !verifyPassword(cfg.PasswordHash, "123456") {
+	if !verifyPassword(cfg.Users[0].PasswordHash, "123456") {
 		t.Fatal("expected six-character setup password to be persisted")
 	}
 
-	if _, _, _, err := manager.ChangePassword("123456", "", "65432"); err == nil || !strings.Contains(err.Error(), "at least 6") {
+	if _, _, _, err := manager.ChangePassword(webDefaultAdminUsername, "123456", "", "65432"); err == nil || !strings.Contains(err.Error(), "at least 6") {
 		t.Fatalf("expected five-character replacement password to be rejected, got %v", err)
 	}
-	if !verifyPassword(manager.currentConfig().PasswordHash, "123456") {
+	if !verifyPassword(manager.currentConfig().Users[0].PasswordHash, "123456") {
 		t.Fatal("expected rejected password change to preserve the current password")
 	}
-	nextCfg, _, _, err := manager.ChangePassword("123456", "", "654321")
+	nextCfg, _, _, err := manager.ChangePassword(webDefaultAdminUsername, "123456", "", "654321")
 	if err != nil {
 		t.Fatalf("expected six-character replacement password to succeed, got %v", err)
 	}
-	if !verifyPassword(nextCfg.PasswordHash, "654321") {
+	if !verifyPassword(nextCfg.Users[0].PasswordHash, "654321") {
 		t.Fatal("expected six-character replacement password to be persisted")
 	}
 }
@@ -156,10 +162,10 @@ func TestNewWebAuthManagerFromEnvironmentInitializesPassword(t *testing.T) {
 	if !settings.PasswordManagedByEnvironment {
 		t.Fatal("expected settings to report that the password is managed by environment")
 	}
-	if _, _, _, _, err := manager.Login("123456", "", "127.0.0.1"); err != nil {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "123456", "", "127.0.0.1"); err != nil {
 		t.Fatalf("expected login with environment password to succeed, got %v", err)
 	}
-	if _, _, _, err := manager.ChangePassword("123456", "", "654321"); !errors.Is(err, errWebAuthPasswordManaged) {
+	if _, _, _, err := manager.ChangePassword(webDefaultAdminUsername, "123456", "", "654321"); !errors.Is(err, errWebAuthPasswordManaged) {
 		t.Fatalf("expected environment-managed password change to be rejected, got %v", err)
 	}
 	payload, err := os.ReadFile(manager.store.path)
@@ -182,7 +188,7 @@ func TestNewWebAuthManagerFromEnvironmentInitializesPassword(t *testing.T) {
 	if settings.PasswordManagedByEnvironment {
 		t.Fatal("expected password management to return to the settings UI after clearing the environment variable")
 	}
-	if _, _, _, _, err := restarted.Login("123456", "", "127.0.0.1"); err != nil {
+	if _, _, _, _, err := restarted.Login(webDefaultAdminUsername, "123456", "", "127.0.0.1"); err != nil {
 		t.Fatalf("expected the last synchronized password to remain active, got %v", err)
 	}
 }
@@ -195,7 +201,7 @@ func TestNewWebAuthManagerFromEnvironmentOverridesPasswordAndPreservesSettings(t
 	}
 	now := time.Unix(1_720_000_321, 0).UTC()
 	manager.now = func() time.Time { return now }
-	setup, err := manager.BeginSetup("127.0.0.1:34116")
+	setup, err := manager.BeginSetup("127.0.0.1:34116", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("BeginSetup failed: %v", err)
 	}
@@ -203,7 +209,7 @@ func TestNewWebAuthManagerFromEnvironmentOverridesPasswordAndPreservesSettings(t
 	if err != nil {
 		t.Fatalf("generateTOTPCodeAt failed: %v", err)
 	}
-	original, _, err := manager.CompleteSetup(setup.SetupToken, "old-password", code, true, 45, 48, 14)
+	original, _, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "old-password", code, true, 45, 48, 14)
 	if err != nil {
 		t.Fatalf("CompleteSetup failed: %v", err)
 	}
@@ -214,10 +220,10 @@ func TestNewWebAuthManagerFromEnvironmentOverridesPasswordAndPreservesSettings(t
 		t.Fatalf("restart with environment password failed: %v", err)
 	}
 	updated := restarted.currentConfig()
-	if verifyPassword(updated.PasswordHash, "old-password") || !verifyPassword(updated.PasswordHash, "654321") {
+	if verifyPassword(updated.Users[0].PasswordHash, "old-password") || !verifyPassword(updated.Users[0].PasswordHash, "654321") {
 		t.Fatal("expected environment password to replace the persisted password")
 	}
-	if !updated.TOTPEnabled || updated.TOTPSecret != original.TOTPSecret || len(updated.RecoveryCodeHashes) != len(original.RecoveryCodeHashes) {
+	if !updated.Users[0].TOTPEnabled || updated.Users[0].TOTPSecret != original.Users[0].TOTPSecret || len(updated.Users[0].RecoveryCodeHashes) != len(original.Users[0].RecoveryCodeHashes) {
 		t.Fatal("expected environment password update to preserve TOTP settings")
 	}
 	if updated.SessionIdleMinutes != 45 || updated.SessionAbsoluteHours != 48 || updated.SessionRememberDays != 14 {
@@ -264,7 +270,7 @@ func TestWebAuthManagerChangePasswordRotatesSession(t *testing.T) {
 	now := time.Unix(1_720_000_000, 0).UTC()
 	manager.now = func() time.Time { return now }
 
-	setup, err := manager.BeginSetup("127.0.0.1:34115")
+	setup, err := manager.BeginSetup("127.0.0.1:34115", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("BeginSetup failed: %v", err)
 	}
@@ -272,7 +278,7 @@ func TestWebAuthManagerChangePasswordRotatesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTOTPCodeAt failed: %v", err)
 	}
-	cfg, sessionID, err := manager.CompleteSetup(setup.SetupToken, "strong-password-123", code, true, 30, 24, 7)
+	cfg, sessionID, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "strong-password-123", code, true, 30, 24, 7)
 	if err != nil {
 		t.Fatalf("CompleteSetup failed: %v", err)
 	}
@@ -288,7 +294,7 @@ func TestWebAuthManagerChangePasswordRotatesSession(t *testing.T) {
 		t.Fatalf("expected 8 recovery codes, got %d", summary.RecoveryCodesRemaining)
 	}
 
-	nextCfg, nextSessionID, usedRecoveryCode, err := manager.ChangePassword("strong-password-123", code, "strong-password-456")
+	nextCfg, nextSessionID, usedRecoveryCode, err := manager.ChangePassword(webDefaultAdminUsername, "strong-password-123", code, "strong-password-456")
 	if err != nil {
 		t.Fatalf("ChangePassword failed: %v", err)
 	}
@@ -298,23 +304,23 @@ func TestWebAuthManagerChangePasswordRotatesSession(t *testing.T) {
 	if sessionID == nextSessionID || strings.TrimSpace(nextSessionID) == "" {
 		t.Fatalf("expected ChangePassword to rotate the session, old=%q new=%q", sessionID, nextSessionID)
 	}
-	if manager.sessions.Authenticate(sessionID, cfg, now) {
+	if _, ok := manager.sessions.Authenticate(sessionID, cfg, now); ok {
 		t.Fatalf("expected previous session to be invalidated after password change")
 	}
-	if !manager.sessions.Authenticate(nextSessionID, nextCfg, now) {
+	if _, ok := manager.sessions.Authenticate(nextSessionID, nextCfg, now); !ok {
 		t.Fatalf("expected rotated session to remain valid")
 	}
-	if !verifyPassword(nextCfg.PasswordHash, "strong-password-456") {
+	if !verifyPassword(nextCfg.Users[0].PasswordHash, "strong-password-456") {
 		t.Fatalf("expected new password hash to validate")
 	}
-	if verifyPassword(nextCfg.PasswordHash, "strong-password-123") {
+	if verifyPassword(nextCfg.Users[0].PasswordHash, "strong-password-123") {
 		t.Fatalf("expected previous password to stop validating")
 	}
 
-	if _, _, _, _, err := manager.Login("strong-password-123", code, ""); !errors.Is(err, errWebAuthInvalidCredentials) {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-123", code, ""); !errors.Is(err, errWebAuthInvalidCredentials) {
 		t.Fatalf("expected old password login to fail with invalid credentials, got %v", err)
 	}
-	if _, _, _, _, err := manager.Login("strong-password-456", code, ""); err != nil {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-456", code, ""); err != nil {
 		t.Fatalf("expected new password login to succeed, got %v", err)
 	}
 }
@@ -327,7 +333,7 @@ func TestWebAuthManagerChangePasswordConsumesRecoveryCode(t *testing.T) {
 	now := time.Unix(1_720_000_123, 0).UTC()
 	manager.now = func() time.Time { return now }
 
-	setup, err := manager.BeginSetup("127.0.0.1:34115")
+	setup, err := manager.BeginSetup("127.0.0.1:34115", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("BeginSetup failed: %v", err)
 	}
@@ -335,11 +341,11 @@ func TestWebAuthManagerChangePasswordConsumesRecoveryCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTOTPCodeAt failed: %v", err)
 	}
-	if _, _, err := manager.CompleteSetup(setup.SetupToken, "strong-password-123", code, true, 30, 24, 7); err != nil {
+	if _, _, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "strong-password-123", code, true, 30, 24, 7); err != nil {
 		t.Fatalf("CompleteSetup failed: %v", err)
 	}
 
-	_, _, usedRecoveryCode, err := manager.ChangePassword("strong-password-123", setup.RecoveryCodes[0], "strong-password-456")
+	_, _, usedRecoveryCode, err := manager.ChangePassword(webDefaultAdminUsername, "strong-password-123", setup.RecoveryCodes[0], "strong-password-456")
 	if err != nil {
 		t.Fatalf("ChangePassword failed: %v", err)
 	}
@@ -398,7 +404,7 @@ func TestWebAuthManagerTOTPLoginRejectsReplayedCode(t *testing.T) {
 	now := time.Unix(1_720_000_123, 0).UTC()
 	manager.now = func() time.Time { return now }
 
-	setup, err := manager.BeginSetup("127.0.0.1:34115")
+	setup, err := manager.BeginSetup("127.0.0.1:34115", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("BeginSetup failed: %v", err)
 	}
@@ -408,18 +414,18 @@ func TestWebAuthManagerTOTPLoginRejectsReplayedCode(t *testing.T) {
 	}
 	// Setup keeps using the pure validator: it is a one-time flow, and the very
 	// first login typically replays the same code inside the same 30s step.
-	if _, _, err := manager.CompleteSetup(setup.SetupToken, "strong-password-123", code, true, 30, 24, 7); err != nil {
+	if _, _, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "strong-password-123", code, true, 30, 24, 7); err != nil {
 		t.Fatalf("CompleteSetup failed: %v", err)
 	}
 
-	if _, _, _, _, err := manager.Login("strong-password-123", code, ""); err != nil {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-123", code, ""); err != nil {
 		t.Fatalf("expected first login with the setup code to succeed, got %v", err)
 	}
-	if _, _, _, _, err := manager.Login("strong-password-123", code, ""); !errors.Is(err, errWebAuthInvalidCredentials) {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-123", code, ""); !errors.Is(err, errWebAuthInvalidCredentials) {
 		t.Fatalf("expected a replayed TOTP code to fail with invalid credentials, got %v", err)
 	}
 	// The recovery-code fallback must stay intact after a rejected replay.
-	if _, _, _, _, err := manager.Login("strong-password-123", setup.RecoveryCodes[0], ""); err != nil {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-123", setup.RecoveryCodes[0], ""); err != nil {
 		t.Fatalf("expected recovery code login to still succeed, got %v", err)
 	}
 }
@@ -432,7 +438,7 @@ func TestWebAuthManagerTOTPLoginAcceptsNextStepCode(t *testing.T) {
 	now := time.Unix(1_720_000_123, 0).UTC()
 	manager.now = func() time.Time { return now }
 
-	setup, err := manager.BeginSetup("127.0.0.1:34115")
+	setup, err := manager.BeginSetup("127.0.0.1:34115", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("BeginSetup failed: %v", err)
 	}
@@ -440,10 +446,10 @@ func TestWebAuthManagerTOTPLoginAcceptsNextStepCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTOTPCodeAt failed: %v", err)
 	}
-	if _, _, err := manager.CompleteSetup(setup.SetupToken, "strong-password-123", code, true, 30, 24, 7); err != nil {
+	if _, _, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "strong-password-123", code, true, 30, 24, 7); err != nil {
 		t.Fatalf("CompleteSetup failed: %v", err)
 	}
-	if _, _, _, _, err := manager.Login("strong-password-123", code, ""); err != nil {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-123", code, ""); err != nil {
 		t.Fatalf("expected first login to succeed, got %v", err)
 	}
 
@@ -455,7 +461,7 @@ func TestWebAuthManagerTOTPLoginAcceptsNextStepCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTOTPCodeAt failed: %v", err)
 	}
-	if _, _, _, _, err := manager.Login("strong-password-123", nextCode, ""); err != nil {
+	if _, _, _, _, err := manager.Login(webDefaultAdminUsername, "strong-password-123", nextCode, ""); err != nil {
 		t.Fatalf("expected the next step's code to be accepted, got %v", err)
 	}
 }

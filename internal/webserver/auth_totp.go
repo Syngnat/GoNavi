@@ -114,24 +114,6 @@ func hashRecoveryCode(code string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func consumeRecoveryCode(cfg webAuthConfig, code string) (webAuthConfig, bool) {
-	if !cfg.TOTPEnabled || len(cfg.RecoveryCodeHashes) == 0 {
-		return cfg, false
-	}
-	needle := hashRecoveryCode(code)
-	next := cloneWebAuthConfig(cfg)
-	next.RecoveryCodeHashes = next.RecoveryCodeHashes[:0]
-	consumed := false
-	for _, item := range cfg.RecoveryCodeHashes {
-		if subtle.ConstantTimeCompare([]byte(item), []byte(needle)) == 1 && !consumed {
-			consumed = true
-			continue
-		}
-		next.RecoveryCodeHashes = append(next.RecoveryCodeHashes, item)
-	}
-	return next, consumed
-}
-
 func normalizeUserCode(code string) string {
 	replacer := strings.NewReplacer(" ", "", "-", "", "\t", "", "\r", "", "\n", "")
 	return strings.ToUpper(strings.TrimSpace(replacer.Replace(code)))

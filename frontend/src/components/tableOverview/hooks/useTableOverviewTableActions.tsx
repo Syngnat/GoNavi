@@ -257,6 +257,7 @@ export const useTableOverviewTableActions = ({
           dbName: tab.dbName,
           schemaName: schemaName || undefined,
           query: `ALTER TABLE ${quotedTable}\nADD ROLLUP rollup_name (column1, column2);`,
+          queryMode: 'object-create',
       });
   }, [addTab, connection, schemaName, t, tab.dbName]);
 

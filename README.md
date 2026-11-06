@@ -228,7 +228,7 @@ Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](htt
 ### 🛡️ Observable & shippable
 - SQL execution logs with timing  
 - Audit center (redacted by default, retention, export)  
-- Desktop + experimental **Web Server** mode  
+- Desktop + **Web Server** mode  
 - Docker / K8s / Helm / Podman packaging  
 - Auto update checks · multi-arch releases  
 
@@ -427,7 +427,7 @@ docker compose --env-file docker.cli.env -f docker-compose.cli.yml run --rm gona
 
 ---
 
-## 🌐 Web Server (Experimental)
+## 🌐 Web Server
 
 Same Go backend + React UI over HTTP — **not** a containerized Wails window.
 
@@ -436,10 +436,14 @@ go build .
 .\GoNavi-Wails.exe web-server --addr 127.0.0.1:34116
 ```
 
-- First visit → `/setup` (admin password; optional Google Authenticator)
+- First visit → `/setup?setup=<token>` (the token is printed in the startup log; or set `GONAVI_WEB_SETUP_TOKEN` / `GONAVI_WEB_PASSWORD`)
+- Accounts: `admin` (full access) and `viewer` (read-only; its connections are forced read-only). Viewers can be restricted to specific saved connections. TOTP and recovery codes are per account
+- Sessions persist across restarts (`web_sessions.json`); login limits apply per IP and per account
 - Bridge: `window.go.*` / `window.runtime.*` → HTTP / SSE
-- Sessions, recovery codes, login rate limits
 - Plugins: read-only by default; set `GONAVI_WEB_PLUGIN_MANAGEMENT=1` on the server to let authenticated sessions install and enable plugins (this executes plugin code on the host)
+- Ops: `GET /__gonavi/healthz`, `GET /__gonavi/readyz` (data-root writability), authenticated `GET /__gonavi/metrics` (JSON; add `?format=prometheus` for text); tune `GONAVI_WEB_MAX_INFLIGHT[_PER_USER]`, `GONAVI_DB_MAX_OPEN_CONNS`, `GONAVI_SHUTDOWN_GRACE_SECONDS`, `GONAVI_WEB_ASSET_DIR`
+- **Single instance**: state lives in local files; a second server on the same data root logs a warning. Run one replica behind the reverse proxy
+- **Multi-replica**: `GONAVI_WEB_MULTI_REPLICA=1` lets several servers share one data root. Requirements: session affinity (`ip_hash` / sticky cookie) at the proxy, a flock-capable shared filesystem (local volume or NFSv4), and the same `web_auth.json` / `web_sessions.json` for every replica. Query/SSE events stay on the replica that served the request, so sticky sessions are mandatory; the SQLite audit store expects a filesystem with working POSIX locks
 
 #### Docker / Podman
 
@@ -583,7 +587,7 @@ The Bootstrapper fails on fully air-gapped machines. Use the **Evergreen Standal
 
 ### 5. Temporary workaround: Web Server mode
 
-If the desktop WebView cannot be installed yet, run the experimental Web Server and use a normal browser:
+If the desktop WebView cannot be installed yet, run the Web Server and use a normal browser:
 
 ```powershell
 .\GoNavi.exe web-server --addr 127.0.0.1:34116

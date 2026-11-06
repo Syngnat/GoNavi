@@ -9,6 +9,7 @@ import (
 
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 type methodInvoker struct {
@@ -163,6 +164,11 @@ func (i *methodInvoker) Invoke(ctx context.Context, req invokeRequest) (any, err
 	}
 
 	canonicalTarget := canonicalInvokeTarget(key)
+	if actor, ok := webidentity.ActorFromContext(ctx); ok && actor.Role == webidentity.RoleViewer {
+		if err := enforceViewerPolicy(actor, canonicalTarget, methodName, callArgs); err != nil {
+			return nil, err
+		}
+	}
 	handler := reflect.Value{}
 	if handlers := i.contextHandlers[canonicalTarget]; handlers != nil {
 		handler = handlers[methodName]

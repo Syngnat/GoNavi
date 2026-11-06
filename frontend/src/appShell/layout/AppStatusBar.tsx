@@ -4,6 +4,7 @@ import { FileTextOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
 import { useStore } from '../../store';
 import { useAppStatusBar } from '../hooks/useAppStatusBar';
+import { PluginStatusBarActions } from './PluginStatusBarActions';
 import './appStatusBar.css';
 
 export interface AppStatusBarProps {
@@ -59,6 +60,7 @@ export const AppStatusBar = ({ isLogPanelOpen, onToggleLogPanel }: AppStatusBarP
         )}
       </div>
       <div className="gn-app-statusbar-actions">
+        <PluginStatusBarActions />
         <button
           type="button"
           className={`gn-app-statusbar-action${isLogPanelOpen ? ' is-active' : ''}`}
