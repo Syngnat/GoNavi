@@ -227,7 +227,7 @@
 ### 🛡️ 可观测 & 可交付
 - SQL 执行日志（含耗时）  
 - 审计中心（默认脱敏、保留策略、导出）  
-- 桌面端 + 实验性 **Web Server**  
+- 桌面端 + **Web Server**  
 - Docker / K8s / Helm / Podman  
 - 更新检查 · 多架构发布  
 
@@ -427,7 +427,7 @@ docker compose --env-file docker.cli.env -f docker-compose.cli.yml run --rm gona
 
 ---
 
-## 🌐 Web Server（实验中）
+## 🌐 Web Server
 
 同一套 Go 后端 + React 前端提供浏览器访问（**不是**把 Wails 桌面窗口容器化）。
 
@@ -584,7 +584,7 @@ Bootstrapper 在完全断网环境会失败。请改用 **Evergreen Standalone I
 
 ### 5. 临时绕过：Web Server 模式（仍需能跑 GoNavi 后端）
 
-若桌面 WebView 短期无法装上，可在本机用浏览器访问实验性 Web Server（**不是**把桌面窗口容器化）：
+若桌面 WebView 短期无法装上，可在本机用浏览器访问 Web Server（**不是**把桌面窗口容器化）：
 
 ```powershell
 # 以发布包中的可执行文件为例

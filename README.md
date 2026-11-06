@@ -228,7 +228,7 @@ Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](htt
 ### 🛡️ Observable & shippable
 - SQL execution logs with timing  
 - Audit center (redacted by default, retention, export)  
-- Desktop + experimental **Web Server** mode  
+- Desktop + **Web Server** mode  
 - Docker / K8s / Helm / Podman packaging  
 - Auto update checks · multi-arch releases  
 
@@ -427,7 +427,7 @@ docker compose --env-file docker.cli.env -f docker-compose.cli.yml run --rm gona
 
 ---
 
-## 🌐 Web Server (Experimental)
+## 🌐 Web Server
 
 Same Go backend + React UI over HTTP — **not** a containerized Wails window.
 
@@ -587,7 +587,7 @@ The Bootstrapper fails on fully air-gapped machines. Use the **Evergreen Standal
 
 ### 5. Temporary workaround: Web Server mode
 
-If the desktop WebView cannot be installed yet, run the experimental Web Server and use a normal browser:
+If the desktop WebView cannot be installed yet, run the Web Server and use a normal browser:
 
 ```powershell
 .\GoNavi.exe web-server --addr 127.0.0.1:34116
