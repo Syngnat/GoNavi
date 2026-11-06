@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/andybalholm/brotli"
 
@@ -26,6 +27,18 @@ import (
 // 解压或写盘失败（只读 /tmp、磁盘满等）时回退到内存 FS，不影响可用性。
 // 返回的 release 在服务退出后调用，负责清理临时目录。
 func webServerAssets() (fs.FS, func()) {
+	// 固定资产目录便于容器把 /tmp 换成持久卷，避免每次启动重复解压
+	// 70MB 前端产物；目录由部署方负责容量与权限。
+	if configured := strings.TrimSpace(os.Getenv("GONAVI_WEB_ASSET_DIR")); configured != "" {
+		if err := os.MkdirAll(configured, 0o755); err != nil {
+			logger.Warnf("Web Server 固定资产目录不可用，回退临时目录：%v", err)
+		} else if err := extractBundleToDisk(embeddedDistBundle, configured); err != nil {
+			logger.Warnf("Web Server 固定资产目录解压失败，回退临时目录：%v", err)
+		} else {
+			logger.Infof("Web Server 前端资产已解压到固定目录：%s", configured)
+			return os.DirFS(configured), func() {}
+		}
+	}
 	dir, err := os.MkdirTemp("", "gonavi-web-assets-")
 	if err != nil {
 		logger.Warnf("Web Server 前端资产改用内存加载：创建临时目录失败：%v", err)

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	httpserverlimits "GoNavi-Wails/internal/httpserver"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/requesttrace"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 func (s *Server) Run(ctx context.Context) error {
@@ -42,7 +44,7 @@ func (s *Server) runHTTP(ctx context.Context, handler http.Handler) error {
 	tracker := newRequestTracker()
 	httpServer := &http.Server{
 		Addr:              s.options.Addr,
-		Handler:           withRequestLifecycle(serveCtx, tracker, handler),
+		Handler:           withRequestLifecycle(serveCtx, tracker, s.metrics.middleware(handler)),
 		ReadHeaderTimeout: httpserverlimits.ReadHeaderTimeout,
 		ReadTimeout:       httpserverlimits.ReadTimeout,
 		WriteTimeout:      httpserverlimits.WriteTimeout,
@@ -129,7 +131,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc(internalRoutePrefix+"/auth/logout", s.handleLogout)
 	mux.Handle(internalRoutePrefix+"/auth/settings", s.requireWebAuth(http.HandlerFunc(s.handleAuthSettings)))
 	mux.Handle(internalRoutePrefix+"/auth/settings/password", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleAuthPasswordChange))))
-	mux.Handle(internalRoutePrefix+"/api/invoke", s.requireWebAuth(wrapInvokeRoute(http.HandlerFunc(s.handleInvoke))))
+	mux.Handle(internalRoutePrefix+"/auth/settings/users", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleAuthUsers))))
+	mux.Handle(internalRoutePrefix+"/auth/settings/totp/begin", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleTOTPBegin))))
+	mux.Handle(internalRoutePrefix+"/auth/settings/totp/enable", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleTOTPEnable))))
+	mux.Handle(internalRoutePrefix+"/auth/settings/totp/disable", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleTOTPDisable))))
+	mux.Handle(internalRoutePrefix+"/api/invoke", s.requireWebAuth(withGzipJSON(wrapInvokeRoute(http.HandlerFunc(s.handleInvoke)))))
 	mux.Handle(internalRoutePrefix+"/api/upload", s.requireWebAuth(http.HandlerFunc(s.handleWebUpload)))
 	mux.Handle(internalRoutePrefix+"/api/download/", s.requireWebAuth(httpserverlimits.StreamingWriteTimeout(http.HandlerFunc(s.handleWebDownload))))
 	mux.Handle(internalRoutePrefix+"/events", s.requireWebAuth(httpserverlimits.StreamingWriteTimeout(http.HandlerFunc(s.handleEvents))))
@@ -139,6 +145,8 @@ func (s *Server) routes() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc(internalRoutePrefix+"/readyz", s.handleReadyz)
+	mux.Handle(internalRoutePrefix+"/metrics", s.requireWebAuth(http.HandlerFunc(s.handleMetrics)))
 	mux.HandleFunc("/login", s.handleLoginPage)
 	mux.HandleFunc("/setup", s.handleSetupPage)
 	fileServer := http.FileServer(http.FS(s.assets))
@@ -164,6 +172,10 @@ func (s *Server) routes() http.Handler {
 			s.serveIndex(w, r)
 			return
 		}
+		if s.serveCompressedAsset(w, r) {
+			return
+		}
+		w.Header().Set("Cache-Control", staticCacheControl(path.Clean("/"+r.URL.Path)))
 		fileServer.ServeHTTP(w, r)
 	})
 	return withSecurityHeaders(mux)
@@ -193,6 +205,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	html := injectRuntimeBridge(string(payload))
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Security-Policy", appContentSecurityPolicy)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	http.ServeContent(w, r, "index.html", time.Time{}, strings.NewReader(html))
 }
@@ -235,6 +249,13 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		s.writeInvokeResponse(w, http.StatusBadRequest, invokeResponse{Error: err.Error()})
 		return
 	}
+	actor, _ := webidentity.ActorFromContext(r.Context())
+	release, admitted := s.invokeLimiter.acquire(actor.Username)
+	if !admitted {
+		s.writeInvokeResponse(w, http.StatusTooManyRequests, invokeResponse{Error: "too many concurrent requests; retry later"})
+		return
+	}
+	defer release()
 	clearLongRunningInvokeWriteDeadline(w, request.Method)
 	var webTrace *requesttrace.Handle
 	if shouldTraceWebInvoke(request) {
@@ -270,7 +291,9 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	invokeStarted := time.Now()
 	result, err := s.invoker.Invoke(r.Context(), request)
+	s.metrics.recordInvoke(request.Method, time.Since(invokeStarted), err != nil)
 	if err != nil {
 		writeResponse(http.StatusBadRequest, invokeResponse{Error: err.Error()})
 		return
@@ -397,4 +420,9 @@ func (s *Server) writeStartupBanner(addr string) {
 		}
 	}
 	_, _ = fmt.Fprintf(s.options.Console, "GoNavi Web Server 已启动：http://%s\n日志：%s\n", display, logger.Path())
+	if s.auth != nil && !s.auth.Status("").Configured {
+		if token := s.auth.SetupToken(); token != "" {
+			_, _ = fmt.Fprintf(s.options.Console, "首次初始化：http://%s/setup?setup=%s\n", display, url.QueryEscape(token))
+		}
+	}
 }

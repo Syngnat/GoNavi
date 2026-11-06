@@ -15,6 +15,7 @@ import (
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
 	httpserverlimits "GoNavi-Wails/internal/httpserver"
+	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/uievents"
 )
 
@@ -26,6 +27,9 @@ type Server struct {
 	auth          *webAuthManager
 	events        *eventHub
 	invoker       *methodInvoker
+	invokeLimiter *invokeLimiter
+	assetCache    *compressedAssetCache
+	metrics       *webMetrics
 	auditHeavySem chan struct{}
 	// boundAddr records the actual listener address once runHTTP has bound
 	// the socket, which is observable by tests when Addr uses port zero.
@@ -84,6 +88,9 @@ func NewSharedRuntime(assetFS fs.FS, app *appcore.App, ai *aiservice.Service, op
 			ai:            ai,
 			events:        events,
 			invoker:       invoker,
+			invokeLimiter: newInvokeLimiterFromEnv(),
+			assetCache:    newCompressedAssetCache(),
+			metrics:       newWebMetrics(),
 			auditHeavySem: make(chan struct{}, 1),
 		},
 		runtimeBridgePath:   bridgePath,
@@ -171,6 +178,8 @@ func (s *SharedRuntime) routes() http.Handler {
 				return
 			}
 			html := injectBodyScript(string(payload), s.runtimeBridgePath)
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Content-Security-Policy", appContentSecurityPolicy)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			http.ServeContent(w, r, "index.html", time.Time{}, strings.NewReader(html))
 			return
@@ -227,6 +236,19 @@ func Run(ctx context.Context, assetFS fs.FS, args []string) error {
 	// 只有命令行入口把横幅接到终端；New 的程序化调用方（测试、内嵌运行时）
 	// 保持 Console 为空，避免污染它们的输出。
 	options.Console = os.Stderr
+	if envBool("GONAVI_WEB_MULTI_REPLICA") {
+		logger.Infof("Web Server 以多副本模式启动：请确保所有副本共享同一数据目录，并在反向代理启用会话粘滞")
+	} else {
+		releaseInstanceLock, lockErr := acquireWebInstanceLock()
+		if lockErr != nil {
+			if envBool("GONAVI_WEB_SINGLETON_STRICT") {
+				return fmt.Errorf("another GoNavi web server already owns this data root: %w", lockErr)
+			}
+			logger.Warnf("检测到另一个 Web Server 正在使用同一数据目录；请保持单实例运行：%v", lockErr)
+		} else {
+			defer releaseInstanceLock()
+		}
+	}
 	server, err := New(ctx, assetFS, options)
 	if err != nil {
 		return err
@@ -238,6 +260,7 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 	if assetFS == nil {
 		return nil, fmt.Errorf("web assets are unavailable")
 	}
+	applyShutdownTimeoutEnv()
 	frontendFS, err := resolveFrontendAssets(assetFS)
 	if err != nil {
 		return nil, err
@@ -268,6 +291,9 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 		auth:          auth,
 		events:        events,
 		invoker:       invoker,
+		invokeLimiter: newInvokeLimiterFromEnv(),
+		assetCache:    newCompressedAssetCache(),
+		metrics:       newWebMetrics(),
 		auditHeavySem: make(chan struct{}, 1),
 	}, nil
 }
@@ -275,6 +301,16 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 // resolveFrontendAssets accepts both the production ZIP layout, where Vite's
 // output is stored at the FS root, and the development layout, where the
 // project root contains frontend/dist.
+// applyShutdownTimeoutEnv 允许容器编排按任务时长调整关闭排空窗口。
+func applyShutdownTimeoutEnv() {
+	if seconds := envPositiveInt("GONAVI_SHUTDOWN_GRACE_SECONDS", 0, 300); seconds > 0 {
+		shutdownGraceTimeout = time.Duration(seconds) * time.Second
+	}
+	if seconds := envPositiveInt("GONAVI_SHUTDOWN_DRAIN_SECONDS", 0, 300); seconds > 0 {
+		shutdownDrainTimeout = time.Duration(seconds) * time.Second
+	}
+}
+
 func resolveFrontendAssets(assetFS fs.FS) (fs.FS, error) {
 	if info, err := fs.Stat(assetFS, "index.html"); err == nil {
 		if !info.IsDir() {

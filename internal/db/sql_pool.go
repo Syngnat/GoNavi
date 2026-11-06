@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +41,7 @@ func configureSQLConnectionPool(db *sql.DB, dbType string, config connection.Con
 	if db == nil {
 		return
 	}
+	registerSQLPool(db)
 	normalizedType := strings.ToLower(strings.TrimSpace(dbType))
 	switch normalizedType {
 	case "sqlite":
@@ -50,7 +53,7 @@ func configureSQLConnectionPool(db *sql.DB, dbType string, config connection.Con
 		db.SetMaxIdleConns(duckDBSQLMaxIdleConns)
 		return
 	}
-	db.SetMaxOpenConns(defaultSQLMaxOpenConns)
+	db.SetMaxOpenConns(resolveSQLMaxOpenConns())
 	maxIdle := 0
 	if isSQLPoolKeepIdleProfile(normalizedType) {
 		maxIdle = defaultSQLMaxIdleConns
@@ -59,6 +62,20 @@ func configureSQLConnectionPool(db *sql.DB, dbType string, config connection.Con
 	db.SetConnMaxIdleTime(resolveSQLConnectionPoolMaxIdleTime(dbType))
 	db.SetConnMaxLifetime(defaultSQLConnMaxLifetime)
 	applySQLConnectionPoolKeepAlive(db, config)
+}
+
+// resolveSQLMaxOpenConns 允许部署方按并发客户端数调整默认池大小。
+// 环境变量非法时回退 4，避免把池调成 0 或超大值。
+func resolveSQLMaxOpenConns() int {
+	raw := strings.TrimSpace(os.Getenv("GONAVI_DB_MAX_OPEN_CONNS"))
+	if raw == "" {
+		return defaultSQLMaxOpenConns
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 || value > 128 {
+		return defaultSQLMaxOpenConns
+	}
+	return value
 }
 
 // isSQLPoolKeepIdleProfile 判断驱动是否沿用「保留 1 条空闲连接」的历史池配置。
