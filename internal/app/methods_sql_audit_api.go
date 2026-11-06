@@ -34,6 +34,7 @@ func (a *App) GetSQLAuditHealth() connection.QueryResult {
 }
 
 func (a *App) GetSQLAuditEvents(filter sqlaudit.Filter) connection.QueryResult {
+	a.flushSQLAuditWrites()
 	var page sqlaudit.Page
 	err := a.withSQLAuditStore(false, func(store *sqlaudit.Store) error {
 		var queryErr error
@@ -87,6 +88,7 @@ func (a *App) UpdateSQLAuditSettings(settings sqlaudit.Settings) connection.Quer
 }
 
 func (a *App) VerifySQLAuditIntegrity() connection.QueryResult {
+	a.flushSQLAuditWrites()
 	return a.verifySQLAuditIntegrity(context.Background())
 }
 
@@ -172,6 +174,7 @@ func (a *App) clearSQLAuditRecoveredGapState() {
 }
 
 func (a *App) BuildSQLAuditExport(filter sqlaudit.Filter, format string) connection.QueryResult {
+	a.flushSQLAuditWrites()
 	content, normalizedFormat, err := a.buildSQLAuditExport(filter, format)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -188,6 +191,7 @@ func (a *App) BuildSQLAuditExport(filter sqlaudit.Filter, format string) connect
 }
 
 func (a *App) ExportSQLAuditFile(filter sqlaudit.Filter, format string) connection.QueryResult {
+	a.flushSQLAuditWrites()
 	if a.webRuntime {
 		return connection.QueryResult{
 			Success: false,

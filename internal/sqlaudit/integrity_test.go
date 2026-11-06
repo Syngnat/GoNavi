@@ -27,7 +27,7 @@ func (r *cancelDuringSecondNextRows) Next() bool {
 }
 
 func (r *cancelDuringSecondNextRows) Scan(dest ...any) error {
-	if len(dest) != 30 {
+	if len(dest) != 31 {
 		return errors.New("unexpected scan destination count")
 	}
 	r.scans++
@@ -42,7 +42,7 @@ func (r *cancelDuringSecondNextRows) Scan(dest ...any) error {
 		event.CommitMode, event.SQLText, boolToInt(event.SQLRedacted), event.SQLFingerprint,
 		event.StatementIndex, event.StatementCount, event.ExecutedCount, event.FailedIndex,
 		boolToInt(event.OutcomeUnknown), event.DurationMs, event.RowsAffected, event.RowsReturned,
-		event.Error, event.PrevHash, event.Hash, event.MCPRequestID, event.MCPClient,
+		event.Error, event.PrevHash, event.Hash, event.MCPRequestID, event.MCPClient, event.UserName,
 	}
 	for index := range dest {
 		switch target := dest[index].(type) {

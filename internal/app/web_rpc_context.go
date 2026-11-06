@@ -24,6 +24,7 @@ var requiredIssue1098WebRPCContextMethods = []string{
 	"PreviewImportFile", "PreviewImportFileWithOptions", "ImportDataWithProgress", "ImportDataWithProgressOptions",
 	"ImportDatabaseSQL", "ImportDatabaseSQLWithOptions", "ExecuteSQLFile", "ResumeImportJob", "RetryImportJobFailedRows", "VerifySQLAuditIntegrity",
 	"MockDataInspect", "MockDataPreview", "MockDataGenerate",
+	"TestConnectionWithProgress", "NacosTestConnectionWithProgress",
 	"BackgroundGalleryRefresh", "BackgroundGalleryDownload",
 	"FontGalleryRefresh", "FontGalleryDownload", "FontGalleryPreview",
 }
@@ -241,6 +242,12 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		},
 		"MockDataGenerate": func(ctx context.Context, config connection.ConnectionConfig, dbName, tableName string, plan mockdata.Plan, options MockDataRunOptions) connection.QueryResult {
 			return a.mockDataGenerateContext(ctx, config, dbName, tableName, plan, options)
+		},
+		"TestConnectionWithProgress": func(ctx context.Context, config connection.ConnectionConfig, runID string) connection.QueryResult {
+			return a.testConnectionWithProgressContext(ctx, config, runID)
+		},
+		"NacosTestConnectionWithProgress": func(ctx context.Context, config connection.ConnectionConfig, runID string) connection.QueryResult {
+			return a.nacosTestConnectionWithProgressContext(ctx, config, runID)
 		},
 	})))
 }

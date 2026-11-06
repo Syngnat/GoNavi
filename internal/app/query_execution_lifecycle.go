@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,7 +48,10 @@ type queryExecutionProgressEvent struct {
 }
 
 type queryExecutionLifecycle struct {
-	app       *App
+	app *App
+	// ctx 是产生本次查询的请求上下文。Web 模式下它可能带会话级 emitter，
+	// 让进度事件只回发给发起查询的会话；桌面/后台调用为 nil 时走全局 emitter。
+	ctx       context.Context
 	queryID   string
 	started   time.Time
 	stopCh    chan struct{}
@@ -59,19 +63,25 @@ type queryExecutionLifecycle struct {
 }
 
 func (a *App) beginQueryExecutionLifecycle(queryID string) *queryExecutionLifecycle {
-	return a.newQueryExecutionLifecycle(queryID, false)
+	return a.newQueryExecutionLifecycle(nil, queryID, false)
 }
 
 // beginQueryExecutionLifecycleWithConnection 用于执行前还需要获取连接的入口，
 // 拿到连接后必须调用 markExecuting，否则心跳会一直停在 starting 阶段。
 func (a *App) beginQueryExecutionLifecycleWithConnection(queryID string) *queryExecutionLifecycle {
-	return a.newQueryExecutionLifecycle(queryID, true)
+	return a.newQueryExecutionLifecycle(nil, queryID, true)
 }
 
-func (a *App) newQueryExecutionLifecycle(queryID string, connecting bool) *queryExecutionLifecycle {
+// beginQueryExecutionLifecycleWithConnectionAndContext 为 Web 请求保留会话上下文。
+func (a *App) beginQueryExecutionLifecycleWithConnectionAndContext(ctx context.Context, queryID string) *queryExecutionLifecycle {
+	return a.newQueryExecutionLifecycle(ctx, queryID, true)
+}
+
+func (a *App) newQueryExecutionLifecycle(ctx context.Context, queryID string, connecting bool) *queryExecutionLifecycle {
 	queryID = strings.TrimSpace(queryID)
 	lifecycle := &queryExecutionLifecycle{
 		app:     a,
+		ctx:     ctx,
 		queryID: queryID,
 		started: time.Now(),
 		stopCh:  make(chan struct{}),
@@ -153,14 +163,18 @@ func (l *queryExecutionLifecycle) emit(status string, stage string, result conne
 		event.AffectedRows = affected
 		event.HasAffectedRows = true
 	}
-	l.app.emitQueryExecutionProgress(event)
+	l.app.emitQueryExecutionProgressWithContext(l.ctx, event)
 }
 
 func (a *App) emitQueryExecutionProgress(event queryExecutionProgressEvent) {
+	a.emitQueryExecutionProgressWithContext(nil, event)
+}
+
+func (a *App) emitQueryExecutionProgressWithContext(ctx context.Context, event queryExecutionProgressEvent) {
 	if a == nil || strings.TrimSpace(event.QueryID) == "" {
 		return
 	}
-	uievents.Emit(a.ctx, queryProgressEventName, event)
+	uievents.EmitWith(ctx, a.ctx, queryProgressEventName, event)
 }
 
 func (a *App) emitQueryExecutionCancelling(queryID string) {
