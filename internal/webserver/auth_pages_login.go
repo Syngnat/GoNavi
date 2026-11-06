@@ -15,6 +15,10 @@ func renderLoginBody(localizer *i18n.Localizer) string {
   <div class="section-copy">` + webAuthHTML(localizer, "web_auth.page.login.description", nil) + `</div>
   <form id="login-form" class="grid">
     <label>
+      ` + webAuthHTML(localizer, "web_auth.page.login.username_label", nil) + `
+      <input id="username" type="text" autocomplete="username" placeholder="` + webAuthHTML(localizer, "web_auth.page.login.username_placeholder", nil) + `">
+    </label>
+    <label>
       ` + webAuthHTML(localizer, "web_auth.page.login.password_label", nil) + `
       <input id="password" type="password" autocomplete="current-password" placeholder="` + webAuthHTML(localizer, "web_auth.page.login.password_placeholder", nil) + `">
     </label>
@@ -111,6 +115,7 @@ formEl.addEventListener('submit', async (event) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        username: document.getElementById('username').value || '',
         password: document.getElementById('password').value || '',
         code: document.getElementById('code').value || ''
       })
@@ -140,6 +145,20 @@ func mustJSON(value any) string {
 	}
 	return string(payload)
 }
+
+// appContentSecurityPolicy 约束主工作台只加载本站脚本与资源。
+//
+// Monaco 需要 eval 与 blob worker，antd 使用内联样式，插件页用 srcDoc 沙箱
+// iframe，因此保留这些来源；外部 http(s) 脚本与连接仍被拒绝。
+const appContentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob: https:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self'; " +
+	"worker-src 'self' blob:; " +
+	"frame-src 'self' data: blob:; " +
+	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

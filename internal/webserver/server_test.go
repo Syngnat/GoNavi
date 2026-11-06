@@ -576,9 +576,9 @@ func TestSharedRuntimeServesIndexFromProductionZipRoot(t *testing.T) {
 
 func TestEventHubEmitToOnlyQueuesForMatchingDetachedWindow(t *testing.T) {
 	hub := newEventHub()
-	first := hub.subscribe(" window-1 ")
-	second := hub.subscribe("window-2")
-	browser := hub.subscribe("")
+	first := hub.subscribe(" window-1 ", "")
+	second := hub.subscribe("window-2", "")
+	browser := hub.subscribe("", "")
 	t.Cleanup(func() {
 		hub.unsubscribe(first)
 		hub.unsubscribe(second)
@@ -611,7 +611,7 @@ func TestEventHubEmitToOnlyQueuesForMatchingDetachedWindow(t *testing.T) {
 
 func TestEventHubEmitToSurvivesFullBroadcastQueue(t *testing.T) {
 	hub := newEventHub()
-	subscriber := hub.subscribe("window-1")
+	subscriber := hub.subscribe("window-1", "")
 	t.Cleanup(func() { hub.unsubscribe(subscriber) })
 
 	for index := 0; index < eventSubscriberQueueLimit; index++ {
@@ -637,7 +637,7 @@ func TestEventHubEmitToSurvivesFullBroadcastQueue(t *testing.T) {
 
 func TestEventHubReliableQueueDisconnectsSlowDetachedWindowAtHardLimit(t *testing.T) {
 	hub := newEventHub()
-	subscriber := hub.subscribe("window-1")
+	subscriber := hub.subscribe("window-1", "")
 	t.Cleanup(func() { hub.unsubscribe(subscriber) })
 
 	for index := 0; index < eventSubscriberReliableQueueLimit; index++ {
@@ -676,7 +676,7 @@ func TestEventHubReliableQueueDisconnectsSlowDetachedWindowAtHardLimit(t *testin
 	// A fresh SSE subscription for the same child ID still receives targeted
 	// lifecycle events after the stalled stream has been removed.
 	hub.unsubscribe(subscriber)
-	reconnected := hub.subscribe("window-1")
+	reconnected := hub.subscribe("window-1", "")
 	t.Cleanup(func() { hub.unsubscribe(reconnected) })
 	hub.EmitTo("window-1", "gonavi:close", "close")
 	message, ok := reconnected.dequeue()
@@ -687,7 +687,7 @@ func TestEventHubReliableQueueDisconnectsSlowDetachedWindowAtHardLimit(t *testin
 
 func TestEventHubRunEventsUseTheNormalBestEffortQueueLimit(t *testing.T) {
 	hub := newEventHub()
-	target := hub.subscribe("window-1")
+	target := hub.subscribe("window-1", "")
 	t.Cleanup(func() { hub.unsubscribe(target) })
 
 	// Run events are persisted in the Ledger and consumers fill sequence gaps
@@ -717,7 +717,7 @@ type detachedSyncTestEvent struct {
 
 func TestEventHubKeepsOnlyLatestDetachedResultSync(t *testing.T) {
 	hub := newEventHub()
-	subscriber := hub.subscribe("workbench:query-1")
+	subscriber := hub.subscribe("workbench:query-1", "")
 	t.Cleanup(func() { hub.unsubscribe(subscriber) })
 
 	for revision := 1; revision <= 20; revision++ {

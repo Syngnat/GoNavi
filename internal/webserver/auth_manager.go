@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"GoNavi-Wails/internal/webidentity"
 )
 
 type webAuthManager struct {
@@ -13,31 +15,41 @@ type webAuthManager struct {
 	store                        *webAuthStore
 	config                       webAuthConfig
 	pending                      map[string]pendingSetup
+	pendingTOTP                  map[string]pendingSetup
 	sessions                     *webSessionManager
 	loginAttempts                *loginAttemptTracker
 	usedTOTPCodes                map[string]time.Time
+	setupGateToken               string
+	lastConfigModTime            time.Time
 	now                          func() time.Time
 	passwordManagedByEnvironment bool
 }
 
 type webAuthStatus struct {
-	Configured           bool `json:"configured"`
-	Authenticated        bool `json:"authenticated"`
-	TOTPEnabled          bool `json:"totpEnabled"`
-	SessionIdleMinutes   int  `json:"sessionIdleMinutes,omitempty"`
-	SessionAbsoluteHours int  `json:"sessionAbsoluteHours,omitempty"`
-	SessionRememberDays  int  `json:"sessionRememberDays,omitempty"`
+	Configured           bool   `json:"configured"`
+	Authenticated        bool   `json:"authenticated"`
+	TOTPEnabled          bool   `json:"totpEnabled"`
+	Username             string `json:"username,omitempty"`
+	Role                 string `json:"role,omitempty"`
+	SessionIdleMinutes   int    `json:"sessionIdleMinutes,omitempty"`
+	SessionAbsoluteHours int    `json:"sessionAbsoluteHours,omitempty"`
+	SessionRememberDays  int    `json:"sessionRememberDays,omitempty"`
 }
 
 type webAuthSettingsSummary struct {
-	Configured                   bool   `json:"configured"`
-	TOTPEnabled                  bool   `json:"totpEnabled"`
-	RecoveryCodesRemaining       int    `json:"recoveryCodesRemaining"`
-	SessionIdleMinutes           int    `json:"sessionIdleMinutes,omitempty"`
-	SessionAbsoluteHours         int    `json:"sessionAbsoluteHours,omitempty"`
-	SessionRememberDays          int    `json:"sessionRememberDays,omitempty"`
-	UpdatedAt                    string `json:"updatedAt,omitempty"`
-	PasswordManagedByEnvironment bool   `json:"passwordManagedByEnvironment"`
+	Configured                   bool                 `json:"configured"`
+	TOTPEnabled                  bool                 `json:"totpEnabled"`
+	RecoveryCodesRemaining       int                  `json:"recoveryCodesRemaining"`
+	Users                        []webAuthUserSummary `json:"users,omitempty"`
+	CurrentUser                  string               `json:"currentUser,omitempty"`
+	CurrentRole                  string               `json:"currentRole,omitempty"`
+	CurrentPasswordManaged       bool                 `json:"currentPasswordManaged,omitempty"`
+	CurrentTOTPEnabled           bool                 `json:"currentTotpEnabled,omitempty"`
+	SessionIdleMinutes           int                  `json:"sessionIdleMinutes,omitempty"`
+	SessionAbsoluteHours         int                  `json:"sessionAbsoluteHours,omitempty"`
+	SessionRememberDays          int                  `json:"sessionRememberDays,omitempty"`
+	UpdatedAt                    string               `json:"updatedAt,omitempty"`
+	PasswordManagedByEnvironment bool                 `json:"passwordManagedByEnvironment"`
 }
 
 func newWebAuthManager(root string) (*webAuthManager, error) {
@@ -55,12 +67,15 @@ func newWebAuthManagerWithPassword(root string, configuredPassword string) (*web
 		return nil, err
 	}
 	manager := &webAuthManager{
-		store:         store,
-		config:        cfg,
-		pending:       make(map[string]pendingSetup),
-		sessions:      newWebSessionManager(),
-		loginAttempts: newLoginAttemptTracker(),
-		now:           time.Now,
+		store:             store,
+		config:            cfg,
+		pending:           make(map[string]pendingSetup),
+		pendingTOTP:       make(map[string]pendingSetup),
+		sessions:          newWebSessionManagerWithStore(root),
+		loginAttempts:     newLoginAttemptTracker(),
+		setupGateToken:    resolveWebSetupGateToken(),
+		lastConfigModTime: store.ModTime(),
+		now:               time.Now,
 	}
 	if err := manager.applyEnvironmentPassword(configuredPassword); err != nil {
 		return nil, err
@@ -81,20 +96,22 @@ func (m *webAuthManager) applyEnvironmentPassword(password string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cfg := cloneWebAuthConfig(m.config)
-	if cfg.IsConfigured() && verifyPassword(cfg.PasswordHash, normalizedPassword) {
-		return nil
+	if admin, ok := findWebAuthUser(cfg, webDefaultAdminUsername); ok && verifyPassword(admin.PasswordHash, normalizedPassword) {
+		if cfg.Enabled {
+			return nil
+		}
 	}
 	passwordHash, err := hashPassword(normalizedPassword)
 	if err != nil {
 		return fmt.Errorf("%s: %w", webAuthPasswordEnvName, err)
 	}
-	if !cfg.IsConfigured() {
-		cfg = normalizeWebAuthConfig(webAuthConfig{Enabled: true})
-	}
 	cfg.Enabled = true
-	cfg.PasswordHash = passwordHash
+	if err := upsertWebAuthUser(&cfg, webDefaultAdminUsername, passwordHash, webRoleAdmin, false, nil); err != nil {
+		return fmt.Errorf("initialize %s administrator: %w", webAuthPasswordEnvName, err)
+	}
+	cfg = normalizeWebAuthConfig(cfg)
 	cfg.UpdatedAt = m.now().UTC().Format(time.RFC3339)
-	if err := m.store.Save(cfg); err != nil {
+	if err := m.saveConfigLocked(cfg); err != nil {
 		return fmt.Errorf("persist %s: %w", webAuthPasswordEnvName, err)
 	}
 	m.config = cfg
@@ -112,14 +129,27 @@ func cloneWebAuthConfig(cfg webAuthConfig) webAuthConfig {
 	if cfg.RecoveryCodeHashes != nil {
 		copied.RecoveryCodeHashes = append([]string(nil), cfg.RecoveryCodeHashes...)
 	}
+	if cfg.Users != nil {
+		copied.Users = make([]webAuthUser, len(cfg.Users))
+		for index, user := range cfg.Users {
+			copied.Users[index] = user
+			if user.RecoveryCodeHashes != nil {
+				copied.Users[index].RecoveryCodeHashes = append([]string(nil), user.RecoveryCodeHashes...)
+			}
+		}
+	}
 	return copied
 }
 
 func buildWebAuthSettingsSummary(cfg webAuthConfig, passwordManagedByEnvironment bool) webAuthSettingsSummary {
+	recoveryCodes := 0
+	for _, user := range cfg.Users {
+		recoveryCodes += len(user.RecoveryCodeHashes)
+	}
 	return webAuthSettingsSummary{
 		Configured:                   cfg.IsConfigured(),
-		TOTPEnabled:                  cfg.TOTPEnabled,
-		RecoveryCodesRemaining:       len(cfg.RecoveryCodeHashes),
+		TOTPEnabled:                  anyWebAuthUserTOTPEnabled(cfg),
+		RecoveryCodesRemaining:       recoveryCodes,
 		SessionIdleMinutes:           cfg.SessionIdleMinutes,
 		SessionAbsoluteHours:         cfg.SessionAbsoluteHours,
 		SessionRememberDays:          cfg.SessionRememberDays,
@@ -128,34 +158,106 @@ func buildWebAuthSettingsSummary(cfg webAuthConfig, passwordManagedByEnvironment
 	}
 }
 
+// refreshConfigFromDisk 让多副本共享同一数据目录时，其他副本修改的账号、
+// 密码、角色与连接白名单能在下一次请求前生效。
+func (m *webAuthManager) refreshConfigFromDisk() {
+	if m == nil || m.store == nil {
+		return
+	}
+	modTime := m.store.ModTime()
+	if modTime.IsZero() {
+		return
+	}
+	m.mu.RLock()
+	last := m.lastConfigModTime
+	m.mu.RUnlock()
+	if !modTime.After(last) {
+		return
+	}
+	cfg, err := m.store.Load()
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	if modTime.After(m.lastConfigModTime) {
+		m.config = cfg
+		m.lastConfigModTime = modTime
+	}
+	m.mu.Unlock()
+}
+
+func (m *webAuthManager) saveConfigLocked(cfg webAuthConfig) error {
+	if err := m.store.Save(cfg); err != nil {
+		return err
+	}
+	m.lastConfigModTime = m.store.ModTime()
+	return nil
+}
+
 func (m *webAuthManager) Status(sessionID string) webAuthStatus {
+	m.refreshConfigFromDisk()
 	cfg := m.currentConfig()
 	status := webAuthStatus{
 		Configured:           cfg.IsConfigured(),
-		TOTPEnabled:          cfg.TOTPEnabled,
+		TOTPEnabled:          anyWebAuthUserTOTPEnabled(cfg),
 		SessionIdleMinutes:   cfg.SessionIdleMinutes,
 		SessionAbsoluteHours: cfg.SessionAbsoluteHours,
 		SessionRememberDays:  cfg.SessionRememberDays,
 	}
 	if status.Configured {
-		status.Authenticated = m.sessions.Authenticate(sessionID, cfg, m.now())
+		session, ok := m.sessions.Authenticate(sessionID, cfg, m.now())
+		if ok {
+			user, found := findWebAuthUser(cfg, session.Username)
+			switch {
+			case !found || user.Disabled:
+				// 账号被删除或停用后，已签发的会话必须立即失效；
+				// 角色以当前配置为准，管理员降级无需等待重新登录。
+				m.sessions.Destroy(session.ID)
+			default:
+				status.Authenticated = true
+				status.Username = user.Username
+				status.Role = user.Role
+				status.TOTPEnabled = user.TOTPEnabled
+			}
+		}
 	}
 	return status
 }
 
+// ConnectionACL 返回账号允许访问的已保存连接；空列表表示不限制。
+func (m *webAuthManager) ConnectionACL(username string) []string {
+	if m == nil {
+		return nil
+	}
+	m.refreshConfigFromDisk()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	user, ok := findWebAuthUser(m.config, webidentity.NormalizeUsername(username))
+	if !ok || user.Role == webRoleAdmin {
+		return nil
+	}
+	return append([]string(nil), user.AllowedConnectionIDs...)
+}
+
 func (m *webAuthManager) Settings() (webAuthSettingsSummary, error) {
+	m.refreshConfigFromDisk()
 	cfg := m.currentConfig()
 	if !cfg.IsConfigured() {
 		return webAuthSettingsSummary{}, errWebAuthNotConfigured
 	}
-	return buildWebAuthSettingsSummary(cfg, m.passwordManagedByEnvironment), nil
+	summary := buildWebAuthSettingsSummary(cfg, m.passwordManagedByEnvironment)
+	summary.Users = buildWebAuthUserSummaries(cfg, m.passwordManagedByEnvironment)
+	return summary, nil
 }
 
-func (m *webAuthManager) BeginSetup(host string) (pendingSetupResponse, error) {
+func (m *webAuthManager) BeginSetup(host string, gateToken string) (pendingSetupResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.config.IsConfigured() {
 		return pendingSetupResponse{}, errWebAuthAlreadyConfigured
+	}
+	if !m.verifySetupGateToken(gateToken) {
+		return pendingSetupResponse{}, errWebAuthSetupGateRequired
 	}
 	token, err := generateRandomToken(24)
 	if err != nil {
@@ -204,7 +306,7 @@ func (m *webAuthManager) BeginSetup(host string) (pendingSetupResponse, error) {
 	}, nil
 }
 
-func (m *webAuthManager) CompleteSetup(token string, password string, code string, enableTOTP bool, idleMinutes int, absoluteHours int, rememberDays int) (webAuthConfig, string, error) {
+func (m *webAuthManager) CompleteSetup(token string, username string, password string, code string, enableTOTP bool, idleMinutes int, absoluteHours int, rememberDays int) (webAuthConfig, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.config.IsConfigured() {
@@ -218,6 +320,10 @@ func (m *webAuthManager) CompleteSetup(token string, password string, code strin
 		delete(m.pending, strings.TrimSpace(token))
 		return webAuthConfig{}, "", errWebAuthSetupExpired
 	}
+	normalizedUsername, err := normalizeWebAuthUsername(username)
+	if err != nil {
+		return webAuthConfig{}, "", err
+	}
 	normalizedPassword, err := normalizeWebAuthPassword(password)
 	if err != nil {
 		return webAuthConfig{}, "", err
@@ -229,37 +335,47 @@ func (m *webAuthManager) CompleteSetup(token string, password string, code strin
 	if err != nil {
 		return webAuthConfig{}, "", err
 	}
+	now := m.now().UTC().Format(time.RFC3339)
+	admin := webAuthUser{
+		Username:     normalizedUsername,
+		PasswordHash: passwordHash,
+		Role:         webRoleAdmin,
+		TOTPEnabled:  enableTOTP,
+		TOTPSecret:   setup.Secret,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if enableTOTP {
+		admin.RecoveryCodeHashes = make([]string, 0, len(setup.RecoveryCodes))
+		for _, item := range setup.RecoveryCodes {
+			admin.RecoveryCodeHashes = append(admin.RecoveryCodeHashes, hashRecoveryCode(item))
+		}
+	}
 	cfg := normalizeWebAuthConfig(webAuthConfig{
 		Enabled:              true,
-		PasswordHash:         passwordHash,
-		TOTPEnabled:          enableTOTP,
-		TOTPSecret:           setup.Secret,
+		Users:                []webAuthUser{admin},
 		SessionIdleMinutes:   idleMinutes,
 		SessionAbsoluteHours: absoluteHours,
 		SessionRememberDays:  rememberDays,
-		UpdatedAt:            m.now().UTC().Format(time.RFC3339),
+		UpdatedAt:            now,
 	})
-	if enableTOTP {
-		cfg.RecoveryCodeHashes = make([]string, 0, len(setup.RecoveryCodes))
-		for _, item := range setup.RecoveryCodes {
-			cfg.RecoveryCodeHashes = append(cfg.RecoveryCodeHashes, hashRecoveryCode(item))
-		}
-	}
-	if err := m.store.Save(cfg); err != nil {
+	if err := m.saveConfigLocked(cfg); err != nil {
 		return webAuthConfig{}, "", err
 	}
 	m.config = cfg
 	delete(m.pending, strings.TrimSpace(token))
-	sessionID, err := m.sessions.Create(cfg, m.now())
+	sessionID, err := m.sessions.Create(cfg, normalizedUsername, webRoleAdmin, m.now())
 	if err != nil {
 		return webAuthConfig{}, "", err
 	}
 	return cloneWebAuthConfig(cfg), sessionID, nil
 }
 
-func (m *webAuthManager) Login(password string, code string, remoteIP string) (webAuthConfig, string, bool, time.Duration, error) {
+func (m *webAuthManager) Login(username string, password string, code string, remoteIP string) (webAuthConfig, string, bool, time.Duration, error) {
+	m.refreshConfigFromDisk()
 	now := m.now()
-	if wait, ok := m.loginAttempts.allow(remoteIP, now); !ok {
+	normalizedUsername := normalizeLoginUsername(username)
+	if wait, ok := m.allowLogin(remoteIP, normalizedUsername, now); !ok {
 		return webAuthConfig{}, "", false, wait, errWebAuthRateLimited
 	}
 
@@ -269,25 +385,30 @@ func (m *webAuthManager) Login(password string, code string, remoteIP string) (w
 	if !cfg.IsConfigured() {
 		return webAuthConfig{}, "", false, 0, errWebAuthNotConfigured
 	}
-	if !verifyPassword(cfg.PasswordHash, strings.TrimSpace(password)) {
-		wait := m.loginAttempts.recordFailure(remoteIP, now)
+	user, found := findWebAuthUser(cfg, normalizedUsername)
+	if !found || user.Disabled || strings.TrimSpace(user.PasswordHash) == "" {
+		wait := m.recordLoginFailure(remoteIP, normalizedUsername, now)
+		return webAuthConfig{}, "", false, wait, errWebAuthInvalidCredentials
+	}
+	if !verifyPassword(user.PasswordHash, strings.TrimSpace(password)) {
+		wait := m.recordLoginFailure(remoteIP, normalizedUsername, now)
 		return webAuthConfig{}, "", false, wait, errWebAuthInvalidCredentials
 	}
 
 	usedRecoveryCode := false
-	if cfg.TOTPEnabled {
+	if user.TOTPEnabled {
 		normalizedCode := normalizeUserCode(code)
 		if normalizedCode == "" {
-			wait := m.loginAttempts.recordFailure(remoteIP, now)
+			wait := m.recordLoginFailure(remoteIP, normalizedUsername, now)
 			return webAuthConfig{}, "", false, wait, errWebAuthInvalidCredentials
 		}
-		if !m.consumeTOTPCodeForLogin(cfg.TOTPSecret, normalizedCode, now) {
-			nextCfg, consumed := consumeRecoveryCode(cfg, normalizedCode)
+		if !m.consumeTOTPCodeForLogin(user.TOTPSecret, normalizedCode, now) {
+			nextCfg, consumed := consumeUserRecoveryCode(cfg, normalizedUsername, normalizedCode)
 			if !consumed {
-				wait := m.loginAttempts.recordFailure(remoteIP, now)
+				wait := m.recordLoginFailure(remoteIP, normalizedUsername, now)
 				return webAuthConfig{}, "", false, wait, errWebAuthInvalidCredentials
 			}
-			if err := m.store.Save(nextCfg); err != nil {
+			if err := m.saveConfigLocked(nextCfg); err != nil {
 				return webAuthConfig{}, "", false, 0, err
 			}
 			cfg = nextCfg
@@ -296,20 +417,70 @@ func (m *webAuthManager) Login(password string, code string, remoteIP string) (w
 		}
 	}
 
-	sessionID, err := m.sessions.Create(cfg, now)
+	sessionID, err := m.sessions.Create(cfg, user.Username, user.Role, now)
 	if err != nil {
 		return webAuthConfig{}, "", false, 0, err
 	}
-	m.loginAttempts.recordSuccess(remoteIP)
+	m.recordLoginSuccess(remoteIP, normalizedUsername)
 	return cfg, sessionID, usedRecoveryCode, 0, nil
+}
+
+// normalizeLoginUsername 让旧版只填密码的登录请求继续落到默认管理员账号。
+func normalizeLoginUsername(username string) string {
+	normalized := webidentity.NormalizeUsername(username)
+	if normalized == "" {
+		return webDefaultAdminUsername
+	}
+	return normalized
+}
+
+func (m *webAuthManager) allowLogin(remoteIP string, username string, now time.Time) (time.Duration, bool) {
+	var wait time.Duration
+	for _, key := range loginAttemptKeys(remoteIP, username) {
+		if current, ok := m.loginAttempts.allow(key, now); !ok {
+			if current > wait {
+				wait = current
+			}
+			return wait, false
+		}
+	}
+	return 0, true
+}
+
+func (m *webAuthManager) recordLoginFailure(remoteIP string, username string, now time.Time) time.Duration {
+	var wait time.Duration
+	for _, key := range loginAttemptKeys(remoteIP, username) {
+		if current := m.loginAttempts.recordFailure(key, now); current > wait {
+			wait = current
+		}
+	}
+	return wait
+}
+
+func (m *webAuthManager) recordLoginSuccess(remoteIP string, username string) {
+	for _, key := range loginAttemptKeys(remoteIP, username) {
+		m.loginAttempts.recordSuccess(key)
+	}
+}
+
+func loginAttemptKeys(remoteIP string, username string) []string {
+	keys := make([]string, 0, 2)
+	if ip := strings.TrimSpace(remoteIP); ip != "" {
+		keys = append(keys, "ip:"+ip)
+	}
+	if user := webidentity.NormalizeUsername(username); user != "" {
+		keys = append(keys, "user:"+user)
+	}
+	return keys
 }
 
 func (m *webAuthManager) Logout(sessionID string) {
 	m.sessions.Destroy(sessionID)
 }
 
-func (m *webAuthManager) ChangePassword(currentPassword string, code string, nextPassword string) (webAuthConfig, string, bool, error) {
-	if m.passwordManagedByEnvironment {
+func (m *webAuthManager) ChangePassword(username string, currentPassword string, code string, nextPassword string) (webAuthConfig, string, bool, error) {
+	normalizedUsername := webidentity.NormalizeUsername(username)
+	if m.passwordManagedByEnvironment && normalizedUsername == webDefaultAdminUsername {
 		return webAuthConfig{}, "", false, errWebAuthPasswordManaged
 	}
 	now := m.now()
@@ -321,12 +492,16 @@ func (m *webAuthManager) ChangePassword(currentPassword string, code string, nex
 	if !cfg.IsConfigured() {
 		return webAuthConfig{}, "", false, errWebAuthNotConfigured
 	}
-	if !verifyPassword(cfg.PasswordHash, strings.TrimSpace(currentPassword)) {
+	user, found := findWebAuthUser(cfg, normalizedUsername)
+	if !found || user.Disabled {
+		return webAuthConfig{}, "", false, errWebAuthInvalidCredentials
+	}
+	if !verifyPassword(user.PasswordHash, strings.TrimSpace(currentPassword)) {
 		return webAuthConfig{}, "", false, errWebAuthInvalidCredentials
 	}
 
 	usedRecoveryCode := false
-	if cfg.TOTPEnabled {
+	if user.TOTPEnabled {
 		normalizedCode := normalizeUserCode(code)
 		if normalizedCode == "" {
 			return webAuthConfig{}, "", false, errWebAuthInvalidCredentials
@@ -336,8 +511,8 @@ func (m *webAuthManager) ChangePassword(currentPassword string, code string, nex
 		// password then signs in again inside the same TOTP step legitimately
 		// reuses the code; rejecting that here would break a normal flow for no
 		// security gain the login path does not already cover.
-		if !validateTOTPCode(cfg.TOTPSecret, normalizedCode, now) {
-			nextCfg, consumed := consumeRecoveryCode(cfg, normalizedCode)
+		if !validateTOTPCode(user.TOTPSecret, normalizedCode, now) {
+			nextCfg, consumed := consumeUserRecoveryCode(cfg, normalizedUsername, normalizedCode)
 			if !consumed {
 				return webAuthConfig{}, "", false, errWebAuthInvalidCredentials
 			}
@@ -350,15 +525,21 @@ func (m *webAuthManager) ChangePassword(currentPassword string, code string, nex
 	if err != nil {
 		return webAuthConfig{}, "", false, err
 	}
-	cfg.PasswordHash = passwordHash
+	if err := setWebAuthUserPassword(&cfg, normalizedUsername, passwordHash); err != nil {
+		return webAuthConfig{}, "", false, err
+	}
 	cfg.UpdatedAt = now.UTC().Format(time.RFC3339)
 
-	if err := m.store.Save(cfg); err != nil {
+	if err := m.saveConfigLocked(cfg); err != nil {
 		return webAuthConfig{}, "", false, err
 	}
 	m.config = cfg
-	m.sessions.DestroyAll()
-	sessionID, err := m.sessions.Create(cfg, now)
+	m.sessions.DestroyUser(normalizedUsername)
+	role := webRoleViewer
+	if updated, ok := findWebAuthUser(cfg, normalizedUsername); ok {
+		role = updated.Role
+	}
+	sessionID, err := m.sessions.Create(cfg, normalizedUsername, role, now)
 	if err != nil {
 		return webAuthConfig{}, "", false, err
 	}

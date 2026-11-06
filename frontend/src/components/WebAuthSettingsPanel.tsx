@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Spin, message } from 'antd';
 import { useI18n } from '../i18n/provider';
+import WebAuthUsersPanel, { type WebAuthUserSummary } from './WebAuthUsersPanel';
+import WebAuthTOTPPanel from './WebAuthTOTPPanel';
 
 type WebAuthSettingsSummary = {
   configured: boolean;
@@ -11,6 +13,11 @@ type WebAuthSettingsSummary = {
   sessionRememberDays: number;
   updatedAt?: string;
   passwordManagedByEnvironment: boolean;
+  currentPasswordManaged?: boolean;
+  currentTotpEnabled?: boolean;
+  currentUser?: string;
+  currentRole?: string;
+  users?: WebAuthUserSummary[];
 };
 
 type WebAuthSettingsPanelProps = {
@@ -81,7 +88,7 @@ const WebAuthSettingsPanel: React.FC<WebAuthSettingsPanelProps> = ({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>(() => createEmptyPasswordFormState());
-  const passwordManagedByEnvironment = summary?.passwordManagedByEnvironment === true;
+  const passwordManagedByEnvironment = summary?.currentPasswordManaged === true;
 
   const summaryItems = useMemo(() => {
     if (!summary) {
@@ -265,7 +272,7 @@ const WebAuthSettingsPanel: React.FC<WebAuthSettingsPanelProps> = ({
               onChange={(event) => updatePasswordField('currentPassword', event.target.value)}
             />
           </label>
-          {summary?.totpEnabled ? (
+          {summary?.currentTotpEnabled ? (
             <label style={{ display: 'grid', gap: 8 }}>
               <span style={{ color: mutedColor, fontSize: 'var(--gn-settings-font-caption, var(--gn-font-size-xs, 11px))' }}>{t('app.settings.web_auth.password.code_label')}</span>
               <Input
@@ -310,6 +317,30 @@ const WebAuthSettingsPanel: React.FC<WebAuthSettingsPanelProps> = ({
           </Button>
         </div>
       </section>
+
+      {summary ? (
+        <WebAuthTOTPPanel
+          dividerColor={dividerColor}
+          mutedColor={mutedColor}
+          titleColor={titleColor}
+          enabled={summary.currentTotpEnabled === true}
+          onChanged={loadSettings}
+        />
+      ) : null}
+
+      {summary?.currentRole === 'admin' ? (
+        <WebAuthUsersPanel
+          darkMode={darkMode}
+          dividerColor={dividerColor}
+          mutedColor={mutedColor}
+          titleColor={titleColor}
+          users={summary.users || []}
+          currentUser={summary.currentUser}
+          onUsersChanged={(users) => {
+            setSummary((current) => (current ? { ...current, users } : current));
+          }}
+        />
+      ) : null}
     </div>
   );
 };

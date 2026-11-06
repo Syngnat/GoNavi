@@ -16,11 +16,11 @@ func newMemstatsTestServer(t *testing.T) (*Server, string) {
 	if err != nil {
 		t.Fatalf("new auth manager: %v", err)
 	}
-	setup, err := manager.BeginSetup("127.0.0.1:34116")
+	setup, err := manager.BeginSetup("127.0.0.1:34116", manager.SetupToken())
 	if err != nil {
 		t.Fatalf("begin setup: %v", err)
 	}
-	_, sessionID, err := manager.CompleteSetup(setup.SetupToken, "123456", "", false, 30, 24, 7)
+	_, sessionID, err := manager.CompleteSetup(setup.SetupToken, webDefaultAdminUsername, "123456", "", false, 30, 24, 7)
 	if err != nil {
 		t.Fatalf("complete setup: %v", err)
 	}

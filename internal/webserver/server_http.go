@@ -309,7 +309,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	subscriber := s.events.subscribe(r.Header.Get(detachedWindowIDHeader))
+	sessionID, _ := readSessionCookie(r)
+	subscriber := s.events.subscribe(r.Header.Get(detachedWindowIDHeader), sessionID)
 	defer s.events.unsubscribe(subscriber)
 
 	ticker := time.NewTicker(20 * time.Second)
