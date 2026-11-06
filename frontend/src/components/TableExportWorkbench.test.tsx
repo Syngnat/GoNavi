@@ -1139,6 +1139,11 @@ describe('TableExportWorkbench', () => {
     }));
     const databaseSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
     expect(databaseSelect?.props.value).toEqual(['beta', 'gamma']);
+    const progress = getExportProgressTaskSnapshot('table-export-batch-databases-conn-1', true).state;
+    expect(progress.status).toBe('error');
+    expect(progress.current).toBe(1);
+    expect(progress.total).toBe(3);
+    expect(progress.stage).toBe('beta');
 
     renderer.unmount();
   });
