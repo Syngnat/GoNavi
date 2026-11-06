@@ -1003,6 +1003,12 @@ describe('TableExportWorkbench', () => {
     });
 
     await switchBatchIntentToDelete(renderer);
+    const renderedTextBeforeStart = renderer.root
+      .findAll(() => true)
+      .flatMap((node) => node.children.filter((child) => typeof child === 'string'))
+      .join('|');
+    expect(renderedTextBeforeStart).toContain('删除配置');
+    expect(renderedTextBeforeStart).toContain('开始删除后');
     const deleteButton = renderer.root.findByProps({ 'data-batch-delete-tables': 'true' });
     expect(deleteButton.props.disabled).toBe(false);
     await act(async () => {
@@ -1011,6 +1017,14 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    const renderedAfterStart = renderer.root
+      .findAll(() => true)
+      .flatMap((node) => node.children.filter((child) => typeof child === 'string'))
+      .join('|');
+    expect(renderedAfterStart).toContain('删除耗时');
+    expect(renderedAfterStart).toContain('删除范围');
+    expect(renderedAfterStart).not.toContain('导出耗时');
+    expect(renderedAfterStart).not.toContain('导出范围');
 
     expect(DropTable).toHaveBeenCalledTimes(2);
     expect(DropTable).toHaveBeenNthCalledWith(1, expect.anything(), 'SYS', 'alpha');
