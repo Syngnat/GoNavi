@@ -24,6 +24,7 @@ import { loadViews } from './sidebar/sidebarMetadataLoaders';
 import { setCurrentLanguage } from '../i18n';
 import type { ExportProgressState } from './useExportProgressRunner';
 import type { ExportProgressLogEntry } from './useExportProgressRunner';
+import { getExportProgressTaskSnapshot } from './exportProgressTaskStore';
 import Modal from './common/ResizableDraggableModal';
 
 const mockUpsertTableExportHistory = vi.fn();
@@ -1022,6 +1023,11 @@ describe('TableExportWorkbench', () => {
     }));
     const objectSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
     expect(objectSelect?.props.value).toEqual(['beta', 'gamma']);
+    const progress = getExportProgressTaskSnapshot('table-export-batch-tables-conn-1-SYS', true).state;
+    expect(progress.status).toBe('error');
+    expect(progress.current).toBe(1);
+    expect(progress.total).toBe(3);
+    expect(progress.stage).toBe('beta');
 
     renderer.unmount();
   });

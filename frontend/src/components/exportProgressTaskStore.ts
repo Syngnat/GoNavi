@@ -308,7 +308,13 @@ const ensureRuntimeListener = () => {
   if (runtimeListenerOff) {
     return;
   }
-  runtimeListenerOff = EventsOn('export:progress', applyBackendProgress);
+  // 纯前端批处理任务（如批量删表）也会走到这里；测试/无 runtime 环境
+  // 没有 EventsOn 时不应让任务启动失败。
+  try {
+    runtimeListenerOff = EventsOn('export:progress', applyBackendProgress);
+  } catch {
+    runtimeListenerOff = null;
+  }
 };
 
 export const getExportProgressTaskSnapshot = (
@@ -418,6 +424,22 @@ export const consumeExportProgressTaskRequest = (
     ...record.snapshot.state,
     requestKey: normalizedRequestKey,
   });
+  return true;
+};
+
+// updateExportProgressTask 供纯前端批处理任务（如批量删表）推进进度；
+// 与后端 export:progress 事件共用同一份任务状态与面板。
+export const updateExportProgressTask = (
+  taskKey: string,
+  jobId: string,
+  update: (state: ExportProgressState) => ExportProgressState,
+): boolean => {
+  const normalizedTaskKey = normalizeTaskKey(taskKey);
+  const record = taskRecords.get(normalizedTaskKey);
+  if (!record || record.snapshot.state.jobId !== String(jobId || '').trim()) {
+    return false;
+  }
+  publishTaskState(record, update(record.snapshot.state), 'client');
   return true;
 };
 
