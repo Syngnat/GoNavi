@@ -19,6 +19,11 @@ import { supportsTableTruncateAction } from '../../tableDataDangerActions';
 import { confirmProductionMutation } from '../../../utils/productionRiskConfirm';
 import { TruncateTables, ClearTables, DropTable } from '../../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
+import {
+  finishExportProgressTask,
+  startExportProgressTask,
+  updateExportProgressTask,
+} from '../../exportProgressTaskStore';
 import type { TableExportStateApi } from './useTableExportState';
 import type { TableExportWorkbenchBodyProps } from '../../TableExportWorkbench';
 
@@ -421,6 +426,30 @@ export const useTableExportBatchTableActions = ({
     )) return;
 
     setDestructiveOperation('delete-tables');
+    const taskKey = tab.id;
+    const jobId = `batch-delete-${Date.now()}`;
+    const started = startExportProgressTask(taskKey, {
+      open: true,
+      jobId,
+      title: t('data_export.workbench.strategy.batch_delete'),
+      targetName: selectedDbName,
+      format: 'DROP',
+      startedAt: Date.now(),
+      finishedAt: 0,
+      status: 'running',
+      stage: selectedDbName,
+      current: 0,
+      total: selectedTableNames.length,
+      totalRowsKnown: true,
+      filePath: '',
+      message: '',
+      requestKey: '',
+    }, true);
+    if (!started) {
+      setDestructiveOperation(null);
+      void message.warning(t('data_export.message.already_running'));
+      return;
+    }
     const hide = message.loading(t('sidebar.message.deleting_selected_tables', { count: selectedTableNames.length }), 0);
     const startTime = Date.now();
     const succeededNames: string[] = [];
@@ -437,6 +466,11 @@ export const useTableExportBatchTableActions = ({
           break;
         }
         succeededNames.push(tableName);
+        updateExportProgressTask(taskKey, jobId, (prev) => ({
+          ...prev,
+          current: succeededNames.length,
+          stage: tableName,
+        }));
       }
     } catch (error: any) {
       failed = {
@@ -447,6 +481,15 @@ export const useTableExportBatchTableActions = ({
       hide();
       setDestructiveOperation(null);
     }
+    finishExportProgressTask(taskKey, jobId, (prev) => ({
+      ...prev,
+      open: true,
+      status: failed ? 'error' : 'done',
+      finishedAt: Date.now(),
+      current: failed ? succeededNames.length : selectedTableNames.length,
+      stage: failed ? (failed.table || prev.stage) : prev.stage,
+      message: failed ? failed.error : '',
+    }));
 
     if (succeededNames.length > 0) {
       dispatchSidebarTableMutationRefresh({ connectionId: effectiveConnectionId, dbName: selectedDbName, schemaName: tab.schemaName },
