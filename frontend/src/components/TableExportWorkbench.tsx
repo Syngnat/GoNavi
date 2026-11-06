@@ -140,6 +140,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
             isBatchTablesWorkbench={isBatchTablesWorkbench} selectedDbName={selectedDbName}
             selectedObjectNames={selectedObjectNames}
             selectedDatabaseNames={selectedDatabaseNames}
+            isDeleteIntent={isBatchDeleteIntent}
           />
 
           {!connectionConfig ? (
@@ -328,6 +329,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
             progressLogs={progressLogs} dividerColor={dividerColor}
             isSingleFileBackup={isSingleFileBackup}
             openBackupRestoreWorkbench={openBackupRestoreWorkbench} reset={reset}
+            isDeleteIntent={isBatchDeleteIntent}
           />
 
           <TableExportHistoryPanel
@@ -336,6 +338,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
             workbenchMode={workbenchMode} nowTick={nowTick}
             isBatchDatabasesWorkbench={isBatchDatabasesWorkbench}
             openBackupRestoreWorkbench={openBackupRestoreWorkbench}
+            isDeleteIntent={isBatchDeleteIntent}
           />
         </div>
       </div>

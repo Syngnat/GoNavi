@@ -17,11 +17,12 @@ export interface TableExportHistoryPanelProps {
   nowTick: TableExportStateApi['nowTick'];
   isBatchDatabasesWorkbench: TableExportStateApi['isBatchDatabasesWorkbench'];
   openBackupRestoreWorkbench: TableExportBatchTableActionsApi['openBackupRestoreWorkbench'];
+  isDeleteIntent: boolean;
 }
 
 export const TableExportHistoryPanel = ({
   dividerColor, headingColor, secondaryTextColor, historyEntries, workbenchMode, nowTick,
-  isBatchDatabasesWorkbench, openBackupRestoreWorkbench,
+  isBatchDatabasesWorkbench, openBackupRestoreWorkbench, isDeleteIntent,
 }: TableExportHistoryPanelProps) => (
   <section
     data-export-workbench-history="true"
@@ -113,7 +114,7 @@ export const TableExportHistoryPanel = ({
       </div>
     ) : (
       <div style={{ padding: '6px 0 2px', color: secondaryTextColor, fontSize: 13 }}>
-        {t('data_export.workbench.empty.history')}
+        {t(isDeleteIntent ? 'data_export.workbench.empty.history_delete' : 'data_export.workbench.empty.history')}
       </div>
     )}
   </section>

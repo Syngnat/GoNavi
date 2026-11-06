@@ -28,16 +28,19 @@ export interface TableExportIntentSectionProps {
   selectedDbName: TableExportStateApi['selectedDbName'];
   selectedObjectNames: TableExportStateApi['selectedObjectNames'];
   selectedDatabaseNames: TableExportStateApi['selectedDatabaseNames'];
+  isDeleteIntent: boolean;
 }
 
 export const TableExportIntentSection = ({
   headingColor, isBatchWorkbench, secondaryTextColor, batchIntent, isConfigurationLocked,
   setBatchIntent, isSingleWorkbench, tab, connection, hostSummary, isDirectSQLWorkbench,
   batchDatabaseModeMeta, effectiveDbName, isDirectSchemaWorkbench, isBatchTablesWorkbench,
-  selectedDbName, selectedObjectNames, selectedDatabaseNames,
+  selectedDbName, selectedObjectNames, selectedDatabaseNames, isDeleteIntent,
 }: TableExportIntentSectionProps) => (
   <div>
-    <div style={{ fontSize: 13, fontWeight: 600, color: headingColor, marginBottom: 10 }}>{t('data_export.workbench.section.config')}</div>
+    <div style={{ fontSize: 13, fontWeight: 600, color: headingColor, marginBottom: 10 }}>
+      {t(isDeleteIntent ? 'data_export.workbench.section.config_delete' : 'data_export.workbench.section.config')}
+    </div>
     {isBatchWorkbench ? (
       <div data-batch-intent-switch="true" style={{ marginBottom: 14 }}>
         <div style={{ marginBottom: 6, fontSize: 12, color: secondaryTextColor }}>

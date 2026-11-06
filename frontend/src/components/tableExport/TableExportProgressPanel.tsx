@@ -29,13 +29,14 @@ export interface TableExportProgressPanelProps {
   isSingleFileBackup: TableExportBatchTableActionsApi['isSingleFileBackup'];
   openBackupRestoreWorkbench: TableExportBatchTableActionsApi['openBackupRestoreWorkbench'];
   reset: TableExportStateApi['reset'];
+  isDeleteIntent: boolean;
 }
 
 export const TableExportProgressPanel = ({
   headingColor, progressState, tab, secondaryTextColor, fallbackTargetName, currentScopeLabel,
   fallbackFormat, currentElapsedMs, currentStrategyLabel, isRunning, cancelExport,
   currentProgressSummary, currentProgressHint, progressOutputLabel, progressLogs, dividerColor,
-  isSingleFileBackup, openBackupRestoreWorkbench, reset,
+  isSingleFileBackup, openBackupRestoreWorkbench, reset, isDeleteIntent,
 }: TableExportProgressPanelProps) => (
   <section
     data-export-workbench-progress-panel="true"
@@ -63,7 +64,7 @@ export const TableExportProgressPanel = ({
         <div style={{ marginTop: 6, color: secondaryTextColor, fontSize: 13 }}>
           {progressState.jobId
             ? `${progressState.targetName || fallbackTargetName} · ${currentScopeLabel} · ${progressState.format || fallbackFormat}`
-            : t('data_export.workbench.description.current_task_empty')}
+            : t(isDeleteIntent ? 'data_export.workbench.description.current_task_empty_delete' : 'data_export.workbench.description.current_task_empty')}
         </div>
       </div>
 
@@ -76,7 +77,7 @@ export const TableExportProgressPanel = ({
         }}
       >
         <div>
-          <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 4 }}>{t('data_export.label.elapsed')}</div>
+          <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 4 }}>{t(isDeleteIntent ? 'data_export.label.elapsed_delete' : 'data_export.label.elapsed')}</div>
           <div style={{ color: headingColor, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <ClockCircleOutlined />
             {progressState.startedAt ? formatExportElapsed(currentElapsedMs) : '--:--'}
@@ -87,7 +88,7 @@ export const TableExportProgressPanel = ({
           <div style={{ color: headingColor, fontWeight: 600 }}>{formatDateTime(progressState.startedAt)}</div>
         </div>
         <div>
-          <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 4 }}>{t('data_export.label.export_scope')}</div>
+          <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 4 }}>{t(isDeleteIntent ? 'data_export.label.export_scope_delete' : 'data_export.label.export_scope')}</div>
           <div style={{ color: headingColor, fontWeight: 600 }}>{progressState.jobId ? currentScopeLabel : '-'}</div>
         </div>
         <div>
@@ -108,7 +109,7 @@ export const TableExportProgressPanel = ({
           />
         </div>
 
-        {isRunning ? (
+        {isRunning && !isDeleteIntent ? (
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button
               danger
@@ -123,7 +124,7 @@ export const TableExportProgressPanel = ({
           </div>
         ) : null}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 0.9fr)', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isDeleteIntent ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(260px, 0.9fr)', gap: 18 }}>
           <div>
             <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 6 }}>{t('data_export.label.current_stage')}</div>
             <Text data-export-workbench-stage="true">
@@ -137,14 +138,16 @@ export const TableExportProgressPanel = ({
               </div>
             ) : null}
           </div>
-          <div>
-            <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 6 }}>{progressOutputLabel}</div>
-            {progressState.filePath ? (
-              <Paragraph style={{ marginBottom: 0, wordBreak: 'break-all' }}>{progressState.filePath}</Paragraph>
-            ) : (
-              <Text type="secondary">{t('data_export.value.waiting_target_path')}</Text>
-            )}
-          </div>
+          {!isDeleteIntent ? (
+            <div>
+              <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 6 }}>{progressOutputLabel}</div>
+              {progressState.filePath ? (
+                <Paragraph style={{ marginBottom: 0, wordBreak: 'break-all' }}>{progressState.filePath}</Paragraph>
+              ) : (
+                <Text type="secondary">{t('data_export.value.waiting_target_path')}</Text>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {progressState.message ? (
@@ -221,7 +224,7 @@ export const TableExportProgressPanel = ({
       <div data-export-workbench-current-empty="true">
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('data_export.workbench.empty.not_started')}
+          description={t(isDeleteIntent ? 'data_export.workbench.empty.not_started_delete' : 'data_export.workbench.empty.not_started')}
         />
       </div>
     )}
