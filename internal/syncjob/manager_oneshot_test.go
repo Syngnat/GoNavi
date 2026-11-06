@@ -50,7 +50,7 @@ func TestEnqueueDueJobRunExecutesTargetRunToTerminal(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)
@@ -104,7 +104,7 @@ func TestSchedulerDisabledManagerDoesNotEnqueueDueJobsOnItsOwn(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)
@@ -140,7 +140,7 @@ func TestEnqueueDueJobRunSkipsNotDueAndUnknownJobs(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)

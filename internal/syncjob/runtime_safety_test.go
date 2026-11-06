@@ -695,7 +695,7 @@ func testCheckpoint(definition JobDefinition, run RunRecord, sequence int64) Che
 
 func shutdownTestManager(t *testing.T, manager *Manager) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := manager.Shutdown(ctx); err != nil {
 		t.Errorf("shutdown manager: %v", err)

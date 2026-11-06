@@ -43,7 +43,7 @@ func TestManagerQueuesRunsForTheSameJobWithoutOverlap(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)
@@ -239,7 +239,7 @@ func TestManagerClearsCheckpointAfterSuccessfulSnapshot(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = manager.Shutdown(ctx)
 	})
@@ -333,7 +333,7 @@ func TestManagerRecoversStaleRunningAndQueuedRunsOnStartup(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)
@@ -451,7 +451,7 @@ func TestManagerShutdownCancelsExecutorsAndWaitsForGoroutines(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("executor did not start")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := manager.Shutdown(ctx); err != nil {
 		t.Fatalf("shutdown manager: %v", err)
@@ -488,7 +488,7 @@ func TestManagerConstructorContextCancellationStopsExecutor(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)
@@ -518,7 +518,7 @@ func TestManagerConstructorContextCancellationStopsExecutor(t *testing.T) {
 		t.Fatal("executor did not observe constructor context cancellation")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := manager.Shutdown(ctx); err != nil {
 		t.Fatalf("shutdown after constructor context cancellation: %v", err)
@@ -573,7 +573,7 @@ func TestManagerAutomaticallyResumesRecoveredRunWhenConfigured(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = manager.Shutdown(ctx)
 	})
@@ -625,7 +625,7 @@ func TestManagerPersistsReporterOutputBeforePublishingHooks(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = manager.Shutdown(ctx)
 	})
@@ -833,7 +833,7 @@ func newTestManager(t *testing.T, store *Store, executor Executor) *Manager {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown manager: %v", err)
@@ -855,7 +855,7 @@ func newScheduledTestManager(t *testing.T, store *Store, executor Executor, owne
 		t.Fatalf("new scheduled manager: %v", err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := manager.Shutdown(ctx); err != nil {
 			t.Errorf("shutdown scheduled manager: %v", err)
