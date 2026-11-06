@@ -42,5 +42,6 @@ func (a *App) SaveConnectionSidebarLayout(
 		return result, err
 	}
 	a.markCloudBackupDirty()
+	a.notifySavedConnectionsChanged()
 	return result, nil
 }

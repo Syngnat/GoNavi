@@ -510,6 +510,7 @@ func (a *App) ImportConnectionsExcelFileBase64(base64Content string) connection.
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: localizedExcelImportError(a.appText, err)}
 	}
+	a.notifySavedConnectionsChanged()
 	return connection.QueryResult{Success: true, Data: result}
 }
 

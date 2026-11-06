@@ -48,6 +48,7 @@ type sqlAuditPendingGap struct {
 
 type sqlAuditQueryInput struct {
 	MCPContext     sqlaudit.MCPContext
+	Actor          string
 	Config         connection.ConnectionConfig
 	Database       string
 	DBType         string

@@ -10,6 +10,7 @@ func runtimeBridgeScript() string {
   var existingRuntime = window.runtime || {};
   var listeners = new Map();
   var eventSource = null;
+  var reconnectDelayMs = 1000;
 
   var dispatch = function (eventName, args) {
     var callbacks = listeners.get(eventName);
@@ -38,6 +39,9 @@ func runtimeBridgeScript() string {
       return;
     }
     eventSource = new EventSource(apiBase + '/events');
+    eventSource.onopen = function () {
+      reconnectDelayMs = 1000;
+    };
     eventSource.addEventListener('gonavi', function (event) {
       try {
         var payload = JSON.parse(event.data || '{}');
@@ -54,7 +58,9 @@ func runtimeBridgeScript() string {
         eventSource.close();
       } catch (_) {}
       eventSource = null;
-      window.setTimeout(ensureEventSource, 1500);
+      var delay = reconnectDelayMs;
+      reconnectDelayMs = Math.min(reconnectDelayMs * 2, 30000);
+      window.setTimeout(ensureEventSource, delay + Math.floor(Math.random() * 250));
     };
   };
 

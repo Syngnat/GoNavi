@@ -36,6 +36,7 @@ type Event struct {
 	QueryID               string `json:"queryId"`
 	TransactionID         string `json:"transactionId"`
 	Source                string `json:"source"`
+	UserName              string `json:"userName,omitempty"`
 	MCPRequestID          string `json:"mcpRequestId,omitempty"`
 	MCPClient             string `json:"mcpClient,omitempty"`
 	BoundaryMode          string `json:"boundaryMode"`

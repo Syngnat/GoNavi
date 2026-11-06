@@ -7,6 +7,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
@@ -97,6 +98,7 @@ func (a *App) dbQueryWithCancel(
 				QueryID:    queryID,
 				SQL:        query,
 				Source:     normalizeSQLAuditSource(auditOptions.source),
+				Actor:      webidentity.UsernameFromContext(auditOptions.executionContext),
 				CommitMode: "auto",
 				Duration:   time.Since(auditStartedAt),
 				Result:     result,
@@ -131,7 +133,7 @@ func (a *App) dbQueryWithCancel(
 		true,
 		optionalDriverTypeForConnectionConfig(runConfig),
 	)
-	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(auditOptions.executionContext, queryID)
 	defer func() {
 		lifecycle.complete(result)
 		cancel()

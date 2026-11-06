@@ -21,7 +21,8 @@ func newEventHub() *eventHub {
 }
 
 type eventSubscriber struct {
-	targetID string
+	targetID  string
+	sessionID string
 
 	mu     sync.Mutex
 	queue  []eventMessage
@@ -31,11 +32,12 @@ type eventSubscriber struct {
 	closed bool
 }
 
-func newEventSubscriber(targetID string) *eventSubscriber {
+func newEventSubscriber(targetID string, sessionID string) *eventSubscriber {
 	return &eventSubscriber{
-		targetID: strings.TrimSpace(targetID),
-		wake:     make(chan struct{}, 1),
-		done:     make(chan struct{}),
+		targetID:  strings.TrimSpace(targetID),
+		sessionID: strings.TrimSpace(sessionID),
+		wake:      make(chan struct{}, 1),
+		done:      make(chan struct{}),
 	}
 }
 
@@ -188,6 +190,23 @@ func (h *eventHub) EmitToBestEffort(targetID string, name string, args ...any) {
 	h.emitTo(targetID, name, false, args...)
 }
 
+// EmitToSession 只把事件发给同一个登录会话的 SSE 连接（同一浏览器的多个
+// 标签页仍会全部收到）。请求内产生的查询进度等事件不应广播给其他客户端。
+func (h *eventHub) EmitToSession(sessionID string, name string, args ...any) {
+	if h == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(name) == "" {
+		return
+	}
+	msg := eventMessage{Name: name, Args: args}
+	normalized := strings.TrimSpace(sessionID)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for subscriber := range h.subscribers {
+		if subscriber.sessionID == normalized {
+			subscriber.enqueue(msg, false)
+		}
+	}
+}
+
 func (h *eventHub) emitTo(targetID string, name string, reliable bool, args ...any) {
 	if h == nil || strings.TrimSpace(targetID) == "" || strings.TrimSpace(name) == "" {
 		return
@@ -203,8 +222,22 @@ func (h *eventHub) emitTo(targetID string, name string, reliable bool, args ...a
 	}
 }
 
-func (h *eventHub) subscribe(targetID string) *eventSubscriber {
-	subscriber := newEventSubscriber(targetID)
+// sessionEmitter 实现 uievents.Emitter，把请求内事件定向到当前会话。
+type sessionEmitter struct {
+	hub       *eventHub
+	sessionID string
+}
+
+func (e sessionEmitter) Emit(name string, args ...any) {
+	e.hub.EmitToSession(e.sessionID, name, args...)
+}
+
+func (h *eventHub) emitterForSession(sessionID string) *sessionEmitter {
+	return &sessionEmitter{hub: h, sessionID: strings.TrimSpace(sessionID)}
+}
+
+func (h *eventHub) subscribe(targetID string, sessionID string) *eventSubscriber {
+	subscriber := newEventSubscriber(targetID, sessionID)
 	h.mu.Lock()
 	h.subscribers[subscriber] = struct{}{}
 	h.mu.Unlock()
@@ -221,4 +254,13 @@ func (h *eventHub) unsubscribe(subscriber *eventSubscriber) {
 		subscriber.close()
 	}
 	h.mu.Unlock()
+}
+
+func (h *eventHub) subscriberCount() int {
+	if h == nil {
+		return 0
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.subscribers)
 }

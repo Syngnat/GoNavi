@@ -371,6 +371,10 @@ func (a *App) NacosTestConnection(config connection.ConnectionConfig) connection
 // It deliberately uses an isolated Nacos client so every interactive test
 // establishes and verifies its own SSH tunnel instead of reusing a cached one.
 func (a *App) NacosTestConnectionWithProgress(config connection.ConnectionConfig, runID string) connection.QueryResult {
+	return a.nacosTestConnectionWithProgressContext(nil, config, runID)
+}
+
+func (a *App) nacosTestConnectionWithProgressContext(ctx context.Context, config connection.ConnectionConfig, runID string) connection.QueryResult {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return a.NacosTestConnection(config)
@@ -390,7 +394,7 @@ func (a *App) NacosTestConnectionWithProgress(config connection.ConnectionConfig
 	var report connectionTestProgressReporter
 	if config.UseSSH {
 		report = func(stage string, status string) {
-			uievents.Emit(a.ctx, connectionTestProgressEventName, connectionTestProgressEvent{
+			uievents.EmitWith(ctx, a.ctx, connectionTestProgressEventName, connectionTestProgressEvent{
 				RunID:  runID,
 				Stage:  stage,
 				Status: status,

@@ -8,6 +8,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/sqlaudit"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 // DBQueryMulti 执行可能包含多条 SQL 语句的查询，返回多个结果集。
@@ -64,6 +65,7 @@ func (a *App) dbQueryMulti(
 		defer a.beginSQLAuditMulti(sqlAuditQueryInput{
 			Config: runConfig, Database: dbName, DBType: resolvedDBType,
 			QueryID: queryID, SQL: originalQuery, Source: auditSource,
+			Actor:      webidentity.UsernameFromContext(traceContext),
 			MCPContext: sqlaudit.MCPContextFrom(traceContext),
 		}, auditStartedAt, &result, &statementAuditEvents)()
 	}
@@ -122,7 +124,7 @@ func (a *App) dbQueryMulti(
 		true,
 		optionalDriverTypeForConnectionConfig(runConfig),
 	)
-	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(auditOptions.executionContext, queryID)
 	defer func() {
 		lifecycle.complete(result)
 		cancel()

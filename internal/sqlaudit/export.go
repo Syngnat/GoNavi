@@ -151,7 +151,7 @@ func (s *Store) loadExportEvents(filter Filter, recordLimit int64, byteLimit int
 func eventStringBytes(event Event) int {
 	return len(event.ID) + len(event.EventType) + len(event.Status) + len(event.ConnectionID) +
 		len(event.ConnectionFingerprint) + len(event.DBType) + len(event.Database) + len(event.QueryID) +
-		len(event.MCPRequestID) + len(event.MCPClient) + len(event.TransactionID) + len(event.Source) + len(event.BoundaryMode) + len(event.CommitMode) +
+		len(event.MCPRequestID) + len(event.MCPClient) + len(event.TransactionID) + len(event.Source) + len(event.UserName) + len(event.BoundaryMode) + len(event.CommitMode) +
 		len(event.SQLText) + len(event.SQLFingerprint) + len(event.Error) + len(event.PrevHash) + len(event.Hash)
 }
 
@@ -178,7 +178,7 @@ func (b *boundedBuffer) Bytes() []byte {
 var exportCSVHeader = []string{
 	"id", "sequence", "timestamp", "eventType", "status", "connectionId",
 	"connectionFingerprint", "dbType", "database", "queryId", "transactionId",
-	"source", "boundaryMode", "commitMode", "sqlText", "sqlRedacted",
+	"source", "userName", "boundaryMode", "commitMode", "sqlText", "sqlRedacted",
 	"sqlFingerprint", "statementIndex", "statementCount", "durationMs",
 	"rowsAffected", "rowsReturned", "error", "prevHash", "hash", "mcpRequestId", "mcpClient",
 }
@@ -197,6 +197,7 @@ func eventCSVRecord(event Event) []string {
 		event.QueryID,
 		event.TransactionID,
 		event.Source,
+		event.UserName,
 		event.BoundaryMode,
 		event.CommitMode,
 		event.SQLText,

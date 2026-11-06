@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/json"
 	"errors"
@@ -15,7 +16,8 @@ import (
 
 const (
 	webAuthConfigFileName            = "web_auth.json"
-	webAuthSchemaVersion             = 1
+	webAuthSchemaVersion             = 2
+	webDefaultAdminUsername          = "admin"
 	webSessionCookieName             = "gonavi_web_session"
 	webSetupTokenTTL                 = 10 * time.Minute
 	webLoginFailureWindow            = 10 * time.Minute
@@ -27,6 +29,7 @@ const (
 	webDefaultSessionRememberDays    = 7
 	webMinPasswordLength             = 6
 	webAuthPasswordEnvName           = "GONAVI_WEB_PASSWORD"
+	webAuthSetupTokenEnvName         = "GONAVI_WEB_SETUP_TOKEN"
 	webTOTPPeriodSeconds             = 30
 	webTOTPDigits                    = 6
 	// webUsedTOTPCodeCap bounds the replay cache: entries live for the ±1-step
@@ -44,19 +47,60 @@ var (
 	errWebAuthInvalidCredentials = errors.New("invalid credentials")
 	errWebAuthRateLimited        = errors.New("too many login attempts")
 	errWebAuthPasswordManaged    = errors.New("web auth password is managed by environment")
+	errWebAuthSetupGateRequired  = errors.New("setup gate token is required")
+	errWebAuthTOTPAlreadyEnabled = errors.New("two-factor authentication is already enabled")
+	errWebAuthTOTPNotEnabled     = errors.New("two-factor authentication is not enabled")
 )
 
 type webAuthConfig struct {
-	SchemaVersion        int      `json:"schemaVersion,omitempty"`
-	Enabled              bool     `json:"enabled"`
-	PasswordHash         string   `json:"passwordHash,omitempty"`
-	TOTPEnabled          bool     `json:"totpEnabled"`
-	TOTPSecret           string   `json:"totpSecret,omitempty"`
-	RecoveryCodeHashes   []string `json:"recoveryCodeHashes,omitempty"`
-	SessionIdleMinutes   int      `json:"sessionIdleMinutes,omitempty"`
-	SessionAbsoluteHours int      `json:"sessionAbsoluteHours,omitempty"`
-	SessionRememberDays  int      `json:"sessionRememberDays,omitempty"`
-	UpdatedAt            string   `json:"updatedAt,omitempty"`
+	SchemaVersion int  `json:"schemaVersion,omitempty"`
+	Enabled       bool `json:"enabled"`
+	// Users 是 v2 起的账号列表。v1 的单密码字段保留在下面，仅用于读取旧文件；
+	// normalizeWebAuthConfig 会把它们迁移进 Users 并清空，保存时不再落回旧字段。
+	Users                []webAuthUser `json:"users,omitempty"`
+	PasswordHash         string        `json:"passwordHash,omitempty"`
+	TOTPEnabled          bool          `json:"totpEnabled,omitempty"`
+	TOTPSecret           string        `json:"totpSecret,omitempty"`
+	RecoveryCodeHashes   []string      `json:"recoveryCodeHashes,omitempty"`
+	SessionIdleMinutes   int           `json:"sessionIdleMinutes,omitempty"`
+	SessionAbsoluteHours int           `json:"sessionAbsoluteHours,omitempty"`
+	SessionRememberDays  int           `json:"sessionRememberDays,omitempty"`
+	UpdatedAt            string        `json:"updatedAt,omitempty"`
+}
+
+// resolveWebSetupGateToken 决定首次初始化的门禁令牌。
+// 环境变量优先；未设置时每次启动生成随机值，由启动横幅打印到终端/容器日志。
+// 这样即使 0.0.0.0 暴露且尚未配置密码，第一个访问者也无法直接抢注管理员。
+func resolveWebSetupGateToken() string {
+	if configured := strings.TrimSpace(os.Getenv(webAuthSetupTokenEnvName)); configured != "" {
+		return configured
+	}
+	token, err := generateRandomToken(24)
+	if err != nil {
+		return ""
+	}
+	return token
+}
+
+// SetupToken 返回首次初始化门禁令牌，供启动横幅打印。
+func (m *webAuthManager) SetupToken() string {
+	if m == nil {
+		return ""
+	}
+	return m.setupGateToken
+}
+
+func (m *webAuthManager) verifySetupGateToken(token string) bool {
+	if m == nil {
+		return false
+	}
+	expected := strings.TrimSpace(m.setupGateToken)
+	if expected == "" {
+		// 令牌生成失败时不能把初始化彻底锁死，退化为旧行为。
+		return true
+	}
+	provided := strings.TrimSpace(token)
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
 func normalizeWebAuthConfig(cfg webAuthConfig) webAuthConfig {
@@ -70,24 +114,25 @@ func normalizeWebAuthConfig(cfg webAuthConfig) webAuthConfig {
 	if cfg.SessionRememberDays < 1 || cfg.SessionRememberDays > 30 {
 		cfg.SessionRememberDays = webDefaultSessionRememberDays
 	}
-	if !cfg.Enabled {
-		cfg.PasswordHash = ""
-		cfg.TOTPEnabled = false
-		cfg.TOTPSecret = ""
-		cfg.RecoveryCodeHashes = nil
-	}
-	if !cfg.TOTPEnabled {
-		cfg.TOTPSecret = ""
-		cfg.RecoveryCodeHashes = nil
-	}
-	if cfg.RecoveryCodeHashes == nil {
-		cfg.RecoveryCodeHashes = []string{}
-	}
+	cfg.Users = migrateLegacyWebAuthUser(cfg)
+	cfg.Users = normalizeWebAuthUsers(cfg.Users)
+	cfg.PasswordHash = ""
+	cfg.TOTPEnabled = false
+	cfg.TOTPSecret = ""
+	cfg.RecoveryCodeHashes = nil
 	return cfg
 }
 
 func (cfg webAuthConfig) IsConfigured() bool {
-	return cfg.Enabled && strings.TrimSpace(cfg.PasswordHash) != ""
+	if !cfg.Enabled {
+		return false
+	}
+	for _, user := range cfg.Users {
+		if !user.Disabled && strings.TrimSpace(user.PasswordHash) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (cfg webAuthConfig) IdleTimeout() time.Duration {
@@ -112,6 +157,17 @@ func newWebAuthStore(root string) *webAuthStore {
 		trimmed = appdata.MustResolveActiveRoot()
 	}
 	return &webAuthStore{path: filepath.Join(trimmed, webAuthConfigFileName)}
+}
+
+func (s *webAuthStore) ModTime() time.Time {
+	if s == nil || strings.TrimSpace(s.path) == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(s.path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 func (s *webAuthStore) Load() (webAuthConfig, error) {
@@ -141,17 +197,42 @@ func (s *webAuthStore) Save(cfg webAuthConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(s.path, payload, 0o600); err != nil {
+	lock, err := appdata.AcquireFileLock(s.path + ".lock")
+	if err != nil {
 		return err
 	}
-	return nil
+	defer func() { _ = lock.Close() }()
+	temporary, err := os.CreateTemp(dir, ".web-auth-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temporary.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, s.path)
 }
 
 type pendingSetup struct {
 	Token         string
+	Username      string
 	Secret        string
 	RecoveryCodes []string
 	Issuer        string

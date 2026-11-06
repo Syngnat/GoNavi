@@ -51,6 +51,19 @@ func CanEmit(ctx context.Context) bool {
 	return ctx.Value(wailsEventsContextKey) != nil
 }
 
+// EmitWith 优先使用 requestCtx 上的 emitter（Web 请求可注入只发给当前会话的
+// emitter），没有时回退到 fallback。这样请求内产生的进度事件不会广播给
+// 所有浏览器，而后台任务仍走全局 emitter。
+func EmitWith(requestCtx context.Context, fallback context.Context, name string, args ...any) {
+	if requestCtx != nil {
+		if emitter := emitterFromContext(requestCtx); emitter != nil {
+			emitter.Emit(name, args...)
+			return
+		}
+	}
+	Emit(fallback, name, args...)
+}
+
 func Emit(ctx context.Context, name string, args ...any) {
 	if ctx == nil {
 		return
