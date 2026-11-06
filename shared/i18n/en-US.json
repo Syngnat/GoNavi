@@ -13906,5 +13906,6 @@
   "plugin.permission.host_appearance_read": "Read host appearance settings",
   "plugin.permission.host_appearance_read.description": "Read the background image, opacity, position and built-in gallery state",
   "plugin.permission.host_appearance_write": "Change host appearance settings",
-  "plugin.permission.host_appearance_write.description": "Replace the background image, adjust opacity and position, toggle it and manage the built-in gallery"
+  "plugin.permission.host_appearance_write.description": "Replace the background image, adjust opacity and position, toggle it and manage the built-in gallery",
+  "data_export.message.request_too_large": "The export payload exceeds the browser build's single-request limit. Export with “all results (re-query)” or lower the returned row count and retry."
 }

@@ -13906,5 +13906,6 @@
   "plugin.permission.host_appearance_read": "Darstellungseinstellungen des Hosts lesen",
   "plugin.permission.host_appearance_read.description": "Hintergrundbild, Deckkraft, Position und Status der integrierten Galerie lesen",
   "plugin.permission.host_appearance_write": "Darstellungseinstellungen des Hosts ändern",
-  "plugin.permission.host_appearance_write.description": "Hintergrundbild wechseln, Deckkraft und Position anpassen, aktivieren und die integrierte Galerie verwalten"
+  "plugin.permission.host_appearance_write.description": "Hintergrundbild wechseln, Deckkraft und Position anpassen, aktivieren und die integrierte Galerie verwalten",
+  "data_export.message.request_too_large": "Die Exportdaten überschreiten das Einzelanfrage-Limit der Browser-Version. Exportieren Sie über „Alle Ergebnisse (neu abfragen)“ oder reduzieren Sie die zurückgegebenen Zeilen."
 }

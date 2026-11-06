@@ -13906,5 +13906,6 @@
   "plugin.permission.host_appearance_read": "ホストの外観設定を読み取る",
   "plugin.permission.host_appearance_read.description": "背景画像・透明度・位置・内蔵ギャラリーの状態を読み取ります",
   "plugin.permission.host_appearance_write": "ホストの外観設定を変更する",
-  "plugin.permission.host_appearance_write.description": "背景画像の変更、透明度・位置の調整、有効化、内蔵ギャラリーの管理を行います"
+  "plugin.permission.host_appearance_write.description": "背景画像の変更、透明度・位置の調整、有効化、内蔵ギャラリーの管理を行います",
+  "data_export.message.request_too_large": "エクスポートするデータがブラウザ版の 1 リクエスト上限を超えています。「すべての結果（再クエリ）」でエクスポートするか、返却行数を減らして再試行してください。"
 }

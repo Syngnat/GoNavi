@@ -13906,5 +13906,6 @@
   "plugin.permission.host_appearance_read": "读取宿主外观设置",
   "plugin.permission.host_appearance_read.description": "读取背景图片、透明度、位置与内置图库状态",
   "plugin.permission.host_appearance_write": "修改宿主外观设置",
-  "plugin.permission.host_appearance_write.description": "更换背景图片、调整透明度与位置、启用开关及管理内置图库"
+  "plugin.permission.host_appearance_write.description": "更换背景图片、调整透明度与位置、启用开关及管理内置图库",
+  "data_export.message.request_too_large": "导出的数据超过浏览器版单次请求上限。请改用「全部结果（重新查询）」导出，或减小返回行数后重试。"
 }

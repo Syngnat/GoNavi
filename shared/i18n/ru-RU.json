@@ -13906,5 +13906,6 @@
   "plugin.permission.host_appearance_read": "Читать настройки оформления хоста",
   "plugin.permission.host_appearance_read.description": "Читать фоновое изображение, прозрачность, положение и состояние встроенной галереи",
   "plugin.permission.host_appearance_write": "Изменять настройки оформления хоста",
-  "plugin.permission.host_appearance_write.description": "Менять фоновое изображение, прозрачность и положение, включать его и управлять встроенной галереей"
+  "plugin.permission.host_appearance_write.description": "Менять фоновое изображение, прозрачность и положение, включать его и управлять встроенной галереей",
+  "data_export.message.request_too_large": "Объём экспорта превышает лимит одного запроса в браузерной версии. Используйте экспорт «Все результаты (повторный запрос)» или уменьшите число строк."
 }
