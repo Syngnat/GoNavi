@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var permissionLiteral = regexp.MustCompile(`"(ai\.(?:skills|providers|tools)|data\.(?:sources|export)|host\.(?:log|describe|connections\.read|connections\.credentials|metadata\.read|query\.read|schema\.write)|system\.open-external|ui\.(?:html-panel|pages))"`)
+var permissionLiteral = regexp.MustCompile(`"(ai\.(?:skills|providers|tools)|data\.(?:sources|export)|host\.(?:log|describe|connections\.read|connections\.credentials|metadata\.read|query\.read|schema\.write|appearance\.read|appearance\.write)|system\.open-external|ui\.(?:html-panel|pages))"`)
 
 // Public permissions are published at https://plugin.gonavi.org/docs/permissions.
 // A local checkout of the market repo enables the cross-repository lockstep check.
