@@ -436,9 +436,13 @@ go build .
 .\GoNavi-Wails.exe web-server --addr 127.0.0.1:34116
 ```
 
-- 首次访问进入 `/setup`（管理员密码；可选 Google Authenticator）
+- 首次访问进入 `/setup?setup=<令牌>`（令牌打印在启动日志；也可设置 `GONAVI_WEB_SETUP_TOKEN` / `GONAVI_WEB_PASSWORD`）
+- 账号：`admin`（全部权限）与 `viewer`（只读，连接被强制为只读）；只读账号可限制到指定的已保存连接；TOTP 与恢复码按账号独立
+- Session 跨重启保留（`web_sessions.json`）；登录限流同时按 IP 与账号
 - 桥接：`window.go.*` / `window.runtime.*` → HTTP / SSE
-- Session、恢复码、登录限流
+- 运维：`GET /__gonavi/healthz`、`GET /__gonavi/readyz`（数据目录可写）、需认证的 `GET /__gonavi/metrics`（JSON，加 `?format=prometheus` 输出文本）；可调 `GONAVI_WEB_MAX_INFLIGHT[_PER_USER]`、`GONAVI_DB_MAX_OPEN_CONNS`、`GONAVI_SHUTDOWN_GRACE_SECONDS`、`GONAVI_WEB_ASSET_DIR`
+- **单实例**：状态保存在本地文件；同一数据目录误起第二个 Web Server 会在日志告警。反向代理后只运行一个副本
+- **多副本**：`GONAVI_WEB_MULTI_REPLICA=1` 允许多个 Web Server 共享同一数据目录。要求：反向代理启用会话粘滞（`ip_hash` / sticky cookie）、共享文件系统支持 flock（本地卷或 NFSv4）、所有副本使用同一份 `web_auth.json` / `web_sessions.json`。查询进度与 SSE 事件只留在处理请求的副本上，因此会话粘滞是硬性要求；SQLite 审计库要求文件系统支持可用的 POSIX 锁
 
 #### Docker / Podman
 
