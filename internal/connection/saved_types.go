@@ -35,6 +35,8 @@ type SavedConnectionInput struct {
 	ClearJVMAgentAPIKey        bool                            `json:"clearJVMAgentAPIKey,omitempty"`
 	ClearJVMDiagnosticAPIKey   bool                            `json:"clearJVMDiagnosticAPIKey,omitempty"`
 	ClearSensitiveParams       bool                            `json:"clearSensitiveConnectionParams,omitempty"`
+	// Revision 是客户端读取时的版本号。非 0 时服务端会拒绝覆盖已被其他客户端修改的记录。
+	Revision uint64 `json:"revision,omitempty"`
 }
 
 // ConnectionVisibilityInput updates only the database and schema visibility
@@ -76,6 +78,8 @@ type SavedConnectionView struct {
 	HasJVMAgentAPIKey          bool                            `json:"hasJVMAgentAPIKey,omitempty"`
 	HasJVMDiagnosticAPIKey     bool                            `json:"hasJVMDiagnosticAPIKey,omitempty"`
 	HasSensitiveParams         bool                            `json:"hasSensitiveConnectionParams,omitempty"`
+	// Revision 每次保存自增；客户端保存时回传该值以实现乐观并发控制。
+	Revision uint64 `json:"revision,omitempty"`
 }
 
 type LegacySavedConnection = SavedConnectionInput

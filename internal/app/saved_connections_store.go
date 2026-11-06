@@ -16,6 +16,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// errSavedConnectionRevisionConflict 表示另一个客户端已经修改过该连接。
+var errSavedConnectionRevisionConflict = errors.New("connection was modified by another client; reload and retry")
+
 func (r *savedConnectionRepository) connectionsPath() string {
 	return filepath.Join(r.configDir, savedConnectionsFileName)
 }
@@ -260,6 +263,9 @@ func (r *savedConnectionRepository) saveUnlocked(input connection.SavedConnectio
 			break
 		}
 	}
+	if index >= 0 && input.Revision > 0 && existing.Revision != input.Revision {
+		return connection.SavedConnectionView{}, errSavedConnectionRevisionConflict
+	}
 
 	mergedBundle := bundle
 	if index >= 0 && savedConnectionViewHasSecrets(existing) {
@@ -284,8 +290,10 @@ func (r *savedConnectionRepository) saveUnlocked(input connection.SavedConnectio
 	applyConnectionBundleFlags(&view, mergedBundle)
 
 	if index >= 0 {
+		view.Revision = existing.Revision + 1
 		connections[index] = view
 	} else {
+		view.Revision = 1
 		connections = append(connections, view)
 	}
 	if err := r.saveAll(connections); err != nil {

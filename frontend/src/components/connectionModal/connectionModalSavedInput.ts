@@ -170,10 +170,14 @@ export const buildSavedConnectionInput = ({
         ? `Redis ${displayHost}`
         : displayHost);
 
+  // 乐观并发：编辑已有连接时回传读取到的版本号，服务端据此拒绝覆盖他人的修改。
+  const revisionValue = (initialValues as { revision?: unknown } | null | undefined)?.revision;
+  const revision = typeof revisionValue === "number" ? revisionValue : undefined;
   return {
     id: connectionId,
     name: nextName,
     createdAt: initialValues?.createdAt,
+    revision,
     environmentType: normalizeConnectionEnvironmentType(values.environmentType),
     config: {
       ...config,
