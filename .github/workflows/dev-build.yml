@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          bash scripts/install-wails3-cli.sh
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Build frontend dist
@@ -682,7 +682,7 @@ jobs:
         run: |
           set -euo pipefail
           go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          bash scripts/install-wails3-cli.sh
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Setup MSYS2 Toolchain For DuckDB (Windows AMD64)
