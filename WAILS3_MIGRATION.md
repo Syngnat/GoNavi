@@ -35,9 +35,17 @@
 ### 平台能力
 
 - `SingleInstance`：二次启动立即退出并聚焦主窗口，替代 MSI 命名互斥方案。
-- 文件关联：声明 `.sql`，并转发 `ApplicationOpenedWithFile`。
+- 文件关联：声明 `.sql`，`ApplicationOpenedWithFile` 与二次启动参数都会打开 SQL 文件；冷启动链接在前端就绪后补发。
 - 原生深链：`ApplicationLaunchedWithUrl`、二次启动参数与冷启动参数统一转发现有的 `gonavi:deeplink` 事件。
+- 关窗与 Cmd+Q 走 v3 `WindowClosing` / `ShouldQuit`，复用既有的未保存确认（`app:before-close-request`），确认前不会退出。
 - 前端资源嵌入 `frontend` 包，v3 二进制自包含，可从任意目录启动。
+
+### 开发闭环
+
+- `Taskfile.yml` + `build/config.yml`：`wails3 dev` 启动 Vite（9245）并热重启 Go；`wails3 build DEV=true` 走快速开发构建，生产构建复用发版脚本。
+- 资产处理器通过 v3 `AssetFileServerFS` 子请求注入 `__GONAVI_WAILS3__`/`__GONAVI_DETACHED__`，dev 下保留 Vite 代理与 HMR；插件窗口在 dev 下读取 `frontend/dist/plugin-window`。
+- 生产构建带 `production` tag（版本显示与 debug 环境正确）；Linux 带 `gtk3` tag 以匹配现有 GTK3/WebKit2GTK 依赖。
+- `scripts/build-wails3.mjs` 复用 CI 平台脚本，本地产物与发版布局一致（含 Windows syso 与 macOS `.app`）。
 
 ## 阶段状态
 
