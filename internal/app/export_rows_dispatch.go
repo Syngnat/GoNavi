@@ -124,6 +124,12 @@ func writeRowsToFileWithReporter(exportCtx context.Context, f io.Writer, data []
 	if err != nil {
 		return 0, err
 	}
+	// Materialized exports know every value up front, so a column with even one
+	// non-numeric value is exported whole as text instead of letting Excel
+	// normalize identifiers and formatted amounts.
+	if xlsxWriter, ok := writer.(*xlsxExportFileWriter); ok && !options.LosslessHive {
+		xlsxWriter.SetTextColumns(resolveXLSXTextColumns(data, columns))
+	}
 	var consumer db.QueryStreamConsumer = writer
 	if options.LosslessHive {
 		consumer = &hiveExportConsumer{delegate: writer}

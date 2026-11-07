@@ -21,16 +21,17 @@ func TestXLSXNumericCellLiteral(t *testing.T) {
 		{text: "1", want: "1", ok: true},
 		{text: "-42", want: "-42", ok: true},
 		{text: "1.25", want: "1.25", ok: true},
-		{text: "12.50", want: "12.5", ok: true},
+		{text: "12.50", ok: false},
 		{text: "1445663", want: "1445663", ok: true},
 		{text: "0.1", want: "0.1", ok: true},
 		{text: "-0.1", want: "-0.1", ok: true},
-		{text: "-12.50", want: "-12.5", ok: true},
-		{text: "12.5000000000000000", want: "12.5", ok: true},
-		{text: "42.0", want: "42", ok: true},
+		{text: "-12.50", ok: false},
+		{text: "12.5000000000000000", ok: false},
+		{text: "42.0", ok: false},
+		{text: "1.00", ok: false},
 		{text: "999999999999999", want: "999999999999999", ok: true},
 		{text: "-999999999999999", want: "-999999999999999", ok: true},
-		{text: "999999999999999.0", want: "999999999999999", ok: true},
+		{text: "999999999999999.0", ok: false},
 		{text: "99999999999999.9", want: "99999999999999.9", ok: true},
 		{text: "0.123456789012345", want: "0.123456789012345", ok: true},
 		{text: "0.000000123456789012345", want: "0.000000123456789012345", ok: true},
@@ -136,13 +137,14 @@ func TestWriteRowsToFile_XLSXPrecisionPolicy(t *testing.T) {
 		numeric bool
 	}{
 		{name: "ordinary integer", value: 42, want: "42", numeric: true},
-		{name: "ordinary decimal", value: "12.50", want: "12.5", numeric: true},
+		{name: "ordinary decimal", value: "12.50", want: "12.50"},
 		{name: "binary inexact decimal", value: "0.1", want: "0.1", numeric: true},
-		{name: "negative decimal", value: "-12.50", want: "-12.5", numeric: true},
-		{name: "trailing fractional zeros", value: "12.5000000000000000", want: "12.5", numeric: true},
+		{name: "negative decimal", value: "-12.50", want: "-12.50"},
+		{name: "trailing fractional zeros", value: "12.5000000000000000", want: "12.5000000000000000"},
+		{name: "formatted amount", value: "1.00", want: "1.00"},
 		{name: "15 digit integer", value: int64(999999999999999), want: "999999999999999", numeric: true},
 		{name: "negative 15 digit integer", value: int64(-999999999999999), want: "-999999999999999", numeric: true},
-		{name: "15 digit integer decimal", value: "999999999999999.0", want: "999999999999999", numeric: true},
+		{name: "15 digit integer decimal", value: "999999999999999.0", want: "999999999999999.0"},
 		{name: "15 significant decimal digits", value: "0.000000123456789012345", want: "0.000000123456789012345", numeric: true},
 		{name: "16 digit integer", value: int64(1000000000000000), want: "1000000000000000"},
 		{name: "negative 16 digit integer", value: int64(-1000000000000000), want: "-1000000000000000"},
@@ -162,11 +164,15 @@ func TestWriteRowsToFile_XLSXPrecisionPolicy(t *testing.T) {
 		{name: "bigint exponent stays text", value: "1.0000000000000001e18", want: "1.0000000000000001e18"},
 		{name: "formula stays text", value: "=1+1", want: "=1+1"},
 	}
-	columns := []string{"12.50", "0012", "=1+1"}
-	data := make([]map[string]interface{}, 0, len(cases))
-	for _, tc := range cases {
-		data = append(data, map[string]interface{}{columns[0]: tc.value})
+	// One column per case keeps the column-level text rule from hiding the
+	// per-value policy: a single text value would otherwise make the column text.
+	columns := make([]string, len(cases))
+	row := make(map[string]interface{}, len(cases))
+	for i, tc := range cases {
+		columns[i] = fmt.Sprintf("col%02d", i)
+		row[columns[i]] = tc.value
 	}
+	data := []map[string]interface{}{row}
 	f, err := os.CreateTemp(t.TempDir(), "precision-*.xlsx")
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +191,11 @@ func TestWriteRowsToFile_XLSXPrecisionPolicy(t *testing.T) {
 	}
 	defer book.Close()
 	for i, header := range columns {
-		cell := fmt.Sprintf("%c1", 'A'+i)
+		column, err := excelize.ColumnNumberToName(i + 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cell := column + "1"
 		want := fmt.Sprintf(`<c r="%s" t="inlineStr"><is><t>%s</t></is></c>`, cell, header)
 		if !strings.Contains(sheet, want) {
 			t.Errorf("header %s is not original inline text: missing %s", cell, want)
@@ -193,7 +203,11 @@ func TestWriteRowsToFile_XLSXPrecisionPolicy(t *testing.T) {
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cell := fmt.Sprintf("A%d", i+2)
+			column, err := excelize.ColumnNumberToName(i + 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cell := column + "2"
 			want := fmt.Sprintf(`<c r="%s" t="inlineStr"><is><t>%s</t></is></c>`, cell, tc.want)
 			if tc.numeric {
 				want = fmt.Sprintf(`<c r="%s"><v>%s</v></c>`, cell, tc.want)
@@ -213,6 +227,37 @@ func TestWriteRowsToFile_XLSXPrecisionPolicy(t *testing.T) {
 				t.Errorf("formula %s = %q, %v; want no formula", cell, formula, err)
 			}
 		})
+	}
+}
+
+func TestWriteRowsToFile_XLSXTextColumnKeepsEveryCellText(t *testing.T) {
+	data := []map[string]interface{}{
+		{"code": "0001", "amount": "1.5", "mixed": "42"},
+		{"code": "1.00", "amount": "2", "mixed": "abc"},
+	}
+	f, err := os.CreateTemp(t.TempDir(), "text-column-*.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRowsToFile(f, data, []string{"code", "amount", "mixed"}, ExportFileOptions{Format: "xlsx"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sheet := readXLSXSheetXML(t, f.Name())
+	for _, want := range []string{
+		`<c r="A2" t="inlineStr"><is><t>0001</t></is></c>`,
+		`<c r="A3" t="inlineStr"><is><t>1.00</t></is></c>`,
+		`<c r="B2"><v>1.5</v></c>`,
+		`<c r="B3"><v>2</v></c>`,
+		`<c r="C2" t="inlineStr"><is><t>42</t></is></c>`,
+		`<c r="C3" t="inlineStr"><is><t>abc</t></is></c>`,
+	} {
+		if !strings.Contains(sheet, want) {
+			t.Errorf("sheet missing %s\n%s", want, sheet)
+		}
 	}
 }
 
