@@ -24,14 +24,17 @@ fi
 
 LDFLAGS="-s -w -X GoNavi-Wails/internal/app.AppVersion=${VERSION}"
 
-# Mirror wails: use CGO when a C toolchain is configured, otherwise build pure Go.
-CGO="${CGO_ENABLED:-}"
-if [ -z "$CGO" ]; then
-  if [ -n "${CC:-}" ]; then
-    CGO=1
-  else
-    CGO=0
-  fi
+# Mirror wails: darwin/linux link WebKit/GTK through cgo; Windows uses a pure-Go
+# WebView2 unless a C toolchain is configured (DuckDB).
+if [ -n "${CGO_ENABLED:-}" ]; then
+  CGO="$CGO_ENABLED"
+else
+  case "$GOOS" in
+    darwin|linux) CGO=1 ;;
+    # The v2 GUI build runs pure Go on Windows; optional drivers are separate
+    # agents. Set CGO_ENABLED=1 explicitly if an in-process DuckDB build is needed.
+    *) CGO=0 ;;
+  esac
 fi
 export CGO_ENABLED="$CGO"
 echo "==> wails3 release build platform=${PLATFORM} tags=${TAGSET} cgo=${CGO}"
