@@ -44,6 +44,9 @@ describe('installWails3Bridge', () => {
     it('exposes the full detached window control surface', () => {
         runtimeWindow.__GONAVI_WAILS3__ = true;
         runtimeWindow.__GONAVI_DETACHED_ID__ = 'workbench:tab-1';
+        // Satisfy the lazy runtime wait so the command bridge does not poll
+        // after the jsdom environment is torn down.
+        runtimeWindow._wails = {};
 
         installWails3Bridge();
 

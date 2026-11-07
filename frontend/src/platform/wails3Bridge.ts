@@ -328,6 +328,36 @@ function createRuntimeShim(): AnyRecord {
     };
 }
 
+// v2's detached runtime script translated Manager commands into DOM custom
+// events. The React close/hide hooks still listen for those DOM events, so the
+// v3 bridge must provide the same translation.
+function installDetachedCommandBridge(): void {
+    const w = window as AnyRecord;
+    const id = String(w.__GONAVI_DETACHED_ID__ || '').trim();
+    if (!id) {
+        return;
+    }
+    subscribeEvent('gonavi:native-detached-command', (command) => {
+        const record = (command ?? {}) as AnyRecord;
+        if (String(record.id || '') !== id) {
+            return;
+        }
+        if (record.action === 'close') {
+            window.dispatchEvent(new CustomEvent('gonavi:native-detached-request-close', {
+                detail: { reason: String(record.reason || record.payload?.reason || '') },
+            }));
+            return;
+        }
+        if (record.action === 'hide') {
+            window.dispatchEvent(new CustomEvent('gonavi:native-detached-request-hide', {
+                detail: {
+                    visibilityRevision: Math.trunc(Number(record.payload?.visibilityRevision)) || 0,
+                },
+            }));
+        }
+    });
+}
+
 export function installWails3Bridge(): void {
     if (typeof window === 'undefined') {
         return;
@@ -342,6 +372,7 @@ export function installWails3Bridge(): void {
     // the app renders. The proxies resolve once the v3 runtime is injected.
     w.go = createGoProxy();
     w.runtime = createRuntimeShim();
+    installDetachedCommandBridge();
 }
 
 export const wails3Bridge = { installWails3Bridge };
