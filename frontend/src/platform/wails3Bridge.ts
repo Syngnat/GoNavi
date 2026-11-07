@@ -94,17 +94,40 @@ function createGoProxy(): AnyRecord {
                                         loadWails3Runtime().then((rt) =>
                                             rt.Call.ByName(`GoNavi-Wails/internal/nativewindow.V3Manager.${method}`, ...args),
                                         );
+                                    const hideForAISettings = async (
+                                        revision: number,
+                                        providerId?: string,
+                                    ) => {
+                                        const normalized = Math.trunc(Number(revision)) || 0;
+                                        // Match the v2 Control order: park the window first,
+                                        // then ask the host to open settings. Restore focus
+                                        // when the host rejects the request as stale.
+                                        const hidden = await callManager('HideWithRevision', id, normalized);
+                                        if (hidden?.success === false) {
+                                            return hidden;
+                                        }
+                                        const result = await callManager('Action', id, 'open-ai-settings', {
+                                            visibilityRevision: normalized,
+                                            providerId: String(providerId || ''),
+                                        });
+                                        if (result?.applied === false) {
+                                            await callManager('Focus', id);
+                                            return {
+                                                success: false,
+                                                message: 'open AI settings was superseded by a newer window focus',
+                                                visibilityRevision: result?.visibilityRevision,
+                                            };
+                                        }
+                                        return result;
+                                    };
                                     return {
-                                        Hide: () => callManager('Hide', id),
-                                        HideForAISettings: (revision: number) =>
-                                            callManager('Action', id, 'open-ai-settings', {
-                                                visibilityRevision: revision,
-                                            }),
+                                        Hide: (revision?: number) =>
+                                            callManager('HideWithRevision', id, Math.trunc(Number(revision)) || 0),
+                                        HideForAISettings: (revision: number) => hideForAISettings(revision),
                                         HideForAISettingsProvider: (revision: number, providerId?: string) =>
-                                            callManager('Action', id, 'open-ai-settings', {
-                                                visibilityRevision: revision,
-                                                providerId: String(providerId || ''),
-                                            }),
+                                            hideForAISettings(revision, providerId),
+                                        Close: () => callManager('Close', id),
+                                        CancelClose: () => callManager('Action', id, 'cancel-close', {}),
                                     };
                                 }
                             }

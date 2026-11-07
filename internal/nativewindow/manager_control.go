@@ -77,33 +77,6 @@ func (m *Manager) handleControl(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(result)
 }
 
-func openEventPayload(payload any, bounds *WindowBounds) any {
-	source, ok := payload.(map[string]any)
-	if !ok {
-		return nil
-	}
-	result := make(map[string]any, 2)
-	for _, key := range []string{"tab", "resultWindow"} {
-		if value, exists := source[key]; exists {
-			if key == "resultWindow" && bounds != nil {
-				if resultWindow, ok := value.(map[string]any); ok {
-					corrected := make(map[string]any, len(resultWindow)+4)
-					for field, fieldValue := range resultWindow {
-						corrected[field] = fieldValue
-					}
-					corrected["x"] = bounds.X
-					corrected["y"] = bounds.Y
-					corrected["width"] = bounds.Width
-					corrected["height"] = bounds.Height
-					value = corrected
-				}
-			}
-			result[key] = value
-		}
-	}
-	return result
-}
-
 func (m *Manager) canOpenOwned(id string, ownerID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -147,21 +120,4 @@ func (m *Manager) closeOwned(ownerID string) OperationResult {
 		m.requestClose(id, ExitReasonRequested)
 	}
 	return OperationResult{Success: true}
-}
-
-func withOwnerWindowID(payload any, ownerID string) any {
-	ownerID = strings.TrimSpace(ownerID)
-	if ownerID == "" {
-		return payload
-	}
-	result := make(map[string]any)
-	if source, ok := payload.(map[string]any); ok {
-		for key, value := range source {
-			result[key] = value
-		}
-	} else if payload != nil {
-		result["value"] = payload
-	}
-	result["ownerWindowId"] = ownerID
-	return result
 }

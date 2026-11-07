@@ -101,6 +101,58 @@ func positiveUintRevision(value any) uint64 {
 	return 0
 }
 
+// withOwnerWindowID stamps a lifecycle event with the window that opened it.
+// Detached windows filter broadcasts by owner so a nested result window only
+// updates its source workbench.
+func withOwnerWindowID(payload any, ownerID string) any {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return payload
+	}
+	result := make(map[string]any)
+	if source, ok := payload.(map[string]any); ok {
+		for key, value := range source {
+			result[key] = value
+		}
+	} else if payload != nil {
+		result["value"] = payload
+	}
+	result["ownerWindowId"] = ownerID
+	return result
+}
+
+// openEventPayload keeps the fields the owner window needs to recreate a
+// detached child in its own store, with the child's real bounds applied to the
+// query-result snapshot.
+func openEventPayload(payload any, bounds *WindowBounds) any {
+	source, ok := payload.(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]any, 2)
+	for _, key := range []string{"tab", "resultWindow"} {
+		value, exists := source[key]
+		if !exists {
+			continue
+		}
+		if key == "resultWindow" && bounds != nil {
+			if resultWindow, ok := value.(map[string]any); ok {
+				corrected := make(map[string]any, len(resultWindow)+4)
+				for field, fieldValue := range resultWindow {
+					corrected[field] = fieldValue
+				}
+				corrected["x"] = bounds.X
+				corrected["y"] = bounds.Y
+				corrected["width"] = bounds.Width
+				corrected["height"] = bounds.Height
+				value = corrected
+			}
+		}
+		result[key] = value
+	}
+	return result
+}
+
 func withVisibilityRevision(payload any, visibilityRevision uint64) any {
 	result := make(map[string]any)
 	if source, ok := payload.(map[string]any); ok {

@@ -10,6 +10,7 @@ const clearBridge = () => {
     delete runtimeWindow._wails;
     delete runtimeWindow.__GONAVI_WAILS3__;
     delete runtimeWindow.__GONAVI_V3_BRIDGE__;
+    delete runtimeWindow.__GONAVI_DETACHED_ID__;
 };
 
 afterEach(clearBridge);
@@ -38,6 +39,20 @@ describe('installWails3Bridge', () => {
         expect(typeof runtimeWindow.runtime.WindowGetSize).toBe('function');
         expect(typeof runtimeWindow.runtime.OnFileDrop).toBe('function');
         expect(runtimeWindow.runtime.CanResolveFilePaths()).toBe(false);
+    });
+
+    it('exposes the full detached window control surface', () => {
+        runtimeWindow.__GONAVI_WAILS3__ = true;
+        runtimeWindow.__GONAVI_DETACHED_ID__ = 'workbench:tab-1';
+
+        installWails3Bridge();
+
+        const control = runtimeWindow.go.nativewindow.Control;
+        expect(typeof control.Hide).toBe('function');
+        expect(typeof control.Close).toBe('function');
+        expect(typeof control.CancelClose).toBe('function');
+        expect(typeof control.HideForAISettings).toBe('function');
+        expect(typeof control.HideForAISettingsProvider).toBe('function');
     });
 
     it('does not replace an already installed bridge', () => {

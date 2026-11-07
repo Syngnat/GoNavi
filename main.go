@@ -16,13 +16,13 @@ import (
 	"sync"
 	"syscall"
 
+	"GoNavi-Wails/internal/agenttools"
 	aiservice "GoNavi-Wails/internal/ai/service"
 	"GoNavi-Wails/internal/app"
 	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
-	"GoNavi-Wails/internal/plugin"
 	"GoNavi-Wails/internal/webserver"
 	"GoNavi-Wails/shared/i18n"
 
@@ -371,21 +371,9 @@ func reportFatalError(err error, message string) {
 // inspection. The catalog itself owns no desktop lifecycle; AppBackend merely
 // borrows the already-created application instance.
 func newDesktopAgentToolCatalog(application *app.App, aiService *aiservice.Service) (*mcpserver.CompositeToolCatalog, error) {
-	backend, err := mcpserver.NewAppBackendFromApp(application)
-	if err != nil {
-		return nil, err
-	}
-	ordinary := mcpserver.NewCompositeToolCatalog(
-		mcpserver.NewAgentToolCatalogWithDynamicSource(backend, mcpserver.NewServiceMCPSource(aiService)),
-		mcpserver.NewWorkspaceSnapshotToolCatalog(),
-		mcpserver.NewAppPluginToolCatalog(func(ctx context.Context) (*plugin.Manager, error) {
-			return app.PluginManagerForIntegration(ctx, application)
-		}),
-	)
-	skills := mcpserver.NewAppPluginSkillCatalog(func(ctx context.Context) (*plugin.Manager, error) {
-		return app.PluginSkillManagerForIntegration(ctx, application)
-	})
-	return mcpserver.NewCompositeToolCatalog(mcpserver.NewPluginSkillAugmentedCatalog(ordinary, skills)), nil
+	// The catalog lives in its own package so the Wails v3 entry point can
+	// assemble the same tools instead of silently running with an empty harness.
+	return agenttools.NewDesktopToolCatalog(application, aiService)
 }
 
 // buildMacApplicationMenu 组装 macOS 菜单栏；extraMenus 按顺序追加在 SQL 之后。

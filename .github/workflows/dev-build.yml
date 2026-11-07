@@ -804,7 +804,10 @@ jobs:
           mkdir -p "$GOCACHE"
           echo "🧭 使用隔离 GOCACHE：$GOCACHE"
           python3 scripts/ci-apply-wails-webkit-tags.py "${{ matrix.linux_webkit }}"
-          if [ "${GONAVI_WAILS3:-1}" = "1" ]; then
+          # Wails v3.1.0 only supports the GTK3/WebKitGTK 4.1 stack (or GTK4/6.0).
+          # Keep the WebKitGTK 4.0 rows on the v2 build; their runners only have
+          # the 4.0 development package.
+          if [ "${GONAVI_WAILS3:-1}" = "1" ] && [ "${{ matrix.linux_webkit }}" != "4.0" ]; then
             bash scripts/ci-build-wails3-release.sh \
               "${{ matrix.platform }}" "${{ matrix.build_name }}" "${DEV_VERSION}"
           elif [ -n "${{ matrix.wails_tags }}" ]; then
@@ -1313,7 +1316,7 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Name=GoNavi' \
-            'Exec=gonavi %f' \
+            'Exec=gonavi %u' \
             'Icon=gonavi' \
             'Type=Application' \
             'Categories=Development;Database;' \

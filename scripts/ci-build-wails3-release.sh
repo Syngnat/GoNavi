@@ -17,8 +17,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # v3 has its own platform tags: Linux defaults to GTK4/WebKitGTK 6.0 and needs
-# the gtk3 tag to use the GTK3/WebKit2GTK 4.1 stack the runners already have.
-# The v2 webkit2_41 tag is meaningless to v3, so it is not forwarded.
+# the gtk3 tag to use the GTK3/WebKit2GTK 4.1 stack. v3.1.0 has no WebKitGTK 4.0
+# cgo path, so the release workflows keep the WebKitGTK 4.0 matrix rows on the
+# v2 build instead of calling this script.
 case "$VERSION" in
   dev-*) PROD_TAGS="" ;;
   *) PROD_TAGS=",production" ;;

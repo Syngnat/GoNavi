@@ -15,10 +15,12 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +29,7 @@ import (
 	"time"
 
 	frontendbundle "GoNavi-Wails/frontend"
+	"GoNavi-Wails/internal/agenttools"
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
 	"GoNavi-Wails/internal/appdata"
@@ -55,9 +58,14 @@ const (
 var devBuild = "0"
 
 var (
-	frontendReadyFlag atomic.Bool
-	pendingOpenMu     sync.Mutex
-	pendingOpenFiles  []string
+	// pendingMu guards the readiness flag and both replay queues. The frontend
+	// emits gonavi:frontend-ready after its listeners are registered; any event
+	// queued before that is replayed, and WindowRuntimeReady (every reload)
+	// clears the flag again.
+	pendingMu        sync.Mutex
+	frontendReady    bool
+	pendingOpenFiles []string
+	pendingDeepLinks []string
 )
 
 func isSQLFilePath(value string) bool {
@@ -67,11 +75,63 @@ func isSQLFilePath(value string) bool {
 func sqlFileArgs(args []string) []string {
 	files := make([]string, 0, len(args))
 	for _, arg := range args {
-		if isSQLFilePath(arg) {
-			files = append(files, strings.TrimSpace(arg))
+		candidate := strings.TrimSpace(arg)
+		if strings.HasPrefix(strings.ToLower(candidate), "file://") {
+			candidate = fileURLPath(candidate)
+		}
+		if isSQLFilePath(candidate) {
+			files = append(files, candidate)
 		}
 	}
-	return files
+	return dedupeStrings(files)
+}
+
+// fileURLPath converts a file:// URI delivered by %u desktop entries into a
+// local path. Windows file URLs use a leading slash before the drive letter.
+func fileURLPath(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "file") {
+		return raw
+	}
+	if parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost") {
+		return raw
+	}
+	path := parsed.Path
+	if unescaped, err := url.PathUnescape(path); err == nil {
+		path = unescaped
+	}
+	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	return path
+}
+
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+// emitOpenFilesLocked runs under pendingMu so a concurrent reload cannot clear
+// the queue between the readiness check and the emit.
+func emitOpenFilesLocked(app *application.App, files []string) {
+	if app == nil {
+		return
+	}
+	for _, path := range files {
+		app.Event.Emit("gonavi:open-file", map[string]string{"path": path})
+	}
 }
 
 // queueOrOpenFiles holds files opened before the frontend registered its
@@ -81,18 +141,13 @@ func queueOrOpenFiles(app *application.App, paths []string) {
 	if len(files) == 0 {
 		return
 	}
-	if !frontendReadyFlag.Load() {
-		pendingOpenMu.Lock()
-		pendingOpenFiles = append(pendingOpenFiles, files...)
-		pendingOpenMu.Unlock()
+	pendingMu.Lock()
+	defer pendingMu.Unlock()
+	if !frontendReady {
+		pendingOpenFiles = dedupeStrings(append(pendingOpenFiles, files...))
 		return
 	}
-	if app == nil {
-		return
-	}
-	for _, path := range files {
-		app.Event.Emit("gonavi:open-file", map[string]string{"path": path})
-	}
+	emitOpenFilesLocked(app, files)
 }
 
 func firstDeepLinkArg(args []string) string {
@@ -112,6 +167,9 @@ func dispatchDeepLink(app *application.App, raw string) {
 	if !ok {
 		return
 	}
+	if app == nil {
+		return
+	}
 	if link.Action == deeplink.ActionPluginInstall {
 		app.Event.Emit(deepLinkPluginInstallEvent, map[string]string{
 			"spec": link.Spec,
@@ -123,13 +181,30 @@ func dispatchDeepLink(app *application.App, raw string) {
 	app.Event.Emit(deepLinkWakeEvent)
 }
 
+// queueOrDispatchDeepLink queues a link until the frontend has registered its
+// listeners. macOS delivers URL-scheme launches through ApplicationLaunchedWithUrl
+// (not argv), and the second-instance callback can also arrive during a reload.
+func queueOrDispatchDeepLink(app *application.App, raw string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
+	}
+	pendingMu.Lock()
+	defer pendingMu.Unlock()
+	if !frontendReady {
+		pendingDeepLinks = dedupeStrings(append(pendingDeepLinks, raw))
+		return
+	}
+	dispatchDeepLink(app, raw)
+}
+
 // runHeadlessMode keeps CLI child processes out of the GUI. The MCP HTTP
 // server and scheduled sync workers re-execute this binary; without this
 // dispatch each child would start another Wails application (and another MCP
 // child), so the process tree grows without bound.
-func runHeadlessMode(args []string) bool {
+func runHeadlessMode(args []string) (bool, int) {
 	if len(args) == 0 {
-		return false
+		return false, 0
 	}
 	first := strings.TrimSpace(args[0])
 	// `--data-root ... plugin ...` is the plugin CLI's data-root prefix, not a
@@ -138,10 +213,11 @@ func runHeadlessMode(args []string) bool {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		cli.Version = appcore.CurrentVersion()
-		if code := cli.Run(ctx, args, os.Stdout, os.Stderr); code != cli.ExitSuccess {
+		code := cli.Run(ctx, args, os.Stdout, os.Stderr)
+		if code != cli.ExitSuccess {
 			log.Printf("plugin CLI exited with code %d", code)
 		}
-		return true
+		return true, code
 	}
 	mode := strings.ToLower(first)
 	switch mode {
@@ -150,29 +226,33 @@ func runHeadlessMode(args []string) bool {
 		defer stop()
 		if err := runMCPServerMode(ctx, args[1:]); err != nil {
 			log.Printf("mcp server exited: %v", err)
+			return true, 1
 		}
-		return true
+		return true, 0
 	case "sync-worker":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if err := appcore.RunSyncWorker(ctx, args[1:]); err != nil {
 			log.Printf("sync worker exited: %v", err)
+			return true, 1
 		}
-		return true
+		return true, 0
 	case "run-sync-job":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if err := appcore.RunScheduledJobOnce(ctx, args[1:]); err != nil {
 			log.Printf("scheduled job exited: %v", err)
+			return true, 1
 		}
-		return true
+		return true, 0
 	case "plugin-window", "--plugin-window":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if err := nativewindow.RunPluginChild(ctx, args[1:]); err != nil {
 			log.Printf("plugin window exited: %v", err)
+			return true, 1
 		}
-		return true
+		return true, 0
 	case "web-server", "--web-server":
 		// Documented fallback when WebView2 is unavailable: serve the browser
 		// build instead of opening a GUI.
@@ -180,18 +260,20 @@ func runHeadlessMode(args []string) bool {
 		defer stop()
 		if err := webserver.Run(ctx, frontendbundle.Assets, args[1:]); err != nil {
 			log.Printf("web server exited: %v", err)
+			return true, 1
 		}
-		return true
+		return true, 0
 	case "plugin":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		cli.Version = appcore.CurrentVersion()
-		if code := cli.Run(ctx, args, os.Stdout, os.Stderr); code != cli.ExitSuccess {
+		code := cli.Run(ctx, args, os.Stdout, os.Stderr)
+		if code != cli.ExitSuccess {
 			log.Printf("plugin CLI exited with code %d", code)
 		}
-		return true
+		return true, code
 	default:
-		return false
+		return false, 0
 	}
 }
 
@@ -242,6 +324,11 @@ func (s *lifecycleService) ServiceStartup(ctx context.Context, _ application.Ser
 	ctx = uievents.WithEmitter(ctx, desktopEventEmitter{})
 	appcore.InitializeLifecycle(s.backend, ctx)
 	aiservice.InitializeLifecycle(s.ai, ctx)
+	// Portable updates rename the executable; refresh GoNavi-managed MCP client
+	// commands so external clients keep launching the current path.
+	if err := aiservice.RepairInstalledLocalMCPClientConfigs(s.ai); err != nil {
+		log.Printf("repair local MCP client configs failed: %v", err)
+	}
 	return nil
 }
 
@@ -269,6 +356,13 @@ func (h pluginWindowHost) Revoke(id string) {
 
 func (h pluginWindowHost) Close(ctx context.Context) error {
 	return h.controller.Close(ctx)
+}
+
+// UpdatePreferences implements the optional host capability probed by
+// App.PluginUpdateWindowPreferences; without it, open plugin windows would keep
+// their launch-time locale/theme.
+func (h pluginWindowHost) UpdatePreferences(raw json.RawMessage) error {
+	return h.controller.UpdatePreferences(raw)
 }
 
 // pluginWindowRuntimeAssets prefers the Vite-built directory during wails3 dev
@@ -313,10 +407,19 @@ func main() {
 	if appcore.HandleWindowsRuntimeReaperArgs(os.Args[1:]) {
 		return
 	}
-	if runHeadlessMode(os.Args[1:]) {
+	// An update restart launches the new process before the old one exits. Wait
+	// here so Wails' SingleInstance acquisition does not mistake the new process
+	// for a second instance and exit.
+	if err := appcore.WaitForWindowsRestartParent(os.Args[1:]); err != nil {
+		log.Printf("wait for restart parent failed: %v", err)
 		return
 	}
+	// Match the v2 memory profile: large exports otherwise keep a 5-8x JSON copy
+	// until the next doubling of the heap.
+	debug.SetGCPercent(50)
 	isDevRuntime := devBuild == "1" || strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL")) != ""
+	// The maintenance gate must run before headless dispatch: scheduled jobs and
+	// MCP clients can start during an MSI replacement and would lock the exe.
 	if executablePath, err := os.Executable(); err == nil {
 		active, checkErr := appcore.WindowsUpdateMaintenanceActive(runtime.GOOS, executablePath)
 		if checkErr != nil {
@@ -327,6 +430,12 @@ func main() {
 			log.Printf("GoNavi installation is being updated; refusing to start")
 			return
 		}
+	}
+	if handled, code := runHeadlessMode(os.Args[1:]); handled {
+		if code != 0 {
+			os.Exit(code)
+		}
+		return
 	}
 	// The process identity must be fixed before Wails creates its HWND, or
 	// Explorer groups the window under the executable's default identity.
@@ -363,11 +472,19 @@ func main() {
 	aiservice.SetBuiltinAIClientVersion(appcore.CurrentVersion())
 	aiservice.PreloadConfig(aiService)
 	aiservice.WarmModelCatalog(aiService)
+	agentTools, agentToolsErr := agenttools.NewDesktopToolCatalog(backend, aiService)
+	if agentToolsErr != nil {
+		log.Printf("initialize AI agent tool catalog failed: %v", agentToolsErr)
+	} else if err := aiservice.ConfigureAgentHarnessDependencies(aiService, aiservice.AgentHarnessDependencies{
+		Tools: agentTools,
+	}); err != nil {
+		log.Printf("configure AI agent harness dependencies failed: %v", err)
+	}
 
 	var wailsApp *application.App
 	var mainWindow *application.WebviewWindow
-	pendingDeepLink := firstDeepLinkArg(os.Args[1:])
-	pendingOpenFiles = append(pendingOpenFiles, sqlFileArgs(os.Args[1:])...)
+	queueOrDispatchDeepLink(nil, firstDeepLinkArg(os.Args[1:]))
+	queueOrOpenFiles(nil, sqlFileArgs(os.Args[1:]))
 	closeGuard := appcore.NewBeforeCloseHandler(backend)
 	var quitting atomic.Bool
 	var brandIconOnce sync.Once
@@ -409,9 +526,7 @@ func main() {
 					mainWindow.Show()
 					mainWindow.Focus()
 				}
-				if raw := firstDeepLinkArg(data.Args); raw != "" {
-					dispatchDeepLink(wailsApp, raw)
-				}
+				queueOrDispatchDeepLink(wailsApp, firstDeepLinkArg(data.Args))
 				queueOrOpenFiles(wailsApp, sqlFileArgs(data.Args))
 			},
 		}
@@ -458,10 +573,22 @@ func main() {
 		})
 	}
 
-	// The frontend registers its listeners during startup; replay a cold-start
-	// link once it signals readiness so it is not lost.
+	// The frontend registers its listeners during startup; replay everything
+	// queued before it signalled readiness. The flag and both queues share one
+	// mutex so a concurrent reload cannot drop an event between them.
 	wailsApp.Event.On(frontendReadyEvent, func(*application.CustomEvent) {
-		frontendReadyFlag.Store(true)
+		pendingMu.Lock()
+		frontendReady = true
+		openedFiles := pendingOpenFiles
+		pendingOpenFiles = nil
+		deepLinks := pendingDeepLinks
+		pendingDeepLinks = nil
+		emitOpenFilesLocked(wailsApp, openedFiles)
+		for _, raw := range deepLinks {
+			dispatchDeepLink(wailsApp, raw)
+		}
+		pendingMu.Unlock()
+
 		// A reload drops the editor's in-memory transaction IDs while the backend
 		// transaction still holds row locks; roll the orphaned ones back.
 		appcore.HandleFrontendDomReady(backend)
@@ -476,24 +603,15 @@ func main() {
 				}
 			})
 		}
-		pendingOpenMu.Lock()
-		openedFiles := append([]string(nil), pendingOpenFiles...)
-		pendingOpenFiles = nil
-		pendingOpenMu.Unlock()
-		queueOrOpenFiles(wailsApp, openedFiles)
-		if pendingDeepLink == "" {
-			return
-		}
-		raw := pendingDeepLink
-		pendingDeepLink = ""
-		dispatchDeepLink(wailsApp, raw)
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(event *application.ApplicationEvent) {
 		if mainWindow != nil {
 			mainWindow.Show()
 			mainWindow.Focus()
 		}
-		dispatchDeepLink(wailsApp, event.Context().URL())
+		// macOS delivers cold-start URLs here, not through os.Args; queue until
+		// the React listeners exist.
+		queueOrDispatchDeepLink(wailsApp, event.Context().URL())
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationOpenedWithFile, func(event *application.ApplicationEvent) {
 		queueOrOpenFiles(wailsApp, event.Context().OpenedFiles())
@@ -537,6 +655,11 @@ func main() {
 	// Every navigation (including Ctrl+R) re-creates the frontend while backend
 	// transactions survive; roll back the orphaned ones before the new UI runs.
 	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		// Every navigation recreates the frontend. Queue file/deep-link events
+		// again until the new document registers its listeners.
+		pendingMu.Lock()
+		frontendReady = false
+		pendingMu.Unlock()
 		appcore.HandleFrontendDomReady(backend)
 	})
 	// v3 reports native drops as a window event; the frontend keeps its v2
@@ -553,7 +676,9 @@ func main() {
 			payload["y"] = details.Y
 			payload["dropTarget"] = details
 		}
-		wailsApp.Event.Emit("gonavi:file-drop", payload)
+		// Deliver only to the window that received the drop; a global emit would
+		// make every detached workbench open the same file.
+		mainWindow.EmitEvent("gonavi:file-drop", payload)
 	})
 	if hideUntilFrontendReady {
 		// The frontend shows the window after its first paint; this fallback

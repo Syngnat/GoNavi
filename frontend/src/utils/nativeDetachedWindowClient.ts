@@ -59,6 +59,8 @@ export {
   cancelNativeDetachedWindowClose,
   openNativeDetachedAISettings,
   sendNativeDetachedHostEvent,
+  fetchCurrentNativeDetachedHostState,
+  type NativeDetachedHostStateSnapshot,
   presentCurrentNativeDetachedWindow,
   closeCurrentNativeDetachedWindow,
   hideCurrentNativeDetachedWindow,

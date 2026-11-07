@@ -54,6 +54,15 @@
 - 生命周期：`web-server`、`plugin` CLI、`--data-root` 与 `--disable-plugins` 安全模式在 v3 入口可用；dev 构建通过 `main.devBuild` 跳过单实例与 `gonavi://` 注册，避免抢占正式版。
 - v3 二进制不再链接任何 `wails/v2` 包（`go list -tags wails3 -deps ./cmd/wails3app` 为 0）。
 
+### 迁移审查修复
+
+- 分离窗口协议与 v2 对齐：`ready` 不再转发给主窗口；原生关闭先否决并等待前端最终同步（10s 兜底）；`Bootstrap` 回填 `actionRevision`；`hide`/`open-ai-settings` 校验 `visibilityRevision`；`Open` 等待 ready（10s 超时回滚）；`Focus` 在 ready 前不再提前 Show。
+- 窗口归属与状态：`OpenRequest.ownerWindowId` 与事件回传让嵌套分离窗口只更新来源窗口；`SyncHostState` 增加 `HostState` 重取；分离窗口启用 `EnableFileDrop` 并按窗口定向投递拖放事件。
+- v3 入口补齐 v2 启动装配：AI Agent 工具目录（`internal/agenttools`）、MCP 客户端配置修复、更新重启父进程等待、更新维护闸门先于 headless、headless 失败返回非零退出码。
+- 深链与文件打开：macOS 冷启动、第二实例与重载期统一排队到 `frontend-ready`；重载时复位就绪标记；文件路径去重并支持 `%u` 的 `file://` URI。
+- 插件窗口：补齐 `UpdatePreferences`；插件页运行时阻止外部文件拖放导航，避免 WebView 被本地文件替换。
+- 发版：Wails v3.1.0 无 WebKitGTK 4.0 构建路径，release/dev 的 4.0 矩阵行保留 v2 构建，4.1 行使用 v3；Linux desktop 的 scheme handler 改用 `%u`。
+
 ### 有意保留的例外
 
 - 插件窗口仍是独立进程：v3.1.0 没有按窗口限制绑定的原生沙箱，同进程窗口会让插件 JS 直接触达全部 Go Service；子进程内部已改用 v3 application，进程隔离保持不变。
@@ -99,8 +108,8 @@
 
 ## 已知边界
 
-- 插件窗口继续运行在 v2 子进程（`PluginController` + token 回环桥），以保留
-  插件 JS 与宿主 Service 之间的进程隔离；v3 同进程窗口无法提供该边界。
+- 插件窗口仍是独立子进程（`PluginController` + token 回环桥），子进程内部已使用
+  v3 `application`；保留进程隔离是因为 v3 同进程窗口无法提供按窗口的绑定沙箱。
 - v2 构建仍可用（`GONAVI_WAILS3=0`）作为回退通道。跨平台产物由 CI 发版任务
   验证：Windows amd64 已用同一脚本在本地实测；macOS/Linux 走相同脚本与既有
   打包步骤，下一次 release 产出 MSI/DMG/AppImage 时由工作流内的既有校验兜底。
@@ -114,5 +123,5 @@
 | 自注册协议 + macOS `OnUrlOpen` | 已接 `ApplicationLaunchedWithUrl`；安装器协议注册待打包阶段 |
 | 自研更新 manifest + 重启父进程 | 待评估 `app.Updater` |
 | `StartupWindowGate` / WebView2 边界刷新 | 待清理，v3 窗口 options 与 hooks 替代 |
-| 全局拖拽 | 已启用每窗口 `EnableFileDrop`；`gonavi:file-drop` 转发待接 Go 事件 |
+| 全局拖拽 | 已启用每窗口 `EnableFileDrop`，并按收到拖放的窗口定向投递 `gonavi:file-drop` |
 | macOS dock 菜单 Objective-C | v3 暂无对应 API，保留 |
