@@ -1,13 +1,14 @@
 module GoNavi-Wails
 
-go 1.25.0
+go 1.26.10
 
 require (
 	gitea.com/kingbase/gokb v0.0.0-20201021123113-29bd62a876c3
 	gitee.com/chunanyong/dm v1.8.22
-	github.com/BurntSushi/toml v1.1.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.43.0
 	github.com/HuaweiCloudDeveloper/gaussdb-go v1.0.0-rc1
+	github.com/Syngnat/GoNavi/sdk/go v0.0.0
 	github.com/andybalholm/brotli v1.2.0
 	github.com/apache/iotdb-client-go v1.3.7
 	github.com/apache/pulsar-client-go v0.21.0
@@ -15,8 +16,7 @@ require (
 	github.com/bodgit/sevenzip v1.6.1
 	github.com/caretdev/go-irisnative v0.2.1
 	github.com/duckdb/duckdb-go/v2 v2.5.5
-	github.com/Syngnat/GoNavi/sdk/go v0.0.0
-	github.com/ebitengine/purego v0.10.0
+	github.com/ebitengine/purego v0.11.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	github.com/go-sql-driver/mysql v1.9.3
@@ -43,14 +43,19 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	go.uber.org/zap v1.28.0
 	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/crypto v0.53.0
-	golang.org/x/image v0.41.0
-	golang.org/x/mod v0.37.0
-	golang.org/x/net v0.56.0
-	golang.org/x/sys v0.46.0
-	golang.org/x/text v0.39.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.45.0
+	golang.org/x/mod v0.41.0
+	golang.org/x/net v0.60.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/text v0.42.0
 	google.golang.org/grpc v1.82.1
 	modernc.org/sqlite v1.44.3
+)
+
+require (
+	github.com/coder/websocket v1.8.14 // indirect
+	github.com/wailsapp/wails/v3 v3.1.0
 )
 
 require (
@@ -114,7 +119,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
-	github.com/ulikunitz/xz v0.5.12 // indirect
+	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	gitlab.com/nyarla/go-crypt v0.0.0-20160106005555-d9a5dc2b789b // indirect
@@ -149,7 +154,7 @@ require (
 	github.com/apache/arrow-go/v18 v18.5.1
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/danieljoos/wincred v1.1.2 // indirect
+	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/duckdb/duckdb-go-bindings v0.3.3 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/darwin-amd64 v0.3.3 // indirect
@@ -165,7 +170,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
-	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0
 	github.com/golang/snappy v1.0.0 // indirect
@@ -175,7 +180,7 @@ require (
 	github.com/hashicorp/go-version v1.8.0 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.18.7
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
@@ -183,7 +188,7 @@ require (
 	github.com/leaanthony/gosod v1.0.4 // indirect
 	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -216,11 +221,11 @@ require (
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
-	golang.org/x/sync v0.21.0
-	golang.org/x/telemetry v0.0.0-20260625142307-59b4966ccb57 // indirect
-	golang.org/x/term v0.44.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
+	golang.org/x/sync v0.23.0
+	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
+	golang.org/x/term v0.46.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
