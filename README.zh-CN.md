@@ -237,7 +237,7 @@
 
 ### 🧩 技术栈
 
-`Go 1.24` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Ant Design 5` · `Zustand` · `Monaco`
+`Go 1.26` · `Wails v3` · `React 18` · `TypeScript` · `Vite` · `Ant Design 5` · `Zustand` · `Monaco`
 
 ---
 
@@ -332,13 +332,14 @@ Elasticsearch 连接复用查询工作区，并按服务端版本提供受控 RE
 
 ### 前置要求
 
-- [Go](https://go.dev/dl/) 1.25+
+- [Go](https://go.dev/dl/) 1.26.10+
 - [Node.js](https://nodejs.org/) 18+
-- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- Wails v2 CLI（回退路径 / 打包）与 Wails v3 CLI
 - 仅 Linux：C 编译器、pkg-config，以及 GTK3 / WebKitGTK 开发包
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 ```
 
 ### 开发
@@ -351,6 +352,20 @@ wails dev                          # 完整热重载
 node tools/wails-fast-dev.mjs      # Go 导出签名未变时更快
 node tools/wails-fast-dev.mjs --refresh-bindings  # 修改导出方法签名后刷新绑定
 ```
+
+### 开发（Wails v3）
+
+v3 桌面入口位于 `cmd/wails3app`，通过原生 Wails v3 CLI 运行。`wails3 dev` 会启动 Vite 并在 Go 变更时重启，资源处理器把请求代理到 Vite，因此主窗口与分离窗口都能热更新。
+
+```bash
+wails3 task dev                 # Vite（9245 端口）+ Go 热重启
+wails3 task build DEV=true      # 快速开发构建到 bin/
+wails3 task build               # 平台产物输出到 build/bin（发布布局）
+wails3 task package             # 与发布工作流一致的打包产物
+node scripts/build-wails3.mjs   # 前端构建 + 平台产物
+```
+
+上面的 v2 命令仍作为回退路径保留（CI 中设置 `GONAVI_WAILS3=0`），迁移状态见 `WAILS3_MIGRATION.md`。
 
 ### 构建
 

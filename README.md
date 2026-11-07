@@ -240,7 +240,7 @@ To connect a custom OpenAI-compatible model service, add a provider in GoNavi's 
 
 ### 🧩 Stack
 
-`Go 1.24` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Ant Design 5` · `Zustand` · `Monaco`
+`Go 1.26` · `Wails v3` · `React 18` · `TypeScript` · `Vite` · `Ant Design 5` · `Zustand` · `Monaco`
 
 ---
 
