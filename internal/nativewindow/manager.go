@@ -1,9 +1,9 @@
+//go:build !wails3
+
 package nativewindow
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"net"
@@ -19,26 +19,12 @@ import (
 	"GoNavi-Wails/internal/uievents"
 	"GoNavi-Wails/internal/webserver"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
-)
-
-const (
-	envParentURL = "GONAVI_DETACHED_PARENT_URL"
-	envParentPID = "GONAVI_DETACHED_PARENT_PID"
-	envToken     = "GONAVI_DETACHED_TOKEN"
-	envWindowID  = "GONAVI_DETACHED_WINDOW_ID"
-	envKind      = "GONAVI_DETACHED_KIND"
-	envTitle     = "GONAVI_DETACHED_TITLE"
-	envX         = "GONAVI_DETACHED_X"
-	envY         = "GONAVI_DETACHED_Y"
-	envWidth     = "GONAVI_DETACHED_WIDTH"
-	envHeight    = "GONAVI_DETACHED_HEIGHT"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 const (
 	defaultGracefulCloseTimeout = 10 * time.Second
 	defaultOpenReadyTimeout     = 10 * time.Second
-	staleDetachedActionMessage  = "stale detached action ignored"
 )
 
 type processExit struct {
@@ -128,14 +114,6 @@ func NewManager(assetFS fs.FS, app *appcore.App, ai *aiservice.Service) (*Manage
 	}
 	installDetachedDockMenu()
 	return manager, nil
-}
-
-func newBridgeToken() (string, error) {
-	payload := make([]byte, 32)
-	if _, err := rand.Read(payload); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
 // InitializeLifecycle starts the loopback bridge and attaches the main Wails

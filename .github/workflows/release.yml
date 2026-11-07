@@ -825,8 +825,18 @@ jobs:
         shell: pwsh
         run: go test . ./internal/app -run '^(TestShouldEnableWindowsMSISingleInstanceOnlyForInstalledMainGUI|TestPrimaryWindowActivatorQueuesRequestsUntilRuntimeStartup|TestAcquireWindowsMSISingleInstance|TestResolveWindowsUpdateMaintenanceName|TestAcquireWindowsUpdateMaintenance|TestPrepareWindowsUpdateHandoff|TestWindowsPowerShellUpdater|TestBuildWindowsLaunchCommandUsesHiddenPowerShellFile|TestExpectedAssetNameForExecutableUsesWindowsPortableSuffix|TestShouldWindowsUpdateLaunchDownloadedAssetDirectly|TestResolveUpdateInstallMode|TestExpectedAssetNameForWindowsInstallMode|TestPortableUpdatePackageAcceptsZipAndLegacyExe|TestResolveReusableStagedUpdateForPlatformReusesPortableZipInsideStagedDir|TestResolveWindowsUpdateFinalTargetPathMapsDownloadedPortableZipToExe|TestResolveUpdateWorkspaceDirForPlatformSeparatesMSIFromInstallDirectory|TestValidateUpdatePackageForCurrentInstallMode|TestWindowsUpdateRequiresExplicitCloseConfirmation|TestInstallUpdateAndRestartRequiresCloseConfirmationOnWindows|TestInstallUpdateAndRestartSkipsCloseConfirmationForSingleWindowsInstance|TestInstallUpdateAndRestartMSI|TestFindOtherWindowsUpdateInstances|TestCloseWindowsUpdateInstances|TestInstallUpdateAndRestartClosesOtherTargetInstances|TestBuildWindowsMSIUpdatePowerShellScript|TestBuildWindowsMSILaunchCommand|TestResolveWindowsMSIExecPath)' -count=1 -timeout=3m
 
+      - name: Install Wails v3 CLI
+        if: ${{ vars.GONAVI_WAILS3 != '0' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Build
         shell: bash
+        env:
+          GONAVI_WAILS3: ${{ vars.GONAVI_WAILS3 }}
         run: |
           set -euo pipefail
           revision_contract_args=(
@@ -849,7 +859,15 @@ jobs:
           mkdir -p "$GOCACHE"
           echo "🧭 使用隔离 GOCACHE：$GOCACHE"
           python3 scripts/ci-apply-wails-webkit-tags.py "${{ matrix.linux_webkit }}"
-          if [ -n "${{ matrix.wails_tags }}" ]; then
+          # Wails v3.1.0 only supports the GTK3/WebKitGTK 4.1 stack (or GTK4/6.0).
+          # Keep the WebKitGTK 4.0 rows on the v2 build; their runners only have
+          # the 4.0 development package.
+          if [ "${GONAVI_WAILS3:-1}" = "1" ] && [ "${{ matrix.linux_webkit }}" != "4.0" ]; then
+            # Default release path: the Wails v3 entry point. Set the repository
+            # variable GONAVI_WAILS3=0 to fall back to the v2 build.
+            bash scripts/ci-build-wails3-release.sh \
+              "${{ matrix.platform }}" "${{ matrix.build_name }}" "${RELEASE_TAG}"
+          elif [ -n "${{ matrix.wails_tags }}" ]; then
             wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -tags "${{ matrix.wails_tags }}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${RELEASE_TAG}"
           else
             wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${RELEASE_TAG}"
@@ -1486,11 +1504,12 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Name=GoNavi' \
-            'Exec=gonavi' \
+            'Exec=gonavi %u' \
             'Icon=gonavi' \
             'Type=Application' \
             'Categories=Development;Database;' \
             'Comment=Database Management Tool' \
+            'MimeType=x-scheme-handler/gonavi;text/x-sql;' \
             > AppDir/usr/share/applications/gonavi.desktop
 
           cp AppDir/usr/share/applications/gonavi.desktop AppDir/gonavi.desktop

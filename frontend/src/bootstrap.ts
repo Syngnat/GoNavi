@@ -1,5 +1,6 @@
 import { loadCatalog } from './i18n/catalog';
 import { resolveLanguage } from './i18n/resolveLanguage';
+import { installWails3Bridge } from './platform/wails3Bridge';
 import { isNativeDetachedWindowRoute } from './utils/nativeDetachedWindowRoute';
 import { showBootSplashError } from './utils/bootSplash';
 
@@ -41,6 +42,9 @@ const readDetachedLanguagePreference = async (): Promise<string | undefined> => 
 };
 
 const loadEntry = async (): Promise<void> => {
+  // Installed before either entry runs: detached windows and the main window
+  // both call the generated v2-shaped bindings from their first render.
+  await installWails3Bridge();
   const detached = isNativeDetachedWindowRoute();
   const preference = detached ? await readDetachedLanguagePreference() : undefined;
   const language = resolveLanguage(preference, readBrowserLanguages());

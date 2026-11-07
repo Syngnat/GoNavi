@@ -12,7 +12,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/sqlaudit"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func (a *App) GetSQLAuditHealth() connection.QueryResult {

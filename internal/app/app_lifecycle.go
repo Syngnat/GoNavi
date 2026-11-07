@@ -12,6 +12,7 @@ import (
 	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/desktop"
 	"GoNavi-Wails/internal/logger"
 	proxytunnel "GoNavi-Wails/internal/proxy"
 	"GoNavi-Wails/internal/uievents"
@@ -143,6 +144,9 @@ func (a *App) ResetWebViewZoom() (result connection.QueryResult) {
 			}
 		}
 	}()
+	if err := desktop.ResetWebViewZoom(1.0); err == nil {
+		return connection.QueryResult{Success: true, Message: "WebView2 zoom factor reset to 1.0"}
+	}
 	if err := resetWebViewZoomFactor(a.ctx, 1.0); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -161,6 +165,9 @@ func (a *App) RefreshWebViewBounds() (result connection.QueryResult) {
 			}
 		}
 	}()
+	if err := desktop.RefreshWebViewBounds(); err == nil {
+		return connection.QueryResult{Success: true, Message: "WebView2 bounds refreshed"}
+	}
 	if a == nil || a.ctx == nil {
 		return connection.QueryResult{Success: false, Message: "application context is unavailable"}
 	}

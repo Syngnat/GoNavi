@@ -11,7 +11,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/secretstore"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // writeLegacyExportTarget 预置既有导出文件，返回写入前的原始内容。

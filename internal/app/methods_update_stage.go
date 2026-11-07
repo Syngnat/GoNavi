@@ -42,6 +42,13 @@ func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.package_directory_unavailable", nil)}
 	}
 
+	if openDirectoryNatively(dirPath) {
+		return connection.QueryResult{
+			Success: true,
+			Message: a.appText("app.update.backend.message.opened_install_directory", map[string]any{"path": dirPath}),
+			Data:    map[string]any{"path": dirPath},
+		}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":

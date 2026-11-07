@@ -12,7 +12,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func (a *App) SelectDriverDownloadDirectory(currentDir string) connection.QueryResult {
@@ -159,6 +159,13 @@ func (a *App) OpenDriverDownloadDirectory(directory string) connection.QueryResu
 		return connection.QueryResult{Success: false, Message: a.appText("driver_manager.backend.error.create_directory_failed", map[string]any{"detail": err.Error()})}
 	}
 
+	if openDirectoryNatively(resolved) {
+		return connection.QueryResult{
+			Success: true,
+			Message: a.appText("driver_manager.backend.message.opened_directory", map[string]any{"path": resolved}),
+			Data:    map[string]interface{}{"path": resolved},
+		}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":

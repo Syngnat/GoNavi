@@ -40,7 +40,18 @@ func TestAIWatchdogSurvivesCallerDeadlineAndHealthyPong(t *testing.T) {
 	if _, err := instance.process.call(pong, "plugin.ping", struct{}{}); err != nil {
 		t.Fatalf("fixture was not responsive to heartbeat: %v", err)
 	}
-	waitState(t, manager, status.Manifest.ID, StateFaulted)
+	// The supervisor may restart a faulted instance before the next 10ms poll,
+	// so a transient StateFaulted can be missed on a loaded runner. A generation
+	// bump is the durable evidence that the watchdog faulted the process.
+	waitFor(t, "watchdog faulted or restarted", func() bool {
+		for _, current := range manager.List() {
+			if current.Manifest.ID != status.Manifest.ID {
+				continue
+			}
+			return current.State == StateFaulted || current.Generation > status.Generation
+		}
+		return false
+	})
 	waitFor(t, "watchdog settled canceled reply credit", func() bool {
 		instance.aiTraffic.mu.Lock()
 		defer instance.aiTraffic.mu.Unlock()

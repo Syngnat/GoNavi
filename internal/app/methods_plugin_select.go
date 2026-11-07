@@ -7,7 +7,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // SelectPluginPackageFile opens the native file dialog for a plugin package

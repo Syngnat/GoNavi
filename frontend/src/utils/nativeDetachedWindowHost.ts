@@ -47,6 +47,8 @@ export type NativeDetachedWindowOpenRequest = {
   width: number;
   height: number;
   payload: NativeDetachedWindowPayload;
+  /** Set when a detached window opens a nested window. */
+  ownerWindowId?: string;
 };
 
 export type NativeDetachedWindowManager = {
@@ -300,6 +302,11 @@ const getNativeWindowBounds = (
   };
 };
 
+const currentDetachedOwnerId = (): string => {
+  if (typeof window === 'undefined') return '';
+  return String((window as any).__GONAVI_DETACHED_ID__ || '').trim();
+};
+
 const assertOpened = (result: NativeDetachedWindowOperationResult | undefined): void => {
   if (result?.success) return;
   throw new Error(String(result?.message || 'Failed to open native detached window'));
@@ -408,6 +415,7 @@ export const openNativeWorkbenchTabWindow = async (
       tab.type === 'query' ? peekQueryEditorResultSession(tab.id) : null,
       getActiveNativeDetachedThemeContext(),
     ),
+    ownerWindowId: currentDetachedOwnerId(),
   };
   const opened = await openOnce(manager, request, (openedBounds) => {
     const latest = useStore.getState();
@@ -457,6 +465,7 @@ export const openNativeQueryResultWindow = async (
       ...bounds,
       zIndex: Number(windowState.zIndex) || 1201,
     }, getActiveNativeDetachedThemeContext()),
+    ownerWindowId: currentDetachedOwnerId(),
   }, (openedBounds) => {
     const latest = useStore.getState();
     if (!latest.tabs.some((tab) => tab.id === windowState.sourceQueryTabId)) {
@@ -526,6 +535,7 @@ export const openNativeAIChatWindow = async (
     title: 'GoNavi AI',
     ...bounds,
     payload: buildNativeDetachedAIChatBootstrapPayload(state),
+    ownerWindowId: currentDetachedOwnerId(),
   }, (openedBounds) => {
     const latest = useStore.getState();
     if (!latest.aiPanelVisible || (hadDetachedIntent && !latest.detachedAIChatWindow)) {

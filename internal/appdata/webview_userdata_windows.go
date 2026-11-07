@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package appdata
 
 import (
 	"io"
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func resolveWindowsWebviewUserDataPath() string {
+func ResolveWindowsWebviewUserDataPath() string {
 	appDataDir := strings.TrimSpace(os.Getenv("APPDATA"))
 	if appDataDir == "" {
 		return ""

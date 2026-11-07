@@ -228,6 +228,7 @@ export const QueryEditorEditorPane = ({
   <div
     ref={editorStageRef}
     className="gn-v2-query-monaco-stage gn-query-monaco-stage"
+    data-file-drop-target="true"
     style={editorFullscreen.stageStyle}
   >
     <div

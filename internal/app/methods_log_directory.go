@@ -11,7 +11,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func directoriesEqual(left string, right string) bool {
@@ -154,6 +154,13 @@ func (a *App) OpenLogDirectory() connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: a.appText("app.data_root.log_directory.backend.error.directory_unavailable", nil)}
 	}
 
+	if openDirectoryNatively(directory) {
+		return connection.QueryResult{
+			Success: true,
+			Message: a.appText("app.data_root.log_directory.backend.message.opened", nil),
+			Data:    dataRootInfoPayload(a.configDir),
+		}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":

@@ -17,7 +17,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 var dataRootMigrationExcludedEntries = map[string]struct{}{
@@ -220,6 +220,9 @@ func (a *App) OpenDataRootDirectory() connection.QueryResult {
 	root := appdata.MustResolveActiveRoot()
 	if stat, err := os.Stat(root); err != nil || !stat.IsDir() {
 		return connection.QueryResult{Success: false, Message: a.appText("app.data_root.backend.error.directory_unavailable", nil)}
+	}
+	if openDirectoryNatively(root) {
+		return connection.QueryResult{Success: true, Message: a.appText("app.data_root.backend.message.opened", nil), Data: dataRootInfoPayload(root)}
 	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {

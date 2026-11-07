@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // pluginConfirmDialog stays replaceable so tests never open a native dialog.

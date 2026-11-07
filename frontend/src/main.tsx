@@ -24,6 +24,7 @@ configureAntdStaticOverlayLayer();
 
 if (
     typeof window !== 'undefined'
+    && !(window as any).__GONAVI_WAILS3__
     && (
         typeof (window as any).go?.app?.App?.GetSavedConnections !== 'function'
         || typeof (window as any).go?.aiservice?.Service?.AIGetProviders !== 'function'

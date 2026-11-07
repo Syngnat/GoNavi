@@ -153,6 +153,28 @@ export const sendNativeDetachedHostEvent = (
   fetchImpl?: FetchLike,
 ): Promise<void> => postNativeDetachedWindowAction('host-event', payload, fetchImpl).then(() => undefined);
 
+export type NativeDetachedHostStateSnapshot = {
+  revision?: number;
+  storeState?: Record<string, unknown>;
+};
+
+// Re-read the host snapshot after the command listener is registered. The
+// initial SyncHostState may have been delivered before React mounted.
+export const fetchCurrentNativeDetachedHostState = async (): Promise<
+  NativeDetachedHostStateSnapshot | null
+> => {
+  const id = typeof window !== 'undefined'
+    ? String((window as any).__GONAVI_DETACHED_ID__ || '').trim()
+    : '';
+  const manager = typeof window !== 'undefined'
+    ? (window as any).go?.nativewindow?.Manager
+    : undefined;
+  if (!id || typeof manager?.HostState !== 'function') return null;
+  const snapshot = await manager.HostState(id);
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  return snapshot as NativeDetachedHostStateSnapshot;
+};
+
 export const presentCurrentNativeDetachedWindow = async (): Promise<void> => {
   const present = typeof window !== 'undefined'
     ? (window as any).__GONAVI_DETACHED__?.present
