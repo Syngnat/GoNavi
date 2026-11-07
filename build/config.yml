@@ -1,0 +1,52 @@
+# Wails v3 project configuration. The v2 build reads wails.json; this file
+# only drives the v3 CLI (wails3 dev/build/package).
+version: '3'
+
+info:
+  companyName: "Syngnat"
+  productName: "GoNavi"
+  productIdentifier: "com.wails.GoNavi"
+  description: "Database client"
+  copyright: "Copyright 2026 Syngnat"
+  comments: "GoNavi is licensed under the Apache License, Version 2.0."
+  version: "1.2.2"
+
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 500
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+      - build
+      - plugin-dist
+      - tools
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task dev:frontend
+      type: background
+      readiness:
+        http: "http://localhost:9245/"
+        timeout: "180s"
+        interval: "500ms"
+    - cmd: wails3 task run
+      type: primary
+      exit_policy: shutdown
+
+fileAssociations:
+  - ext: sql
+    name: SQL File
+    description: SQL script
+    role: Editor

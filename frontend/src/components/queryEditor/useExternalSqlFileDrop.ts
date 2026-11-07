@@ -22,7 +22,7 @@ import {
 // 离开应用；回调内全部状态在事件发生时从 store 读取，不存在闭包过期。
 let sharedDropRegistered = false;
 
-const buildDropDeps = (): ExternalSqlFileDropDeps => ({
+export const buildExternalSqlDropDeps = (): ExternalSqlFileDropDeps => ({
   readSqlFile: ReadSQLFile,
   getSnapshot: () => {
     const state = useStore.getState();
@@ -40,7 +40,7 @@ const buildDropDeps = (): ExternalSqlFileDropDeps => ({
   translate: (key, params) => t(key, params),
 });
 
-const resolveActiveDropContext = (): ExternalSqlFileDropContext => {
+export const resolveExternalSqlDropContext = (): ExternalSqlFileDropContext => {
   const state = useStore.getState();
   const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
   return {
@@ -63,9 +63,9 @@ const handleExternalSqlFileDrop = (
   }
   if (sqlFiles.length === 0) return;
   void openDroppedSqlFiles(
-    buildDropDeps(),
+    buildExternalSqlDropDeps(),
     sortSqlDropPaths(sqlFiles),
-    resolveActiveDropContext(),
+    resolveExternalSqlDropContext(),
   );
 };
 

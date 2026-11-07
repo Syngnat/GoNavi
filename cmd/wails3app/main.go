@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,9 +17,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -41,6 +45,47 @@ const (
 	deepLinkWakeEvent          = "gonavi:deeplink:ai-login"
 	deepLinkPluginInstallEvent = "gonavi:deeplink:plugin-install"
 )
+
+var (
+	frontendReadyFlag atomic.Bool
+	pendingOpenMu     sync.Mutex
+	pendingOpenFiles  []string
+)
+
+func isSQLFilePath(value string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(value)), ".sql")
+}
+
+func sqlFileArgs(args []string) []string {
+	files := make([]string, 0, len(args))
+	for _, arg := range args {
+		if isSQLFilePath(arg) {
+			files = append(files, strings.TrimSpace(arg))
+		}
+	}
+	return files
+}
+
+// queueOrOpenFiles holds files opened before the frontend registered its
+// listener; the frontend-ready handler replays them.
+func queueOrOpenFiles(app *application.App, paths []string) {
+	files := sqlFileArgs(paths)
+	if len(files) == 0 {
+		return
+	}
+	if !frontendReadyFlag.Load() {
+		pendingOpenMu.Lock()
+		pendingOpenFiles = append(pendingOpenFiles, files...)
+		pendingOpenMu.Unlock()
+		return
+	}
+	if app == nil {
+		return
+	}
+	for _, path := range files {
+		app.Event.Emit("gonavi:open-file", map[string]string{"path": path})
+	}
+}
 
 func firstDeepLinkArg(args []string) string {
 	for _, arg := range args {
@@ -178,9 +223,18 @@ func (h pluginWindowHost) Close(ctx context.Context) error {
 	return h.controller.Close(ctx)
 }
 
+// pluginWindowRuntimeAssets prefers the Vite-built directory during wails3 dev
+// so plugin UI edits are visible without rebuilding the embedded bundle.
+func pluginWindowRuntimeAssets() (fs.FS, error) {
+	if strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL")) != "" {
+		return os.DirFS(filepath.Join("frontend", "dist", "plugin-window")), nil
+	}
+	return fs.Sub(frontendbundle.Assets, "plugin-window")
+}
+
 func newPluginWindowFactory(backend *appcore.App) appcore.PluginWindowFactory {
 	return func(ctx context.Context, manager *plugin.Manager) (appcore.PluginWindowHost, error) {
-		runtimeAssets, err := fs.Sub(frontendbundle.Assets, "plugin-window")
+		runtimeAssets, err := pluginWindowRuntimeAssets()
 		if err != nil {
 			return nil, err
 		}
@@ -240,6 +294,9 @@ func main() {
 	var wailsApp *application.App
 	var mainWindow *application.WebviewWindow
 	pendingDeepLink := firstDeepLinkArg(os.Args[1:])
+	pendingOpenFiles = append(pendingOpenFiles, sqlFileArgs(os.Args[1:])...)
+	closeGuard := appcore.NewBeforeCloseHandler(backend)
+	var quitting atomic.Bool
 
 	appOptions := application.Options{
 		Name:             "GoNavi",
@@ -253,6 +310,16 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: detachedWindowAssetHandler(frontendbundle.Assets),
 		},
+		ShouldQuit: func() bool {
+			// Cmd+Q and the menu quit path must honour the same pending-edit
+			// confirmation as the window close button. ForceQuitApplication sets
+			// the handler's allow flag, so the retried quit passes through.
+			if closeGuard(context.Background()) {
+				return false
+			}
+			quitting.Store(true)
+			return true
+		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.gonavi.desktop",
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
@@ -263,6 +330,7 @@ func main() {
 				if raw := firstDeepLinkArg(data.Args); raw != "" {
 					dispatchDeepLink(wailsApp, raw)
 				}
+				queueOrOpenFiles(wailsApp, sqlFileArgs(data.Args))
 			},
 		},
 	}
@@ -311,10 +379,16 @@ func main() {
 	// The frontend registers its listeners during startup; replay a cold-start
 	// link once it signals readiness so it is not lost.
 	wailsApp.Event.On(frontendReadyEvent, func(*application.CustomEvent) {
+		frontendReadyFlag.Store(true)
 		if mainWindow != nil {
 			mainWindow.Show()
 			mainWindow.Focus()
 		}
+		pendingOpenMu.Lock()
+		openedFiles := append([]string(nil), pendingOpenFiles...)
+		pendingOpenFiles = nil
+		pendingOpenMu.Unlock()
+		queueOrOpenFiles(wailsApp, openedFiles)
 		if pendingDeepLink == "" {
 			return
 		}
@@ -330,9 +404,7 @@ func main() {
 		dispatchDeepLink(wailsApp, event.Context().URL())
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationOpenedWithFile, func(event *application.ApplicationEvent) {
-		for _, path := range event.Context().OpenedFiles() {
-			wailsApp.Event.Emit("gonavi:open-file", map[string]string{"path": path})
-		}
+		queueOrOpenFiles(wailsApp, event.Context().OpenedFiles())
 	})
 
 	hideUntilFrontendReady := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
@@ -351,6 +423,17 @@ func main() {
 	}
 	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
 	desktop.Bind(wailsApp, mainWindow)
+	// Closing the main window goes through the same pending-edit confirmation
+	// the v2 OnBeforeClose hook used; the frontend answers with
+	// ForceQuitApplication, which lets the retried close pass.
+	mainWindow.OnWindowEvent(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if quitting.Load() {
+			return
+		}
+		if closeGuard(context.Background()) {
+			event.Cancel()
+		}
+	})
 	// v3 reports native drops as a window event; the frontend keeps its v2
 	// OnFileDrop contract through the compatibility runtime.
 	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
@@ -388,29 +471,79 @@ func detachedWindowAssetHandler(frontendFS fs.FS) http.Handler {
 			static.ServeHTTP(w, r)
 			return
 		}
-		index, err := fs.ReadFile(frontendFS, "index.html")
-		if err != nil {
-			http.Error(w, "frontend bundle is not built", http.StatusInternalServerError)
+
+		id := ""
+		if detached {
+			id = strings.Trim(strings.TrimPrefix(r.URL.Path, prefix), "/")
+			if id == "" {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		// Ask the v3 asset handler for the SPA document instead of reading the
+		// embedded FS directly: in wails3 dev it proxies Vite (so the injected
+		// page keeps HMR), and in production it serves the embedded bundle.
+		sub := r.Clone(r.Context())
+		sub.URL.Path = "/"
+		sub.URL.RawPath = ""
+		captured := &responseCapture{header: make(http.Header)}
+		static.ServeHTTP(captured, sub)
+		contentType := strings.ToLower(captured.header.Get("Content-Type"))
+		if captured.status != http.StatusOK || !strings.Contains(contentType, "text/html") {
+			captured.writeTo(w)
 			return
 		}
+
 		// The flag tells the frontend bundle it is running inside Wails v3
 		// before any frame script executes; the v3 runtime itself is injected
 		// only after navigation completes, which is too late for the first
 		// binding calls and would otherwise fall through to the browser mock.
 		script := `<script>window.__GONAVI_WAILS3__=true;</script>`
 		if detached {
-			id := strings.Trim(strings.TrimPrefix(r.URL.Path, prefix), "/")
-			if id == "" {
-				http.NotFound(w, r)
-				return
-			}
 			script += fmt.Sprintf(
 				`<script>(function(){var id=%s;window.__GONAVI_DETACHED__={loadBootstrap:function(){return window.go.nativewindow.Manager.Bootstrap(id);},action:function(action,payload){return window.go.nativewindow.Manager.Action(id,action,payload||{});},present:function(){return window.go.nativewindow.Manager.Present(id);}};})();</script>`,
 				strconv.Quote(id),
 			)
 		}
-		page := strings.Replace(string(index), "</head>", script+"</head>", 1)
+		page := strings.Replace(captured.body.String(), "</head>", script+"</head>", 1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(page))
 	})
+}
+
+// responseCapture lets the index injection pass through the v3 asset handler
+// (including its dev-server proxy) without writing to the real response.
+type responseCapture struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (c *responseCapture) Header() http.Header { return c.header }
+
+func (c *responseCapture) WriteHeader(status int) {
+	if c.status == 0 {
+		c.status = status
+	}
+}
+
+func (c *responseCapture) Write(payload []byte) (int, error) {
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	return c.body.Write(payload)
+}
+
+func (c *responseCapture) writeTo(w http.ResponseWriter) {
+	for name, values := range c.header {
+		w.Header()[name] = values
+	}
+	status := c.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write(c.body.Bytes())
 }

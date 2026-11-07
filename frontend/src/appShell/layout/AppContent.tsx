@@ -2,6 +2,7 @@ import { Button, Spin } from 'antd';
 import { PluginViewDock } from '../../pluginViews/PluginViewDock';
 import { usePluginKeybindings } from '../../plugins/usePluginKeybindings';
 import { usePluginProgressNotifications } from '../../plugins/usePluginProgressNotifications';
+import { useFileAssociationOpen } from '../hooks/useFileAssociationOpen';
 import React from 'react';
 import { Content } from '../appLayoutParts';
 import SecurityUpdateBanner from '../../components/SecurityUpdateBanner';
@@ -67,6 +68,7 @@ export const AppContent = ({
 }: AppContentProps) => {
   usePluginKeybindings();
   usePluginProgressNotifications();
+  useFileAssociationOpen();
   return (
   <Content
     style={{ background: 'var(--gn-bg-panel-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}

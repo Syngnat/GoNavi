@@ -16,10 +16,17 @@ GOARCH="${PLATFORM##*/}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-TAGS="$(node -e "const w=require('./wails.json'); process.stdout.write(String(w['build:tags']||''))")"
-TAGSET="wails3"
-if [ -n "$TAGS" ]; then
-  TAGSET="wails3,$TAGS"
+# v3 has its own platform tags: Linux defaults to GTK4/WebKitGTK 6.0 and needs
+# the gtk3 tag to use the GTK3/WebKit2GTK 4.1 stack the runners already have.
+# The v2 webkit2_41 tag is meaningless to v3, so it is not forwarded.
+case "$VERSION" in
+  dev-*) PROD_TAGS="" ;;
+  *) PROD_TAGS=",production" ;;
+esac
+if [ "$GOOS" = "linux" ]; then
+  TAGSET="wails3,gtk3${PROD_TAGS}"
+else
+  TAGSET="wails3${PROD_TAGS}"
 fi
 
 LDFLAGS="-s -w -X GoNavi-Wails/internal/app.AppVersion=${VERSION}"
@@ -42,6 +49,15 @@ echo "==> wails3 release build platform=${PLATFORM} tags=${TAGSET} cgo=${CGO}"
 node scripts/wails-pre-build.mjs "$PLATFORM"
 mkdir -p build/bin
 
+# Prefer an installed CLI (pinned by CI); fall back to a one-off `go run` so a
+# fresh checkout can build without a separate install step.
+WAILS3_CMD=()
+if command -v "${WAILS3_BIN:-wails3}" >/dev/null 2>&1; then
+  WAILS3_CMD=("${WAILS3_BIN:-wails3}")
+else
+  WAILS3_CMD=(go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0)
+fi
+
 case "$GOOS" in
   windows)
     INFO_TMP="$(mktemp)"
@@ -62,7 +78,7 @@ for (const [token, value] of Object.entries(values)) {
 fs.writeFileSync(output, info);
 JS
     SYSO="cmd/wails3app/wails_windows_${GOARCH}.syso"
-    wails3 generate syso -arch "$GOARCH" -icon build/windows/icon.ico \
+    "${WAILS3_CMD[@]}" generate syso -arch "$GOARCH" -icon build/windows/icon.ico \
       -manifest build/windows/wails.exe.manifest -info "$INFO_TMP" -out "$SYSO"
     GOOS="$GOOS" GOARCH="$GOARCH" go build -tags "$TAGSET" -trimpath -buildvcs=false \
       -ldflags "$LDFLAGS -H windowsgui" -o "build/bin/${BUILD_NAME}.exe" ./cmd/wails3app
