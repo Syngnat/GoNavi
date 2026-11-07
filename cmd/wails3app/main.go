@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"GoNavi-Wails/internal/desktop"
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
+	"GoNavi-Wails/internal/plugin"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -96,6 +98,13 @@ func runHeadlessMode(args []string) bool {
 			log.Printf("scheduled job exited: %v", err)
 		}
 		return true
+	case "plugin-window", "--plugin-window":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := nativewindow.RunPluginChild(ctx, args[1:]); err != nil {
+			log.Printf("plugin window exited: %v", err)
+		}
+		return true
 	default:
 		return false
 	}
@@ -147,6 +156,50 @@ func (s *lifecycleService) ServiceShutdown() error {
 	return nil
 }
 
+// pluginWindowHost keeps plugin windows on the isolated v2 child path while the
+// main window runs on v3. Plugin JavaScript can then never reach the host's Go
+// services directly: it only sees the token-scoped loopback bridge.
+type pluginWindowHost struct {
+	controller *nativewindow.PluginController
+}
+
+func (h pluginWindowHost) Open(ctx context.Context, pluginID, windowKey string, launchContext json.RawMessage, locale, theme string) (any, error) {
+	return h.controller.Open(ctx, pluginID, windowKey, launchContext, locale, theme)
+}
+
+func (h pluginWindowHost) Revoke(id string) {
+	h.controller.Revoke(id)
+}
+
+func (h pluginWindowHost) Close(ctx context.Context) error {
+	return h.controller.Close(ctx)
+}
+
+func newPluginWindowFactory(backend *appcore.App) appcore.PluginWindowFactory {
+	return func(ctx context.Context, manager *plugin.Manager) (appcore.PluginWindowHost, error) {
+		runtimeAssets, err := fs.Sub(frontendbundle.Assets, "plugin-window")
+		if err != nil {
+			return nil, err
+		}
+		controller, err := nativewindow.NewPluginController(manager, nativewindow.PluginControllerOptions{
+			Assets:     runtimeAssets,
+			Capability: appcore.PluginWindowCapabilityHandler(backend),
+			OnWindowClosed: func(ctx context.Context, info nativewindow.PluginWindowInfo) {
+				if _, invokeErr := manager.InvokeGeneration(ctx, info.PluginID, info.Generation, "session.teardown", nil); invokeErr != nil {
+					log.Printf("plugin window closed teardown failed: %s generation %d", info.PluginID, info.Generation)
+				}
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := controller.Start(ctx); err != nil {
+			return nil, err
+		}
+		return pluginWindowHost{controller: controller}, nil
+	}
+}
+
 func main() {
 	if appcore.HandleWindowsRuntimeReaperArgs(os.Args[1:]) {
 		return
@@ -156,6 +209,7 @@ func main() {
 	}
 
 	backend := appcore.NewApp()
+	appcore.ConfigurePluginWindows(backend, newPluginWindowFactory(backend))
 	aiService := aiservice.NewServiceWithConfigChangeHandler(appcore.NewCloudBackupChangeHandler(backend))
 	if err := aiservice.ConfigurePluginProviderFactory(aiService, appcore.PluginAIProviderFactoryForIntegration(backend)); err != nil {
 		log.Printf("configure plugin AI provider failed: %v", err)
@@ -240,6 +294,17 @@ func main() {
 	}
 	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
 	desktop.Bind(wailsApp, mainWindow)
+	// v3 reports native drops as a window event; the frontend keeps its v2
+	// OnFileDrop contract through the compatibility runtime.
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		// v3 keeps the drop coordinates unexported; the frontend's SQL drop
+		// target only needs the paths.
+		wailsApp.Event.Emit("gonavi:file-drop", map[string]any{
+			"x":     0,
+			"y":     0,
+			"paths": event.Context().DroppedFiles(),
+		})
+	})
 	mainWindow.Show()
 
 	if err := wailsApp.Run(); err != nil {

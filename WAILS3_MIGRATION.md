@@ -1,47 +1,60 @@
 # Wails 3 迁移
 
-分支：`feat/wails3`。目标是 Wails v3.1.0（2026-11-01 正式版），v2 桌面构建在迁移完成前保持默认可用。
+分支：`feat/wails3`。目标为 Wails v3.1.0（2026-11-01 正式版）。迁移期间 v2 仍是默认构建与发版路径，v3 入口通过 `wails3` 构建标签并行编译。
 
 ## 硬前提
 
 - Wails v3.1.0 要求 Go ≥ 1.26。`go.mod` 已升到 `go 1.26.10`，CI 通过 `go-version-file: go.mod` 自动跟随。
-- 本机若仍遇到 `checksum database disabled by GOSUMDB=off`，说明全局 Go 配置关闭了校验库；`go env -w GOSUMDB=sum.golang.org` 后可自动切换工具链。
+- 若本机遇到 `checksum database disabled by GOSUMDB=off`，执行 `go env -w GOSUMDB=sum.golang.org` 后可自动切换工具链。
 - Wails v3 CLI：`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`。
+- 构建 v3 二进制：`node scripts/build-wails3.mjs`（先构建前端，再 `go build -tags wails3`）。
+- CI：`.github/workflows/wails3-build.yml` 在 Windows 编译并上传 v3 产物。
 
-## Phase 0（已完成）
+## 已完成
 
-- `cmd/wails3app`：带 `wails3` 构建标签的最小 v3 启动器，复用 `internal/app.App` 作为 Service、现有 `frontend/dist` 作为 Asset 目录、单主窗口。
-- 验证：
-  - `go build -tags wails3 ./cmd/wails3app` 通过（Windows）。
-  - `wails3 generate bindings -ts -f "-tags wails3" ./cmd/wails3app` 生成 1 个 Service、521 个方法、147 个模型，产物结构为 `bindings/GoNavi-Wails/internal/app/app.ts`。
-  - `go build ./...` 与默认标签构建不受影响。
-- 默认构建不编译该目录；迁移完成前不要给 `internal/app` 之外的包加 v3 import。
+### 基座
 
-## Phase 1（进行中）
+- `go.mod`：Go 1.26.10 + `github.com/wailsapp/wails/v3 v3.1.0`；默认 v2 构建保持可用。
+- `internal/desktop`：桌面运行时边界。`!wails3` 委托 v2 runtime，`wails3` 映射到 v3 的 Dialog / Event / Clipboard / Browser / Window；58 个调用点已改走该层。
+- 根 `main` 包仅在非 `wails3` 构建参与编译；v3 入口为 `cmd/wails3app`。
 
-- 已新增 `internal/desktop` 适配层：
-  - `!wails3`：类型与函数直接委托 Wails v2 runtime，线上行为不变。
-  - `wails3`：映射到 `app.Dialog`、`app.Event`、`app.Clipboard`、`app.Browser`、`app.Window`；`MessageDialog` 用按钮回调桥接回 v2 的同步返回值语义。
-- 58 个业务与测试文件的 `wails/v2/pkg/runtime` 调用已改走适配层；根 `main` 包整体排除在 `wails3` 构建之外。
-- `go build ./...` 与 `go build -tags wails3 ./...` 均通过。
-- 剩余：前端绑定适配、v3 启动器接入真实主窗口生命周期。
+### 前端绑定
 
-## 待办（按阶段）
+- `frontend/src/platform/wails3Bridge.ts`：v3 下同步安装 v2 形状的 `window.go` / `window.runtime`，绑定与运行时调用等待 `window._wails` 后懒加载 `@wailsio/runtime`。
+- 332 个 `wailsjs/go` 导入与 110 处 `wailsjs/runtime` 调用无需改动；v2 与浏览器模式完全不受影响。
+- 资产服务在主窗口与分离窗口注入 `window.__GONAVI_WAILS3__`，阻止前端误装浏览器 mock。
+- 实测：真实连接（7 条）与 AI 供应商（3 个）经 v3 绑定读取，主界面完整渲染。
 
-1. **前端绑定**：`frontend/src/platform` 运行时适配 + 生成绑定包装，避免一次性改 332 个导入点；测试 mock 保持可用。
-2. **多窗口原生化**：用 `application.WebviewWindow` 替换 `internal/nativewindow` 的子进程 + 回环 HTTP 桥；先迁工作台窗口，插件窗口的进程隔离单独评估。
-3. **平台能力**：`SingleInstance`、协议/文件关联、`ApplicationLaunchedWithUrl`、每窗口 `EnableFileDrop`、keybindings、原生右键菜单、`WebviewUserDataPath`、启动显示门控清理；评估 `app.Updater` 替换自研更新。
-4. **构建发版**：`wails3` CLI + Taskfile + `build/config.yml`，重做 NSIS/MSI/DMG/AppImage 与 CI 矩阵。
-5. **清理**：删除 v2 残留与补丁代码，三平台冒烟与关键路径 E2E。
+### 原生多窗口
+
+- `internal/nativewindow/manager_v3.go`：`V3Manager` 用同进程 `application.WebviewWindow` 替代子进程 + 回环 HTTP 桥。
+- 分离窗口 URL 为 `/__gonavi/detached/window/<id>`，资产服务注入 `__GONAVI_DETACHED__`，复用同一套 `window.go` 绑定完成 Bootstrap / Action / Present。
+- 实测：AI 分离窗口打开、真实渲染、关闭全链路通过；工作台与查询结果窗口走同一入口。
+- v2 的子进程 `nativewindow.Manager` 仍保留，供 v2 构建与插件窗口使用。
+
+### 平台能力
+
+- `SingleInstance`：二次启动立即退出并聚焦主窗口，替代 MSI 命名互斥方案。
+- 文件关联：声明 `.sql`，并转发 `ApplicationOpenedWithFile`。
+- 原生深链：`ApplicationLaunchedWithUrl`、二次启动参数与冷启动参数统一转发现有的 `gonavi:deeplink` 事件。
+- 前端资源嵌入 `frontend` 包，v3 二进制自包含，可从任意目录启动。
+
+## 待办
+
+1. **插件窗口**：v3 同进程窗口会让插件 JS 直接触达全部 Go Service，失去现有子进程隔离。需要先决定隔离方案（保留子进程 / 按窗口限制绑定 / 单独 helper 进程），再迁移 `internal/nativewindow` 的插件窗口桥。
+2. **macOS 菜单**：把 `menu.AppMenu/EditMenu/WindowMenu` 与偏好设置菜单迁到 `app.Menu`，并验证动态语言/主题重建。
+3. **更新器**：评估 `app.Updater` 替换自研 manifest + 重启父进程方案（保留 `download.syngnat.top` 下载源与签名策略）。
+4. **打包发版**：接入 `wails3` Taskfile / `build/config.yml`，重做 NSIS/MSI/DMG/AppImage、签名公证、npm CLI 与下载源校验；当前只有 v3 二进制编译 CI。
+5. **清理**：迁移完成后删除 v2 专属的窗口补丁（`StartupWindowGate`、WebView2 边界刷新、MSI 单实例、重启父进程握手等）与未使用的 v2 依赖。
 
 ## v2 特殊方案与 v3 原生能力对照
 
 | 现状 | v3 |
 |---|---|
-| `internal/nativewindow` 子进程多窗口 | `app.Window.NewWithOptions` 同进程多窗口 |
-| MSI 命名互斥单实例 | `Options.SingleInstance` |
-| 自注册协议 + macOS `OnUrlOpen` | `build/config.yml` protocols + `ApplicationLaunchedWithUrl` |
-| 自研更新 manifest + 重启父进程 | `app.Updater`（Provider/签名/原子替换） |
-| `StartupWindowGate` / WebView2 边界刷新 | 窗口 options + `OnWindowEvent`/`RegisterHook` |
-| 全局拖拽 | 每窗口 `EnableFileDrop` |
+| `internal/nativewindow` 子进程多窗口 | 已替换为 `V3Manager` + `application.WebviewWindow` |
+| MSI 命名互斥单实例 | 已替换为 `Options.SingleInstance` |
+| 自注册协议 + macOS `OnUrlOpen` | 已接 `ApplicationLaunchedWithUrl`；安装器协议注册待打包阶段 |
+| 自研更新 manifest + 重启父进程 | 待评估 `app.Updater` |
+| `StartupWindowGate` / WebView2 边界刷新 | 待清理，v3 窗口 options 与 hooks 替代 |
+| 全局拖拽 | 已启用每窗口 `EnableFileDrop`；`gonavi:file-drop` 转发待接 Go 事件 |
 | macOS dock 菜单 Objective-C | v3 暂无对应 API，保留 |
