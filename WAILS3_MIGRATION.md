@@ -40,6 +40,23 @@
 - 关窗与 Cmd+Q 走 v3 `WindowClosing` / `ShouldQuit`，复用既有的未保存确认（`app:before-close-request`），确认前不会退出。
 - 前端资源嵌入 `frontend` 包，v3 二进制自包含，可从任意目录启动。
 
+### 进一步采用的原生能力
+
+- 窗口外观：`Frameless` / macOS `MacTitleBar` / `BackgroundType` / `MacBackdrop`，并保留低内存不透明回退。
+- 窗口关闭：`RegisterHook(WindowClosing)` 同步拦截 + `ShouldQuit`，未保存确认可可靠阻止退出。
+- 后端事件：`uievents.WithEmitter` 注入 `app.Event.Emit`，恢复 `app:before-close-request`、连接变更、导入导出/同步/图库进度、AI Agent 流等推送。
+- 资产路由：`AssetOptions.Middleware` 接入背景图库、字体库、插件页资源中间件。
+- Windows：`WebviewUserDataPath` 复用 v2 profile、AUMID 启动前设置、`NativeWindow()` 取 HWND 恢复品牌图标、`SetZoom`/`SetBounds` 替代 v2 反射、孤儿 WebView2 回收、更新维护期拒绝启动。
+- 屏幕与坐标：`App.Screen` 全局 DIP 工作区 + `Window.GetScreen`，v3 下不再做 v2 局部坐标换算。
+- 文件与目录：`Env.OpenFileManager` 打开目录/在文件管理器中选中文件；`.sql` 关联写入 MSI 与 AppImage desktop。
+- 分离窗口：`Control.Hide/HideForAISettings` 经 `V3Manager`；文件拖放改用 `data-file-drop-target` 并转发 `DropTargetDetails`。
+- 生命周期：前端就绪时回滚刷新后遗留的 SQL 事务；`web-server`、`plugin` CLI 与 `--disable-plugins` 安全模式在 v3 入口可用。
+
+### 有意保留的例外
+
+- 插件窗口继续跑 v2 子进程：v3.1.0 没有按窗口限制绑定的原生沙箱，同进程窗口会让插件 JS 直接触达全部 Go Service。
+- 更新器、web-server、自绘右键菜单、自定义快捷键、AI token 流、系统通知、Autostart、macOS Dock 菜单与 NSPanel：要么与现有产品/安装器语义不兼容，要么 v3 无对应 API，保持现状并已在审计中确认。
+
 ### 开发闭环
 
 - `Taskfile.yml` + `build/config.yml`：`wails3 dev` 启动 Vite（9245）并热重启 Go；`wails3 build DEV=true` 走快速开发构建，生产构建复用发版脚本。
