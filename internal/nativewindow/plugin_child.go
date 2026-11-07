@@ -24,7 +24,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 type pluginChildOptions struct {

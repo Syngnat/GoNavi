@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // Native dialogs stay replaceable so tests observe the exact options without

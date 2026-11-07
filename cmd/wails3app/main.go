@@ -10,6 +10,7 @@ import (
 	"os"
 
 	appcore "GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/desktop"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -39,6 +40,7 @@ func main() {
 		MinHeight: 600,
 		URL:       "/",
 	})
+	desktop.Bind(wailsApp, window)
 	window.Show()
 
 	if err := wailsApp.Run(); err != nil {

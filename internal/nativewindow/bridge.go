@@ -11,7 +11,7 @@ import (
 
 	"GoNavi-Wails/internal/rpctimeout"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 const defaultDetachedRPCRequestTimeout = 30 * time.Second

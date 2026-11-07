@@ -17,14 +17,22 @@
   - `go build ./...` 与默认标签构建不受影响。
 - 默认构建不编译该目录；迁移完成前不要给 `internal/app` 之外的包加 v3 import。
 
+## Phase 1（进行中）
+
+- 已新增 `internal/desktop` 适配层：
+  - `!wails3`：类型与函数直接委托 Wails v2 runtime，线上行为不变。
+  - `wails3`：映射到 `app.Dialog`、`app.Event`、`app.Clipboard`、`app.Browser`、`app.Window`；`MessageDialog` 用按钮回调桥接回 v2 的同步返回值语义。
+- 58 个业务与测试文件的 `wails/v2/pkg/runtime` 调用已改走适配层；根 `main` 包整体排除在 `wails3` 构建之外。
+- `go build ./...` 与 `go build -tags wails3 ./...` 均通过。
+- 剩余：前端绑定适配、v3 启动器接入真实主窗口生命周期。
+
 ## 待办（按阶段）
 
-1. **基座**：`internal/desktop` 适配层（对话框、事件、窗口、菜单、剪贴板、浏览器、屏幕），58 个 `pkg/runtime` 调用点改为依赖适配层；v2/v3 各一份实现（`!wails3` / `wails3`）。
-2. **前端绑定**：`frontend/src/platform` 运行时适配 + 生成绑定包装，避免一次性改 332 个导入点；测试 mock 保持可用。
-3. **多窗口原生化**：用 `application.WebviewWindow` 替换 `internal/nativewindow` 的子进程 + 回环 HTTP 桥；先迁工作台窗口，插件窗口的进程隔离单独评估。
-4. **平台能力**：`SingleInstance`、协议/文件关联、`ApplicationLaunchedWithUrl`、每窗口 `EnableFileDrop`、keybindings、原生右键菜单、`WebviewUserDataPath`、启动显示门控清理；评估 `app.Updater` 替换自研更新。
-5. **构建发版**：`wails3` CLI + Taskfile + `build/config.yml`，重做 NSIS/MSI/DMG/AppImage 与 CI 矩阵。
-6. **清理**：删除 v2 残留与补丁代码，三平台冒烟与关键路径 E2E。
+1. **前端绑定**：`frontend/src/platform` 运行时适配 + 生成绑定包装，避免一次性改 332 个导入点；测试 mock 保持可用。
+2. **多窗口原生化**：用 `application.WebviewWindow` 替换 `internal/nativewindow` 的子进程 + 回环 HTTP 桥；先迁工作台窗口，插件窗口的进程隔离单独评估。
+3. **平台能力**：`SingleInstance`、协议/文件关联、`ApplicationLaunchedWithUrl`、每窗口 `EnableFileDrop`、keybindings、原生右键菜单、`WebviewUserDataPath`、启动显示门控清理；评估 `app.Updater` 替换自研更新。
+4. **构建发版**：`wails3` CLI + Taskfile + `build/config.yml`，重做 NSIS/MSI/DMG/AppImage 与 CI 矩阵。
+5. **清理**：删除 v2 残留与补丁代码，三平台冒烟与关键路径 E2E。
 
 ## v2 特殊方案与 v3 原生能力对照
 

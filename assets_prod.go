@@ -1,4 +1,4 @@
-//go:build !dev
+//go:build !dev && !wails3
 
 package main
 
@@ -204,10 +204,12 @@ func (e bundleAssetFileEntry) Info() (fs.FileInfo, error) { return e.info, nil }
 // bundleAssetDirEntry 是推导目录的 fs.DirEntry 视图。
 type bundleAssetDirEntry struct{ name string }
 
-func (e bundleAssetDirEntry) Name() string               { return e.name }
-func (e bundleAssetDirEntry) IsDir() bool                { return true }
-func (e bundleAssetDirEntry) Type() fs.FileMode          { return fs.ModeDir }
-func (e bundleAssetDirEntry) Info() (fs.FileInfo, error) { return bundleAssetDirInfo{name: e.name}, nil }
+func (e bundleAssetDirEntry) Name() string      { return e.name }
+func (e bundleAssetDirEntry) IsDir() bool       { return true }
+func (e bundleAssetDirEntry) Type() fs.FileMode { return fs.ModeDir }
+func (e bundleAssetDirEntry) Info() (fs.FileInfo, error) {
+	return bundleAssetDirInfo{name: e.name}, nil
+}
 
 // bundleAssetDirInfo 是推导目录的 fs.FileInfo 视图。
 type bundleAssetDirInfo struct{ name string }

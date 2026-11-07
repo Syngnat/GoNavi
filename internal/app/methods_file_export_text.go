@@ -12,7 +12,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // 单次文本导出的内容上限：对比报告是纯文本产物，正常远小于此。

@@ -19,7 +19,7 @@ import (
 	"GoNavi-Wails/internal/uievents"
 	"GoNavi-Wails/internal/webserver"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 const (

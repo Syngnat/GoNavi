@@ -10,7 +10,7 @@ import (
 	"GoNavi-Wails/internal/importjob"
 	"GoNavi-Wails/internal/uievents"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // PreviewImportFile 解析导入文件，返回字段列表、总行数、前 5 行预览数据

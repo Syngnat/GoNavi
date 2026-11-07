@@ -1,4 +1,4 @@
-//go:build !bindings
+//go:build !bindings && !wails3
 
 package main
 
@@ -25,6 +25,7 @@ import (
 	"GoNavi-Wails/internal/webserver"
 	"GoNavi-Wails/shared/i18n"
 
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 	"github.com/wailsapp/wails/v2"
 	wailslogger "github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -32,7 +33,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const nativeSelectCurrentLineEvent = "gonavi:native-select-current-line"

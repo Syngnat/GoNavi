@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 
 	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/connection"

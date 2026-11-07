@@ -7,7 +7,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // sshKeyFileDialogFilters intentionally returns nil. The macOS Wails adapter

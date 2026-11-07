@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 func replaceConfirmDialog(t *testing.T, answer string) {

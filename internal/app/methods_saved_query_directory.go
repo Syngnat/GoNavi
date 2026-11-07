@@ -11,7 +11,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func (a *App) SelectSavedQueryDirectory(currentDirectory string) connection.QueryResult {

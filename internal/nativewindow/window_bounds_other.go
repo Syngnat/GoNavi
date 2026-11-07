@@ -5,7 +5,7 @@ package nativewindow
 import (
 	"context"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 func applyDetachedWindowBounds(ctx context.Context, x, y, width, height int) {
