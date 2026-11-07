@@ -110,6 +110,9 @@
 
 - 插件窗口仍是独立子进程（`PluginController` + token 回环桥），子进程内部已使用
   v3 `application`；保留进程隔离是因为 v3 同进程窗口无法提供按窗口的绑定沙箱。
+- v3 的 macOS 插件子进程不再安装 WKWebsiteDataStore 非持久化 swizzle（该 cgo
+  guard 在 v3 包内无法稳定链接）；v2 构建保留原实现，v3 仍依赖独立进程与窗口
+  profile 隔离。
 - v2 构建仍可用（`GONAVI_WAILS3=0`）作为回退通道。跨平台产物由 CI 发版任务
   验证：Windows amd64 已用同一脚本在本地实测；macOS/Linux 走相同脚本与既有
   打包步骤，下一次 release 产出 MSI/DMG/AppImage 时由工作流内的既有校验兜底。
