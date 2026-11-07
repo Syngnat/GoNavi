@@ -42,20 +42,20 @@
 
 ### 进一步采用的原生能力
 
-- 窗口外观：`Frameless` / macOS `MacTitleBar` / `BackgroundType` / `MacBackdrop`，并保留低内存不透明回退。
-- 窗口关闭：`RegisterHook(WindowClosing)` 同步拦截 + `ShouldQuit`，未保存确认可可靠阻止退出。
+- 窗口外观：`Frameless` / `MacTitleBarHidden`（保留交通灯）/ `BackgroundType` / `MacBackdrop`，低内存模式回退不透明。
+- 窗口关闭：`RegisterHook(WindowClosing)` 同步拦截 + `ShouldQuit`；每次 `WindowRuntimeReady` 回滚刷新后遗留的 SQL 事务。
 - 后端事件：`uievents.WithEmitter` 注入 `app.Event.Emit`，恢复 `app:before-close-request`、连接变更、导入导出/同步/图库进度、AI Agent 流等推送。
-- 资产路由：`AssetOptions.Middleware` 接入背景图库、字体库、插件页资源中间件。
-- Windows：`WebviewUserDataPath` 复用 v2 profile、AUMID 启动前设置、`NativeWindow()` 取 HWND 恢复品牌图标、`SetZoom`/`SetBounds` 替代 v2 反射、孤儿 WebView2 回收、更新维护期拒绝启动。
-- 屏幕与坐标：`App.Screen` 全局 DIP 工作区 + `Window.GetScreen`，v3 下不再做 v2 局部坐标换算。
-- 文件与目录：`Env.OpenFileManager` 打开目录/在文件管理器中选中文件；`.sql` 关联写入 MSI 与 AppImage desktop。
+- 资产路由：`AssetOptions.Middleware` 接入背景图库、字体库、插件页资源中间件；dev 下保留 Vite 代理与 HMR。
+- Windows：`WebviewUserDataPath` 复用 v2 profile、AUMID 启动前设置、`NativeWindow()` 取 HWND 恢复品牌图标、`SetZoom`/`SetBounds` 替代 v2 反射、孤儿 WebView2 回收、更新维护期拒绝启动；焦点守卫在 v3 下为无操作。
+- 屏幕与坐标：`App.Screen` 全局 DIP 工作区 + `Window.GetScreen`；分离窗口 bounds 按工作区归一化，拔屏后不会开到屏幕外。
+- 文件与目录：`Env.OpenFileManager` 打开目录/选中文件、`Browser.OpenFile` 打开导出文件；`.sql` 关联写入 MSI 与 AppImage desktop。
 - 分离窗口：`Control.Hide/HideForAISettings` 经 `V3Manager`；文件拖放改用 `data-file-drop-target` 并转发 `DropTargetDetails`。
-- 生命周期：前端就绪时回滚刷新后遗留的 SQL 事务；`web-server`、`plugin` CLI 与 `--disable-plugins` 安全模式在 v3 入口可用。
+- 生命周期：`web-server`、`plugin` CLI、`--data-root` 与 `--disable-plugins` 安全模式在 v3 入口可用；dev 构建通过 `main.devBuild` 跳过单实例与 `gonavi://` 注册，避免抢占正式版。
 
 ### 有意保留的例外
 
-- 插件窗口继续跑 v2 子进程：v3.1.0 没有按窗口限制绑定的原生沙箱，同进程窗口会让插件 JS 直接触达全部 Go Service。
-- 更新器、web-server、自绘右键菜单、自定义快捷键、AI token 流、系统通知、Autostart、macOS Dock 菜单与 NSPanel：要么与现有产品/安装器语义不兼容，要么 v3 无对应 API，保持现状并已在审计中确认。
+- 插件窗口继续跑 v2 子进程：v3.1.0 没有按窗口限制绑定的原生沙箱，同进程窗口会让插件 JS 直接触达全部 Go Service；进程隔离优先于去除 v2 运行时。
+- 更新器、web-server 内部（认证/多用户/TOTP）、自绘右键菜单、自定义快捷键、AI token 流（v3 Stream 需双传输适配）、系统通知、Autostart、macOS Dock 菜单、NSPanel、Windows 非客户区命中：要么与现有产品/安装器语义不兼容，要么 v3 无对应 API，保持现状并已在审计中确认。
 
 ### 开发闭环
 
