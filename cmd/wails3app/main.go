@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -256,6 +257,20 @@ func main() {
 
 	windowManager := nativewindow.NewV3Manager(wailsApp)
 	wailsApp.RegisterService(application.NewService(windowManager))
+
+	if runtime.GOOS == "darwin" {
+		menu := wailsApp.Menu.New()
+		menu.AddRole(application.AppMenu)
+		menu.AddRole(application.EditMenu)
+		menu.AddRole(application.WindowMenu)
+		sqlMenu := menu.AddSubmenu("SQL")
+		sqlMenu.Add("Copy Current Line").
+			SetAccelerator("CmdOrCtrl+E").
+			OnClick(func(*application.Context) {
+				wailsApp.Event.Emit("gonavi:native-select-current-line")
+			})
+		wailsApp.Menu.SetApplicationMenu(menu)
+	}
 
 	// The frontend registers its listeners during startup; replay a cold-start
 	// link once it signals readiness so it is not lost.
