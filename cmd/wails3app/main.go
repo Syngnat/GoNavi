@@ -19,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 
+	frontendbundle "GoNavi-Wails/frontend"
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
 	"GoNavi-Wails/internal/deeplink"
@@ -177,7 +178,7 @@ func main() {
 			application.NewService(&lifecycleService{backend: backend, ai: aiService}),
 		},
 		Assets: application.AssetOptions{
-			Handler: detachedWindowAssetHandler(os.DirFS("frontend/dist")),
+			Handler: detachedWindowAssetHandler(frontendbundle.Assets),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.gonavi.desktop",
