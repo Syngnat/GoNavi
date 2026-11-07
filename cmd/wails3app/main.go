@@ -676,9 +676,14 @@ func main() {
 			payload["y"] = details.Y
 			payload["dropTarget"] = details
 		}
-		// Deliver only to the window that received the drop; a global emit would
-		// make every detached workbench open the same file.
-		mainWindow.EmitEvent("gonavi:file-drop", payload)
+		// Deliver only to the window that received the drop; EmitEvent goes through
+		// the application-wide bus and would make every detached workbench open
+		// the same file.
+		mainWindow.DispatchWailsEvent(&application.CustomEvent{
+			Name:   "gonavi:file-drop",
+			Data:   payload,
+			Sender: mainWindow.Name(),
+		})
 	})
 	if hideUntilFrontendReady {
 		// The frontend shows the window after its first paint; this fallback

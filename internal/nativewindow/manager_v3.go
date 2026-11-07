@@ -264,7 +264,7 @@ func (m *V3Manager) requestFrontendClose(entry *v3Window, revision uint64) {
 	}
 	m.mu.Unlock()
 
-	entry.window.EmitEvent(CommandEventName, map[string]any{
+	dispatchWindowEvent(entry.window, CommandEventName, map[string]any{
 		"id":     entry.id,
 		"action": "close",
 		"payload": map[string]any{
@@ -660,7 +660,7 @@ func (m *V3Manager) SyncHostState(request HostStateRequest) OperationResult {
 	if !ok {
 		return OperationResult{Success: false, Message: "unknown detached window", ID: request.ID}
 	}
-	entry.window.EmitEvent(CommandEventName, map[string]any{
+	dispatchWindowEvent(entry.window, CommandEventName, map[string]any{
 		"id":     entry.id,
 		"action": "sync-host-state",
 		"payload": map[string]any{
@@ -698,12 +698,26 @@ func (m *V3Manager) emitChildCommand(entry *v3Window, action string, visibilityR
 	if entry == nil || entry.window == nil {
 		return
 	}
-	entry.window.EmitEvent(CommandEventName, map[string]any{
+	dispatchWindowEvent(entry.window, CommandEventName, map[string]any{
 		"id":     entry.id,
 		"action": action,
 		"payload": map[string]any{
 			"visibilityRevision": visibilityRevision,
 		},
+	})
+}
+
+// dispatchWindowEvent delivers an event to exactly one window. WebviewWindow's
+// EmitEvent goes through the application-wide bus and every window receives it;
+// file drops and per-window commands must not leak across windows.
+func dispatchWindowEvent(window *application.WebviewWindow, name string, data any) {
+	if window == nil {
+		return
+	}
+	window.DispatchWailsEvent(&application.CustomEvent{
+		Name:   name,
+		Data:   data,
+		Sender: window.Name(),
 	})
 }
 
@@ -724,7 +738,7 @@ func (m *V3Manager) forwardFileDrop(entry *v3Window, event *application.WindowEv
 		payload["y"] = details.Y
 		payload["dropTarget"] = details
 	}
-	entry.window.EmitEvent("gonavi:file-drop", payload)
+	dispatchWindowEvent(entry.window, "gonavi:file-drop", payload)
 }
 
 func windowBounds(window *application.WebviewWindow) *WindowBounds {
