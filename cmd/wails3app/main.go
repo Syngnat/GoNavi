@@ -213,6 +213,22 @@ func main() {
 
 	backend := appcore.NewApp()
 	appcore.ConfigurePluginWindows(backend, newPluginWindowFactory(backend))
+	if runtime.GOOS == "windows" {
+		// v3's SingleInstance forwards protocol launches as second-instance
+		// arguments; registering the handler still has to happen before the
+		// marketplace or sign-in pages open a gonavi:// link.
+		if executablePath, err := os.Executable(); err == nil {
+			if _, err := deeplink.Register(executablePath); err != nil {
+				log.Printf("register gonavi:// handler failed: %v", err)
+			} else {
+				aiservice.SetBuiltinAILoginStartHook(func() {
+					if _, err := deeplink.Register(executablePath); err != nil {
+						log.Printf("re-register gonavi:// handler failed: %v", err)
+					}
+				})
+			}
+		}
+	}
 	aiService := aiservice.NewServiceWithConfigChangeHandler(appcore.NewCloudBackupChangeHandler(backend))
 	if err := aiservice.ConfigurePluginProviderFactory(aiService, appcore.PluginAIProviderFactoryForIntegration(backend)); err != nil {
 		log.Printf("configure plugin AI provider failed: %v", err)
