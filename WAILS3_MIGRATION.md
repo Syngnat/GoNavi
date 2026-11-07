@@ -45,18 +45,36 @@
 |---|---|
 | Phase 0 工具链与最小启动器 | 完成 |
 | Phase 1 桌面适配层与前端绑定 | 完成 |
-| Phase 2 原生多窗口 | 应用窗口完成；插件窗口保留 v2 子进程隔离 |
-| Phase 3 平台能力 | 单实例、深链、文件关联、文件拖放、启动显示握手、macOS 基础菜单完成；更新器待决策 |
-| Phase 4 构建 | v3 二进制构建脚本与 Windows 编译 CI 完成；安装器待迁移 |
-| Phase 5 清理 | 待 v3 正式发版后执行 |
+| Phase 2 原生多窗口 | 完成；应用窗口走 v3，插件窗口保留 v2 子进程隔离 |
+| Phase 3 平台能力 | 完成：单实例、深链、文件关联、文件拖放、启动显示握手、macOS 菜单（含语言/主题动态重建） |
+| Phase 4 构建与打包 | 完成：release/dev 工作流默认使用 v3 构建，沿用现有 MSI/DMG/AppImage 打包；`GONAVI_WAILS3=0` 可回退 v2 |
+| Phase 5 清理 | 完成：v3 路径不再包含 v2 窗口补丁；v2 代码仅作为回退构建保留 |
 
-## 待办
+## 发版路径
 
-1. **插件窗口隔离**：v3 同进程窗口会让插件 JS 直接触达全部 Go Service，因此当前让插件窗口继续跑在 v2 子进程（`PluginController` + token 回环桥）。后续若要去掉 v2 依赖，需要先实现按窗口限制绑定或独立 helper 进程。
-2. **更新器决策**：`app.Updater` 做的是原子替换二进制并重启，与 GoNavi 现在的「下载安装包 → 安装器升级 → 重启」模型不同；Windows MSI/NSIS 场景不应直接替换二进制。暂保留自研更新链路，待产品决策。
-3. **打包发版**：接入 `wails3` Taskfile / `build/config.yml`，重做 NSIS/MSI/DMG/AppImage、签名公证、协议注册、npm CLI 与下载源校验；当前只有 v3 二进制编译 CI。
-4. **macOS 菜单本地化**：基础 App/Edit/Window 角色与 SQL 菜单已接入，偏好设置菜单（语言/主题动态重建）仍待迁移。
-5. **清理**：v3 正式发版后删除 v2 专属窗口补丁（`StartupWindowGate`、WebView2 边界刷新、MSI 单实例、重启父进程握手等）与未使用的 v2 依赖。
+- `release.yml` 与 `dev-build.yml` 的 Build 步骤默认调用
+  `scripts/ci-build-wails3-release.sh`：按平台生成
+  `build/bin/<build_name>.exe`、`build/bin/GoNavi.app` 或
+  `build/bin/<build_name>`，后续 MSI/DMG/AppImage 打包步骤保持不变。
+- 回退：在仓库 Actions 变量中设置 `GONAVI_WAILS3=0`，同一工作流改走
+  `wails build`（v2）路径。
+- 安装器仍沿用现有 WiX / create-dmg / AppImage 脚本；macOS 的
+  `gonavi://` 与 `.sql` 关联由构建脚本写入 `Info.plist`，Windows 协议注册
+  仍由安装器负责。
+
+## 更新器决策
+
+保留现有自研更新链路，不切换到 `app.Updater`：v3 的更新器通过原子替换
+二进制并重启完成升级，而 GoNavi 在 Windows 上以 MSI/NSIS 安装器升级、并带有
+安装目录维护状态与重启父进程握手。直接替换二进制会绕过安装器状态与卸载
+登记。`app.Updater` 仅作为未来「便携版 / 单文件分发」形态的备选评估。
+
+## 已知边界
+
+- 插件窗口继续运行在 v2 子进程（`PluginController` + token 回环桥），以保留
+  插件 JS 与宿主 Service 之间的进程隔离；v3 同进程窗口无法提供该边界。
+- v2 构建仍可用（`GONAVI_WAILS3=0`），作为下一次正式发版前的回退通道；
+  v3 打包链路将在下一次 release 运行中完成跨平台验证。
 
 ## v2 特殊方案与 v3 原生能力对照
 

@@ -30,6 +30,7 @@ import (
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
 	"GoNavi-Wails/internal/plugin"
+	"GoNavi-Wails/shared/i18n"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -270,7 +271,25 @@ func main() {
 			OnClick(func(*application.Context) {
 				wailsApp.Event.Emit("gonavi:native-select-current-line")
 			})
+		localizer, localizerErr := i18n.NewLocalizer(resolveStartupMenuLanguage())
+		if localizerErr != nil {
+			log.Printf("load menu language catalog failed: %v", localizerErr)
+		}
+		preferences := newMacPreferencesMenu(localizer, func(event string) {
+			wailsApp.Event.Emit(event)
+		})
+		preferences.appendTo(menu)
 		wailsApp.Menu.SetApplicationMenu(menu)
+		wailsApp.Event.On(nativeMenuLanguageEvent, func(event *application.CustomEvent) {
+			if value, ok := event.Data.(string); ok && preferences.setLanguage(value) {
+				menu.Update()
+			}
+		})
+		wailsApp.Event.On(nativeMenuThemeEvent, func(event *application.CustomEvent) {
+			if value, ok := event.Data.(string); ok && preferences.setTheme(value) {
+				menu.Update()
+			}
+		})
 	}
 
 	// The frontend registers its listeners during startup; replay a cold-start
