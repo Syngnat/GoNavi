@@ -154,6 +154,13 @@ func (a *App) OpenLogDirectory() connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: a.appText("app.data_root.log_directory.backend.error.directory_unavailable", nil)}
 	}
 
+	if openDirectoryNatively(directory) {
+		return connection.QueryResult{
+			Success: true,
+			Message: a.appText("app.data_root.log_directory.backend.message.opened", nil),
+			Data:    dataRootInfoPayload(a.configDir),
+		}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":

@@ -363,6 +363,16 @@ func RefreshWebViewBounds() error {
 	return nil
 }
 
+// OpenFileManager reveals a directory or selects a file in the platform file
+// manager through the v3 environment service.
+func OpenFileManager(path string, selectFile bool) error {
+	app, _, err := current()
+	if err != nil || app == nil {
+		return errors.New("desktop runtime is not bound")
+	}
+	return app.Env.OpenFileManager(path, selectFile)
+}
+
 // ScreenArea is one display work area in v3's global DIP coordinate space.
 type ScreenArea struct {
 	X       int

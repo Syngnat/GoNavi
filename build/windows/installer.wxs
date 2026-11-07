@@ -26,8 +26,29 @@
     <Feature Id="MainFeature" Title="$(var.ProductName)" Level="1">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="DesktopShortcutComponent" />
+      <ComponentRef Id="SqlFileAssociationComponent" />
     </Feature>
 
+
+    <!-- Open With / double-click support for .sql files. Machine-wide because
+         the package is perMachine; uninstall removes the keys it owns. -->
+    <Component Id="SqlFileAssociationComponent"
+               Directory="INSTALLFOLDER"
+               Guid="6E4B8C1D-3A7F-4E52-9B0C-7D1E5A2F8C64"
+               Bitness="always64">
+      <RegistryKey Root="HKLM" Key="Software\Classes\.sql">
+        <RegistryValue Type="string" Value="GoNavi.SQLFile" KeyPath="yes" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\GoNavi.SQLFile">
+        <RegistryValue Type="string" Value="SQL File" />
+        <RegistryKey Key="DefaultIcon">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]GoNavi.exe,0" />
+        </RegistryKey>
+        <RegistryKey Key="shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]GoNavi.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+    </Component>
     <Component Id="MainExecutable"
                Directory="INSTALLFOLDER"
                Guid="$(var.ComponentGuid)"

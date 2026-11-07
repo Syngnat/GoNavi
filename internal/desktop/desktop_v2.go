@@ -107,3 +107,8 @@ func NativeWindowHandle() uintptr { return 0 }
 // keeps the existing runtime-context reflection.
 func ResetWebViewZoom(float64) error { return errors.New("v2 uses the runtime context path") }
 func RefreshWebViewBounds() error    { return errors.New("v2 uses the runtime context path") }
+
+// OpenFileManager is v3-only; the v2 call sites keep their platform commands.
+func OpenFileManager(string, bool) error {
+	return errors.New("v2 uses the platform file-manager commands")
+}

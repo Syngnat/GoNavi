@@ -30,11 +30,14 @@ import (
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
 	"GoNavi-Wails/internal/appdata"
+	"GoNavi-Wails/internal/cli"
 	"GoNavi-Wails/internal/deeplink"
 	"GoNavi-Wails/internal/desktop"
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
 	"GoNavi-Wails/internal/plugin"
+	"GoNavi-Wails/internal/uievents"
+	"GoNavi-Wails/internal/webserver"
 	"GoNavi-Wails/shared/i18n"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -154,6 +157,23 @@ func runHeadlessMode(args []string) bool {
 			log.Printf("plugin window exited: %v", err)
 		}
 		return true
+	case "web-server", "--web-server":
+		// Documented fallback when WebView2 is unavailable: serve the browser
+		// build instead of opening a GUI.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := webserver.Run(ctx, frontendbundle.Assets, args[1:]); err != nil {
+			log.Printf("web server exited: %v", err)
+		}
+		return true
+	case "plugin":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		cli.Version = appcore.CurrentVersion()
+		if code := cli.Run(ctx, args, os.Stdout, os.Stderr); code != cli.ExitSuccess {
+			log.Printf("plugin CLI exited with code %d", code)
+		}
+		return true
 	default:
 		return false
 	}
@@ -193,13 +213,24 @@ type lifecycleService struct {
 	ai      *aiservice.Service
 }
 
+// desktopEventEmitter adapts the v3 event bus to uievents. Wails v2 injected an
+// "events" value into the startup context; v3 does not, so every backend push
+// would otherwise be dropped silently.
+type desktopEventEmitter struct{}
+
+func (desktopEventEmitter) Emit(name string, args ...any) {
+	desktop.EventsEmit(context.Background(), name, args...)
+}
+
 func (s *lifecycleService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	ctx = uievents.WithEmitter(ctx, desktopEventEmitter{})
 	appcore.InitializeLifecycle(s.backend, ctx)
 	aiservice.InitializeLifecycle(s.ai, ctx)
 	return nil
 }
 
 func (s *lifecycleService) ServiceShutdown() error {
+	appcore.StartWindowsRuntimeProcessReaper()
 	aiservice.ShutdownWithContext(s.ai, context.Background())
 	s.backend.Shutdown()
 	return nil
@@ -259,15 +290,34 @@ func newPluginWindowFactory(backend *appcore.App) appcore.PluginWindowFactory {
 }
 
 func main() {
+	if len(os.Args) > 1 && strings.EqualFold(strings.TrimSpace(os.Args[1]), "--disable-plugins") {
+		_ = os.Setenv("GONAVI_DISABLE_PLUGINS", "1")
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
 	if appcore.HandleWindowsRuntimeReaperArgs(os.Args[1:]) {
 		return
 	}
 	if runHeadlessMode(os.Args[1:]) {
 		return
 	}
+	if executablePath, err := os.Executable(); err == nil {
+		if active, checkErr := appcore.WindowsUpdateMaintenanceActive(runtime.GOOS, executablePath); checkErr == nil && active {
+			log.Printf("GoNavi installation is being updated; refusing to start")
+			return
+		}
+	}
+	// The process identity must be fixed before Wails creates its HWND, or
+	// Explorer groups the window under the executable's default identity.
+	if err := appcore.InitializeWindowsApplicationIdentity(); err != nil {
+		log.Printf("initialize Windows application identity failed: %v", err)
+	}
 
 	backend := appcore.NewApp()
 	appcore.ConfigurePluginWindows(backend, newPluginWindowFactory(backend))
+	// Clear WebView2 processes left behind by an earlier exit, then arm the
+	// reaper for this process (same lifecycle as the v2 entry point).
+	appcore.ReapOrphanedWindowsWebViewProcesses()
+	appcore.StartWindowsRuntimeProcessReaper()
 	if runtime.GOOS == "windows" {
 		// v3's SingleInstance forwards protocol launches as second-instance
 		// arguments; registering the handler still has to happen before the
@@ -310,7 +360,8 @@ func main() {
 			application.NewService(&lifecycleService{backend: backend, ai: aiService}),
 		},
 		Assets: application.AssetOptions{
-			Handler: detachedWindowAssetHandler(frontendbundle.Assets),
+			Handler:    detachedWindowAssetHandler(frontendbundle.Assets),
+			Middleware: appcore.GalleryAssetMiddleware(backend, frontendbundle.Assets),
 		},
 		Windows: application.WindowsOptions{
 			// Keep the same WebView2 profile as the v2 build so localStorage
@@ -321,7 +372,7 @@ func main() {
 			// Cmd+Q and the menu quit path must honour the same pending-edit
 			// confirmation as the window close button. ForceQuitApplication sets
 			// the handler's allow flag, so the retried quit passes through.
-			if closeGuard(context.Background()) {
+			if closeGuard(nil) {
 				return false
 			}
 			quitting.Store(true)
@@ -387,6 +438,9 @@ func main() {
 	// link once it signals readiness so it is not lost.
 	wailsApp.Event.On(frontendReadyEvent, func(*application.CustomEvent) {
 		frontendReadyFlag.Store(true)
+		// A reload drops the editor's in-memory transaction IDs while the backend
+		// transaction still holds row locks; roll the orphaned ones back.
+		appcore.HandleFrontendDomReady(backend)
 		if mainWindow != nil {
 			mainWindow.Show()
 			mainWindow.Focus()
@@ -445,11 +499,14 @@ func main() {
 	// Closing the main window goes through the same pending-edit confirmation
 	// the v2 OnBeforeClose hook used; the frontend answers with
 	// ForceQuitApplication, which lets the retried close pass.
-	mainWindow.OnWindowEvent(events.Common.WindowClosing, func(event *application.WindowEvent) {
+	// Hooks run synchronously before Wails' built-in close listener, so Cancel
+	// reliably blocks the close. OnWindowEvent is asynchronous and could let the
+	// window close before the pending-edit confirmation appears.
+	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		if quitting.Load() {
 			return
 		}
-		if closeGuard(context.Background()) {
+		if closeGuard(nil) {
 			event.Cancel()
 		}
 	})

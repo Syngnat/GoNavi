@@ -1313,12 +1313,12 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Name=GoNavi' \
-            'Exec=gonavi' \
+            'Exec=gonavi %f' \
             'Icon=gonavi' \
             'Type=Application' \
             'Categories=Development;Database;' \
             'Comment=Database Management Tool' \
-            'MimeType=x-scheme-handler/gonavi;' \
+            'MimeType=x-scheme-handler/gonavi;text/x-sql;' \
             > AppDir/usr/share/applications/gonavi.desktop
 
           cp AppDir/usr/share/applications/gonavi.desktop AppDir/gonavi.desktop
