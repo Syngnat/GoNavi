@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	frontendbundle "GoNavi-Wails/frontend"
 	aiservice "GoNavi-Wails/internal/ai/service"
@@ -275,6 +276,10 @@ func main() {
 	// The frontend registers its listeners during startup; replay a cold-start
 	// link once it signals readiness so it is not lost.
 	wailsApp.Event.On(frontendReadyEvent, func(*application.CustomEvent) {
+		if mainWindow != nil {
+			mainWindow.Show()
+			mainWindow.Focus()
+		}
 		if pendingDeepLink == "" {
 			return
 		}
@@ -295,12 +300,14 @@ func main() {
 		}
 	})
 
+	hideUntilFrontendReady := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 	windowOptions := application.WebviewWindowOptions{
 		Title:          "GoNavi",
 		Width:          1440,
 		Height:         900,
 		MinWidth:       900,
 		MinHeight:      600,
+		Hidden:         hideUntilFrontendReady,
 		URL:            "/",
 		EnableFileDrop: true,
 	}
@@ -320,7 +327,13 @@ func main() {
 			"paths": event.Context().DroppedFiles(),
 		})
 	})
-	mainWindow.Show()
+	if hideUntilFrontendReady {
+		// The frontend shows the window after its first paint; this fallback
+		// keeps a broken bundle visible instead of leaving an invisible app.
+		time.AfterFunc(5*time.Second, func() { mainWindow.Show() })
+	} else {
+		mainWindow.Show()
+	}
 
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
