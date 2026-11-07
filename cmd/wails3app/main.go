@@ -18,11 +18,47 @@ import (
 
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/deeplink"
 	"GoNavi-Wails/internal/desktop"
 	"GoNavi-Wails/internal/mcpserver"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
+
+const (
+	frontendReadyEvent         = "gonavi:frontend-ready"
+	deepLinkWakeEvent          = "gonavi:deeplink:ai-login"
+	deepLinkPluginInstallEvent = "gonavi:deeplink:plugin-install"
+)
+
+func firstDeepLinkArg(args []string) string {
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		if strings.HasPrefix(strings.ToLower(trimmed), "gonavi://") {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+// dispatchDeepLink forwards a gonavi:// link to the same frontend events the
+// v2 deep-link waker uses.
+func dispatchDeepLink(app *application.App, raw string) {
+	link, ok := deeplink.Parse(raw)
+	if !ok {
+		return
+	}
+	if link.Action == deeplink.ActionPluginInstall {
+		app.Event.Emit(deepLinkPluginInstallEvent, map[string]string{
+			"spec": link.Spec,
+			"id":   link.PluginID,
+			"raw":  raw,
+		})
+		return
+	}
+	app.Event.Emit(deepLinkWakeEvent)
+}
 
 // runHeadlessMode keeps CLI child processes out of the GUI. The MCP HTTP
 // server and scheduled sync workers re-execute this binary; without this
@@ -123,9 +159,14 @@ func main() {
 	aiservice.PreloadConfig(aiService)
 	aiservice.WarmModelCatalog(aiService)
 
-	wailsApp := application.New(application.Options{
-		Name:        "GoNavi",
-		Description: "Database client",
+	var wailsApp *application.App
+	var mainWindow *application.WebviewWindow
+	pendingDeepLink := firstDeepLinkArg(os.Args[1:])
+
+	wailsApp = application.New(application.Options{
+		Name:             "GoNavi",
+		Description:      "Database client",
+		FileAssociations: []string{".sql"},
 		Services: []application.Service{
 			application.NewService(backend),
 			application.NewService(aiService),
@@ -134,6 +175,41 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(os.DirFS("frontend/dist")),
 		},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.gonavi.desktop",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				if mainWindow != nil {
+					mainWindow.Show()
+					mainWindow.Focus()
+				}
+				if raw := firstDeepLinkArg(data.Args); raw != "" {
+					dispatchDeepLink(wailsApp, raw)
+				}
+			},
+		},
+	})
+
+	// The frontend registers its listeners during startup; replay a cold-start
+	// link once it signals readiness so it is not lost.
+	wailsApp.Event.On(frontendReadyEvent, func(*application.CustomEvent) {
+		if pendingDeepLink == "" {
+			return
+		}
+		raw := pendingDeepLink
+		pendingDeepLink = ""
+		dispatchDeepLink(wailsApp, raw)
+	})
+	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(event *application.ApplicationEvent) {
+		if mainWindow != nil {
+			mainWindow.Show()
+			mainWindow.Focus()
+		}
+		dispatchDeepLink(wailsApp, event.Context().URL())
+	})
+	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationOpenedWithFile, func(event *application.ApplicationEvent) {
+		for _, path := range event.Context().OpenedFiles() {
+			wailsApp.Event.Emit("gonavi:open-file", map[string]string{"path": path})
+		}
 	})
 
 	windowOptions := application.WebviewWindowOptions{
@@ -148,9 +224,9 @@ func main() {
 	if os.Getenv("GONAVI_V3_DEBUG") == "1" {
 		windowOptions.OpenInspectorOnStartup = true
 	}
-	window := wailsApp.Window.NewWithOptions(windowOptions)
-	desktop.Bind(wailsApp, window)
-	window.Show()
+	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
+	desktop.Bind(wailsApp, mainWindow)
+	mainWindow.Show()
 
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
