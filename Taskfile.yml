@@ -26,7 +26,7 @@ tasks:
     deps:
       - prebuild
     cmds:
-      - '{{if eq .DEV "true"}}go build -tags wails3 -trimpath -buildvcs=false -ldflags "-X GoNavi-Wails/internal/app.AppVersion=$(cat version/dev-version.txt) -X main.devBuild=1" -o {{.BIN_DIR}}/{{.APP_NAME}}{{.EXE_EXT}} ./cmd/wails3app{{else}}bash scripts/ci-build-wails3-release.sh "{{OS}}/{{ARCH}}" "{{.APP_NAME}}" "$(cat version/dev-version.txt)"{{end}}'
+      - '{{if eq .DEV "true"}}go build -tags wails3 -trimpath -buildvcs=false -ldflags "-X GoNavi-Wails/internal/app.AppVersion=dev-local -X main.devBuild=1" -o {{.BIN_DIR}}/{{.APP_NAME}}{{.EXE_EXT}} ./cmd/wails3app{{else}}bash scripts/ci-build-wails3-release.sh "{{OS}}/{{ARCH}}" "{{.APP_NAME}}" "$(cat version/dev-version.txt)"{{end}}'
 
   run:
     desc: Run the last development build
