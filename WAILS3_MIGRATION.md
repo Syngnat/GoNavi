@@ -39,13 +39,24 @@
 - 原生深链：`ApplicationLaunchedWithUrl`、二次启动参数与冷启动参数统一转发现有的 `gonavi:deeplink` 事件。
 - 前端资源嵌入 `frontend` 包，v3 二进制自包含，可从任意目录启动。
 
+## 阶段状态
+
+| 阶段 | 状态 |
+|---|---|
+| Phase 0 工具链与最小启动器 | 完成 |
+| Phase 1 桌面适配层与前端绑定 | 完成 |
+| Phase 2 原生多窗口 | 应用窗口完成；插件窗口保留 v2 子进程隔离 |
+| Phase 3 平台能力 | 单实例、深链、文件关联、文件拖放、启动显示握手、macOS 基础菜单完成；更新器待决策 |
+| Phase 4 构建 | v3 二进制构建脚本与 Windows 编译 CI 完成；安装器待迁移 |
+| Phase 5 清理 | 待 v3 正式发版后执行 |
+
 ## 待办
 
-1. **插件窗口**：v3 同进程窗口会让插件 JS 直接触达全部 Go Service，失去现有子进程隔离。需要先决定隔离方案（保留子进程 / 按窗口限制绑定 / 单独 helper 进程），再迁移 `internal/nativewindow` 的插件窗口桥。
-2. **macOS 菜单**：把 `menu.AppMenu/EditMenu/WindowMenu` 与偏好设置菜单迁到 `app.Menu`，并验证动态语言/主题重建。
-3. **更新器**：评估 `app.Updater` 替换自研 manifest + 重启父进程方案（保留 `download.syngnat.top` 下载源与签名策略）。
-4. **打包发版**：接入 `wails3` Taskfile / `build/config.yml`，重做 NSIS/MSI/DMG/AppImage、签名公证、npm CLI 与下载源校验；当前只有 v3 二进制编译 CI。
-5. **清理**：迁移完成后删除 v2 专属的窗口补丁（`StartupWindowGate`、WebView2 边界刷新、MSI 单实例、重启父进程握手等）与未使用的 v2 依赖。
+1. **插件窗口隔离**：v3 同进程窗口会让插件 JS 直接触达全部 Go Service，因此当前让插件窗口继续跑在 v2 子进程（`PluginController` + token 回环桥）。后续若要去掉 v2 依赖，需要先实现按窗口限制绑定或独立 helper 进程。
+2. **更新器决策**：`app.Updater` 做的是原子替换二进制并重启，与 GoNavi 现在的「下载安装包 → 安装器升级 → 重启」模型不同；Windows MSI/NSIS 场景不应直接替换二进制。暂保留自研更新链路，待产品决策。
+3. **打包发版**：接入 `wails3` Taskfile / `build/config.yml`，重做 NSIS/MSI/DMG/AppImage、签名公证、协议注册、npm CLI 与下载源校验；当前只有 v3 二进制编译 CI。
+4. **macOS 菜单本地化**：基础 App/Edit/Window 角色与 SQL 菜单已接入，偏好设置菜单（语言/主题动态重建）仍待迁移。
+5. **清理**：v3 正式发版后删除 v2 专属窗口补丁（`StartupWindowGate`、WebView2 边界刷新、MSI 单实例、重启父进程握手等）与未使用的 v2 依赖。
 
 ## v2 特殊方案与 v3 原生能力对照
 
