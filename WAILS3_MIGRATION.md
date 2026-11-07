@@ -59,8 +59,9 @@
 - 回退：在仓库 Actions 变量中设置 `GONAVI_WAILS3=0`，同一工作流改走
   `wails build`（v2）路径。
 - 安装器仍沿用现有 WiX / create-dmg / AppImage 脚本；macOS 的
-  `gonavi://` 与 `.sql` 关联由构建脚本写入 `Info.plist`，Windows 协议注册
-  仍由安装器负责。
+  `gonavi://` 与 `.sql` 关联由构建脚本写入 `Info.plist`，Windows 由应用启动时
+  写入 HKCU 注册表（内置 AI 登录前会再确认），AppImage 的 desktop 文件声明
+  `x-scheme-handler/gonavi`。三条路径都不再依赖 v2 构建产物。
 
 ## 更新器决策
 
@@ -73,8 +74,9 @@
 
 - 插件窗口继续运行在 v2 子进程（`PluginController` + token 回环桥），以保留
   插件 JS 与宿主 Service 之间的进程隔离；v3 同进程窗口无法提供该边界。
-- v2 构建仍可用（`GONAVI_WAILS3=0`），作为下一次正式发版前的回退通道；
-  v3 打包链路将在下一次 release 运行中完成跨平台验证。
+- v2 构建仍可用（`GONAVI_WAILS3=0`）作为回退通道。跨平台产物由 CI 发版任务
+  验证：Windows amd64 已用同一脚本在本地实测；macOS/Linux 走相同脚本与既有
+  打包步骤，下一次 release 产出 MSI/DMG/AppImage 时由工作流内的既有校验兜底。
 
 ## v2 特殊方案与 v3 原生能力对照
 
