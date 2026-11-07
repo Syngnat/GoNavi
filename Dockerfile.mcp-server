@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS builder
 
 # Declared without defaults so BuildKit injects the real target platform;
 # a default like TARGETARCH=amd64 would win and ship amd64 binaries to arm64.
