@@ -10,9 +10,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -21,6 +24,7 @@ import (
 	"GoNavi-Wails/internal/deeplink"
 	"GoNavi-Wails/internal/desktop"
 	"GoNavi-Wails/internal/mcpserver"
+	"GoNavi-Wails/internal/nativewindow"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -163,7 +167,7 @@ func main() {
 	var mainWindow *application.WebviewWindow
 	pendingDeepLink := firstDeepLinkArg(os.Args[1:])
 
-	wailsApp = application.New(application.Options{
+	appOptions := application.Options{
 		Name:             "GoNavi",
 		Description:      "Database client",
 		FileAssociations: []string{".sql"},
@@ -173,7 +177,7 @@ func main() {
 			application.NewService(&lifecycleService{backend: backend, ai: aiService}),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(os.DirFS("frontend/dist")),
+			Handler: detachedWindowAssetHandler(os.DirFS("frontend/dist")),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.gonavi.desktop",
@@ -187,7 +191,16 @@ func main() {
 				}
 			},
 		},
-	})
+	}
+	if os.Getenv("GONAVI_V3_DEBUG") == "1" {
+		// Lets the migration harness drive the WebView through CDP. Never set in
+		// release builds.
+		appOptions.Windows.AdditionalBrowserArgs = []string{"--remote-debugging-port=9222"}
+	}
+	wailsApp = application.New(appOptions)
+
+	windowManager := nativewindow.NewV3Manager(wailsApp)
+	wailsApp.RegisterService(application.NewService(windowManager))
 
 	// The frontend registers its listeners during startup; replay a cold-start
 	// link once it signals readiness so it is not lost.
@@ -231,4 +244,44 @@ func main() {
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// detachedWindowAssetHandler serves the SPA and injects the detached-window
+// runtime for /__gonavi/detached/window/<id>. The injected script reuses the
+// same window.go bindings every other page uses, so no HTTP bridge or token is
+// needed between windows in the v3 build.
+func detachedWindowAssetHandler(frontendFS fs.FS) http.Handler {
+	static := application.AssetFileServerFS(frontendFS)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		const prefix = "/__gonavi/detached/window/"
+		detached := strings.HasPrefix(r.URL.Path, prefix)
+		if !detached && r.URL.Path != "/" && r.URL.Path != "/index.html" {
+			static.ServeHTTP(w, r)
+			return
+		}
+		index, err := fs.ReadFile(frontendFS, "index.html")
+		if err != nil {
+			http.Error(w, "frontend bundle is not built", http.StatusInternalServerError)
+			return
+		}
+		// The flag tells the frontend bundle it is running inside Wails v3
+		// before any frame script executes; the v3 runtime itself is injected
+		// only after navigation completes, which is too late for the first
+		// binding calls and would otherwise fall through to the browser mock.
+		script := `<script>window.__GONAVI_WAILS3__=true;</script>`
+		if detached {
+			id := strings.Trim(strings.TrimPrefix(r.URL.Path, prefix), "/")
+			if id == "" {
+				http.NotFound(w, r)
+				return
+			}
+			script += fmt.Sprintf(
+				`<script>(function(){var id=%s;window.__GONAVI_DETACHED__={loadBootstrap:function(){return window.go.nativewindow.Manager.Bootstrap(id);},action:function(action,payload){return window.go.nativewindow.Manager.Action(id,action,payload||{});},present:function(){return window.go.nativewindow.Manager.Present(id);}};})();</script>`,
+				strconv.Quote(id),
+			)
+		}
+		page := strings.Replace(string(index), "</head>", script+"</head>", 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(page))
+	})
 }

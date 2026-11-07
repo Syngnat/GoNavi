@@ -24,6 +24,7 @@ configureAntdStaticOverlayLayer();
 
 if (
     typeof window !== 'undefined'
+    && !(window as any).__GONAVI_WAILS3__
     && (
         typeof (window as any).go?.app?.App?.GetSavedConnections !== 'function'
         || typeof (window as any).go?.aiservice?.Service?.AIGetProviders !== 'function'
@@ -132,11 +133,6 @@ const Root = ({ rootComponent }: { rootComponent: React.ReactNode }) => {
 };
 
 const renderRoot = async () => {
-    // Wails v3 injects its own runtime; install the v2-shaped globals before
-    // any generated binding can be called. No-op on v2 and in the browser.
-    const { installWails3Bridge } = await import('./platform/wails3Bridge');
-    await installWails3Bridge();
-
     let rootComponent: React.ReactNode = <App />;
     if (devHarnessMode === 'datagrid-perf') {
         const { default: PerfDataGridHarness } = await import('./dev/PerfDataGridHarness');
