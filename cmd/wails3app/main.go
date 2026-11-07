@@ -50,6 +50,10 @@ const (
 	deepLinkPluginInstallEvent = "gonavi:deeplink:plugin-install"
 )
 
+// devBuild is set by the Taskfile DEV build (-X main.devBuild=1); dev
+// instances must not claim the production single-instance id or gonavi:// handler.
+var devBuild = "0"
+
 var (
 	frontendReadyFlag atomic.Bool
 	pendingOpenMu     sync.Mutex
@@ -127,7 +131,19 @@ func runHeadlessMode(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	mode := strings.ToLower(strings.TrimSpace(args[0]))
+	first := strings.TrimSpace(args[0])
+	// `--data-root ... plugin ...` is the plugin CLI's data-root prefix, not a
+	// GUI launch.
+	if first == "--data-root" || strings.HasPrefix(first, "--data-root=") {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		cli.Version = appcore.CurrentVersion()
+		if code := cli.Run(ctx, args, os.Stdout, os.Stderr); code != cli.ExitSuccess {
+			log.Printf("plugin CLI exited with code %d", code)
+		}
+		return true
+	}
+	mode := strings.ToLower(first)
 	switch mode {
 	case "mcp-server", "--mcp-server":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -300,8 +316,14 @@ func main() {
 	if runHeadlessMode(os.Args[1:]) {
 		return
 	}
+	isDevRuntime := devBuild == "1" || strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL")) != ""
 	if executablePath, err := os.Executable(); err == nil {
-		if active, checkErr := appcore.WindowsUpdateMaintenanceActive(runtime.GOOS, executablePath); checkErr == nil && active {
+		active, checkErr := appcore.WindowsUpdateMaintenanceActive(runtime.GOOS, executablePath)
+		if checkErr != nil {
+			log.Printf("check Windows update maintenance failed: %v", checkErr)
+			return
+		}
+		if active {
 			log.Printf("GoNavi installation is being updated; refusing to start")
 			return
 		}
@@ -318,7 +340,7 @@ func main() {
 	// reaper for this process (same lifecycle as the v2 entry point).
 	appcore.ReapOrphanedWindowsWebViewProcesses()
 	appcore.StartWindowsRuntimeProcessReaper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" && !isDevRuntime {
 		// v3's SingleInstance forwards protocol launches as second-instance
 		// arguments; registering the handler still has to happen before the
 		// marketplace or sign-in pages open a gonavi:// link.
@@ -378,7 +400,9 @@ func main() {
 			quitting.Store(true)
 			return true
 		},
-		SingleInstance: &application.SingleInstanceOptions{
+	}
+	if !isDevRuntime {
+		appOptions.SingleInstance = &application.SingleInstanceOptions{
 			UniqueID: "com.gonavi.desktop",
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
 				if mainWindow != nil {
@@ -390,7 +414,7 @@ func main() {
 				}
 				queueOrOpenFiles(wailsApp, sqlFileArgs(data.Args))
 			},
-		},
+		}
 	}
 	if os.Getenv("GONAVI_V3_DEBUG") == "1" {
 		// Lets the migration harness drive the WebView through CDP. Never set in
@@ -509,6 +533,11 @@ func main() {
 		if closeGuard(nil) {
 			event.Cancel()
 		}
+	})
+	// Every navigation (including Ctrl+R) re-creates the frontend while backend
+	// transactions survive; roll back the orphaned ones before the new UI runs.
+	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		appcore.HandleFrontendDomReady(backend)
 	})
 	// v3 reports native drops as a window event; the frontend keeps its v2
 	// OnFileDrop contract through the compatibility runtime.

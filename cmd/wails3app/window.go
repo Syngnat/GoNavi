@@ -18,12 +18,9 @@ import (
 func resolveV3WindowChrome(goos string) (frameless bool, backgroundType application.BackgroundType, background application.RGBA, mac application.MacWindow) {
 	lowMemory := isLowMemoryMode()
 	if strings.EqualFold(strings.TrimSpace(goos), "darwin") {
-		mac.TitleBar = application.MacTitleBar{
-			Hide:               true,
-			HideTitle:          true,
-			FullSizeContent:    true,
-			AppearsTransparent: true,
-		}
+		// Hidden title bar with full-size content, keeping the standard traffic
+		// lights (the app computes their inset in the frontend).
+		mac.TitleBar = application.MacTitleBarHidden
 		if lowMemory {
 			return false, application.BackgroundTypeSolid, application.NewRGBA(255, 255, 255, 255), mac
 		}

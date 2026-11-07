@@ -373,6 +373,15 @@ func OpenFileManager(path string, selectFile bool) error {
 	return app.Env.OpenFileManager(path, selectFile)
 }
 
+// OpenFile opens a file with the platform default application.
+func OpenFile(path string) error {
+	app, _, err := current()
+	if err != nil || app == nil {
+		return errors.New("desktop runtime is not bound")
+	}
+	return app.Browser.OpenFile(path)
+}
+
 // ScreenArea is one display work area in v3's global DIP coordinate space.
 type ScreenArea struct {
 	X       int

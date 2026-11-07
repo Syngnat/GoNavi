@@ -30,6 +30,11 @@ else
 fi
 
 LDFLAGS="-s -w -X GoNavi-Wails/internal/app.AppVersion=${VERSION}"
+case "$VERSION" in
+  # Dev-channel builds must not take over the stable app's single-instance id
+  # or the gonavi:// handler.
+  dev-*) LDFLAGS="$LDFLAGS -X main.devBuild=1" ;;
+esac
 
 # Mirror wails: darwin/linux link WebKit/GTK through cgo; Windows uses a pure-Go
 # WebView2 unless a C toolchain is configured (DuckDB).

@@ -12,3 +12,8 @@ func openDirectoryNatively(directory string) bool {
 func revealFileNatively(filePath string) bool {
 	return desktop.OpenFileManager(filePath, true) == nil
 }
+
+// openFileNatively opens a file with the platform default application on v3.
+func openFileNatively(filePath string) bool {
+	return desktop.OpenFile(filePath) == nil
+}

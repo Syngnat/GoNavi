@@ -112,3 +112,8 @@ func RefreshWebViewBounds() error    { return errors.New("v2 uses the runtime co
 func OpenFileManager(string, bool) error {
 	return errors.New("v2 uses the platform file-manager commands")
 }
+
+// OpenFile is v3-only; v2 keeps its rundll32/open/xdg-open branch.
+func OpenFile(string) error {
+	return errors.New("v2 uses the platform file-open commands")
+}

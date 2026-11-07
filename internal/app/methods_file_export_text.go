@@ -134,6 +134,9 @@ func (a *App) OpenExportedTextFile(filePath string) connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: "unsupported file type for open"}
 	}
 
+	if openFileNatively(target) {
+		return connection.QueryResult{Success: true, Data: map[string]string{"path": target}}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":

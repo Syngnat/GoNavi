@@ -45,6 +45,7 @@ func NewV3Manager(app *application.App) *V3Manager {
 
 func (m *V3Manager) Open(request OpenRequest) OperationResult {
 	request = normalizeOpenRequest(request)
+	request = m.normalizeBounds(request)
 	if strings.TrimSpace(request.ID) == "" {
 		return OperationResult{Success: false, Message: "window id is required"}
 	}
@@ -97,6 +98,55 @@ func (m *V3Manager) Open(request OpenRequest) OperationResult {
 			Height: request.Height,
 		},
 	}
+}
+
+// normalizeBounds clamps a detached window into a visible work area. The
+// frontend remembers global DIP bounds; after a monitor is unplugged those can
+// point off-screen.
+func (m *V3Manager) normalizeBounds(request OpenRequest) OpenRequest {
+	if m == nil || m.app == nil {
+		return request
+	}
+	screens := m.app.Screen.GetAll()
+	if len(screens) == 0 {
+		return request
+	}
+	width := max(request.Width, 320)
+	height := max(request.Height, 240)
+	centerX := request.X + width/2
+	centerY := request.Y + height/2
+	var target *application.Screen
+	for _, screen := range screens {
+		if screen == nil {
+			continue
+		}
+		work := screen.WorkArea
+		if centerX >= work.X && centerX < work.X+work.Width && centerY >= work.Y && centerY < work.Y+work.Height {
+			target = screen
+			break
+		}
+	}
+	if target == nil {
+		target = m.app.Screen.GetPrimary()
+	}
+	if target == nil {
+		target = screens[0]
+	}
+	work := target.WorkArea
+	if work.Width <= 0 || work.Height <= 0 {
+		return request
+	}
+	width = min(width, work.Width)
+	height = min(height, work.Height)
+	x, y := request.X, request.Y
+	if x < work.X || x+width > work.X+work.Width {
+		x = work.X + max(0, (work.Width-width)/2)
+	}
+	if y < work.Y || y+height > work.Y+work.Height {
+		y = work.Y + max(0, (work.Height-height)/2)
+	}
+	request.X, request.Y, request.Width, request.Height = x, y, width, height
+	return request
 }
 
 func (m *V3Manager) handleWindowClosing(entry *v3Window) {
