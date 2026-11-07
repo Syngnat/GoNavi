@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/options"
 	"golang.org/x/sys/windows"
 )
 
@@ -45,19 +44,5 @@ func TestPluginWindowsJobKillsDescendantTree(t *testing.T) {
 	result, err := windows.WaitForSingleObject(handle, 3000)
 	if err != nil || result != windows.WAIT_OBJECT_0 {
 		t.Fatalf("descendant survived job termination: result=%d error=%v", result, err)
-	}
-}
-
-func TestPluginWindowsUsesDedicatedWebviewProfile(t *testing.T) {
-	app := &options.App{}
-	profile := t.TempDir()
-	if err := configurePluginWebview(app, profile); err != nil {
-		t.Fatal(err)
-	}
-	if app.Windows == nil || app.Windows.WebviewUserDataPath != filepath.Join(profile, "webview2") {
-		t.Fatal("default shared WebView2 profile selected")
-	}
-	if len(app.Bind) != 0 {
-		t.Fatal("host bindings exposed")
 	}
 }

@@ -50,11 +50,13 @@
 - 屏幕与坐标：`App.Screen` 全局 DIP 工作区 + `Window.GetScreen`；分离窗口 bounds 按工作区归一化，拔屏后不会开到屏幕外。
 - 文件与目录：`Env.OpenFileManager` 打开目录/选中文件、`Browser.OpenFile` 打开导出文件；`.sql` 关联写入 MSI 与 AppImage desktop。
 - 分离窗口：`Control.Hide/HideForAISettings` 经 `V3Manager`；文件拖放改用 `data-file-drop-target` 并转发 `DropTargetDetails`。
+- 插件窗口：子进程已从 v2 `wails.Run` 迁到 v3 `application`（Services 为空、权限全 deny、独立 WebView profile、拒绝 `/wails/`、DLL 搜索目录收紧），仍保持独立进程隔离。
 - 生命周期：`web-server`、`plugin` CLI、`--data-root` 与 `--disable-plugins` 安全模式在 v3 入口可用；dev 构建通过 `main.devBuild` 跳过单实例与 `gonavi://` 注册，避免抢占正式版。
+- v3 二进制不再链接任何 `wails/v2` 包（`go list -tags wails3 -deps ./cmd/wails3app` 为 0）。
 
 ### 有意保留的例外
 
-- 插件窗口继续跑 v2 子进程：v3.1.0 没有按窗口限制绑定的原生沙箱，同进程窗口会让插件 JS 直接触达全部 Go Service；进程隔离优先于去除 v2 运行时。
+- 插件窗口仍是独立进程：v3.1.0 没有按窗口限制绑定的原生沙箱，同进程窗口会让插件 JS 直接触达全部 Go Service；子进程内部已改用 v3 application，进程隔离保持不变。
 - 更新器、web-server 内部（认证/多用户/TOTP）、自绘右键菜单、自定义快捷键、AI token 流（v3 Stream 需双传输适配）、系统通知、Autostart、macOS Dock 菜单、NSPanel、Windows 非客户区命中：要么与现有产品/安装器语义不兼容，要么 v3 无对应 API，保持现状并已在审计中确认。
 
 ### 开发闭环

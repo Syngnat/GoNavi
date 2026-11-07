@@ -1,3 +1,5 @@
+//go:build !wails3
+
 package nativewindow
 
 import (
@@ -16,10 +18,10 @@ import (
 
 	appcore "GoNavi-Wails/internal/app"
 
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // ChildOptions are intentionally small; the potentially large tab payload is
@@ -215,13 +217,6 @@ func RunChild(parentCtx context.Context, assetFS fs.FS, args []string) error {
 func runDetachedChildApplication(app *options.App, runner func(*options.App) error) error {
 	prepareDetachedAccessoryActivationPolicy()
 	return runner(app)
-}
-
-func detachedWindowMinimumSize(kind string) (width int, height int) {
-	if strings.TrimSpace(kind) == "ai-chat" {
-		return 360, 420
-	}
-	return 480, 320
 }
 
 type discardWriter struct{}

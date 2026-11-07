@@ -7,8 +7,6 @@ import (
 
 	"GoNavi-Wails/internal/backgroundgallery"
 	"GoNavi-Wails/internal/fontgallery"
-
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
 
 // GalleryAssetMiddleware intercepts gallery, font and plugin-page requests
@@ -35,14 +33,5 @@ func GalleryAssetMiddleware(a *App, assets fs.FS) func(http.Handler) http.Handle
 			}
 			next.ServeHTTP(w, r)
 		})
-	}
-}
-
-// BackgroundGalleryAssetOptions wires the shared middleware into the v2
-// AssetServer.
-func BackgroundGalleryAssetOptions(a *App, assets fs.FS) *assetserver.Options {
-	return &assetserver.Options{
-		Assets:     assets,
-		Middleware: GalleryAssetMiddleware(a, assets),
 	}
 }

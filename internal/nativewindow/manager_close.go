@@ -1,3 +1,5 @@
+//go:build !wails3
+
 package nativewindow
 
 import (
@@ -211,10 +213,6 @@ func (m *Manager) SyncHostState(request HostStateRequest) OperationResult {
 
 type hostStateInvalidationPayload struct {
 	Revision int64 `json:"revision"`
-}
-
-type visibilityCommandPayload struct {
-	VisibilityRevision uint64 `json:"visibilityRevision"`
 }
 
 func cloneHostStoreState(storeState map[string]any) (map[string]any, error) {
