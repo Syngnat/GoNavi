@@ -1,5 +1,7 @@
 //go:build darwin && cgo
 
+#include "plugin_profile_darwin_guard.h"
+
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>

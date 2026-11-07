@@ -8,7 +8,7 @@ import (
 )
 
 func configurePluginWebview(app *options.App, _ string) error {
-	if err := installPluginConfigurationGuard(); err != nil {
+	if err := ensurePluginConfigurationGuard(); err != nil {
 		return err
 	}
 	app.Mac = &mac.Options{}

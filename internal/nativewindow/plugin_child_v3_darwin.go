@@ -3,5 +3,5 @@
 package nativewindow
 
 func preparePluginChildPlatform(string) error {
-	return installPluginConfigurationGuard()
+	return ensurePluginConfigurationGuard()
 }
