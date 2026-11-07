@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -97,3 +98,12 @@ func ClipboardSetText(ctx context.Context, text string) error {
 func BrowserOpenURL(ctx context.Context, url string) {
 	wailsRuntime.BrowserOpenURL(ctx, url)
 }
+
+// NativeWindowHandle is only available through the v2 runtime context; the
+// Windows brand-icon code keeps its reflection path for v2.
+func NativeWindowHandle() uintptr { return 0 }
+
+// ResetWebViewZoom and RefreshWebViewBounds are v3-only; the v2 implementation
+// keeps the existing runtime-context reflection.
+func ResetWebViewZoom(float64) error { return errors.New("v2 uses the runtime context path") }
+func RefreshWebViewBounds() error    { return errors.New("v2 uses the runtime context path") }

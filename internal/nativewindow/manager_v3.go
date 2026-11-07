@@ -260,12 +260,17 @@ func (m *V3Manager) Action(id string, action string, payload any) (OperationResu
 			entry.visibilityRevision++
 		}
 	}
+	if action == "open-ai-settings" {
+		entry.hidden = true
+		entry.visibilityRevision++
+		entry.window.Hide()
+	}
 	visibility := entry.visibilityRevision
 	kind := entry.kind
 	m.mu.Unlock()
 
 	event := Event{ID: id, Kind: kind, Action: action, Payload: payload}
-	if action == "hide" {
+	if action == "hide" || action == "open-ai-settings" {
 		if record, ok := payload.(map[string]any); ok {
 			record["visibilityRevision"] = visibility
 		} else {

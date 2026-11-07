@@ -18,6 +18,7 @@ import (
 
 	aiservice "GoNavi-Wails/internal/ai/service"
 	"GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
@@ -189,7 +190,7 @@ func main() {
 	bindings := collectWailsBindings(application, aiService, nativeWindowManager)
 	lowMemoryMode := isLowMemoryMode()
 	backgroundColour, windowsOptions := resolveWindowVisualOptions(runtime.GOOS, lowMemoryMode)
-	windowsOptions.WebviewUserDataPath = resolveWindowsWebviewUserDataPath()
+	windowsOptions.WebviewUserDataPath = appdata.ResolveWindowsWebviewUserDataPath()
 	windowChrome := resolveMainWindowChrome(runtime.GOOS)
 	var runtimeCtx context.Context
 	var appMenu *menu.Menu

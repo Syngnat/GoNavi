@@ -329,3 +329,81 @@ func BrowserOpenURL(_ context.Context, url string) {
 		_ = app.Browser.OpenURL(url)
 	}
 }
+
+// NativeWindowHandle returns the main window's native handle (HWND on
+// Windows). v3 does not expose the v2 frontend reflection path, so the brand
+// icon code asks the bound window directly.
+func NativeWindowHandle() uintptr {
+	_, window, err := current()
+	if err != nil || window == nil {
+		return 0
+	}
+	return uintptr(window.NativeWindow())
+}
+
+// ResetWebViewZoom replaces the v2 WebView2 reflection patch.
+func ResetWebViewZoom(factor float64) error {
+	_, window, err := current()
+	if err != nil || window == nil {
+		return errors.New("desktop window is not bound")
+	}
+	window.SetZoom(factor)
+	return nil
+}
+
+// RefreshWebViewBounds nudges WebView2 to resync its controller bounds without
+// toggling the window. v3 already tracks DPI and WM_SIZE; this is a no-op nudge
+// for the startup-maximise race.
+func RefreshWebViewBounds() error {
+	_, window, err := current()
+	if err != nil || window == nil {
+		return errors.New("desktop window is not bound")
+	}
+	window.SetBounds(window.Bounds())
+	return nil
+}
+
+// ScreenArea is one display work area in v3's global DIP coordinate space.
+type ScreenArea struct {
+	X       int
+	Y       int
+	Width   int
+	Height  int
+	Primary bool
+	Current bool
+}
+
+// ScreenAreas exposes the v3 screen manager so the app can replace the v2
+// native enumeration (which returned physical pixels and local coordinates).
+func ScreenAreas() ([]ScreenArea, bool) {
+	app, window, err := current()
+	if err != nil || app == nil {
+		return nil, false
+	}
+	currentID := ""
+	if window != nil {
+		if screen, screenErr := window.GetScreen(); screenErr == nil && screen != nil {
+			currentID = screen.ID
+		}
+	}
+	screens := app.Screen.GetAll()
+	areas := make([]ScreenArea, 0, len(screens))
+	for _, screen := range screens {
+		if screen == nil {
+			continue
+		}
+		work := screen.WorkArea
+		if work.Width <= 0 || work.Height <= 0 {
+			continue
+		}
+		areas = append(areas, ScreenArea{
+			X:       work.X,
+			Y:       work.Y,
+			Width:   work.Width,
+			Height:  work.Height,
+			Primary: screen.IsPrimary,
+			Current: screen.ID == currentID,
+		})
+	}
+	return areas, true
+}

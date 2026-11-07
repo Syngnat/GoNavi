@@ -306,7 +306,8 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     --wails-drop-target: drop;
 }
 
-.gn-query-monaco-stage.wails-drop-target-active::after {
+.gn-query-monaco-stage.wails-drop-target-active::after,
+.gn-query-monaco-stage.file-drop-target-active::after {
     content: '';
     position: absolute;
     inset: 0;

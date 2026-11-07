@@ -29,6 +29,7 @@ import (
 	frontendbundle "GoNavi-Wails/frontend"
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/deeplink"
 	"GoNavi-Wails/internal/desktop"
 	"GoNavi-Wails/internal/mcpserver"
@@ -297,6 +298,7 @@ func main() {
 	pendingOpenFiles = append(pendingOpenFiles, sqlFileArgs(os.Args[1:])...)
 	closeGuard := appcore.NewBeforeCloseHandler(backend)
 	var quitting atomic.Bool
+	var brandIconOnce sync.Once
 
 	appOptions := application.Options{
 		Name:             "GoNavi",
@@ -309,6 +311,11 @@ func main() {
 		},
 		Assets: application.AssetOptions{
 			Handler: detachedWindowAssetHandler(frontendbundle.Assets),
+		},
+		Windows: application.WindowsOptions{
+			// Keep the same WebView2 profile as the v2 build so localStorage
+			// (theme, proxy, background image) survives the upgrade/rollback.
+			WebviewUserDataPath: appdata.ResolveWindowsWebviewUserDataPath(),
 		},
 		ShouldQuit: func() bool {
 			// Cmd+Q and the menu quit path must honour the same pending-edit
@@ -384,6 +391,13 @@ func main() {
 			mainWindow.Show()
 			mainWindow.Focus()
 		}
+		if runtime.GOOS == "windows" {
+			brandIconOnce.Do(func() {
+				if err := appcore.InitializePersistedNativeBrandIcon(backend, context.Background()); err != nil {
+					log.Printf("apply persisted brand icon failed: %v", err)
+				}
+			})
+		}
 		pendingOpenMu.Lock()
 		openedFiles := append([]string(nil), pendingOpenFiles...)
 		pendingOpenFiles = nil
@@ -408,15 +422,20 @@ func main() {
 	})
 
 	hideUntilFrontendReady := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	frameless, backgroundType, backgroundColour, macWindow := resolveV3WindowChrome(runtime.GOOS)
 	windowOptions := application.WebviewWindowOptions{
-		Title:          "GoNavi",
-		Width:          1440,
-		Height:         900,
-		MinWidth:       900,
-		MinHeight:      600,
-		Hidden:         hideUntilFrontendReady,
-		URL:            "/",
-		EnableFileDrop: true,
+		Title:            "GoNavi",
+		Width:            1440,
+		Height:           900,
+		MinWidth:         900,
+		MinHeight:        600,
+		Hidden:           hideUntilFrontendReady,
+		Frameless:        frameless,
+		BackgroundType:   backgroundType,
+		BackgroundColour: backgroundColour,
+		Mac:              macWindow,
+		URL:              "/",
+		EnableFileDrop:   true,
 	}
 	if os.Getenv("GONAVI_V3_DEBUG") == "1" {
 		windowOptions.OpenInspectorOnStartup = true
@@ -437,13 +456,18 @@ func main() {
 	// v3 reports native drops as a window event; the frontend keeps its v2
 	// OnFileDrop contract through the compatibility runtime.
 	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
-		// v3 keeps the drop coordinates unexported; the frontend's SQL drop
-		// target only needs the paths.
-		wailsApp.Event.Emit("gonavi:file-drop", map[string]any{
+		context := event.Context()
+		payload := map[string]any{
 			"x":     0,
 			"y":     0,
-			"paths": event.Context().DroppedFiles(),
-		})
+			"paths": context.DroppedFiles(),
+		}
+		if details := context.DropTargetDetails(); details != nil {
+			payload["x"] = details.X
+			payload["y"] = details.Y
+			payload["dropTarget"] = details
+		}
+		wailsApp.Event.Emit("gonavi:file-drop", payload)
 	})
 	if hideUntilFrontendReady {
 		// The frontend shows the window after its first paint; this fallback
@@ -502,7 +526,7 @@ func detachedWindowAssetHandler(frontendFS fs.FS) http.Handler {
 		script := `<script>window.__GONAVI_WAILS3__=true;</script>`
 		if detached {
 			script += fmt.Sprintf(
-				`<script>(function(){var id=%s;window.__GONAVI_DETACHED__={loadBootstrap:function(){return window.go.nativewindow.Manager.Bootstrap(id);},action:function(action,payload){return window.go.nativewindow.Manager.Action(id,action,payload||{});},present:function(){return window.go.nativewindow.Manager.Present(id);}};})();</script>`,
+				`<script>(function(){var id=%s;window.__GONAVI_DETACHED_ID__=id;window.__GONAVI_DETACHED__={loadBootstrap:function(){return window.go.nativewindow.Manager.Bootstrap(id);},action:function(action,payload){return window.go.nativewindow.Manager.Action(id,action,payload||{});},present:function(){return window.go.nativewindow.Manager.Present(id);}};})();</script>`,
 				strconv.Quote(id),
 			)
 		}

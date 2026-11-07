@@ -84,6 +84,30 @@ function createGoProxy(): AnyRecord {
                             if (typeof service !== 'string') {
                                 return undefined;
                             }
+                            // Detached windows used a per-window Control service in the
+                            // v2 child. The v3 manager targets the same window by the id
+                            // injected into the detached document.
+                            if (namespace === 'nativewindow' && service === 'Control') {
+                                const id = String((window as AnyRecord).__GONAVI_DETACHED_ID__ || '').trim();
+                                if (id) {
+                                    const callManager = (method: string, ...args: unknown[]) =>
+                                        loadWails3Runtime().then((rt) =>
+                                            rt.Call.ByName(`GoNavi-Wails/internal/nativewindow.V3Manager.${method}`, ...args),
+                                        );
+                                    return {
+                                        Hide: () => callManager('Hide', id),
+                                        HideForAISettings: (revision: number) =>
+                                            callManager('Action', id, 'open-ai-settings', {
+                                                visibilityRevision: revision,
+                                            }),
+                                        HideForAISettingsProvider: (revision: number, providerId?: string) =>
+                                            callManager('Action', id, 'open-ai-settings', {
+                                                visibilityRevision: revision,
+                                                providerId: String(providerId || ''),
+                                            }),
+                                    };
+                                }
+                            }
                             return serviceProxy(namespace, service);
                         },
                     },
@@ -253,10 +277,23 @@ function createRuntimeShim(): AnyRecord {
 
         // v3 delivers native drops to the window event bus in Go; the desktop
         // host forwards them as `gonavi:file-drop` for this shim.
-        OnFileDrop: (callback: (x: number, y: number, paths: string[]) => void) => {
+        OnFileDrop: (
+            callback: (x: number, y: number, paths: string[]) => void,
+            useDropTarget = false,
+        ) => {
             removeFileDropListener?.();
             removeFileDropListener = subscribeEvent('gonavi:file-drop', (payload) => {
-                const record = (payload ?? {}) as { x?: number; y?: number; paths?: string[] };
+                const record = (payload ?? {}) as {
+                    x?: number;
+                    y?: number;
+                    paths?: string[];
+                    dropTarget?: unknown;
+                };
+                // v2 semantics: useDropTarget only fires when the drop landed on a
+                // [data-file-drop-target] element.
+                if (useDropTarget && !record.dropTarget) {
+                    return;
+                }
                 callback(Number(record.x ?? 0), Number(record.y ?? 0), record.paths ?? []);
             });
         },
