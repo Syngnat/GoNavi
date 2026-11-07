@@ -19,8 +19,11 @@ func TestVerifyImageRejectsWebPCanvasFrameMismatch(t *testing.T) {
 	if err != nil || config.Width != 1 || config.Height != 1 {
 		t.Fatalf("synthetic outer canvas: %+v, %v", config, err)
 	}
+	// golang.org/x/image/webp v0.45 rejects this intentionally mismatched
+	// container during decode. Either outcome is fine here: the assertion below
+	// covers the production preflight, which must reject the layout.
 	decoded, _, err := image.Decode(bytes.NewReader(payload))
-	if err != nil || decoded.Bounds() != image.Rect(0, 0, 2, 3) {
+	if err == nil && decoded.Bounds() != image.Rect(0, 0, 2, 3) {
 		t.Fatalf("synthetic inner frame: %v, %v", decoded, err)
 	}
 	if err := verifyImage(payload, webPAsset(payload, 1, 1)); ErrorCode(err) != "integrity" || !strings.Contains(err.Error(), "invalid webp layout or dimensions") {
