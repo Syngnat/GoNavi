@@ -28,6 +28,7 @@ const maxProcessCommandLineBytes = 32 * 1024
 var (
 	windowsRuntimeReaperMu      sync.Mutex
 	windowsRuntimeReaperStarted bool
+	windowsWebViewJobStarted    bool
 )
 
 // HandleWindowsRuntimeReaperArgs runs the hidden cleanup process that waits
@@ -69,9 +70,35 @@ func runWindowsRuntimeReaper(parentPID int) error {
 	return reapOrphanedWindowsWebViewProcesses()
 }
 
-// StartWindowsRuntimeProcessReaper launches the cleanup process before WebView2
-// starts. Retrying from shutdown is safe: a running reaper is not started twice.
+// StartWindowsRuntimeProcessReaper installs the WebView2 cleanup mechanism
+// before WebView2 starts. A kill-on-close job object is preferred: the kernel
+// terminates browser processes when GoNavi exits, with no helper process. The
+// helper reaper stays as a fallback for environments where job assignment is
+// rejected. Retrying from shutdown is safe: an installed mechanism is not
+// started twice.
 func StartWindowsRuntimeProcessReaper() {
+	windowsRuntimeReaperMu.Lock()
+	defer windowsRuntimeReaperMu.Unlock()
+	if windowsRuntimeReaperStarted || windowsWebViewJobStarted {
+		return
+	}
+	err := startWindowsWebViewJob()
+	if err == nil {
+		windowsWebViewJobStarted = true
+		return
+	}
+	logger.Warnf("启动 WebView2 Job Object 失败，回退到进程回收器：%v", err)
+	if err := startWindowsRuntimeProcessReaper(); err != nil {
+		logger.Warnf("启动 Windows 运行时进程回收器失败：%v", err)
+		return
+	}
+	windowsRuntimeReaperStarted = true
+}
+
+// startWindowsRuntimeReaperFallback launches the legacy helper after the job
+// watcher reports that assignment is not permitted. It is a no-op when a
+// reaper is already running.
+func startWindowsRuntimeReaperFallback() {
 	windowsRuntimeReaperMu.Lock()
 	defer windowsRuntimeReaperMu.Unlock()
 	if windowsRuntimeReaperStarted {
