@@ -95,6 +95,7 @@ type App struct {
 	driverDownloadTaskControls       map[string]driverDownloadTaskControl
 	exportTaskMu                     sync.Mutex
 	exportTasks                      map[string]*exportTaskRegistration
+	idleMemoryTrim                   idleMemoryTrimState
 	// 驱动安装锁：按驱动类型分片，替代此前的全局单锁（见 driver_install_lock.go）。
 	driverInstallLock           driverInstallLockManager
 	driverMaintenance           map[string]int
