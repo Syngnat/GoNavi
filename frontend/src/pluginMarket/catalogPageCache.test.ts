@@ -1,9 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CatalogPage } from './types';
-import { CATALOG_MAX_BYTES, CATALOG_MAX_PAGES, CATALOG_MAX_REQUESTS, CATALOG_TTL_MS, catalogCacheStats, clearCatalogPages, peekCatalogPage, requestCatalogPage, syncCatalogSources } from './catalogPageCache';
+import { CATALOG_MAX_BYTES, CATALOG_MAX_PAGES, CATALOG_MAX_REQUESTS, CATALOG_STORAGE_PREFIX, CATALOG_TTL_MS, catalogCacheStats, clearCatalogPages, peekCatalogPage, requestCatalogPage, syncCatalogSources } from './catalogPageCache';
+class MemoryStorage implements Storage {
+  private data = new Map<string, string>();
+  get length() { return this.data.size; }
+  clear() { this.data.clear(); }
+  getItem(key: string) { return this.data.get(key) ?? null; }
+  key(index: number) { return Array.from(this.data.keys())[index] ?? null; }
+  removeItem(key: string) { this.data.delete(key); }
+  setItem(key: string, value: string) { this.data.set(key, value); }
+}
 const page = (): CatalogPage => ({ items: [], sourceId: 'source' });
-beforeEach(() => { vi.useFakeTimers(); clearCatalogPages(); });
-afterEach(() => vi.useRealTimers());
+const plugin = { id: 'test.one', name: 'One', author: '', publisherId: '', description: '', version: '1.0.0', official: true,
+  platforms: [], ratingAverage: 0, ratingCount: 0, downloadCount: 0, updatedAt: 'now' };
+let storage: MemoryStorage;
+beforeEach(() => { vi.useFakeTimers(); storage = new MemoryStorage(); vi.stubGlobal('localStorage', storage); clearCatalogPages(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('bounded public catalog cache', () => {
   it('reuses fresh pages and supports explicit refresh', async () => {
     const load = vi.fn(async () => page()); await requestCatalogPage('one', load); await requestCatalogPage('one', load);
@@ -46,6 +58,41 @@ describe('bounded public catalog cache', () => {
     const fastLoad = vi.fn(async () => page()); await requestCatalogPage('fast', fastLoad, { sourceId: 'fast' });
     expect(fastLoad).toHaveBeenCalledOnce(); expect(queuedLoad).not.toHaveBeenCalled();
     finish(page()); await Promise.all([slow, queued]); expect(queuedLoad).toHaveBeenCalledOnce();
+  });
+  it('restores a compact page from localStorage after a restart and refreshes it', async () => {
+    // 故意写入一个不完整的 manifest，证明持久化时会剥离它（重启恢复时解码仍能通过）。
+    const withManifest = { ...page(), items: [{ ...plugin, manifest: { name: 'secret' } }] } as unknown as CatalogPage;
+    await requestCatalogPage('restart', async () => withManifest);
+    const name = CATALOG_STORAGE_PREFIX + 'restart';
+    const raw = storage.getItem(name);
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw!).page.items[0].manifest).toBeUndefined();
+    vi.resetModules();
+    const fresh = await import('./catalogPageCache');
+    const restored = fresh.peekCatalogPage('restart');
+    expect(restored?.page?.items).toHaveLength(1);
+    expect(restored?.page?.items[0].manifest).toBeUndefined();
+    expect(restored?.validUntil).toBe(0);
+    const load = vi.fn(async () => ({ ...page(), items: [{ ...plugin, name: 'Fresh' }] }));
+    await expect(fresh.requestCatalogPage('restart', load)).resolves.toMatchObject({ items: [{ name: 'Fresh' }] });
+    expect(load).toHaveBeenCalledOnce();
+    fresh.clearCatalogPages();
+  });
+  it('keeps transient search and paged results out of localStorage', async () => {
+    await requestCatalogPage('transient', async () => page(), { persist: false });
+    expect(storage.getItem(CATALOG_STORAGE_PREFIX + 'transient')).toBeNull();
+    expect(peekCatalogPage('transient')?.page).toEqual(page());
+  });
+  it('drops corrupt persisted pages and clears persisted pages on reset', async () => {
+    const broken = CATALOG_STORAGE_PREFIX + 'broken';
+    storage.setItem(broken, '{not json');
+    expect(peekCatalogPage('broken')).toBeUndefined();
+    expect(storage.getItem(broken)).toBeNull();
+    await requestCatalogPage('clear', async () => page());
+    expect(storage.length).toBeGreaterThan(0);
+    clearCatalogPages();
+    const remaining = Array.from({ length: storage.length }, (_, index) => storage.key(index));
+    expect(remaining.every((name) => !name?.startsWith(CATALOG_STORAGE_PREFIX))).toBe(true);
   });
 
 });

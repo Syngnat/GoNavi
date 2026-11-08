@@ -50,7 +50,7 @@ export function useSourceCatalog(sourceId: string, trustedOfficial: boolean, que
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const page = await requestCatalogPage(key, () => filterKey ? searchSourceCatalog(sourceId, query, sort, cursor, normalizedFilters) : client.catalog(query, sort, cursor), { force, signal: controller.signal, sourceId });
+        const page = await requestCatalogPage(key, () => filterKey ? searchSourceCatalog(sourceId, query, sort, cursor, normalizedFilters) : client.catalog(query, sort, cursor), { force, signal: controller.signal, sourceId, persist: query === '' && cursor === '' });
         if (token === request.current) setView(pageView(key, trustedOfficial, page));
       } catch (cause) {
         if (token !== request.current || controller.signal.aborted) return;
