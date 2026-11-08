@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"path"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -22,9 +23,44 @@ import (
 //go:embed dist.tar.br
 var embeddedDistBundle []byte
 
-// 启动时在后台把包解到内存(约 27 MB、约 0.1 s),与 Wails / WebView 初始化并行;
-// 首次访问资源时若尚未解完则等待。
-var Assets fs.FS = newBundleAssetFS(embeddedDistBundle)
+// 解压后的资源优先落到用户缓存目录(按内容哈希分版本),由浏览器直接读取,
+// 避免把约 37 MB 的解压资源常驻 Go 堆;缓存不可用时回退到内存 FS(见
+// loadBundledAssets)。
+//
+// 资源在首次访问时才物化:不提供界面的进程(mcp-server、CLI 子命令)不需要
+// 解压前端包,后台模式因此不再为资源付出几十 MB 内存。
+var Assets fs.FS = newLazyAssetFS(embeddedDistBundle)
+
+type lazyAssetFS struct {
+	bundle []byte
+	once   sync.Once
+	inner  fs.FS
+}
+
+func newLazyAssetFS(bundle []byte) *lazyAssetFS {
+	return &lazyAssetFS{bundle: bundle}
+}
+
+func (l *lazyAssetFS) resolve() fs.FS {
+	l.once.Do(func() { l.inner = loadBundledAssets(l.bundle) })
+	return l.inner
+}
+
+func (l *lazyAssetFS) Open(name string) (fs.File, error) {
+	return l.resolve().Open(name)
+}
+
+func (l *lazyAssetFS) ReadFile(name string) ([]byte, error) {
+	return fs.ReadFile(l.resolve(), name)
+}
+
+func (l *lazyAssetFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return fs.ReadDir(l.resolve(), name)
+}
+
+func (l *lazyAssetFS) Stat(name string) (fs.FileInfo, error) {
+	return fs.Stat(l.resolve(), name)
+}
 
 // bundleAssetFS 是 tar.br 包解压后的只读 fs.FS。归档只存文件条目,目录从文件
 // 路径推导出来,保证 fs.WalkDir/fs.ReadDir 可用(Wails 启动时靠它们定位 index.html)。
