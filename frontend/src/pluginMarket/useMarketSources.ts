@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { pluginErrorText } from '../plugins/apiResult';
 import { marketSourcesAPI } from './sourceApi';
 import { syncCatalogSources } from './catalogPageCache';
+import { peekMarketSources, storeMarketSources } from './marketSourcesCache';
 import type { MarketSource, MarketSourceConfig } from './types';
 
 export function useMarketSources() {
-  const [sources, setSources] = useState<MarketSource[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [sources, setSources] = useState<MarketSource[]>(() => peekMarketSources());
+  const [loading, setLoading] = useState(() => peekMarketSources().length === 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -17,7 +18,7 @@ export function useMarketSources() {
     if (saving.current) return;
     const token = ++request.current;
     setLoading(true); setError('');
-    try { const rows = await marketSourcesAPI.list(); if (alive.current && token === request.current) { syncCatalogSources(JSON.stringify(rows)); setSources(rows); } }
+    try { const rows = await marketSourcesAPI.list(); if (alive.current && token === request.current) { syncCatalogSources(JSON.stringify(rows)); storeMarketSources(rows); setSources(rows); } }
     catch (cause) { if (alive.current && token === request.current) setError(pluginErrorText(cause)); }
     finally { if (alive.current && token === request.current) setLoading(false); }
   }, []);
@@ -29,7 +30,7 @@ export function useMarketSources() {
     try {
       const result = await marketSourcesAPI.save(rows);
       if (!alive.current || token !== request.current) return false;
-      syncCatalogSources(JSON.stringify(result)); setSources(result); setRevision((value) => value + 1); return true;
+      syncCatalogSources(JSON.stringify(result)); storeMarketSources(result); setSources(result); setRevision((value) => value + 1); return true;
     } catch (cause) { if (alive.current && token === request.current) setError(pluginErrorText(cause)); return false; }
     finally { saving.current = false; if (alive.current) { setBusy(false); setLoading(false); } }
   };
