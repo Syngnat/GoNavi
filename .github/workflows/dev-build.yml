@@ -7,7 +7,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # 新推送排队等待正在进行的构建，而不是把它取消：一次全平台构建约 30-40 分钟，
+  # 快完成时被取消会白跑；同一 group 仍只保留一个排队项，后推的提交替换更早的等待项。
+  cancel-in-progress: false
 
 permissions:
   contents: write
