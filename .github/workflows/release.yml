@@ -1367,21 +1367,9 @@ jobs:
               Write-Host "::warning title=SFX 便携版已跳过::SFX 便携版 EXE 生成失败，ZIP 与 MSI 继续构建。原因: $($_.Exception.Message)"
           }
 
-          $portableDir = Join-Path $env:RUNNER_TEMP "gonavi-portable-$archName"
-          if (Test-Path -LiteralPath $portableDir) {
-              Remove-Item -LiteralPath $portableDir -Recurse -Force
-          }
-          New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
-          $portableApp = Join-Path $portableDir "GoNavi.exe"
-          $portableLicense = Join-Path $portableDir "LICENSE"
-          $portableNotice = Join-Path $portableDir "NOTICE"
-          Copy-Item -LiteralPath $finalExe -Destination $portableApp -Force
-          Copy-Item -LiteralPath $licenseFile -Destination $portableLicense -Force
-          Copy-Item -LiteralPath $noticeFile -Destination $portableNotice -Force
-          $portableFiles = @($portableApp, $portableLicense, $portableNotice)
           $portableZipPath = Join-Path $releaseRoot $portableZipName
-          Write-Host "📦 生成普通 Windows Portable ZIP $portableZipName..."
-          Compress-Archive -LiteralPath $portableFiles -DestinationPath $portableZipPath -CompressionLevel Optimal -Force
+          Write-Host "📦 生成 Windows Portable ZIP $portableZipName（包内 exe 先做 UPX 压缩）..."
+          & (Join-Path $releaseRoot "tools\\make-portable-zip.ps1") -SourceExe $finalExePath -OutputZip $portableZipPath -LicenseFile $licenseFile -NoticeFile $noticeFile
           if (-not (Test-Path -LiteralPath $portableZipPath -PathType Leaf) -or (Get-Item -LiteralPath $portableZipPath).Length -le 0) {
               throw "Windows Portable ZIP 生成失败: $portableZipPath"
           }
