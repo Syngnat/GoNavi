@@ -6,8 +6,7 @@
 #     版本与 SHA256 双重锁定,来源 www.7-zip.org);
 #   - 已注入 asInvoker 内嵌清单,避免被 Windows"安装器启发式检测"自动提权(弹 UAC);
 #   - 不自删除 SFX 本体、不写注册表、不做任何启动项/计划任务操作;
-#   - SFX 内嵌的是未修改的原始 exe；Portable.zip 内为减小体积会换用 UPX 压缩副本
-#     （见 tools/make-portable-zip.ps1），两者的扫描面因此不同；
+#   - 解压出来的 GoNavi.exe 与现在的 Portable.zip 内容完全一致,扫描面不变;
 #   - 解压失败时仍会弹出错误框,静默只发生在成功路径上。
 #
 # 用法(仓库根目录):
