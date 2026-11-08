@@ -72,6 +72,7 @@ export function decodeRating(data: unknown): MarketRating {
   boundedJSON(data);
   const r = requireRecord(data);
   if (['userId', 'pluginId', 'body', 'version', 'updatedAt'].some((key) => typeof r[key] !== 'string')
+    || (r.userName != null && (typeof r.userName !== 'string' || r.userName.length > 256))
     || !Number.isInteger(r.stars) || Number(r.stars) < 1 || Number(r.stars) > 5) invalid();
   return r as unknown as MarketRating;
 }

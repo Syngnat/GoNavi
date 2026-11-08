@@ -169,6 +169,7 @@ func validateItem(item *Item, source sourceSnapshot) error {
 }
 
 func validRating(rating Rating, id string) bool {
-	return rating.PluginID == id && len(rating.UserID) > 0 && len(rating.UserID) <= 256 && rating.Stars >= 1 && rating.Stars <= 5 &&
+	return rating.PluginID == id && len(rating.UserID) > 0 && len(rating.UserID) <= 256 &&
+		(len(rating.UserName) == 0 || len(rating.UserName) <= 256) && rating.Stars >= 1 && rating.Stars <= 5 &&
 		len(rating.Body) <= 4000 && (rating.Version == "" || validVersion(rating.Version))
 }

@@ -32,4 +32,17 @@ describe('desktop ratings are read-only', () => {
     expect(elements('rate').every((node) => node.props.disabled && !node.props.onChange)).toBe(true);
     await act(async () => { elements('pagination')[0].props.onChange(2); }); expect(renderer!.root.findAllByProps({ className: 'market-detail-rating' })).toHaveLength(1);
   });
+  it('shows the public user name instead of the numeric account id', async () => {
+    const ratings = [{ userId: '55629071', userName: 'octocat', pluginId: 'test.nginx', stars: 5, body: 'Great', version: '1.0.0', updatedAt: 'now' }];
+    await mount(ratings);
+    const texts = renderer!.root.findAllByProps({ 'data-component': 'text' });
+    expect(texts.some((node) => node.props.children === 'octocat')).toBe(true);
+    expect(texts.some((node) => node.props.children === '55629071')).toBe(false);
+  });
+  it('falls back to the account id when the name is absent', async () => {
+    const ratings = [{ userId: '55629071', pluginId: 'test.nginx', stars: 5, body: 'Great', version: '1.0.0', updatedAt: 'now' }];
+    await mount(ratings);
+    const texts = renderer!.root.findAllByProps({ 'data-component': 'text' });
+    expect(texts.some((node) => node.props.children === '55629071')).toBe(true);
+  });
 });
