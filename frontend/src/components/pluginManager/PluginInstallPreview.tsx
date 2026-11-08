@@ -10,14 +10,20 @@ import { PluginAIProviderSummary } from './PluginAIProviderSummary';
 import { PluginExporterSummary } from './PluginExporterSummary';
 import { PluginSkillSummary } from './PluginSkillSummary';
 
-interface Props { inspection: PluginInspection; onCancel: () => void; onInstall: () => Promise<void>; allowed: boolean; details?: ReactNode; digestLabel?: string; replace?: boolean }
-export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed, details, digestLabel, replace }: Props) {
+interface Props {
+  inspection: PluginInspection; onCancel: () => void; onInstall: () => Promise<void>; allowed: boolean;
+  details?: ReactNode; digestLabel?: string; replace?: boolean; confirmText?: string;
+  confirmation?: ReactNode; confirmationReady?: boolean; requireTrust?: boolean; showTrust?: boolean;
+}
+export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed, details, digestLabel, replace,
+  confirmText, confirmation, confirmationReady, requireTrust = true, showTrust = true }: Props) {
   const { t } = useI18n();
   const [trusted, setTrusted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const canConfirm = allowed && (!requireTrust || trusted) && (confirmation === undefined || confirmationReady === true);
   const install = async () => {
-    if (!trusted || !allowed || busy) return;
+    if (!canConfirm || busy) return;
     setBusy(true); setError('');
     try { await onInstall(); }
     catch (cause) { setError(pluginErrorText(cause)); }
@@ -25,8 +31,8 @@ export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed,
   };
   const manifest = inspection.manifest;
   return <Modal open title={t('plugin.install.preview')} onCancel={onCancel}
-    onOk={() => void install()} okText={t(replace ? 'plugin.install.replace_confirm' : 'plugin.install.confirm')} cancelText={t(busy ? 'plugin.install.close_pending' : 'common.cancel')}
-    confirmLoading={busy} okButtonProps={{ disabled: !trusted || !allowed }} maskClosable={!busy} width={680}
+    onOk={() => void install()} okText={confirmText ?? t(replace ? 'plugin.install.replace_confirm' : 'plugin.install.confirm')} cancelText={t(busy ? 'plugin.install.close_pending' : 'common.cancel')}
+    confirmLoading={busy} okButtonProps={{ disabled: !canConfirm }} maskClosable={!busy} width={680}
     styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
     <div className="plugin-stack">
       <Alert showIcon type="warning" message={t('plugin.install.warning')} description={t(replace ? 'plugin.install.replace_hint' : 'plugin.install.disabled_hint')} />
@@ -49,7 +55,8 @@ export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed,
       <PluginSkillSummary manifest={manifest} />
       {manifest.requires?.length ? <div><Typography.Text strong>{t('plugin.install.dependencies')}</Typography.Text>
         <ul>{manifest.requires.map((dependency) => <li key={dependency.id}><code>{dependency.id}</code> {dependency.minVersion} {dependency.optional ? t('plugin.install.optional') : t('plugin.install.required')}</li>)}</ul></div> : null}
-      <Checkbox checked={trusted} onChange={(event) => setTrusted(event.target.checked)}>{t('plugin.install.trust')}</Checkbox>
+      {confirmation}
+      {showTrust && <Checkbox checked={trusted} onChange={(event) => setTrusted(event.target.checked)}>{t('plugin.install.trust')}</Checkbox>}
       {error && <Alert type="error" showIcon message={error} />}
     </div>
   </Modal>;

@@ -6,9 +6,10 @@ body[data-ui-version="v2"] .plugin-market-detail .ant-drawer-body { padding: 24p
 .plugin-market-detail .ant-drawer-footer { padding: 16px 24px; background: var(--gn-bg-panel); border-top: 1px solid var(--gn-br-2); }
 .market-detail-content, .market-detail-overview { display: flex; flex-direction: column; min-width: 0; gap: 24px; }
 .market-detail-loading { display: grid; place-items: center; min-height: 96px; }
-.plugin-market-detail .ant-typography { margin: 0; }
+.plugin-market-detail .ant-typography, .market-detail-overview .ant-typography { margin: 0; }
 .market-detail-hero { display: flex; align-items: flex-start; gap: 16px; }
-.market-detail-icon { display: grid; place-items: center; width: 52px; height: 52px; flex-shrink: 0; border: 1px solid var(--gn-br-2); border-radius: 12px; background: var(--gn-bg-panel-2); color: var(--gn-accent); font-size: 26px; }
+.market-detail-icon { display: grid; place-items: center; width: 52px; height: 52px; flex-shrink: 0; border: 1px solid var(--gn-br-2); border-radius: 12px; background: var(--gn-bg-panel-2); color: var(--gn-accent); font-size: 26px; overflow: hidden; }
+.market-detail-icon .plugin-logo { width: 100%; height: 100%; border: 0; border-radius: 0; background: transparent; }
 .market-detail-heading { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .market-detail-heading .ant-typography { font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; }
 .market-detail-id { font-family: var(--gn-font-mono); font-size: 12px; color: var(--gn-fg-3); overflow-wrap: anywhere; }

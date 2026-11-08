@@ -10,16 +10,20 @@ interface Props {
   version: string;
   variant?: 'card' | 'toolbar';
   fallback?: ReactNode;
+  // 市场卡片先用未安装状态渲染；安装完成后置为 true，允许重试空缓存。
+  installed?: boolean;
 }
 
 // 插件 Logo 复用宿主的栅格图标读取与缓存，工具栏可提供默认图标回退。
-export function PluginLogo({ pluginId, name, version, variant = 'card', fallback }: Props) {
+export function PluginLogo({ pluginId, name, version, variant = 'card', fallback, installed = false }: Props) {
   const key = `${pluginId}@${version}`;
   const [image, setImage] = useState(() => ({ key, src: iconCache.get(key) ?? '' }));
   const src = image.key === key ? image.src : '';
   useEffect(() => {
-    setImage({ key, src: iconCache.get(key) ?? '' });
-    if (iconCache.has(key)) return;
+    const cached = iconCache.get(key) ?? '';
+    setImage({ key, src: cached });
+    // 安装状态变化时重试空缓存；有图时直接复用缓存。
+    if (cached) return;
     let alive = true;
     // 绑定调用在非 Wails 环境中可能同步抛错，统一转成拒绝并回退。
     Promise.resolve()
@@ -33,7 +37,7 @@ export function PluginLogo({ pluginId, name, version, variant = 'card', fallback
         if (alive) setImage({ key, src: '' });
       });
     return () => { alive = false; };
-  }, [key, pluginId]);
+  }, [key, pluginId, installed]);
   const monogram = (name.trim().charAt(0) || '?').toUpperCase();
   const content = src
     ? <img className="plugin-logo-image" src={src} alt="" onError={() => {

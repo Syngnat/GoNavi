@@ -42,6 +42,28 @@ describe('digest and permission install consent', () => {
     expect(install).not.toHaveBeenCalled();
     view.unmount();
   });
+  it('requires typed confirmation and can replace the trust checkbox', async () => {
+    const install = vi.fn().mockResolvedValue(undefined);
+    const confirmation = <div data-component="typed-confirmation" />;
+    const view = create(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install}
+      confirmation={confirmation} confirmationReady={false} requireTrust={false} showTrust={false}
+      confirmText="plugin.market.install_submit" />);
+    let modal = view.root.findByProps({ 'data-component': 'modal' });
+    expect(modal.props.okText).toBe('plugin.market.install_submit');
+    expect(modal.props.okButtonProps.disabled).toBe(true);
+    expect(view.root.findAllByProps({ 'data-component': 'checkbox' })).toHaveLength(0);
+    expect(view.root.findByProps({ 'data-component': 'typed-confirmation' })).toBeTruthy();
+    await act(async () => { await modal.props.onOk(); });
+    expect(install).not.toHaveBeenCalled();
+    act(() => view.update(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install}
+      confirmation={confirmation} confirmationReady requireTrust={false} showTrust={false}
+      confirmText="plugin.market.install_submit" />));
+    modal = view.root.findByProps({ 'data-component': 'modal' });
+    expect(modal.props.okButtonProps.disabled).toBe(false);
+    await act(async () => { await modal.props.onOk(); });
+    expect(install).toHaveBeenCalledOnce();
+    view.unmount();
+  });
   it('shows a read-only data source command and its effect before trust', () => {
     const withSource = { ...inspection, manifest: { ...inspection.manifest, contributes: {
       commands: [{ id: 'database', title: 'Database', effect: 'unknown' as const }],

@@ -6,7 +6,8 @@ vi.mock('antd', () => {
   const element = (name: string) => (props: React.HTMLAttributes<HTMLElement>) => React.createElement('div', { ...props, 'data-component': name });
   return { Button: element('button'), Rate: element('rate'), Tag: element('tag'), Typography: { Title: element('title'), Paragraph: element('paragraph') } };
 });
-vi.mock('@ant-design/icons', () => ({ ArrowUpOutlined: () => null, SafetyCertificateOutlined: () => null }));
+vi.mock('@ant-design/icons', () => ({ AppstoreOutlined: () => null, ArrowUpOutlined: () => null, DownloadOutlined: () => null, SafetyCertificateOutlined: () => null }));
+vi.mock('../components/pluginManager/PluginLogo', () => ({ PluginLogo: () => React.createElement('span', { 'data-component': 'plugin-logo' }) }));
 import { MarketPluginCard } from './MarketPluginCard';
 import type { MarketPlugin } from './types';
 
@@ -40,6 +41,30 @@ describe('market plugin card update badges', () => {
     await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} installedVersion="1.0.0" sourceScoped onSelect={vi.fn()} />); });
     expect(tags().some((tag) => String(tag.children).includes('plugin.market.installed_identity'))).toBe(true);
     expect(tags().some((tag) => tag.props.className === 'plugin-market-upgrade')).toBe(false);
+  });
+
+  it('renders the plugin logo slot for every market card', async () => {
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} onSelect={vi.fn()} />); });
+    expect(renderer!.root.findAllByProps({ 'data-component': 'plugin-logo' })).toHaveLength(1);
+  });
+
+  it('offers installation directly on the card', async () => {
+    const onInstall = vi.fn();
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} onSelect={vi.fn()} onInstall={onInstall} />); });
+    const install = renderer!.root.findAllByProps({ 'data-component': 'button' })
+      .find((button) => String(button.children).includes('plugin.market.install'));
+    expect(install).toBeTruthy();
+    expect(install!.props.disabled).toBe(false);
+    act(() => install!.props.onClick());
+    expect(onInstall).toHaveBeenCalledOnce();
+  });
+
+  it('disables card installation when the same version is already installed', async () => {
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} installedVersion="1.1.0" onSelect={vi.fn()} onInstall={vi.fn()} />); });
+    const install = renderer!.root.findAllByProps({ 'data-component': 'button' })
+      .find((button) => String(button.children).includes('plugin.market.versions.installed'));
+    expect(install).toBeTruthy();
+    expect(install!.props.disabled).toBe(true);
   });
 
 });

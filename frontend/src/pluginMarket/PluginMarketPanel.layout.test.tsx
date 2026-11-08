@@ -52,6 +52,15 @@ describe('aggregated market workspace', () => {
     await mount(false); const settings = elements('button').find((node) => node.props.children === 'plugin.market.source')!;
     await act(async () => { settings.props.onClick(); }); expect(renderer!.root.findByProps({ 'data-panel': 'settings' }).props.allowed).toBe(false);
   });
+  it('keeps cached source groups visible while the source list refreshes', async () => {
+    state.manager.loading = true; await mount();
+    expect(groups().map((node) => node.props.source.sourceId)).toEqual([a.sourceId, b.sourceId]);
+  });
+  it('shows a full loading panel before any source list is available', async () => {
+    state.manager.sources = []; state.manager.loading = true; await mount();
+    expect(groups()).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ className: 'plugin-market-loading' })).toHaveLength(1);
+  });
   it('shows an explicit disabled-all state without requesting source groups', async () => {
     state.manager.sources = [{ ...a, enabled: false }]; await mount(); expect(groups()).toHaveLength(0);
     expect(elements('alert')[0].props.message).toBe('plugin.market.sources_none_enabled');

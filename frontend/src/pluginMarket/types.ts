@@ -10,6 +10,7 @@ export interface MarketPlugin {
   version: string;
   category?: string;
   minHostVersion?: string;
+  sourceUrl?: string;
   platforms: string[];
   ratingAverage: number;
   ratingCount: number;

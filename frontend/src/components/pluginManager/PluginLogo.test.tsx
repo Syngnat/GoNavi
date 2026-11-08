@@ -89,6 +89,20 @@ describe('plugin logo', () => {
     view!.unmount();
   });
 
+  it('retries an empty icon cache after the plugin becomes installed', async () => {
+    host.PluginIcon.mockResolvedValueOnce('');
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.install-retry" name="Retry" version="1.0.0" installed={false} fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    expect(view.root.findByProps({ 'data-fallback': 'true' }).type).toBe('svg');
+    host.PluginIcon.mockResolvedValueOnce('data:image/png;base64,CCCC');
+    await act(async () => { view.update(<PluginLogo pluginId="test.install-retry" name="Retry" version="1.0.0" installed fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    expect(view.root.findByType('img').props.src).toBe('data:image/png;base64,CCCC');
+    expect(host.PluginIcon).toHaveBeenCalledTimes(2);
+    await act(async () => { view.unmount(); });
+  });
+
   it('reuses the cached logo across mounts', async () => {
     host.PluginIcon.mockResolvedValue('data:image/png;base64,BBBB');
     let view: ReturnType<typeof create> | undefined;

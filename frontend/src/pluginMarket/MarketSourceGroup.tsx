@@ -8,8 +8,8 @@ import type { MarketPlugin, MarketSource, MarketSort } from './types';
 import type { CatalogFilters } from './catalogFilters';
 
 interface Props { filters?: CatalogFilters; source: MarketSource; query: string; sort: MarketSort; revision: number; allowed: boolean; installed: ReadonlyMap<string, string>;
-  onSelect: (plugin: MarketPlugin, source: MarketSource) => void; onClearSearch: () => void }
-export function MarketSourceGroup({ source, query, sort, revision, allowed, installed, onSelect, onClearSearch, filters }: Props) {
+  onSelect: (plugin: MarketPlugin, source: MarketSource) => void; onInstall: (plugin: MarketPlugin, source: MarketSource) => void; onClearSearch: () => void }
+export function MarketSourceGroup({ source, query, sort, revision, allowed, installed, onSelect, onInstall, onClearSearch, filters }: Props) {
   const { t } = useI18n();
   const catalog = useSourceCatalog(source.sourceId, source.trustedOfficial, query, sort, revision, filters);
   return <section className="plugin-market-group" aria-label={source.baseUrl} data-source-id={source.sourceId}>
@@ -25,7 +25,8 @@ export function MarketSourceGroup({ source, query, sort, revision, allowed, inst
         </Empty>
       </div>}
       <div className="plugin-market-grid">{catalog.items.map((plugin) => <MarketPluginCard key={plugin.id} plugin={plugin} sourceScoped
-        installedVersion={installed.get(plugin.id)} onSelect={() => onSelect(plugin, source)} />)}</div>
+        installedVersion={installed.get(plugin.id)} allowed={allowed} onSelect={() => onSelect(plugin, source)}
+        onInstall={() => onInstall(plugin, source)} />)}</div>
     </div>
     <footer className="plugin-market-pagination">
       <Typography.Text type="secondary" aria-live="polite">{catalog.refreshing && <Spin size="small" aria-label={t('plugin.action.refresh')} />} {t('plugin.market.source_page', { page: catalog.page, count: catalog.items.length })}</Typography.Text>
