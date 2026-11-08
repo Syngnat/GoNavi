@@ -16,11 +16,11 @@
 
 ## 0. 项目是什么
 
-GoNavi 是 **Wails v2 + Go + React 18** 的跨平台数据源工作台，不是 Electron 应用，也不是普通前后端分离 Web。
+GoNavi 是 **Wails v3 + Go + React 18** 的跨平台数据源工作台，不是 Electron 应用，也不是普通前后端分离 Web。v3 是默认构建与发版路径，v2 代码仅保留回退构建（`GONAVI_WAILS3=0`）与插件窗口进程隔离。
 
 | 层 | 位置 | 职责 |
 |---|---|---|
-| 桌面壳 | `main.go` | Wails 启动、窗口、菜单 |
+| 桌面壳 | `cmd/wails3app`（`main.go` 为 v2 回退） | Wails 启动、窗口、菜单 |
 | Wails 绑定 | `internal/app` | 给前端/MCP/Web RPC 的 `App` 方法，保持薄 |
 | 领域实现 | `internal/db`、`internal/ai`、`internal/sync`、`internal/connection` 等 | 驱动、AI、同步、类型 |
 | UI | `frontend/src` | React + Ant Design 5 + Zustand + Monaco |
@@ -30,6 +30,7 @@ GoNavi 是 **Wails v2 + Go + React 18** 的跨平台数据源工作台，不是 
 | Java | `tools/jmx-helper`、`internal/jvm/testdata` | 小工具/夹具，跟《阿里巴巴 Java 开发手册》 |
 
 Go module：`GoNavi-Wails`。默认集成分支：`dev`。
+构建：v3 走 `wails3 task build` / `node scripts/build-wails3.mjs`，开发用 `wails3 task dev`；v2 回退仍用 `wails build`。
 
 ### 0.1 官方插件仓库约定
 
@@ -205,7 +206,7 @@ ld: tapi error: malformed file
 
 **触发条件**：`xcode-select` 指回 Xcode，且该 Xcode 的 `ld` 版本早于 macOS 27 时复现。
 纯编译（`go build ./internal/...`）不受影响，**只有需要链接的目标会失败**
-（`go build ./...` 含 main 的包、`go test` 的 cgo 路径、`wails build/dev`、直接 `cc`）。
+（`go build ./...` 含 main 的包、`go test` 的 cgo 路径、`wails3 build` / `wails3 dev`、`wails build`、直接 `cc`）。
 
 ### 7.2 禁止再加 `SDKROOT` workaround
 

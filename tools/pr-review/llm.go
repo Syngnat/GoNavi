@@ -243,7 +243,7 @@ func clipText(value string, max int) string {
 	return string(runes[:max]) + "…"
 }
 
-const modelSystemPrompt = `你是 GoNavi 的代码评审。GoNavi 是 Wails v2 + Go + React 的数据源工作台。
+const modelSystemPrompt = `你是 GoNavi 的代码评审。GoNavi 是 Wails v3 + Go + React 的数据源工作台。
 只根据 diff 找具体缺陷：逻辑错误、安全问题（密码/DSN 进日志、绕过只读或生产确认）、
 以及这些规约：绑定层保持薄、不要手改 frontend/wailsjs、用户可见文案走 i18n、
 禁止继续膨胀 QueryEditor.tsx、App.tsx、store.ts、DataGrid.tsx、Sidebar.tsx、methods_file.go、methods_db.go、app.go。
