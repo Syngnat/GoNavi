@@ -51,6 +51,7 @@ func (a *App) dbQueryMulti(
 	auditOptions.executionContext = traceContext
 	defer func() {
 		a.recordQueryRequestTraceOutcome(requestTrace, result, ownsRequestTrace)
+		maybeReleaseQueryResultMemory(result)
 	}()
 	requestTrace.AddEvent("query.accepted", nil)
 
