@@ -551,6 +551,11 @@ func main() {
 		// release builds.
 		appOptions.Windows.AdditionalBrowserArgs = []string{"--remote-debugging-port=9222"}
 	}
+	if extra := strings.TrimSpace(os.Getenv("GONAVI_V3_BROWSER_ARGS")); extra != "" {
+		// Diagnostics switch for WebView2/Chromium flags (memory experiments,
+		// tracing). Empty in normal runs.
+		appOptions.Windows.AdditionalBrowserArgs = append(appOptions.Windows.AdditionalBrowserArgs, strings.Fields(extra)...)
+	}
 	wailsApp = application.New(appOptions)
 
 	windowManager := nativewindow.NewV3Manager(wailsApp)
@@ -667,6 +672,18 @@ func main() {
 			event.Cancel()
 		}
 	})
+	// Hidden or minimised windows hand idle Go heap back to the OS after a
+	// delay; the trim skips while queries, imports or exports are running.
+	for _, eventType := range []events.WindowEventType{events.Common.WindowHide, events.Common.WindowMinimise} {
+		mainWindow.OnWindowEvent(eventType, func(*application.WindowEvent) {
+			backend.SetWindowHiddenForMemoryTrim(true)
+		})
+	}
+	for _, eventType := range []events.WindowEventType{events.Common.WindowRestore, events.Common.WindowUnMinimise} {
+		mainWindow.OnWindowEvent(eventType, func(*application.WindowEvent) {
+			backend.SetWindowHiddenForMemoryTrim(false)
+		})
+	}
 	// Every navigation (including Ctrl+R) re-creates the frontend while backend
 	// transactions survive; roll back the orphaned ones before the new UI runs.
 	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
