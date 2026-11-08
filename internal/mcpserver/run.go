@@ -58,6 +58,16 @@ type StreamableHTTPServerHandle struct {
 	err    error
 }
 
+// Done is closed once the HTTP server has finished serving.
+func (h *StreamableHTTPServerHandle) Done() <-chan struct{} {
+	if h == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return h.done
+}
+
 // Stop 关闭 HTTP MCP server，并等待底层 http.Server 完成退出。
 func (h *StreamableHTTPServerHandle) Stop(ctx context.Context) error {
 	if h == nil {

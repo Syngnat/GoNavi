@@ -465,6 +465,21 @@ func main() {
 			}
 		}
 	}
+	// Serve the built-in MCP HTTP endpoint in-process: enabling it no longer
+	// costs a second GoNavi process. The child-process mode stays as a fallback
+	// when the in-process server cannot start.
+	aiservice.SetMCPHTTPProcessStarter(func(ctx context.Context, options aiservice.MCPHTTPStartOptions) (aiservice.MCPHTTPProcess, error) {
+		mcpBackend, err := mcpserver.NewAppBackendFromApp(backend)
+		if err != nil {
+			return nil, err
+		}
+		return mcpserver.StartStreamableHTTPServer(ctx, mcpBackend, mcpserver.HTTPServerOptions{
+			Addr:       options.Addr,
+			Path:       options.Path,
+			Token:      options.Token,
+			SchemaOnly: options.SchemaOnly,
+		})
+	})
 	aiService := aiservice.NewServiceWithConfigChangeHandler(appcore.NewCloudBackupChangeHandler(backend))
 	if err := aiservice.ConfigurePluginProviderFactory(aiService, appcore.PluginAIProviderFactoryForIntegration(backend)); err != nil {
 		log.Printf("configure plugin AI provider failed: %v", err)

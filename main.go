@@ -163,6 +163,21 @@ func main() {
 	// Create an instance of the app structure
 	application := app.NewApp()
 	configureDesktopPlugins(application)
+	// Serve the built-in MCP HTTP endpoint in-process: enabling it no longer
+	// costs a second GoNavi process. The child-process mode stays as a fallback
+	// when the in-process server cannot start.
+	aiservice.SetMCPHTTPProcessStarter(func(ctx context.Context, options aiservice.MCPHTTPStartOptions) (aiservice.MCPHTTPProcess, error) {
+		mcpBackend, err := mcpserver.NewAppBackendFromApp(application)
+		if err != nil {
+			return nil, err
+		}
+		return mcpserver.StartStreamableHTTPServer(ctx, mcpBackend, mcpserver.HTTPServerOptions{
+			Addr:       options.Addr,
+			Path:       options.Path,
+			Token:      options.Token,
+			SchemaOnly: options.SchemaOnly,
+		})
+	})
 	aiService := aiservice.NewServiceWithConfigChangeHandler(app.NewCloudBackupChangeHandler(application))
 	if err := configureDesktopPluginAIProvider(application, aiService); err != nil {
 		reportFatalError(err, "初始化插件 AI 供应商失败")
