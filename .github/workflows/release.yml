@@ -1267,6 +1267,22 @@ jobs:
             "$DMG_NAME" \
             "$APP_NAME"
 
+          # create-dmg 只会输出 zlib(UDZO)；改用 LZMA(ULMO) 通常再省 20% 左右。
+          # 转换必须放在签名/公证之前：hdiutil convert 重建的是镜像容器，转完再签
+          # 才对签名有效。hdiutil 只搬运文件内容，不会破坏 .app 自身的签名。
+          # 失败则保留 create-dmg 的原始产物，不影响发版。
+          BEFORE_BYTES=$(wc -c <"$DMG_NAME" | tr -d '[:space:]')
+          ULMO_DMG="${DMG_NAME%.dmg}-ulmo.dmg"
+          rm -f "$ULMO_DMG"
+          if hdiutil convert "$DMG_NAME" -format ULMO -o "$ULMO_DMG" >/dev/null 2>&1 && [ -f "$ULMO_DMG" ]; then
+            mv "$ULMO_DMG" "$DMG_NAME"
+            AFTER_BYTES=$(wc -c <"$DMG_NAME" | tr -d '[:space:]')
+            echo "🗜️ DMG 已改用 ULMO(LZMA): $((BEFORE_BYTES / 1024 / 1024))MB -> $((AFTER_BYTES / 1024 / 1024))MB"
+          else
+            rm -f "$ULMO_DMG"
+            echo "::warning title=DMG ULMO 压缩跳过::hdiutil convert 失败, 保留 create-dmg 的默认压缩"
+          fi
+
           if [[ "$MACOS_SIGNING_MODE" == "developer-id" ]]; then
             codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$DMG_NAME"
             codesign --verify --verbose=4 "$DMG_NAME"
