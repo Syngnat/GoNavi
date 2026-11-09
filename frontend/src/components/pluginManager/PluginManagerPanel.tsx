@@ -42,8 +42,6 @@ export function PluginManagerPanel() {
       {updates.failed && <Alert showIcon type="warning" message={t('plugin.update.check_failed')} />}
       {updates.checked && !updates.failed && updates.sources.length === 0 && manager.plugins.length > 0
         && <Alert type="info" showIcon message={t('plugin.market.sources_none_enabled')} />}
-      {updates.checked && !updates.loading && !updates.failed && updates.updates.size === 0 && updates.sources.length > 0 && manager.plugins.length > 0
-        && <Typography.Text type="secondary">{t('plugin.update.up_to_date')}</Typography.Text>}
       {manager.loading ? <div className="plugin-library-state" aria-busy="true"><Spin /></div>
         : !manager.error && manager.plugins.length === 0 ? <div className="plugin-library-state">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('plugin.manager.empty')}>

@@ -62,6 +62,8 @@ describe('installed plugin update discovery', () => {
     ] } satisfies MarketVersionPage);
     await mount();
     expect(updateButton()).toBeUndefined();
+    expect(view!.root.findAll((node) => node.type === 'div' && node.props['data-component'] === 'text'
+      && node.props.children === 'plugin.update.up_to_date')).toHaveLength(0);
     expect(mocks.install).not.toHaveBeenCalled();
   });
   it('keeps update information visible but blocks installation in read-only management', async () => {
