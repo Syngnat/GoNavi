@@ -98,7 +98,8 @@ export const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
   };
 
   const tabDisplayPartCount = displayModel.primaryParts.length + displayModel.secondaryParts.length;
-  const showSecondaryLine = displayModel.layout === 'double' && Boolean(displayModel.secondaryText);
+  // 双行布局由设置决定：副行没有内容时也保留副行槽位，页签高度不随内容变化。
+  const showSecondaryLine = displayModel.layout === 'double';
   // 关闭按钮在左置设置下渲染为 label 的第一个子节点，右置（默认）保持现状的最后一位。
   const closeButtonNode = onClose ? (
     <button
@@ -145,8 +146,9 @@ export const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
           {showSecondaryLine ? (
             <span
               className="gn-v2-tab-label-secondary"
-              title={displayModel.secondaryText}
-              aria-label={displayModel.secondaryText}
+              title={displayModel.secondaryText || undefined}
+              aria-label={displayModel.secondaryText || undefined}
+              aria-hidden={displayModel.secondaryText ? undefined : true}
             >
               {renderV2TabSecondaryParts(displayModel.secondaryParts)}
             </span>

@@ -206,6 +206,10 @@ export const sanitizeTabDisplaySettings = (value: unknown): TabDisplaySettings =
   return result;
 };
 
+export const isDoubleLineTabDisplay = (settings?: Partial<TabDisplaySettings> | null): boolean => (
+  sanitizeTabDisplaySettings(settings).layout === 'double'
+);
+
 export const resolveTabDisplayElementOrder = (settings?: Partial<TabDisplaySettings> | null): TabDisplayElementKey[] => {
   const sanitized = sanitizeTabDisplaySettings(settings);
   const visible = [...sanitized.primaryElements, ...sanitized.secondaryElements];
