@@ -128,7 +128,8 @@ body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text
   font-size: 12px;
   line-height: 1.5;
 }
-/* 中文标签与等宽地址的字体基线相差 1px：只下移输入文本，让两行地址与“仓库”基线一致。 */
+/* 中文标签与等宽地址的字体基线相差 1px：只下移两处地址文本，让它们与“仓库”基线一致。 */
+.market-install-repo-value,
 .market-install-repo-input .ant-input {
   transform: translateY(1px);
 }
