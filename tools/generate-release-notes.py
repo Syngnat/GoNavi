@@ -38,9 +38,11 @@ CONTRIBUTED_BY_RE = re.compile(
 HUALONG_SPONSOR_URL = "https://gonavi.hualong.online/"
 HUALONG_SPONSOR_NOTICE = (
     f"> 💖 **赞助商 · [華龍AI算力]({HUALONG_SPONSOR_URL})**："
-    "最新活动 **国模百亿补贴**，DeepSeek、GLM 等模型只需 "
-    "**0.8 折**（不足一折）。\n"
-    f"> 🎁 [注册链接]({HUALONG_SPONSOR_URL})"
+    "**双十一充值狂欢**（11.11 当天限时）——充 **$100 送 $11.11**，"
+    "充 **$1000 送 $111.1**，每位用户限 1 次。\n"
+    "> 🎁 当天群内抽 **4 台 GatewaySentry VPS**"
+    "（2 核 / 4G 内存 / 40G 硬盘 / 1T 月流量，有效期 1 个月）。\n"
+    "> 📩 微信私聊客服 **zqhaic** 办理充值，11 月 11 日全天有效。"
 )
 
 
