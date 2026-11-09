@@ -101,10 +101,40 @@
 .market-install-repo-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 38px; margin: 0 15px; padding: 0 5px 0 11px; border: 1px solid var(--gn-br-2); border-radius: 7px; background: var(--gn-bg-panel-2); }
 .market-install-repo-row .ant-btn { flex: 0 0 auto; padding-inline: 4px; font-size: 12px; }
 .market-install-repo-label { flex: 0 0 26px; width: 26px; color: var(--gn-fg-3); font-size: 12px; }
-.market-install-repo-value { flex: 1; min-width: 0; overflow: hidden; color: var(--gn-fg-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.market-install-repo-value { flex: 1; min-width: 0; overflow: hidden; color: var(--gn-fg-2); font-family: var(--gn-font-mono); font-size: 12px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .market-install-repo-input { min-height: 38px; }
-.market-install-repo-input .ant-input { flex: 1; min-width: 0; padding: 0; background: transparent; color: var(--gn-fg-1); font-size: 12px; }
-.market-install-repo-input .ant-input::placeholder { color: var(--gn-fg-3); }
+/* 输入框只作为外层行内的透明文本层：去掉 Ant 自带的底色、描边和聚焦光晕，避免出现“框中框”。 */
+.market-install-repo-input .ant-input,
+.market-install-repo-input .ant-input:hover,
+.market-install-repo-input .ant-input:focus,
+.market-install-repo-input .ant-input-focused,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input:hover,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input:focus,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input-focused,
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"],
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"]:hover,
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"]:focus,
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"].ant-input-focused {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* 中文标签与等宽地址的字体基线相差 1px：只下移输入文本，让两行地址与“仓库”基线一致。 */
+.market-install-repo-input .ant-input {
+  transform: translateY(1px);
+}
+.market-install-repo-input:focus-within { border-color: color-mix(in srgb, var(--gn-accent) 60%, var(--gn-br-2)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-accent) 12%, transparent); }
+.market-install-repo-input.is-matched:focus-within { border-color: color-mix(in srgb, var(--gn-success, #10b981) 60%, var(--gn-br-2)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-success, #10b981) 12%, transparent); }
+.market-install-repo-input .ant-input::placeholder { color: var(--gn-fg-3); font-family: var(--gn-font-mono); }
 .market-install-repo-input.is-matched { border-color: color-mix(in srgb, var(--gn-success, #10b981) 60%, var(--gn-br-2)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-success, #10b981) 12%, transparent); }
 .market-install-confirm-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 15px 0; padding-left: 12px; color: var(--gn-fg-3); font-size: 12px; }
 .market-install-match { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 4px; color: var(--gn-success, #10b981); }
