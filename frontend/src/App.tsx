@@ -260,6 +260,7 @@ function App() {
     setSecurityUpdateRepairSource, aiSettingsLeaveGuardRef, setToolCenterBackGroupKey,
     setActiveSettingsCenterGroupKey, openSettingsCenterWorkbenchTab, securityUpdateRepairSource,
     openSecurityUpdateSettings, activeSettingsCenterPane, closeSettingsCenterWorkbenchTab, addTab,
+    handleOpenDriverManagerWorkbench,
     isSettingsModalOpen, updateCenterBridgeRef, openReleaseNotesOnManualCheckRef,
     setReleaseNotesModalOpen, prepareAboutSurface, handleExportConnectionsRef,
     handleImportConnectionsRef, setThemeModalSection,

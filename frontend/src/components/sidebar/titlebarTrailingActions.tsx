@@ -8,8 +8,10 @@ import { TitlebarDriverIcon, TitlebarInfoIcon, TitlebarPluginIcon } from '../tit
 
 interface TitlebarTrailingActionsOptions {
   t: (key: string) => string;
-  /** The settings-center pane that is open, so the drivers entry can light up. */
+  /** The settings-center pane that is open, so legacy entries can light up. */
   activeSettingsCenterPaneKey?: string | null;
+  /** The driver manager lives in its own workbench tab; its entry lights up while that tab is active. */
+  driverManagerTabActive?: boolean;
   onOpenSettingsNavigation?: (spec: SettingsCenterNavigationTarget) => void;
   onCheckUpdate?: () => void;
   /** macOS puts these two in the native menu bar instead. */
@@ -26,6 +28,7 @@ interface TitlebarTrailingActionsOptions {
 export const buildTitlebarTrailingActions = ({
   t,
   activeSettingsCenterPaneKey,
+  driverManagerTabActive,
   onOpenSettingsNavigation,
   onCheckUpdate,
   hideAbout,
@@ -36,7 +39,7 @@ export const buildTitlebarTrailingActions = ({
     key: 'drivers',
     label: t('app.tools.entry.drivers.title'),
     icon: <TitlebarDriverIcon size="100%" />,
-    active: activeSettingsCenterPaneKey === 'drivers', // 打开驱动管理时点亮
+    active: driverManagerTabActive === true || activeSettingsCenterPaneKey === 'drivers', // 驱动管理工作台 Tab 或旧设置面板激活时点亮
     onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', action: 'drivers' }),
   };
   // 插件管理作为独立工作台 Tab 打开（不走设置中心）；原生菜单栏没有对应项，

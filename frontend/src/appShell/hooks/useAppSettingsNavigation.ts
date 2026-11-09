@@ -66,6 +66,7 @@ export interface UseAppSettingsNavigationInput {
   activeSettingsCenterPane: AppShellStateApi['activeSettingsCenterPane'];
   closeSettingsCenterWorkbenchTab: AppShellStateApi['closeSettingsCenterWorkbenchTab'];
   addTab: AppSecurityUpdateApi['addTab'];
+  handleOpenDriverManagerWorkbench: AppSecurityUpdateApi['handleOpenDriverManagerWorkbench'];
   isSettingsModalOpen: AppShellStateApi['isSettingsModalOpen'];
   updateCenterBridgeRef: AppUpdateAndDiagnosticsApi['updateCenterBridgeRef'];
   openReleaseNotesOnManualCheckRef: AppUpdateAndDiagnosticsApi['openReleaseNotesOnManualCheckRef'];
@@ -103,6 +104,7 @@ export const useAppSettingsNavigation = ({
   setSecurityUpdateRepairSource, aiSettingsLeaveGuardRef, setToolCenterBackGroupKey,
   setActiveSettingsCenterGroupKey, openSettingsCenterWorkbenchTab, securityUpdateRepairSource,
   openSecurityUpdateSettings, activeSettingsCenterPane, closeSettingsCenterWorkbenchTab, addTab,
+  handleOpenDriverManagerWorkbench,
   isSettingsModalOpen, updateCenterBridgeRef, openReleaseNotesOnManualCheckRef,
   setReleaseNotesModalOpen, prepareAboutSurface, handleExportConnectionsRef,
   handleImportConnectionsRef, setThemeModalSection,
@@ -231,7 +233,7 @@ export const useAppSettingsNavigation = ({
       setActiveSettingsCenterPane({ key, group });
       openSettingsCenterWorkbenchTab();
   }), [clearSettingsCenterTransientPaneState]);
-  /** Title-bar / explorer settings entries → settings center navigation. */
+  /** Title-bar / explorer entries → settings-center navigation or a standalone workbench tab. */
   const handleTitleBarSettingsNavigation = useCallback((spec: SettingsCenterNavigationTarget) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       if (spec.action === 'import-connections') {
           void handleImportConnectionsRef.current();
@@ -259,12 +261,13 @@ export const useAppSettingsNavigation = ({
           return;
       }
       if (spec.action === 'drivers') {
-          handleOpenToolCenterPane('workspace', 'drivers');
+          // 驱动管理是独立工作台 Tab，不放进设置中心；保留已打开的其他 Tab。
+          handleOpenDriverManagerWorkbench();
           return;
       }
       const buildWorkbenchTab = spec.action ? SETTINGS_WORKBENCH_TAB_BUILDERS[spec.action] : undefined;
       if (buildWorkbenchTab) {
-          handleCancelSettingsCenterPane();
+          // 工作台 Tab 与设置中心可以并存，不能顺手关掉用户已经打开的 Tab。
           addTab(buildWorkbenchTab());
           return;
       }
@@ -296,8 +299,8 @@ export const useAppSettingsNavigation = ({
       handleOpenSettingsCenterPane(spec.group, spec.pane as SettingsCenterPaneKey);
   }), [
       addTab,
-      handleCancelSettingsCenterPane,
       handleOpenDataSyncWorkbench,
+      handleOpenDriverManagerWorkbench,
       handleOpenSettingsCenterPane,
       handleOpenSettingsModal,
       handleOpenToolCenterPane,

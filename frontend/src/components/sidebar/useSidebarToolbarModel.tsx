@@ -23,6 +23,7 @@ import {
   CloudUploadOutlined,
 } from '@ant-design/icons';
 import { buildTitlebarTrailingActions } from './titlebarTrailingActions';
+import { DRIVER_MANAGER_WORKBENCH_TAB_ID } from '../../utils/driverManagerTab';
 import { PLUGIN_MANAGER_WORKBENCH_TAB_ID } from '../../utils/pluginManagerTab';
 import { useSidebarCommandSearchCopy } from './useSidebarCommandSearchCopy';
 import type { SidebarSearchPanelProps } from './SidebarSearchPanel';
@@ -333,6 +334,7 @@ export const useSidebarToolbarModel = ({
   const v2TitlebarVisibleTrailingActions = buildTitlebarTrailingActions({
     t,
     activeSettingsCenterPaneKey,
+    driverManagerTabActive: activeTabId === DRIVER_MANAGER_WORKBENCH_TAB_ID,
     onOpenSettingsNavigation,
     onCheckUpdate,
     hideAbout: hideTitlebarAboutAction,

@@ -48,9 +48,9 @@ describe('titlebar trailing actions', () => {
     expect(about?.menu?.map((item) => item.label)).toEqual(['About GoNavi']);
   });
 
-  it('lights the drivers entry while its pane is open and opens it on click', () => {
+  it('lights the drivers entry while its workbench tab is active and opens it on click', () => {
     const onOpenSettingsNavigation = vi.fn();
-    const drivers = build({ onOpenSettingsNavigation, activeSettingsCenterPaneKey: 'drivers' })
+    const drivers = build({ onOpenSettingsNavigation, driverManagerTabActive: true })
       .find((action) => action.key === 'drivers')!;
 
     expect(drivers.active).toBe(true);

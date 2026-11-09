@@ -24,7 +24,7 @@ export const resolveAISettingsSection = (section?: string): AISettingsSectionKey
 
 /**
  * Navigation actions that open a workbench tab instead of a settings pane. The
- * settings center is closed first so the tab is not opened behind it.
+ * tabs coexist with the settings center, so opening one keeps the other tabs open.
  */
 export const SETTINGS_WORKBENCH_TAB_BUILDERS: Partial<
   Record<NonNullable<SettingsCenterNavigationTarget['action']>, () => TabData>
