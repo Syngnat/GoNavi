@@ -95,6 +95,105 @@ func migrateLegacyWebKitStorageIfNeededWithHome(a *App, buildType string, resolv
 	return nil
 }
 
+// legacyLocalStorageSkipPrefixes lists regenerable caches that must not slow
+// down the first-boot migration or consume the destination localStorage quota.
+var legacyLocalStorageSkipPrefixes = []string{
+	"gonavi.plugin-market.catalog.v1:",
+}
+
+// findLegacyWebKitLocalStorage returns the richest legacy WebKit localStorage
+// database. Unlike findLegacyWebKitVisibleConfig it keeps every localStorage
+// key so the frontend can restore theme, layout, tabs and AI sessions too.
+func findLegacyWebKitLocalStorage(homeDir string) (map[string]string, string, bool) {
+	best := map[string]string{}
+	bestPath := ""
+	bestScore := -1
+
+	for _, bundleID := range legacyWebKitBundleIDs {
+		pattern := filepath.Join(homeDir, "Library", "WebKit", bundleID, "WebsiteData", "Default", "*", "*", "LocalStorage", "localstorage.sqlite3")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, dbPath := range matches {
+			items, err := readLegacyWebKitLocalStorage(dbPath)
+			if err != nil {
+				continue
+			}
+			score := legacyLocalStorageScore(items)
+			if score > bestScore {
+				best = items
+				bestPath = dbPath
+				bestScore = score
+			}
+		}
+	}
+
+	if bestScore < 0 {
+		return map[string]string{}, "", false
+	}
+	return best, bestPath, true
+}
+
+func legacyLocalStorageScore(items map[string]string) int {
+	if len(items) == 0 {
+		return -1
+	}
+	score := len(items)
+	if _, ok := items[legacyPersistKey]; ok {
+		score += 1000
+	}
+	if _, ok := items["gonavi-background-image-v1"]; ok {
+		score += 10
+	}
+	return score
+}
+
+func readLegacyWebKitLocalStorage(dbPath string) (map[string]string, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT key, CAST(value AS BLOB) FROM ItemTable`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make(map[string]string)
+	for rows.Next() {
+		var key string
+		var raw []byte
+		if err := rows.Scan(&key, &raw); err != nil {
+			return nil, err
+		}
+		key = strings.TrimSpace(key)
+		if key == "" || skipLegacyLocalStorageKey(key) {
+			continue
+		}
+		value := decodeLegacyWebKitJSON(raw)
+		if value == "" {
+			continue
+		}
+		items[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func skipLegacyLocalStorageKey(key string) bool {
+	for _, prefix := range legacyLocalStorageSkipPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func findLegacyWebKitVisibleConfig(homeDir string) (legacyWebKitVisibleConfig, string, error) {
 	var best legacyWebKitVisibleConfig
 	var bestPath string

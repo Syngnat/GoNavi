@@ -17,8 +17,13 @@ func GalleryAssetMiddleware(a *App, assets fs.FS) func(http.Handler) http.Handle
 	gallery := BackgroundGalleryAssetHandler(a)
 	fonts := FontGalleryAssetHandler(a)
 	pageAssets := PluginPageAssetHandler(a, assets)
+	legacyLocalStorage := legacyLocalStorageHandler(a)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == legacyLocalStorageEndpoint {
+				legacyLocalStorage.ServeHTTP(w, r)
+				return
+			}
 			if strings.HasPrefix(r.URL.Path, pluginPageAssetPrefix) || strings.HasPrefix(r.URL.Path, pluginPageUIPrefix) {
 				pageAssets.ServeHTTP(w, r)
 				return
