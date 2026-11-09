@@ -30,6 +30,11 @@ describe('double-line workbench tab metrics', () => {
       .not.toMatch(/height:\s*17px;/);
   });
 
+  it('lets the secondary row use the full tab width in double-line layout', () => {
+    expect(readRule('body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-secondary .gn-v2-tab-label-part'))
+      .toMatch(/max-width:\s*none;/);
+  });
+
   it('stops the tab button line box from clipping the label', () => {
     const tabBtn = readRule('body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-tab-btn');
     expect(tabBtn).toMatch(/display:\s*flex;/);
