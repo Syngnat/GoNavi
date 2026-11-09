@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n/provider';
 import { pluginPermissionText } from '../../plugins/permissionLabel';
 import { pluginErrorText } from '../../plugins/apiResult';
 import { formatBytes } from '../../utils/byteSize';
+import { installModalStyles } from '../../utils/installModalLayout';
 import type { PluginInspection } from '../../plugins/types';
 import { PluginDataSourceSummary } from './PluginDataSourceSummary';
 import { PluginAIProviderSummary } from './PluginAIProviderSummary';
@@ -33,7 +34,7 @@ export function PluginInstallPreview({ inspection, onCancel, onInstall, allowed,
   return <Modal open title={t('plugin.install.preview')} onCancel={onCancel}
     onOk={() => void install()} okText={confirmText ?? t(replace ? 'plugin.install.replace_confirm' : 'plugin.install.confirm')} cancelText={t(busy ? 'plugin.install.close_pending' : 'common.cancel')}
     confirmLoading={busy} okButtonProps={{ disabled: !canConfirm }} maskClosable={!busy} width={680}
-    styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
+    styles={installModalStyles}>
     <div className="plugin-stack">
       <Alert showIcon type="warning" message={t('plugin.install.warning')} description={t(replace ? 'plugin.install.replace_hint' : 'plugin.install.disabled_hint')} />
       {details}

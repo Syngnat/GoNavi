@@ -2,17 +2,19 @@ import { Button, Rate, Tag, Typography } from 'antd';
 import { AppstoreOutlined, ArrowUpOutlined, DownloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useI18n } from '../i18n/provider';
 import { PluginLogo } from '../components/pluginManager/PluginLogo';
+import { useMarketPluginIcon } from './useMarketPluginIcon';
 import { compareMarketVersions } from './versionCompare';
 import type { MarketPlugin } from './types';
 
-interface Props { plugin: MarketPlugin; installedVersion?: string; onSelect: () => void; sourceScoped?: boolean; onInstall?: () => void; allowed?: boolean }
-export function MarketPluginCard({ plugin, installedVersion, onSelect, sourceScoped = false, onInstall, allowed = true }: Props) {
+interface Props { plugin: MarketPlugin; installedVersion?: string; sourceId?: string; retryKey?: string | number; onSelect: () => void; sourceScoped?: boolean; onInstall?: () => void; allowed?: boolean }
+export function MarketPluginCard({ plugin, installedVersion, sourceId, retryKey = 0, onSelect, sourceScoped = false, onInstall, allowed = true }: Props) {
   const { t } = useI18n();
+  const remoteIcon = useMarketPluginIcon(plugin, sourceId, installedVersion === undefined, retryKey);
   const upgradeAvailable = installedVersion !== undefined && compareMarketVersions(installedVersion, plugin.version) < 0;
   const sameVersionInstalled = installedVersion !== undefined && installedVersion === plugin.version;
   return <article className="plugin-card plugin-market-card" data-official={plugin.official}>
     <header className="plugin-card-header"><div className="plugin-market-card-heading">
-      <PluginLogo pluginId={plugin.id} name={plugin.name} version={installedVersion ?? plugin.version} installed={installedVersion !== undefined} fallback={<AppstoreOutlined aria-hidden />} />
+      <PluginLogo pluginId={plugin.id} name={plugin.name} version={installedVersion ?? plugin.version} installed={installedVersion !== undefined} remoteSources={remoteIcon} retryKey={retryKey} fallback={<AppstoreOutlined aria-hidden />} />
       <Typography.Title level={5}>{plugin.name}</Typography.Title></div>
       {plugin.official && <Tag color="success" icon={<SafetyCertificateOutlined />}>{t('plugin.market.official')}</Tag>}</header>
     <code className="plugin-identity">{plugin.id} · {plugin.version}</code>

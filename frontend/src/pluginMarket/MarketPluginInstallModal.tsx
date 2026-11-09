@@ -7,6 +7,7 @@ import { MarketPluginInstallConsent } from './MarketPluginInstallConsent';
 import { MarketDowngradeConfirm } from './MarketDowngradeConfirm';
 import { isMarketDowngrade } from './versionChoices';
 import { marketInstallRepository, marketInspectionRequest } from './installIdentity';
+import { installModalStyles } from '../utils/installModalLayout';
 import type { MarketInspectionRequest, MarketPlugin, MarketSource } from './types';
 import './marketDetail.css';
 
@@ -35,9 +36,9 @@ export function MarketPluginInstallModal({ plugin, source, allowed, installedVer
       onClick={() => { if (!pending) return; if (downgrade) setDowngradeOpen(true); else setRequest(pending); }}>{t('plugin.market.install_confirm')}</Button>
   </div>;
   return <><Modal open title={t('plugin.market.install_title')} width={720} footer={footer} onCancel={onClose}
-    styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
+    styles={installModalStyles}>
     <div className="plugin-stack">
-      <MarketDetailOverview plugin={plugin} source={source.baseUrl} trustedOfficial={source.trustedOfficial} installedVersion={installedVersion} />
+      <MarketDetailOverview plugin={plugin} source={source.baseUrl} trustedOfficial={source.trustedOfficial} installedVersion={installedVersion} sourceId={source.sourceId} />
       <Descriptions column={1} size="small" bordered items={[
         { key: 'repository', label: t('plugin.market.install_repository'), children: <code className="plugin-break">{repository}</code> },
       ]} />

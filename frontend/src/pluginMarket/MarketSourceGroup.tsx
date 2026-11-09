@@ -24,7 +24,7 @@ export function MarketSourceGroup({ source, query, sort, revision, allowed, inst
           <Button onClick={query ? onClearSearch : catalog.reload}>{t(query ? 'plugin.market.reset_search' : 'plugin.action.refresh')}</Button>
         </Empty>
       </div>}
-      <div className="plugin-market-grid">{catalog.items.map((plugin) => <MarketPluginCard key={plugin.id} plugin={plugin} sourceScoped
+      <div className="plugin-market-grid">{catalog.items.map((plugin) => <MarketPluginCard key={plugin.id} plugin={plugin} sourceId={source.sourceId} retryKey={`${revision}:${catalog.reloadToken}`} sourceScoped
         installedVersion={installed.get(plugin.id)} allowed={allowed} onSelect={() => onSelect(plugin, source)}
         onInstall={() => onInstall(plugin, source)} />)}</div>
     </div>

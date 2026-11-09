@@ -2,14 +2,16 @@ import { Tag, Typography } from 'antd';
 import { AppstoreOutlined, DownloadOutlined, SafetyCertificateOutlined, StarOutlined } from '@ant-design/icons';
 import { useI18n } from '../i18n/provider';
 import { PluginLogo } from '../components/pluginManager/PluginLogo';
+import { useMarketPluginIcon } from './useMarketPluginIcon';
 import type { MarketPlugin } from './types';
 
-export function MarketDetailOverview({ plugin, source, trustedOfficial, installedVersion }: { plugin: MarketPlugin; source: string; trustedOfficial: boolean; installedVersion?: string }) {
+export function MarketDetailOverview({ plugin, source, trustedOfficial, installedVersion, sourceId }: { plugin: MarketPlugin; source: string; trustedOfficial: boolean; installedVersion?: string; sourceId?: string }) {
   const { t } = useI18n();
+  const remoteIcon = useMarketPluginIcon(plugin, sourceId, installedVersion === undefined);
   const platforms = Array.from(new Set(plugin.platforms));
   return <div className="market-detail-overview">
     <header className="market-detail-hero">
-      <div className="market-detail-icon"><PluginLogo pluginId={plugin.id} name={plugin.name} version={installedVersion ?? plugin.version} installed={installedVersion !== undefined} fallback={<AppstoreOutlined aria-hidden />} /></div>
+      <div className="market-detail-icon"><PluginLogo pluginId={plugin.id} name={plugin.name} version={installedVersion ?? plugin.version} installed={installedVersion !== undefined} remoteSources={remoteIcon} fallback={<AppstoreOutlined aria-hidden />} /></div>
       <div className="market-detail-heading">
         <Typography.Title level={4}>{plugin.name}</Typography.Title>
         <code className="market-detail-id">{plugin.id}</code>

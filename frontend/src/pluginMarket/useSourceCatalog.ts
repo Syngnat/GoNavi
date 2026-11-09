@@ -34,6 +34,7 @@ export function useSourceCatalog(sourceId: string, trustedOfficial: boolean, que
   const key = JSON.stringify(filterKey ? [sourceId, trustedOfficial, query, sort, cursor, filterKey] : [sourceId, trustedOfficial, query, sort, cursor]);
   const [view, setView] = useState<View>(() => cachedView(key, trustedOfficial));
   const [refresh, setRefresh] = useState(0);
+  const [reloadToken, setReloadToken] = useState(0);
   const previousRefresh = useRef({ revision, refresh });
   const request = useRef(0);
   const pending = useRef(false);
@@ -71,5 +72,6 @@ export function useSourceCatalog(sourceId: string, trustedOfficial: boolean, que
     if (!active.index || pending.current || current.loading || current.refreshing) return;
     pending.current = true; setNavigation({ ...active, index: active.index - 1 });
   };
-  return { ...current, page: active.index + 1, canNext, next, previous, reload: () => setRefresh((value) => value + 1) };
+  return { ...current, page: active.index + 1, canNext, next, previous, reloadToken,
+    reload: () => { setRefresh((value) => value + 1); setReloadToken((value) => value + 1); } };
 }

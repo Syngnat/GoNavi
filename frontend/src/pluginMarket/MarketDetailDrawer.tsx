@@ -46,7 +46,7 @@ export function MarketDetailDrawer({ id, source, allowed, trustedOfficial, sourc
       {detail.error && <Alert type="error" showIcon message={t('plugin.market.unavailable')} description={detail.error}
         action={<Button onClick={() => void detail.load()}>{t('plugin.action.refresh')}</Button>} />}
       {plugin && <>
-        <MarketDetailOverview plugin={plugin} source={source} trustedOfficial={trustedOfficial} installedVersion={installedVersion} />
+        <MarketDetailOverview plugin={plugin} source={source} trustedOfficial={trustedOfficial} installedVersion={installedVersion} sourceId={sourceId} />
         <MarketVersionSelector versions={versions.versions} selectedVersion={versions.selectedVersion} recommended={versions.recommended} installedVersion={installedVersion} loading={versions.loading} error={versions.error} warning={versions.warning} source={source} onChange={versions.choose} onRetry={() => void versions.reload()} />
         {!artifact && <Alert type="warning" showIcon message={t('plugin.market.no_artifact')} />}
         {detail.ratingsError && <Alert type="warning" showIcon message={t('plugin.market.ratings_unavailable')} description={detail.ratingsError} />}

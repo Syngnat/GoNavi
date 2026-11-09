@@ -103,6 +103,36 @@ describe('plugin logo', () => {
     await act(async () => { view.unmount(); });
   });
 
+  it('uses the remote market icon when the local plugin package has no logo', async () => {
+    host.PluginIcon.mockResolvedValue('');
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.remote" name="Remote" version="1.0.0" remoteSrc="https://raw.githubusercontent.com/author/repo/HEAD/icon.png" fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    expect(view.root.findByType('img').props.src).toBe('https://raw.githubusercontent.com/author/repo/HEAD/icon.png');
+    expect(view.root.findByProps({ className: 'plugin-logo' }).props['data-loaded']).toBe('true');
+    await act(async () => { view.unmount(); });
+  });
+
+  it('keeps the local plugin icon ahead of the remote market icon', async () => {
+    host.PluginIcon.mockResolvedValue('data:image/png;base64,DDDD');
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.local-first" name="Local" version="1.0.0" remoteSrc="https://raw.githubusercontent.com/author/repo/HEAD/icon.png" fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    expect(view.root.findByType('img').props.src).toBe('data:image/png;base64,DDDD');
+    await act(async () => { view.unmount(); });
+  });
+
+  it('falls back when the remote market icon cannot be decoded', async () => {
+    host.PluginIcon.mockResolvedValue('');
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.remote-broken" name="Broken" version="1.0.0" remoteSrc="https://raw.githubusercontent.com/author/repo/HEAD/icon.png" fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    await act(async () => { view.root.findByType('img').props.onError(); });
+    expect(view.root.findAllByType('img')).toHaveLength(0);
+    expect(view.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
+    await act(async () => { view.unmount(); });
+  });
+
   it('reuses the cached logo across mounts', async () => {
     host.PluginIcon.mockResolvedValue('data:image/png;base64,BBBB');
     let view: ReturnType<typeof create> | undefined;
@@ -114,5 +144,46 @@ describe('plugin logo', () => {
     expect(view!.root.findByType('img').props.src).toBe('data:image/png;base64,BBBB');
     expect(host.PluginIcon).toHaveBeenCalledTimes(1);
     view!.unmount();
+  });
+
+  it('tries remote market icon candidates in order', async () => {
+    host.PluginIcon.mockResolvedValue('');
+    const first = 'https://raw.githubusercontent.com/author/repo/HEAD/icons/icon.png';
+    const second = 'https://raw.githubusercontent.com/author/repo/HEAD/icons/provider.png';
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.remote-candidates" name="Candidates" version="1.0.0" remoteSources={[first, second]} fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    expect(view.root.findByType('img').props.src).toBe(first);
+    await act(async () => { view.root.findByType('img').props.onError(); });
+    expect(view.root.findByType('img').props.src).toBe(second);
+    await act(async () => { view.unmount(); });
+  });
+
+  it('retries remote market icons after a short delay when the first attempt fails', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    host.PluginIcon.mockResolvedValue('');
+    const remote = 'https://raw.githubusercontent.com/author/repo/HEAD/icon.png';
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.remote-delay" name="Delayed" version="1.0.0" remoteSources={[remote]} fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    await act(async () => { view.root.findByType('img').props.onError(); });
+    expect(view.root.findAllByType('img')).toHaveLength(0);
+    await act(async () => { vi.advanceTimersByTime(700); });
+    expect(view.root.findByType('img').props.src).toBe(remote);
+    await act(async () => { view.unmount(); });
+    vi.useRealTimers();
+  });
+
+  it('retries a failed remote icon when the catalog is refreshed', async () => {
+    host.PluginIcon.mockResolvedValue('');
+    const remote = 'https://raw.githubusercontent.com/author/repo/HEAD/icon.png';
+    let view!: ReturnType<typeof create>;
+    await act(async () => { view = create(<PluginLogo pluginId="test.remote-refresh" name="Refresh" version="1.0.0" remoteSources={[remote]} retryKey="1:0" fallback={<svg data-fallback="true" />} />); });
+    await flush();
+    await act(async () => { view.root.findByType('img').props.onError(); });
+    expect(view.root.findAllByType('img')).toHaveLength(0);
+    await act(async () => { view.update(<PluginLogo pluginId="test.remote-refresh" name="Refresh" version="1.0.0" remoteSources={[remote]} retryKey="2:0" fallback={<svg data-fallback="true" />} />); });
+    expect(view.root.findByType('img').props.src).toBe(remote);
+    await act(async () => { view.unmount(); });
   });
 });

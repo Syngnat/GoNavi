@@ -9,6 +9,7 @@ vi.mock('antd', () => {
 });
 vi.mock('../../i18n/provider', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 import { PluginInstallPreview } from './PluginInstallPreview';
+import { installModalContentMaxHeight } from '../../utils/installModalLayout';
 const inspection: PluginInspection = { manifest: { schemaVersion: 1, apiVersion: 1, id: 'test.hello', name: 'Hello', version: '1.0.0', permissions: ['database.read', 'host.log'] },
   digest: 'b'.repeat(64), sourcePath: '/tmp/plugin.zip', sizeBytes: 128 };
 describe('digest and permission install consent', () => {
@@ -17,8 +18,10 @@ describe('digest and permission install consent', () => {
     const view = create(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install} />);
     let modal = view.root.findByProps({ 'data-component': 'modal' });
     expect(modal.props.okButtonProps.disabled).toBe(true);
-    expect(modal.props.styles.body).toMatchObject({ overflowY: 'auto' });
-    expect(modal.props.styles.body.maxHeight).toContain('100vh');
+    expect(modal.props.styles.content).toMatchObject({ display: 'flex', flexDirection: 'column', maxHeight: installModalContentMaxHeight });
+    expect(modal.props.styles.body).toMatchObject({ minHeight: 0, overflowY: 'auto' });
+    expect(modal.props.styles.header.flexShrink).toBe(0);
+    expect(modal.props.styles.footer.flexShrink).toBe(0);
     await act(async () => { await modal.props.onOk(); });
     expect(install).not.toHaveBeenCalled();
     const descriptions = view.root.findByProps({ 'data-component': 'descriptions' });

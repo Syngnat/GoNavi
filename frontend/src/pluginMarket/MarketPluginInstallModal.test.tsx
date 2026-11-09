@@ -9,8 +9,8 @@ vi.mock('antd', () => {
     Alert: element('alert'), Descriptions: element('descriptions'),
     Button: ({ icon, ...props }: { icon?: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) =>
       React.createElement('button', { ...props, 'data-component': 'button' }),
-    Modal: ({ title, children, footer }: { title?: React.ReactNode; children?: React.ReactNode; footer?: React.ReactNode }) =>
-      React.createElement('div', { 'data-component': 'modal' }, title, children, footer),
+    Modal: ({ title, children, footer, styles }: { title?: React.ReactNode; children?: React.ReactNode; footer?: React.ReactNode; styles?: unknown }) =>
+      React.createElement('div', { 'data-component': 'modal', 'data-styles': styles }, title, children, footer),
   };
 });
 vi.mock('@ant-design/icons', () => ({ SafetyCertificateOutlined: () => null }));
@@ -23,6 +23,7 @@ vi.mock('./MarketDetailOverview', () => ({ MarketDetailOverview: () => React.cre
 vi.mock('./MarketDowngradeConfirm', () => ({ MarketDowngradeConfirm: (props: { onConfirm: () => void }) =>
   React.createElement('div', { 'data-component': 'downgrade' }, React.createElement('button', { 'data-component': 'downgrade-confirm', onClick: props.onConfirm })) }));
 import { MarketPluginInstallModal } from './MarketPluginInstallModal';
+import { installModalContentMaxHeight, installModalStyles } from '../utils/installModalLayout';
 
 const sourceId = 'a'.repeat(64);
 const source: MarketSource = { baseUrl: 'https://market.example', enabled: true, sourceId, trustedOfficial: true };
@@ -51,6 +52,17 @@ describe('market plugin install modal', () => {
     expect(consent.props['data-source-id']).toBe(sourceId);
     expect(JSON.parse(consent.props['data-request'])).toMatchObject({ id: plugin.id, version: plugin.version,
       artifactDigest: plugin.artifact!.sha256, sourceId, sizeBytes: plugin.artifact!.sizeBytes });
+    view!.unmount();
+  });
+
+  it('caps the information dialog and scrolls long content inside the body', async () => {
+    let view: ReturnType<typeof create> | undefined;
+    await act(async () => { view = create(<MarketPluginInstallModal plugin={plugin} source={source} allowed onClose={vi.fn()} onInstalled={vi.fn()} />); });
+    const modal = view!.root.findByProps({ 'data-component': 'modal' });
+    expect(modal.props['data-styles']).toBe(installModalStyles);
+    expect(modal.props['data-styles'].content.maxHeight).toBe(installModalContentMaxHeight);
+    expect(modal.props['data-styles'].body).toMatchObject({ minHeight: 0, overflowY: 'auto' });
+    expect(modal.props['data-styles'].body.maxHeight).toBeUndefined();
     view!.unmount();
   });
 
