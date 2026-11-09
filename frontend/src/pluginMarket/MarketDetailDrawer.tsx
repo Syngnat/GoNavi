@@ -53,7 +53,7 @@ export function MarketDetailDrawer({ id, source, allowed, trustedOfficial, sourc
         <MarketRatingsPanel ratings={detail.ratings} websiteURL={marketPluginWebsiteURL(source, id)} />
       </>}
       {downgradeOpen && plugin && installedVersion && <MarketDowngradeConfirm from={installedVersion} to={plugin.version} onCancel={() => setDowngradeOpen(false)} onConfirm={() => { setDowngradeOpen(false); beginPreview(); }} />}
-      {request && <MarketInstallConsent request={request} source={source} allowed={allowed} replace={Boolean(installedVersion)} onClose={() => setRequest(null)}
+      {request && plugin && <MarketInstallConsent request={request} plugin={plugin} source={source} trustedOfficial={trustedOfficial} allowed={allowed} replace={Boolean(installedVersion)} onClose={() => setRequest(null)}
         onInstalled={onInstalled} onInstallError={setInstallError} />}
     </div>
   </Drawer>;

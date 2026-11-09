@@ -17,11 +17,11 @@ describe('market install identity', () => {
   it('falls back to the market source when no repository is published', () => {
     expect(marketInstallRepository({ ...plugin, sourceUrl: undefined }, ' https://market.example/ ')).toBe('https://market.example/');
   });
-  it('compares the typed name and repository after trimming', () => {
-    const expected = marketInstallIdentity('Tool', plugin, 'https://market.example');
-    expect(marketInstallConfirmationMatches(expected, '  Tool ', 'https://github.com/gonavi/tool')).toBe(true);
-    expect(marketInstallConfirmationMatches(expected, 'Other', 'https://github.com/gonavi/tool')).toBe(false);
-    expect(marketInstallConfirmationMatches(expected, 'Tool', 'https://github.com/other/tool')).toBe(false);
+  it('compares the typed repository after trimming', () => {
+    const expected = marketInstallIdentity(plugin, 'https://market.example');
+    expect(marketInstallConfirmationMatches(expected, '  https://github.com/gonavi/tool ')).toBe(true);
+    expect(marketInstallConfirmationMatches(expected, 'https://github.com/other/tool')).toBe(false);
+    expect(marketInstallConfirmationMatches(expected, '   ')).toBe(false);
   });
   it('builds an inspection request bound to the source and artifact', () => {
     expect(marketInspectionRequest(plugin, sourceId)).toEqual({ id: 'com.gonavi.tool', version: '1.2.3',
