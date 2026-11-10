@@ -40,6 +40,10 @@ export const createDebouncedPersistStorage = <S>(
   let operationInFlight = false;
   let activeBatchPromise: Promise<void> | null = null;
   let listenersBound = false;
+  // 最近一次成功写盘的状态对象。partialize 返回的是 memo 化投影：状态没变时
+  // 拿到的是同一个对象引用，此时再排队一次 JSON.stringify（可达数十 MB）纯属
+  // 重复劳动，直接走「已是最新」分支即可。
+  let lastPersistedState: S | undefined;
 
   const createPendingBatch = (): PendingBatch => {
     let resolve!: () => void;
@@ -99,7 +103,13 @@ export const createDebouncedPersistStorage = <S>(
       result = operation.kind === "set"
         ? baseStorage.setItem(operation.name, operation.value)
         : baseStorage.removeItem(operation.name);
+      if (operation.kind === "set") {
+        const persistedState = (operation.value as { state?: S } | undefined)?.state;
+        lastPersistedState = persistedState === undefined ? undefined : persistedState;
+      }
     } catch (error) {
+      // 写盘失败时不能把该状态记为「已持久化」，否则重试会被静默跳过。
+      lastPersistedState = undefined;
       finishOperation(batch, false, error);
       return;
     }
@@ -154,6 +164,10 @@ export const createDebouncedPersistStorage = <S>(
     getItem: baseStorage.getItem,
     setItem: (name, value) => {
       bindFlushListeners();
+      // partialize 的投影对象没变 → 磁盘上已经是最新内容，无需再序列化。
+      if (value && value.state !== undefined && value.state === lastPersistedState) {
+        return Promise.resolve();
+      }
       pendingOperation = { kind: "set", name, value };
       if (!pendingBatch) {
         pendingBatch = createPendingBatch();
@@ -169,6 +183,8 @@ export const createDebouncedPersistStorage = <S>(
     },
     removeItem: (name) => {
       bindFlushListeners();
+      // 删除后旧状态不再代表磁盘内容，必须让下一次写盘真正执行。
+      lastPersistedState = undefined;
       pendingOperation = { kind: "remove", name };
       if (!pendingBatch) {
         pendingBatch = createPendingBatch();
