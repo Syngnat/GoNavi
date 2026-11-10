@@ -96,6 +96,12 @@ func RunPluginChild(parentCtx context.Context, args []string) error {
 		go app.Quit()
 	})
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		// The child runs as an accessory app, so nothing brings its window
+		// forward on its own: the window can stay behind the host window, where
+		// macOS suspends the renderer and the plugin document stops heartbeating.
+		window.Center()
+		window.Show()
+		window.Focus()
 		watchWG.Add(1)
 		go func() {
 			defer watchWG.Done()

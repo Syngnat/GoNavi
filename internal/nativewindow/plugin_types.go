@@ -21,10 +21,13 @@ const (
 	pluginMaxCalls          = 8
 	pluginMaxWindows        = 16
 	pluginHeartbeatInterval = time.Second
-	pluginHeartbeatTimeout  = 3 * time.Second
-	pluginStartupTimeout    = 10 * time.Second
-	pluginStopTimeout       = 2 * time.Second
-	pluginTeardownTimeout   = 10 * time.Second
+	// A background window's renderer is throttled or suspended by macOS, so the
+	// document legitimately stops its 1s heartbeat. Three misses would kill a
+	// window the user merely pushed behind another one.
+	pluginHeartbeatTimeout = 10 * time.Second
+	pluginStartupTimeout   = 10 * time.Second
+	pluginStopTimeout      = 2 * time.Second
+	pluginTeardownTimeout  = 10 * time.Second
 )
 
 // PluginControllerOptions supplies only the standalone bridge bundle, not the
