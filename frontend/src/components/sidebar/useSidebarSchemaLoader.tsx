@@ -51,13 +51,17 @@ const loadSidebarSchemaContents = async (task: SchemaLoadTask) => {
   const databaseKey = `${connection.id}-${connection.dbName}`;
   let failed = false;
   const current = () => !failed && task.current();
-  if (options.ensureFresh) {
+  // ensureFresh 的清理必须延后到「数据已拿到、即将替换子树」时再做：
+  // 先无条件清空再请求，一旦 DBGetTables 失败或请求被取消，publish 不会执行，
+  // 侧栏就会留下一个空的库节点（用户看到的就是「整棵树消失」）。
+  const clearStaleSubtree = () => {
+    if (!options.ensureFresh) return;
     const previous = input.getTree ? findSidebarSchemaTreeNode(input.getTree(), String(node.key)) : node;
     const clearedKeys = new Set([String(node.key), ...collectSidebarSubtreeKeys(previous)]);
     replaceTreeNodeChildren(node.key, undefined, { ...connection, groupKey: 'schema', schemaName: schema, schemaLazy: true });
     setLoadedKeys((keys) => keys.filter((key) => !clearedKeys.has(String(key))));
     invalidateQueryEditorSessionMetadata(connection.id, connection.dbName);
-  }
+  };
   try {
     const scoped: SchemaConnection = { ...connection, schemaLazy: true, schemaVisibilityByDatabase: { ...connection.schemaVisibilityByDatabase, [connection.dbName]: { mode: 'include', schemas: [schema] } } };
     const rpcConfig = buildRpcConnectionConfig(connection.config, { metadataScope: buildMetadataDiscoveryScope(scoped, connection.dbName) });
@@ -69,6 +73,8 @@ const loadSidebarSchemaContents = async (task: SchemaLoadTask) => {
     let objects = emptyObjects();
     const publish = (notify = false) => {
       if (!current()) return;
+      // 数据到手后才丢弃旧的子树与展开状态：中途失败时原节点保持原样。
+      clearStaleSubtree();
       const builder = createSidebarDatabaseChildrenBuilder({
         schemasResult: { schemas: [schema], supported: true }, tableEntries: buildSidebarSchemaTableEntries(scoped, schema, tableRows, statusRows),
         conn: scoped, key: databaseKey, dbName: connection.dbName, node, loadTables,
