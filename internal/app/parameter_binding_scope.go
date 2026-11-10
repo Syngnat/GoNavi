@@ -23,6 +23,19 @@ func statementQualifiesForParameterBinding(dbType, statement string) bool {
 	if !sqlparam.IsOracleFamilyDBType(dbType) {
 		return true
 	}
+	// 廉价必要条件：正则要求首个有效 token 是 CREATE。跳过空白与注释后，
+	// 首字符要么被掩码原样保留（标识符、括号、引号等），要么是引号本身——
+	// 无论哪种，掩码后的文本都不以 "CREATE" 开头。所以只有 'c'/'C' 开头
+	// 才值得付出「复制 + 整段扫描」的掩码成本。Oracle 连接下每条语句原本
+	// 都要为此付一遍。
+	start := skipSQLWhitespaceAndComments(statement, 0)
+	if start >= len(statement) {
+		return true
+	}
+	first := statement[start]
+	if first != 'c' && first != 'C' {
+		return true
+	}
 	return !oracleStoredProgramDDLRe.MatchString(maskSQLCommentsAndLiterals(statement))
 }
 

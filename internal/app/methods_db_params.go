@@ -25,6 +25,17 @@ type QueryParameterStatement struct {
 	Parameters []string `json:"parameters"`
 }
 
+// 超大 SQL 的语句回显上限。Statements[].Text 只用于参数面板的悬浮预览：
+// 没有参数的语句在前端会被过滤掉（QueryEditorParamFields.tsx），带参数的
+// 语句也只需要能看到占位符所在片段。10MB 文档原样回显等于每次分析都多传
+// 一份 10MB，因此超阈值后只回显预览，并保留一个全局预算防止「很多小语句」
+// 重新凑出大响应。低于阈值时响应逐字节不变。
+const (
+	queryParameterAnalysisEchoThresholdBytes = 1 << 20   // 1 MiB
+	queryParameterStatementPreviewMaxBytes   = 4 << 10   // 单条语句预览上限
+	queryParameterAnalysisEchoBudgetBytes    = 512 << 10 // 整份响应的回显预算
+)
+
 // QueryParameterAnalysis 是 AnalyzeQueryParameters 的权威结果：前端参数面板、
 // 绑定对话框与执行前门控都以此为准。
 type QueryParameterAnalysis struct {
@@ -47,7 +58,18 @@ func (a *App) AnalyzeQueryParameters(config connection.ConnectionConfig, dbName 
 	analysis.Supported = capabilityKnown && capability
 	if !analysis.Supported {
 		analysis.MessageKey = "query_editor.params.unsupported_driver"
+		// 面板在 !supported 时直接返回空态，Statements 无人读取；但
+		// ParameterNames 仍是执行门控的依据，必须保留「先按方言拆分、再逐语句
+		// 扫描」的既有口径。sqlparam 的四类参数来源（'{name}'、模板、${name}、
+		// :name）都要求文本里出现 ':'、'{' 或 '$'；三者都不存在时不可能扫出
+		// 参数名，整段拆分与扫描可以整体跳过。
+		if !strings.ContainsAny(sql, ":{") && !strings.ContainsRune(sql, '$') {
+			return analysis
+		}
 	}
+
+	oversized := len(sql) > queryParameterAnalysisEchoThresholdBytes
+	echoBudget := queryParameterAnalysisEchoBudgetBytes
 
 	statementTexts := splitSQLStatementsForDialect(resolvedDBType, sql)
 	seen := make(map[string]struct{})
@@ -57,6 +79,11 @@ func (a *App) AnalyzeQueryParameters(config connection.ConnectionConfig, dbName 
 			continue
 		}
 		entry := QueryParameterStatement{Index: idx, Text: trimmed, Parameters: []string{}}
+		if oversized {
+			// 超大文档不回显全文：无参数语句会被前端过滤，回显纯属浪费；
+			// 有参数的语句给出带省略号的预览即可定位。
+			entry.Text = ""
+		}
 		// Oracle 家族存储程序定义（触发器等）不进入参数扫描：体内的 :NEW/:OLD
 		// 不是绑定参数，绑定语义在 DDL 上不成立。
 		if statementQualifiesForParameterBinding(resolvedDBType, trimmed) {
@@ -69,6 +96,21 @@ func (a *App) AnalyzeQueryParameters(config connection.ConnectionConfig, dbName 
 					seen[name] = struct{}{}
 					analysis.ParameterNames = append(analysis.ParameterNames, name)
 				}
+			}
+		}
+		if oversized && len(entry.Parameters) > 0 && echoBudget > 0 {
+			// 参数扫描始终读完整语句，只有回显被截断。
+			capBytes := queryParameterStatementPreviewMaxBytes
+			if echoBudget < capBytes {
+				capBytes = echoBudget
+			}
+			if len(trimmed) <= capBytes {
+				entry.Text = trimmed
+				echoBudget -= len(trimmed)
+			} else if capBytes > len("…") {
+				preview := truncateUTF8Bytes(trimmed, capBytes-len("…"))
+				entry.Text = preview + "…"
+				echoBudget -= len(entry.Text)
 			}
 		}
 		analysis.Statements = append(analysis.Statements, entry)
