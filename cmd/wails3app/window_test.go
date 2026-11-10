@@ -8,6 +8,27 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+func TestResolveV3StartURL(t *testing.T) {
+	t.Run("uses the same origin as GoNavi v2 on every platform", func(t *testing.T) {
+		cases := map[string]string{
+			"darwin":  "wails://wails/",
+			"linux":   "wails://wails/",
+			"windows": "http://wails.localhost/",
+		}
+		for goos, want := range cases {
+			if got := resolveV3StartURL(goos); got != want {
+				t.Fatalf("%s: start URL = %q, want %q", goos, got, want)
+			}
+		}
+	})
+
+	t.Run("unknown platforms keep the Wails default", func(t *testing.T) {
+		if got := resolveV3StartURL("plan9"); got != "/" {
+			t.Fatalf("start URL = %q, want /", got)
+		}
+	})
+}
+
 func TestResolveV3WindowChrome(t *testing.T) {
 	t.Run("windows and linux are frameless on an opaque surface", func(t *testing.T) {
 		t.Setenv("GONAVI_LOW_MEMORY_MODE", "")

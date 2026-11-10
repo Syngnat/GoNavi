@@ -30,6 +30,25 @@ func resolveV3WindowChrome(goos string) (frameless bool, backgroundType applicat
 	return true, application.BackgroundTypeSolid, application.NewRGBA(255, 255, 255, 255), mac
 }
 
+// resolveV3StartURL pins every v3 window to the origin GoNavi v2 used:
+// wails://wails/ on macOS/Linux and http://wails.localhost/ on Windows.
+// Wails v3 defaults to wails://localhost and appends the Vite port in dev,
+// which creates a different WebKit localStorage for v3 latest and for every
+// dev run. The v2 origin is still served by the v3 asset server, and the
+// runtime derives its API URL from window.location.origin, so this keeps v2
+// latest, v3 latest and v3 dev on one settings store. The Vite port remains in
+// FRONTEND_DEVSERVER_URL and is only used for asset proxying and HMR.
+func resolveV3StartURL(goos string) string {
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "windows":
+		return "http://wails.localhost/"
+	case "darwin", "linux":
+		return "wails://wails/"
+	default:
+		return "/"
+	}
+}
+
 func isLowMemoryMode() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("GONAVI_LOW_MEMORY_MODE"))) {
 	case "1", "true", "yes", "on":

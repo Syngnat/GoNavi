@@ -650,7 +650,7 @@ func main() {
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		Mac:              macWindow,
-		URL:              "/",
+		URL:              resolveV3StartURL(runtime.GOOS),
 		EnableFileDrop:   true,
 	}
 	if os.Getenv("GONAVI_V3_DEBUG") == "1" {

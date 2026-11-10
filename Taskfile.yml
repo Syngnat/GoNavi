@@ -26,12 +26,14 @@ tasks:
     deps:
       - prebuild
     cmds:
-      - '{{if eq .DEV "true"}}go build -tags wails3 -trimpath -buildvcs=false -ldflags "-X GoNavi-Wails/internal/app.AppVersion=dev-local -X main.devBuild=1" -o {{.BIN_DIR}}/{{.APP_NAME}}{{.EXE_EXT}} ./cmd/wails3app{{else}}bash scripts/ci-build-wails3-release.sh "{{OS}}/{{ARCH}}" "{{.APP_NAME}}" "$(cat version/dev-version.txt)"{{end}}'
+      # macOS dev builds go into an .app so WebKit uses the production bundle
+      # identifier and therefore the same localStorage container as latest.
+      - '{{if eq .DEV "true"}}{{if eq OS "darwin"}}node scripts/build-wails3-dev-app.mjs "{{.BIN_DIR}}" "{{.APP_NAME}}"{{else}}go build -tags wails3 -trimpath -buildvcs=false -ldflags "-X GoNavi-Wails/internal/app.AppVersion=dev-local -X main.devBuild=1" -o {{.BIN_DIR}}/{{.APP_NAME}}{{.EXE_EXT}} ./cmd/wails3app{{end}}{{else}}bash scripts/ci-build-wails3-release.sh "{{OS}}/{{ARCH}}" "{{.APP_NAME}}" "$(cat version/dev-version.txt)"{{end}}'
 
   run:
     desc: Run the last development build
     cmds:
-      - '{{.BIN_DIR}}/{{.APP_NAME}}{{.EXE_EXT}}'
+      - '{{if eq OS "darwin"}}{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS/{{.APP_NAME}}{{else}}{{.BIN_DIR}}/{{.APP_NAME}}{{.EXE_EXT}}{{end}}'
 
   dev:
     desc: Run the v3 development loop (Vite + Go hot restart)
