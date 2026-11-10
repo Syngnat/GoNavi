@@ -3,13 +3,15 @@ import { buildQueryEditorMonacoActionLabel } from '../queryEditorRunHelpers';
 import { t as translate } from '../../../i18n';
 import {
     normalizeEditorPosition, normalizeMetadataDialect, QUERY_EDITOR_LIVE_DECORATION_MAX_TEXT_LENGTH,
-    collectQueryEditorReferencedDatabaseNames, clearQueryEditorLinkDecorations,
+    QUERY_EDITOR_OBJECT_DECORATION_MAX_TEXT_LENGTH, getQueryEditorModelValueLength,
+    clearQueryEditorLinkDecorations,
 } from '../QueryEditorHelpers';
 import { bindQueryEditorSelectionPublisher } from '../queryEditorAiSelection';
 import {
     resolveQueryEditorInlineCompletionIntentDetails, type QueryEditorAiEditorSnapshot,
 } from '../QueryEditorAiAssist';
 import { buildQueryEditorMetadataIdentityKey } from '../queryEditorCompletionTables';
+import { collectQueryEditorReferencedDatabaseNamesForModel } from '../queryEditorReferencedDatabasesCache';
 import { setQueryEditorMouseCursor } from './queryEditorMouseCursor';
 import {
     isQueryEditorTabActive,
@@ -24,6 +26,9 @@ import type { createQueryEditorImeAndDropHandlers } from './queryEditorImeAndDro
 import type { createQueryEditorAiInlineGhostActions } from './queryEditorAiInlineGhostActions';
 import type { createQueryEditorNavigationHover } from './queryEditorNavigationHover';
 import { bindQueryEditorLastLineMouseEvents } from './queryEditorLastLineMouseBindings';
+
+// 超大文档的引用库扫描延后到安静期，避免每次停顿都付一次全文成本。
+const QUERY_EDITOR_LARGE_DOC_METADATA_SETTLE_DELAY_MS = 1_550;
 
 export interface BindQueryEditorEditorEventsInput {
     monaco: Parameters<OnMount>[1];
@@ -163,7 +168,7 @@ export const bindQueryEditorEditorEvents = ({
         }
 
         const model = editor.getModel?.();
-        if (!model || typeof model.getOffsetAt !== 'function' || typeof model.getValue !== 'function') {
+        if (!model || typeof model.getOffsetAt !== 'function') {
             return false;
         }
 
@@ -197,17 +202,25 @@ export const bindQueryEditorEditorEvents = ({
         if (!Number.isFinite(markerOffset) || markerOffset < 0) {
             return false;
         }
-        const currentModelText = String(model?.getValue?.() ?? '');
-        if (currentModelText.slice(markerOffset, markerOffset + 1) !== '\\') {
+        const currentModelText = typeof model.getValue === 'function' ? String(model.getValue() ?? '') : '';
+        if (currentModelText && currentModelText.slice(markerOffset, markerOffset + 1) !== '\\') {
             return false;
         }
         startPosition = normalizeEditorPosition(model?.getPositionAt?.(markerOffset));
         endPosition = normalizeEditorPosition(model?.getPositionAt?.(markerOffset + 1));
-        const fallbackSnapshot = buildInlineGhostEditorSnapshotFromInsertedTextRemoval(
-            currentModelText,
-            markerOffset,
-            1,
-        );
+        // Alt+\ 回退路径原本无论是否需要都整篇 getValue + 构建整篇移除快照。
+        // intent 结果只在「没有 Alt 手势」时才会被读取（无 pending 的分支，
+        // 或 pending 已过期、随后被清掉的分支），所以先判断手势再决定是否
+        // 扫描——10MB 文档下这原本是每次反斜杠都要付的全文成本。
+        const needsIntentProbe = !hasRecentAltGesture
+            && (!pending || (Date.now() - pending.observedAt) > 1200);
+        const fallbackSnapshot = needsIntentProbe && currentModelText
+            ? buildInlineGhostEditorSnapshotFromInsertedTextRemoval(
+                currentModelText,
+                markerOffset,
+                1,
+            )
+            : null;
         const fallbackDialect = normalizeMetadataDialect(connectionsRef.current.find(
             (item) => item.id === currentConnectionIdRef.current,
         ));
@@ -269,17 +282,36 @@ export const bindQueryEditorEditorEvents = ({
             refreshObjectDecorations(QUERY_EDITOR_LIVE_DECORATION_MAX_TEXT_LENGTH);
         }
         // SQL 文本变更后，按引用库集合防抖触发跨库元数据拉取（db.table / schema.table / db.schema.table）
-        sqlReferencedMetadataTimerRef.current = window.setTimeout(() => {
+        const runReferencedMetadataSettle = () => {
             sqlReferencedMetadataTimerRef.current = null;
             if (editorRef.current !== editor) {
                 return;
             }
-            const modelText = String(editor.getModel?.()?.getValue?.() || '');
+            // 超大文档：这次扫描是全文成本（10MB 约 0.5 秒），而它 450ms 后
+            // 就要跑一次。先做不需要读文本的收尾（大文档的装饰本来就只会被
+            // 清空），再把扫描推迟到安静期；重试分支必须留在扫描路径上，
+            // 否则 lastSqlReferencedMetadataKeyRef 的记账与重试语义会丢。
+            const modelForLength = editor.getModel?.();
+            const modelLength = getQueryEditorModelValueLength(modelForLength);
+            if (
+                modelLength !== null
+                && modelLength > QUERY_EDITOR_OBJECT_DECORATION_MAX_TEXT_LENGTH
+                && !metadataRetryPendingRef.current
+            ) {
+                scheduleObjectDecorationRefresh(editor);
+                sqlReferencedMetadataTimerRef.current = window.setTimeout(
+                    runReferencedMetadataSettle,
+                    QUERY_EDITOR_LARGE_DOC_METADATA_SETTLE_DELAY_MS,
+                );
+                return;
+            }
             const referencedConnection = connectionsRef.current.find(
                 (item) => item.id === String(currentConnectionIdRef.current || '').trim(),
             );
-            const referencedDbs = collectQueryEditorReferencedDatabaseNames(
-                modelText,
+            // 与元数据 effect 共用「按 model 版本号」的结果：同一份文档在两条
+            // 路径上各扫一遍，10MB 下等于白付一次约 0.5 秒。
+            const referencedDbs = collectQueryEditorReferencedDatabaseNamesForModel(
+                editor.getModel?.(),
                 currentDbRef.current ?? '',
                 visibleDbsRef.current,
                 referencedConnection ? normalizeMetadataDialect(referencedConnection) : '',
@@ -312,7 +344,8 @@ export const bindQueryEditorEditorEvents = ({
             }
             lastSqlReferencedMetadataKeyRef.current = nextKey;
             setSqlReferencedMetadataKey(nextKey);
-        }, 450);
+        };
+        sqlReferencedMetadataTimerRef.current = window.setTimeout(runReferencedMetadataSettle, 450);
         const acceptedCurrentAiGhost = !aiInlineGhostAcceptingRef.current
             && didModelContentAcceptCurrentAiInlineGhost(event);
         if (acceptedCurrentAiGhost) {
