@@ -43,7 +43,7 @@ export interface QueryEditorParamsState {
   analyzeNow: (sql: string, dbName?: string) => Promise<QueryParameterAnalysisInfo | null>;
   applyAnalysis: (analysis: QueryParameterAnalysisInfo | null) => void;
   // 编辑器键入时触发防抖重分析（面板与高亮随最新内容刷新）。
-  requestAnalysis: () => void;
+  requestAnalysis: (nextValue?: string) => void;
   quotedPlaceholders: boolean;
   setQuotedPlaceholders: (enabled: boolean) => void;
   // 切换开关后立刻按新规则重分析当前 SQL，供绑定对话框刷新字段。
@@ -156,8 +156,9 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
     setAnalyzing(false);
   }, []);
 
-  const requestAnalysis = useCallback(() => {
-    const latest = getSqlRef.current?.() ?? sql;
+  const requestAnalysis = useCallback((nextValue?: string) => {
+    // 键入时编辑器已把最新文本交给我们，不再全文 getValue。
+    const latest = nextValue ?? getSqlRef.current?.() ?? sql;
     setAnalysisSql((current) => (current === latest ? current : latest));
   }, [getSqlRef, sql]);
 

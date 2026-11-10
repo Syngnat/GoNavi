@@ -1,8 +1,8 @@
-import { normalizeQueryEditorCompletionAnalysisText } from '../queryEditorInlineMemory';
 import {
-    getNormalizedOffsetAtPosition, isQueryEditorTableSourceCompletionContext,
+    isQueryEditorTableSourceCompletionContext,
     isQueryEditorTableAliasCompletionContext, buildQueryEditorTableSourceAlias,
 } from '../QueryEditorHelpers';
+import { readQueryEditorCompletionAnalysisText } from './queryEditorCompletionAnalysisWindow';
 import { resolveBoundedSqlStatementContext } from '../queryEditorBoundedStatementContext';
 import { useStore } from '../../../store';
 import { appendTableAlias } from '../../../utils/sqlDialect';
@@ -15,11 +15,7 @@ export interface ResolveSqlCompletionStatementContextInput {
 }
 
 export const resolveSqlCompletionStatementContext = ({ model, position, activeDialect }: ResolveSqlCompletionStatementContextInput) => {
-    const fullText = normalizeQueryEditorCompletionAnalysisText(model.getValue());
-    const cursorOffset = getNormalizedOffsetAtPosition(fullText, {
-        lineNumber: Number(position?.lineNumber || 1),
-        column: Number(position?.column || 1),
-    });
+    const { text: fullText, cursorOffset } = readQueryEditorCompletionAnalysisText(model, position);
     // 有界语句上下文：只在光标附近「向上 200 行 / 向下 100 行、遇空行截断」的窗口内定位语句
     // 边界，避免每次触发补全都对整篇文档做词法扫描（大 SQL 下补全耗时随体积增长）。
     // 窗口仍覆盖同一语句的 FROM 部分，别名解析结果与全文扫描一致。

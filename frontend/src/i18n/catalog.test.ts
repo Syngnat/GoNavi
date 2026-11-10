@@ -1434,7 +1434,7 @@ describe("i18n catalog", () => {
       sliceBetween(
         source,
         "const buildQueryEditorEditableDefinitionSql = (",
-        "const SQL_COMPLETION_PROVIDER_VERSION = '20260831-hover-ddl-v6';",
+        "const SQL_COMPLETION_PROVIDER_VERSION = '20261110-monaco-perf-v1';",
       ),
       sliceBetween(
         source,

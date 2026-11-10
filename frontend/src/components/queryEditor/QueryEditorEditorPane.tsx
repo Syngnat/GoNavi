@@ -245,7 +245,7 @@ export const QueryEditorEditorPane = ({
         onChange={(val) => {
             const nextValue = val || '';
             syncQueryDraft(nextValue);
-            paramsState.requestAnalysis();
+            paramsState.requestAnalysis(nextValue);
         }}
         beforeMount={handleEditorBeforeMount}
         onMount={handleEditorDidMount}

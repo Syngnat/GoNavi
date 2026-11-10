@@ -96,6 +96,7 @@ export const useQueryEditorObjectDecorations = ({
     // 非激活 tab 副作用瘦身：失活期间被跳过的装饰刷新，在切回时补一次。
     // 只用「真的跳过了」才记脏（而非每次失活都记）：没变更的 tab 切回来不该白算一遍全文装饰。
     const decorationsActivationStaleRef = useRef(false);
+    const lastDecorationContextRef = useRef<string | null>(null);
     const refreshObjectDecorations = useCallback((maxTextLength = QUERY_EDITOR_OBJECT_DECORATION_MAX_TEXT_LENGTH) => {
         // 失活早退 + 记脏：装饰的消费方（元数据落库、格式化、快捷键、拖放、AI 采纳…）都会直接调这里，
         // 逐个调用点加门控既易漏又不集中；在此单点拦截，失活期间不做全文候选扫描，
@@ -225,7 +226,7 @@ export const useQueryEditorObjectDecorations = ({
             objectDecorationIdleCallbackRef.current = null;
         }
         if (objectDecorationFallbackTimerRef.current !== null) {
-            window.clearTimeout(objectDecorationFallbackTimerRef.current);
+            globalThis.clearTimeout(objectDecorationFallbackTimerRef.current);
             objectDecorationFallbackTimerRef.current = null;
         }
     }, []);
@@ -279,7 +280,7 @@ export const useQueryEditorObjectDecorations = ({
             objectDecorationIdleCallbackRef.current = window.requestIdleCallback(runRefresh, { timeout: 1_200 });
             return;
         }
-        objectDecorationFallbackTimerRef.current = window.setTimeout(runRefresh, 0);
+        objectDecorationFallbackTimerRef.current = globalThis.setTimeout(runRefresh, 0) as unknown as number;
     }, [cancelPendingObjectDecorationRefresh, isObjectEditQueryTab, refreshObjectDecorations]);
 
     useEffect(() => {
@@ -523,8 +524,19 @@ export const useQueryEditorObjectDecorations = ({
     }, [showObjectInfoAtPosition]);
 
     useEffect(() => {
-        refreshObjectDecorations(QUERY_EDITOR_LIVE_DECORATION_MAX_TEXT_LENGTH);
-    }, [currentDb, currentSchema, refreshObjectDecorations]);
+        // 首次挂载不重复扫描（元数据落地后会刷新）；只有真正的切库/切 schema 才延后扫一次，
+        // 放到空闲回调，避免与标签页切换、树刷新挤在同一帧。
+        const contextKey = `${currentDb || ''}\u0000${currentSchema || ''}`;
+        const previousContextKey = lastDecorationContextRef.current;
+        lastDecorationContextRef.current = contextKey;
+        if (previousContextKey === null || previousContextKey === contextKey) {
+            return;
+        }
+        scheduleObjectDecorationRefresh(
+            editorRef.current,
+            QUERY_EDITOR_LIVE_DECORATION_MAX_TEXT_LENGTH,
+        );
+    }, [currentDb, currentSchema, editorRef, scheduleObjectDecorationRefresh]);
 
     // 激活补刷：失活期间被 refreshObjectDecorations 单点拦截的刷新，在这里补一次。
     // 之所以单独成 effect 而不给上面的 [currentDb, currentSchema] effect 加 isActive：

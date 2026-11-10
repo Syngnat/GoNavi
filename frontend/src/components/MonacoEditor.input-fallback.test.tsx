@@ -123,10 +123,22 @@ describe('MonacoEditor printable input fallback', () => {
         endLineNumber: position.lineNumber,
         endColumn: position.column,
       }),
-      getValue: () => value,
+      getValue: vi.fn(() => value),
       getModel: () => ({
         getOffsetAt: offsetAt,
         getPositionAt: positionAt,
+        getValueLength: () => value.length,
+        getValueInRange: (range: any) => {
+          const start = offsetAt({
+            lineNumber: range.startLineNumber,
+            column: range.startColumn,
+          });
+          const end = offsetAt({
+            lineNumber: range.endLineNumber,
+            column: range.endColumn,
+          });
+          return value.slice(start, end);
+        },
       }),
       getPosition: () => position,
       getOption: () => false,
@@ -566,6 +578,20 @@ describe('MonacoEditor printable input fallback', () => {
 
     expect(value).toBe('()x');
     expect(editor.executeEdits).not.toHaveBeenCalled();
+  });
+
+  it('does not copy the full model on the printable input hot path', () => {
+    installFallback();
+
+    value = 'x'.repeat(80_000);
+    position = { lineNumber: 1, column: value.length + 1 };
+    const getValue = vi.spyOn(editor, 'getValue');
+
+    input.dispatchPrintableBeforeInput('a');
+    vi.advanceTimersByTime(200);
+
+    expect(getValue).not.toHaveBeenCalled();
+    expect(value).toBe(`${'x'.repeat(80_000)}a`);
   });
 
   it('still recovers printable text that was dropped before the caret moved', () => {

@@ -24,7 +24,7 @@ describe('query editor monaco layout', () => {
             quickSuggestions: { other: true, comments: false, strings: false },
             quickSuggestionsDelay: QUERY_EDITOR_QUICK_SUGGESTIONS_DELAY_MS,
             suggestOnTriggerCharacters: true,
-            hover: { enabled: 'on', delay: QUERY_EDITOR_HOVER_DELAY_MS, above: false },
+            hover: { enabled: true, delay: QUERY_EDITOR_HOVER_DELAY_MS, above: false },
             wordBasedSuggestions: 'off',
             occurrencesHighlight: 'off',
             wordWrap: 'off',

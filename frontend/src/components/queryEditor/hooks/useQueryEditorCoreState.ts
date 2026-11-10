@@ -17,7 +17,8 @@ import {
     type CompletionPackageMeta,
 } from '../QueryEditorHelpers';
 import { isElasticsearchConnection } from '../../../utils/elasticsearchConsole';
-import { buildQueryEditorMonacoOptions, type QueryEditorRunScope } from '../queryEditorRunHelpers';
+import { type QueryEditorRunScope } from '../queryEditorRunHelpers';
+import { buildQueryEditorMonacoOptions } from '../queryEditorMonacoLayout';
 import { takeQueryEditorResultSession } from '../../../utils/queryEditorResultSessionCache';
 import {
     type QueryEditorResultSet,
@@ -75,8 +76,9 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
         () => buildQueryEditorMonacoOptions(
             isObjectEditQueryTab,
             wordWrapEnabled,
+            isActive,
         ),
-        [isObjectEditQueryTab, wordWrapEnabled],
+        [isObjectEditQueryTab, isActive, wordWrapEnabled],
     );
 
     // Result Sets (session cache survives detach/attach remounts)
