@@ -10328,6 +10328,7 @@
   "query_editor.params.dialog_title": "Bind Parameters",
   "query_editor.params.empty": "No named parameters detected in the current SQL (write :name, ${name} or '{name}')",
   "query_editor.params.execute": "Execute",
+  "query_editor.params.group_truncated": "Showing first {{shown}} of {{total}} groups",
   "query_editor.params.list_add": "Add value",
   "query_editor.params.list_hint": "Elements bind as text; for integer columns prefer explicit typed parameters",
   "query_editor.params.missing_hint": "Parameters still missing values: {{names}}",

@@ -132,6 +132,13 @@
     font-size: 12px;
 }
 
+/* 语句数超过渲染上限时的提示：保持与分组标题同级的信息层级。 */
+.gn-query-params-truncated {
+    margin-top: 8px;
+    color: var(--gn-text-secondary, #8c8c8c);
+    font-size: 12px;
+}
+
 .gn-query-params-sql-preview {
     margin: 0;
     max-height: 220px;

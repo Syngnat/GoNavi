@@ -10328,6 +10328,7 @@
   "query_editor.params.dialog_title": "パラメータのバインド",
   "query_editor.params.empty": "現在の SQL に名前付きパラメータが見つかりません（:name、${name}、'{name}' 形式）",
   "query_editor.params.execute": "実行",
+  "query_editor.params.group_truncated": "全 {{total}} 組のうち先頭 {{shown}} 組を表示中",
   "query_editor.params.list_add": "値を追加",
   "query_editor.params.list_hint": "要素はテキストとしてバインドされます。整数列では型付きパラメータを推奨",
   "query_editor.params.missing_hint": "次のパラメータに値が未入力です：{{names}}",

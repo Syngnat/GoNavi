@@ -10328,6 +10328,7 @@
   "query_editor.params.dialog_title": "Parameter binden",
   "query_editor.params.empty": "Keine benannten Parameter im SQL gefunden (:name, ${name} oder '{name}' verwenden)",
   "query_editor.params.execute": "Ausführen",
+  "query_editor.params.group_truncated": "Zeige die ersten {{shown}} von {{total}} Gruppen",
   "query_editor.params.list_add": "Wert hinzufügen",
   "query_editor.params.list_hint": "Elemente werden als Text gebunden; für Integer-Spalten sind typisierte Parameter zu empfehlen",
   "query_editor.params.missing_hint": "Fehlende Parameterwerte: {{names}}",

@@ -10328,6 +10328,7 @@
   "query_editor.params.dialog_title": "绑定参数",
   "query_editor.params.empty": "当前 SQL 未检测到命名参数（使用 :name、${name} 或 '{name}' 书写）",
   "query_editor.params.execute": "执行",
+  "query_editor.params.group_truncated": "仅显示前 {{shown}} / {{total}} 组",
   "query_editor.params.list_add": "添加值",
   "query_editor.params.list_hint": "元素按文本绑定，整数列建议用数值参数逐条匹配",
   "query_editor.params.missing_hint": "以下参数尚未填值：{{names}}",

@@ -10328,6 +10328,7 @@
   "query_editor.params.dialog_title": "綁定參數",
   "query_editor.params.empty": "目前 SQL 未偵測到命名參數（使用 :name、${name} 或 '{name}' 撰寫）",
   "query_editor.params.execute": "執行",
+  "query_editor.params.group_truncated": "僅顯示前 {{shown}} / {{total}} 組",
   "query_editor.params.list_add": "新增值",
   "query_editor.params.list_hint": "元素按文字綁定，整數列建議用數值參數逐條匹配",
   "query_editor.params.missing_hint": "以下參數尚未填值：{{names}}",

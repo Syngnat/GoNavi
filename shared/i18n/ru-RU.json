@@ -10328,6 +10328,7 @@
   "query_editor.params.dialog_title": "Привязка параметров",
   "query_editor.params.empty": "Именованные параметры в SQL не найдены (используйте :name, ${name} или '{name}')",
   "query_editor.params.execute": "Выполнить",
+  "query_editor.params.group_truncated": "Показаны первые {{shown}} из {{total}} групп",
   "query_editor.params.list_add": "Добавить значение",
   "query_editor.params.list_hint": "Элементы привязываются как текст; для целочисленных колонок используйте типизированные параметры",
   "query_editor.params.missing_hint": "Не заданы значения параметров: {{names}}",

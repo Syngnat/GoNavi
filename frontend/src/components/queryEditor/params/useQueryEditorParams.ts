@@ -14,6 +14,10 @@ import {
 } from './queryEditorQuotedPlaceholders';
 
 const ANALYSIS_DEBOUNCE_MS = 400;
+// 键入防抖分析（非执行路径）的文本上限。超过后不再把整篇 SQL 送进 IPC：
+// 序列化 + 后端扫描 + statements 回显都是整篇成本。执行前的 analyzeNow
+// 是权威口径，不做上限，始终分析实际要跑的 SQL。
+export const QUERY_EDITOR_PARAMS_ANALYSIS_MAX_TEXT_LENGTH = 200_000;
 
 export interface UseQueryEditorParamsOptions {
   // 原始连接配置（type/driver/oceanBaseProtocol 参与方言与能力判定）。
@@ -61,7 +65,11 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
   const quotedPlaceholdersRef = useRef(quotedPlaceholders);
   // 分析输入与 query state 解耦：query 只在保存/切换时更新，键入通过
   // requestAnalysis 把编辑器实时内容送进防抖分析。
-  const [analysisSql, setAnalysisSql] = useState(sql);
+  //
+  // 这里刻意用 ref 而不是 state 承接键入文本：本 hook 由 QueryEditor 持有，
+  // 任何 setState 都会让 QueryEditor 整棵未 memo 的外壳（工具栏、结果面板、
+  // 对话框）随每个字符重渲染，10MB 文档下这正是输入卡顿的主因之一。
+  const analysisSqlRef = useRef(sql);
   const sequenceRef = useRef(0);
   const savedParamsRef = useRef<SavedQueryParamInfo[] | null | undefined>(savedParams);
   const configRef = useRef(config);
@@ -72,6 +80,21 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
   useEffect(() => {
     getSqlRef.current = options.getSql;
   }, [options.getSql]);
+  // 同步赋值而非 effect：键入回调可能在 effect 之前触发，用 effect 同步会拿到
+  // 上一轮的开关/库名。
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const dbNameRef = useRef(dbName);
+  dbNameRef.current = dbName;
+  // 防抖定时器由调度函数独占：effect 与键入触发共用同一个槽位，避免两处
+  // 各起一个定时器把同一次分析跑两遍。
+  const analysisTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelAnalysis = useCallback(() => {
+    if (analysisTimerRef.current !== null) {
+      clearTimeout(analysisTimerRef.current);
+      analysisTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     savedParamsRef.current = savedParams;
@@ -88,23 +111,33 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
     setValues(initial);
   }, [resetToken, savedParams]);
 
-  useEffect(() => {
-    if (!enabled) {
-      setAnalysis(null);
-      setAnalyzing(false);
-      return undefined;
-    }
+  const scheduleAnalysis = useCallback(() => {
+    cancelAnalysis();
     const sequence = ++sequenceRef.current;
-    // 注意：不要在 effect 体内同步 setState（如 setAnalyzing）——挂载期立即
-    // 触发额外渲染会让依赖不稳定的监听器 effect 在测试桩下重复注册。
-    const timer = setTimeout(async () => {
+    // 注意：不要在同步路径里 setState（如 setAnalyzing）——挂载期立即触发
+    // 额外渲染会让依赖不稳定的监听器 effect 在测试桩下重复注册。
+    analysisTimerRef.current = setTimeout(async () => {
+      analysisTimerRef.current = null;
       // analyzeNow/applyAnalysis 已推进 sequence 时本轮回调已过期：
       // 不能再置 analyzing（否则其 finally 因 sequence 失配不复位，永久卡 true）。
-      if (sequenceRef.current !== sequence) return;
+      if (sequenceRef.current !== sequence || !enabledRef.current) return;
+      const pendingText = analysisSqlRef.current || '';
+      if (pendingText.length > QUERY_EDITOR_PARAMS_ANALYSIS_MAX_TEXT_LENGTH) {
+        // 旧分析属于旧文本，继续展示会给出错误的参数名与高亮；与既有超限
+        // 装饰一致直接清空，执行前 analyzeNow 会按实际 SQL 重新建立。
+        setAnalysis(null);
+        setAnalyzing(false);
+        return;
+      }
       setAnalyzing(true);
       try {
-        const rawConfig = (config || {}) as unknown as connection.ConnectionConfig;
-        const result = await AnalyzeQueryParameters(rawConfig, dbName || '', analysisSql || '', quotedPlaceholders);
+        const rawConfig = (configRef.current || {}) as unknown as connection.ConnectionConfig;
+        const result = await AnalyzeQueryParameters(
+          rawConfig,
+          dbNameRef.current || '',
+          pendingText,
+          quotedPlaceholdersRef.current,
+        );
         if (sequenceRef.current !== sequence) {
           return;
         }
@@ -129,10 +162,20 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
         }
       }
     }, ANALYSIS_DEBOUNCE_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [config, dbName, analysisSql, enabled, quotedPlaceholders]);
+  }, [cancelAnalysis]);
+
+  // 触发集合与旧实现保持一致：连接配置、库名、开关与引号占位符变化时重分析。
+  // 键入文本不再进依赖，由 requestAnalysis 单独调度。
+  useEffect(() => {
+    if (!enabled) {
+      cancelAnalysis();
+      setAnalysis(null);
+      setAnalyzing(false);
+      return undefined;
+    }
+    scheduleAnalysis();
+    return cancelAnalysis;
+  }, [config, dbName, enabled, quotedPlaceholders, cancelAnalysis, scheduleAnalysis]);
 
   const setValue = useCallback((name: string, input: QueryParamInput | null) => {
     setValues((current) => {
@@ -158,9 +201,12 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
 
   const requestAnalysis = useCallback((nextValue?: string) => {
     // 键入时编辑器已把最新文本交给我们，不再全文 getValue。
-    const latest = nextValue ?? getSqlRef.current?.() ?? sql;
-    setAnalysisSql((current) => (current === latest ? current : latest));
-  }, [getSqlRef, sql]);
+    const latest = nextValue ?? getSqlRef.current?.() ?? analysisSqlRef.current;
+    analysisSqlRef.current = latest;
+    if (enabledRef.current) {
+      scheduleAnalysis();
+    }
+  }, [getSqlRef, scheduleAnalysis]);
 
   const analyzeNow = useCallback(async (sqlText: string, analysisDbName?: string, quotedOverride?: boolean) => {
     const sequence = ++sequenceRef.current;
@@ -202,9 +248,9 @@ export function useQueryEditorParams(options: UseQueryEditorParamsOptions): Quer
 
   const reanalyze = useCallback(async (enabled: boolean) => {
     setQuotedPlaceholders(enabled);
-    const latest = getSqlRef.current?.() ?? analysisSql;
+    const latest = getSqlRef.current?.() ?? analysisSqlRef.current;
     return analyzeNow(latest, undefined, enabled);
-  }, [analysisSql, analyzeNow, setQuotedPlaceholders]);
+  }, [analyzeNow, setQuotedPlaceholders]);
 
   const parameterNames = analysis?.parameterNames || [];
   const missingNames = collectMissingParamNames(parameterNames, values);
