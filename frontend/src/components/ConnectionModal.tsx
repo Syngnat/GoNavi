@@ -30,6 +30,7 @@ import { useConnectionModalSteps } from "./connectionModal/useConnectionModalSte
 import { useConnectionModalChrome } from "./connectionModal/useConnectionModalChrome";
 import { ConnectionModalSSHHostKeyTrustDialog } from "./connectionModal/ConnectionModalSSHHostKeyTrustDialog";
 import { ConnectionModalTestFailureLogModal } from "./connectionModal/ConnectionModalTestFailureLogModal";
+import { useConnectionTestLog } from "./connectionModal/useConnectionTestLog";
 
 export interface ConnectionModalProps {
   open: boolean;
@@ -164,6 +165,12 @@ const ConnectionModal: React.FC<ConnectionModalProps> = ({ open, onClose, initia
     overlayTheme,
     tunnelSectionStyle,
   } = useConnectionModalState();
+
+  // 失败详情弹窗的日志读取：只在弹窗打开时才去读，避免每次测试都碰磁盘。
+  const testLog = useConnectionTestLog({
+    enabled: testErrorLogOpen,
+    reason: resolvedTestResultMessage,
+  });
 
   const {
     modalShellStyle,
@@ -729,6 +736,7 @@ const ConnectionModal: React.FC<ConnectionModalProps> = ({ open, onClose, initia
         setTestErrorLogOpen={setTestErrorLogOpen}
         modalShellStyle={modalShellStyle}
         resolvedTestResultMessage={resolvedTestResultMessage}
+        testLog={testLog}
       />
     </>
   );

@@ -246,6 +246,7 @@ export const mockModule5 = () => {
     PushpinOutlined: Icon,
     ExclamationCircleFilled: Icon,
     ReloadOutlined: Icon,
+    FolderOpenOutlined: Icon,
   };
 };
 
@@ -452,6 +453,19 @@ export const mockModule6 = () => {
     Text: ({ children }: any) => <span>{children}</span>,
   };
 
+  // 失败详情弹窗用 Tabs 在「错误详情 / 运行日志」之间切换；测试里把
+  // 所有面板一次性渲染出来，断言不受当前激活页签影响。
+  const Tabs = ({ items = [] }: { items: { key: string; label: React.ReactNode; children: React.ReactNode }[] }) => (
+    <div>
+      {items.map((item) => (
+        <div key={item.key} data-tab-key={item.key}>
+          <div>{item.label}</div>
+          <div>{item.children}</div>
+        </div>
+      ))}
+    </div>
+  );
+
   return {
     Modal,
     Form,
@@ -465,6 +479,7 @@ export const mockModule6 = () => {
     Alert,
     Spin: ({ children }: any) => <div>{children}</div>,
     Card,
+    Tabs,
     Collapse: ({ items }: { items: { key: string; children: React.ReactNode }[] }) => <>{items.map((item) => <div key={item.key}>{item.children}</div>)}</>,
     Row,
     Col,
