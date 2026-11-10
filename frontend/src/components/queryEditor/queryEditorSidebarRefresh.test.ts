@@ -41,7 +41,9 @@ describe('SQL write sidebar refresh targets', () => {
     });
 
     it.each([
-        ['oracle', 'DELETE FROM app.Orders', 'APP', '"ORDERS"'],
+        // Oracle 家族按需定界：`ORDERS` 折叠后即 `ORDERS`，无需引号；
+        // 显式定界的 `"Orders"` 必须保留引号，否则语义从区分大小写变成折叠。
+        ['oracle', 'DELETE FROM app.Orders', 'APP', 'ORDERS'],
         ['dameng', 'DELETE FROM "app"."Orders"', 'app', '"Orders"'],
         ['sqlserver', 'DELETE FROM sales.dbo.orders', 'sales', '[dbo].[orders]'],
         ['postgres', 'DELETE FROM "reporting"."Orders"', 'main', 'reporting."Orders"'],

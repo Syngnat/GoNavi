@@ -30,6 +30,8 @@ const buildCompletionDetailTypeLast = (typeLabel: string, comment?: string): str
 export interface BuildSqlCompletionGlobalSuggestionsInput {
     expectsTableName: boolean;
     foundTables: Set<string>;
+    // 表身份键 → 该表在当前语句中首次出现的位置；用于列候选的次级排序。
+    tableReferenceOrder?: Map<string, number>;
     activeDialect: ReturnType<typeof createSqlCompletionDialectContext>['activeDialect'];
     referencedColumns: CompletionColumnMeta[];
     wordPrefix: string;
@@ -61,7 +63,7 @@ export interface BuildSqlCompletionGlobalSuggestionsInput {
 }
 
 export const buildSqlCompletionGlobalSuggestions = ({
-    expectsTableName, foundTables, activeDialect, referencedColumns, wordPrefix,
+    expectsTableName, foundTables, tableReferenceOrder, activeDialect, referencedColumns, wordPrefix,
     isCurrentCompletionDatabase, sortGroups, monaco, quoteCompletionPart,
     applyCompletionFragmentCase, rawWordPrefix, range, currentDatabase, completionTables,
     splitSchemaAndTable, buildDbQualifiedTableSuggestionMeta, buildTableSuggestion,
@@ -111,14 +113,27 @@ export const buildSqlCompletionGlobalSuggestions = ({
     // 结果按字母序把用户正在查的那张表排到后面（例如 fs_* 排在 wechat_* 之前）。
     const buildColumnSortPrefix = (column: CompletionColumnMeta): string => {
         const isCurrentDb = isCurrentCompletionDatabase(column.dbName || '');
-        const isReferencedTable = buildQueryEditorMetadataIdentityKeys(
+        const identityKeys = buildQueryEditorMetadataIdentityKeys(
             activeDialect,
             column.dbName || '',
             column.tableName || '',
-        ).some((key) => foundTables.has(key));
-        // 两段组内再分档：引用的表排在同库其他列之前。
+        );
+        const isReferencedTable = identityKeys.some((key) => foundTables.has(key));
+        if (!isReferencedTable) {
+            // 未引用的表排在同库/跨库分组的最后。
+            const groupPrefix = isCurrentDb ? sortGroups.columnCurrent : sortGroups.columnOther;
+            return `${groupPrefix}9`;
+        }
+        // 引用的表之间再按它在语句中的出现顺序分档：用户正在写的 FROM 表优先，
+        // 后面的 JOIN 表依次靠后，避免同档内退化成字母序。
+        const order = identityKeys.reduce<number | null>((best, key) => {
+            const index = tableReferenceOrder?.get(key);
+            if (index === undefined) return best;
+            return best === null || index < best ? index : best;
+        }, null);
+        const orderRank = order === null ? 0 : Math.min(order, 8);
         const groupPrefix = isCurrentDb ? sortGroups.columnCurrent : sortGroups.columnOther;
-        return `${groupPrefix}${isReferencedTable ? '0' : '1'}`;
+        return `${groupPrefix}${orderRank}`;
     };
 
     const relevantColumnBatch = createBoundedQueryEditorCompletionCandidateBatch({

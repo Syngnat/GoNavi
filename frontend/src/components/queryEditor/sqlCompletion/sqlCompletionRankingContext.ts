@@ -23,13 +23,20 @@ export const createSqlCompletionRankingContext = ({
 }: CreateSqlCompletionRankingContextInput) => {
     // 2) global/table/column completion
     const foundTables = new Set<string>();
-    for (const reference of collectQueryEditorTableReferences(completionReferenceText, activeDialect)) {
+    // 同一语句里可能引用多张表（多行 FROM/JOIN）。列补全时「先出现的表」应当优先：
+    // 只看 foundTables 这个集合会把它们当成同一档，退化成字母序，把用户正在写的
+    // 那张表挤到后面。这里记下每张表在语句中首次出现的位置作为次级权重。
+    const tableReferenceOrder = new Map<string, number>();
+    const allReferences = collectQueryEditorTableReferences(completionReferenceText, activeDialect);
+    allReferences.forEach((reference, referenceIndex) => {
         buildQueryEditorReferenceIdentityKeys(reference, activeDialect).forEach((key) => {
-            if (key) {
-                foundTables.add(key);
+            if (!key) return;
+            foundTables.add(key);
+            if (!tableReferenceOrder.has(key)) {
+                tableReferenceOrder.set(key, referenceIndex);
             }
         });
-    }
+    });
 
     const currentDatabase = getActiveCompletionDbName();
     const hasCompletionDatabaseScope = Boolean(currentDatabase) || activeConnectionHasScopedMetadata;
@@ -68,7 +75,7 @@ export const createSqlCompletionRankingContext = ({
             ? { keyword: '20', func: '25', routineCurrent: '26', routineOther: '27', columnCurrent: '10', columnOther: '11', tableCurrent: '00', tableOther: '01', db: '30' }
             : { keyword: '30', func: '25', routineCurrent: '26', routineOther: '27', columnCurrent: '00', columnOther: '01', tableCurrent: '10', tableOther: '11', db: '20' };
     return {
-        foundTables, currentDatabase, hasCompletionDatabaseScope, isCurrentCompletionDatabase,
+        foundTables, tableReferenceOrder, currentDatabase, hasCompletionDatabaseScope, isCurrentCompletionDatabase,
         rawWordPrefix, wordPrefix, getPrefixMatchRank, expectsTableName, expectsRoutineName,
         sortGroups,
     };

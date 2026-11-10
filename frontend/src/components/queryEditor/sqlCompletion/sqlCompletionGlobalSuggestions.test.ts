@@ -162,4 +162,28 @@ describe('buildSqlCompletionGlobalSuggestions', () => {
         // columnCurrent('00') + 引用表优先标记('0') + 匹配等级 + 列名。
         expect(idSuggestions[0].sortText.startsWith('000')).toBe(true);
     });
+
+    // 回归：一句话里有多张表时，列候选必须按 FROM/JOIN 的出现顺序排，
+    // 而不是把它们当成同一档退化成字母序（用户正在写的表会被挤到后面）。
+    it('orders column candidates by the table position in the statement', () => {
+        const first = column('id', 'wechat_customer_company_info', 'mkefu_ai_dev');
+        const second = column('id', 'fs_mkefu_server_info', 'mkefu_ai_dev');
+        state.sharedAllColumnsData.push(first, second);
+
+        const firstKey = 'mkefu_ai_dev\u0000wechat_customer_company_info';
+        const secondKey = 'mkefu_ai_dev\u0000fs_mkefu_server_info';
+        const { suggestions } = buildSqlCompletionGlobalSuggestions(buildInput({
+            foundTables: new Set([firstKey, secondKey]),
+            tableReferenceOrder: new Map([[firstKey, 0], [secondKey, 1]]),
+            referencedColumns: [first, second],
+        }) as any);
+
+        const ids = suggestions.filter((item: any) => (
+            item.kind === monaco.languages.CompletionItemKind.Field
+            && String(item.label?.label ?? item.label) === 'id'
+        ));
+        expect(ids).toHaveLength(2);
+        // 先出现的表排序键更小。
+        expect(String(ids[0].sortText) < String(ids[1].sortText)).toBe(true);
+    });
 });
