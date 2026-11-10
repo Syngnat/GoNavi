@@ -19,8 +19,10 @@ describe('sidebar row counts after SQL writes', () => {
         ['postgres', 'public.orders', 'public', 'public.orders', 'main', 'SELECT COUNT(*) AS table_rows FROM public.orders'],
         ['kingbase', 'public.orders', 'public', 'public.orders', 'main', 'SELECT COUNT(*) AS table_rows FROM public.orders'],
         ['sqlserver', 'dbo.orders', 'dbo', '[dbo].[orders]', 'main', 'SELECT COUNT(*) AS table_rows FROM [dbo].[orders]'],
-        ['oracle', 'ORDERS', 'APP', '"ORDERS"', 'APP', 'SELECT COUNT(*) AS table_rows FROM "APP"."ORDERS"'],
-        ['dameng', 'ORDERS', 'APP', '"ORDERS"', 'APP', 'SELECT COUNT(*) AS table_rows FROM "APP"."ORDERS"'],
+        // Oracle 家族按需定界：合法裸名不加引号，交由 Oracle 折叠为大写，
+        // 避免小写对象名被拼成带引号的精确匹配而报 ORA-00942。
+        ['oracle', 'ORDERS', 'APP', 'ORDERS', 'APP', 'SELECT COUNT(*) AS table_rows FROM APP.ORDERS'],
+        ['dameng', 'ORDERS', 'APP', 'ORDERS', 'APP', 'SELECT COUNT(*) AS table_rows FROM APP.ORDERS'],
     ])('replaces stale %s statistics with the committed count, including zero', async (type, tableName, schemaName, target, dbName, sql) => {
         const conn = { id: 'conn-1', name: type, dbName, config: { type } } as SavedConnection & { dbName: string };
         const entries = [{ tableName, schemaName, displayName: tableName, rowCount: 100 }];

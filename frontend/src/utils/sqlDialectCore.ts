@@ -297,19 +297,47 @@ const escapeBracketIdentifier = (value: string) => String(value || '').replace(/
 
 const needsPgLikeQuote = (ident: string): boolean => !/^[a-z_][a-z0-9_]*$/.test(ident);
 
+// Oracle 家族：裸标识符会被折叠为大写，双引号则精确匹配、区分大小写。
+// 因此「裸名合法」的标识符一律不加引号——`qcreformreceive` 与
+// `QCREFORMRECEIVE` 都能命中同名对象；一旦加了引号，小写名就只能匹到
+// 小写对象，反而触发 ORA-00942（对象明明存在却报不存在）。只有含空格、
+// 连字符等裸名不允许的字符时才必须定界。
+const needsOracleQuote = (ident: string): boolean => !/^[A-Za-z_][A-Za-z0-9_$#]*$/.test(ident);
+
 export const unquoteSqlIdentifierPart = stripIdentifierQuotes;
 
 export const unquoteSqlIdentifierPath = (path: string, dbType = ''): string => (
   splitQualifiedNameSegments(path, dbType).filter(Boolean).join('.')
 );
 
-export const quoteSqlIdentifierPart = (dbType: string, part: string): string => {
-  const dialect = resolveSqlDialect(dbType);
+export const quoteSqlIdentifierPart = (
+  dbType: string,
+  part: string,
+  options?: { oceanBaseProtocol?: unknown },
+): string => {
+  // OceanBase 的方言取决于连接协议：不传协议就退化为 mysql（反引号），
+  // 在 Oracle 租户上会直接产生非法标识符。调用方知道协议时必须传进来。
+  const dialect = resolveSqlDialect(dbType, '', options);
   const ident = stripIdentifierQuotes(part, dialect);
   if (!ident) return '';
 
+  // 调用方原本已显式定界（`"Order Items"`）时必须保留定界语义：Oracle 家族会
+  // 区分大小写，剥掉引号再决定就是猜。这里先判断来源是否带引号。
+  const sourceWasQuoted = (() => {
+    const text = String(part || '').trim();
+    if (!text) return false;
+    const segments = splitQualifiedNameSegmentsDetailed(text, dialect);
+    return segments.length === 1 && Boolean(segments[0].quoted);
+  })();
+
   if (isBacktickIdentifierDialect(dialect)) {
     return `\`${escapeBacktickIdentifier(ident)}\``;
+  }
+  if (isOracleLikeDialect(dialect)) {
+    // Oracle 家族按需定界：来源已定界或裸名不合法时才加双引号。
+    return sourceWasQuoted || needsOracleQuote(ident)
+      ? `"${escapeDoubleQuoteIdentifier(ident)}"`
+      : ident;
   }
   if (isSqlServerDialect(dialect)) {
     return `[${escapeBracketIdentifier(ident)}]`;
@@ -327,8 +355,12 @@ export const quoteSqlIdentifierPart = (dbType: string, part: string): string => 
   return `"${escapeDoubleQuoteIdentifier(ident)}"`;
 };
 
-export const quoteSqlIdentifierPath = (dbType: string, path: string): string => {
-  const dialect = resolveSqlDialect(dbType);
+export const quoteSqlIdentifierPath = (
+  dbType: string,
+  path: string,
+  options?: { oceanBaseProtocol?: unknown },
+): string => {
+  const dialect = resolveSqlDialect(dbType, '', options);
   return splitQualifiedNameSegmentsDetailed(path, dialect)
     .filter((segment) => Boolean(segment.value))
     .map((segment) => quoteSqlIdentifierPart(dialect, segment.raw))
