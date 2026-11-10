@@ -8,6 +8,56 @@ import {
 import { analyzeQueryEditorTableReferences } from './queryEditorTableReferences';
 import { supportsSqlHashLineComment } from '../../utils/sqlStatementSelection';
 
+// 旧实现每遇到一个 `$` 就 `text.slice(i).match(...)` + `text.indexOf(...)`：
+// 前者复制剩余全文，后者再扫到文末。含有大量 `$` 的文档（Oracle 的 V$SQL、
+// PG dump 里成片的未闭合 $tag$）因此退化为平方级——10MB 级会直接卡死。
+// 这里改为「遇到第一个 `$` 时线性建一次标签位置索引，之后用二分查找判断
+// 闭合标签是否存在于其后」，判定语义与 indexOf >= 0 完全一致。
+const buildDollarTagPositionIndex = (text: string): Map<string, number[]> | null => {
+    let index: Map<string, number[]> | null = null;
+    for (let i = 0; i < text.length; i += 1) {
+        if (text.charCodeAt(i) !== 36) continue; // '$'
+        const tag = parseDollarTagAt(text, i);
+        if (!tag) continue;
+        if (!index) index = new Map();
+        const positions = index.get(tag);
+        if (positions) positions.push(i);
+        else index.set(tag, [i]);
+    }
+    return index;
+};
+
+const parseDollarTagAt = (text: string, start: number): string | null => {
+    if (text[start] !== '$') return null;
+    if (text[start + 1] === '$') return '$$';
+    const first = text[start + 1];
+    if (!first || !/[A-Za-z_]/.test(first)) return null;
+    for (let i = start + 2; i < text.length; i += 1) {
+        const ch = text[i];
+        if (ch === '$') return text.slice(start, i + 1);
+        if (!/[A-Za-z0-9_]/.test(ch)) return null;
+    }
+    return null;
+};
+
+const hasDollarTagAtOrAfter = (
+    index: Map<string, number[]> | null,
+    tag: string,
+    from: number,
+): boolean => {
+    const positions = index?.get(tag);
+    if (!positions || positions.length === 0) return false;
+    let low = 0;
+    let high = positions.length - 1;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (positions[mid] < from) low = mid + 1;
+        else if (positions[mid] > from) high = mid - 1;
+        else return true;
+    }
+    return low < positions.length;
+};
+
 export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = ''): string => {
     // Keep the original string length so offsets reported by Monaco remain
     // valid while callers inspect the masked copy. CR/LF are both whitespace
@@ -15,7 +65,38 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = '
     const text = String(source || '');
     if (!text) return '';
 
-    const chars = text.split('');
+    // 大文档（10MB 级）下 `split('')` 会产生千万级单字符数组，拷贝 + GC 是
+    // 这条扫描的主要开销。改为只记录需要掩码的区间，最后按区间切片拼接：
+    // 未掩码部分保持原文，掩码区间用等长空格替换并保留换行，输出与逐字符
+    // 替换逐字节一致。runStart/runEnd 合并相邻字符，避免每次掩码都入栈。
+    const ranges: number[] = [];
+    let runStart = -1;
+    let runEnd = -1;
+    const closeRun = () => {
+        if (runStart >= 0) {
+            ranges.push(runStart, runEnd);
+            runStart = -1;
+            runEnd = -1;
+        }
+    };
+    const maskAt = (index: number) => {
+        if (text[index] === '\n') {
+            closeRun();
+            return;
+        }
+        if (runStart < 0) {
+            runStart = index;
+            runEnd = index + 1;
+            return;
+        }
+        if (index !== runEnd) {
+            closeRun();
+            runStart = index;
+            runEnd = index + 1;
+            return;
+        }
+        runEnd = index + 1;
+    };
     let inSingle = false;
     let inDouble = false;
     let inBacktick = false;
@@ -24,13 +105,9 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = '
     let inBlockComment = false;
     let dollarTag = '';
     let escaped = false;
+    // 惰性构建：不含 `$` 的文档不会为此付出任何代价。
+    let dollarTagIndex: Map<string, number[]> | null | undefined;
     const bracketIdentifiers = supportsQueryEditorBracketIdentifier(dbType);
-
-    const maskAt = (index: number) => {
-        if (chars[index] !== '\n') {
-            chars[index] = ' ';
-        }
-    };
 
     for (let i = 0; i < text.length; i += 1) {
         const ch = text[i];
@@ -137,17 +214,19 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = '
         // text, including semicolons and FROM/JOIN clauses. Mask the complete
         // body while preserving offsets and newlines for Monaco callers.
         if (ch === '$') {
-            const dollarMatch = text.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/);
-            if (
-                dollarMatch?.[0]
-                && text.indexOf(dollarMatch[0], i + dollarMatch[0].length) >= 0
-            ) {
-                dollarTag = dollarMatch[0];
-                for (let tagOffset = 0; tagOffset < dollarTag.length; tagOffset += 1) {
-                    maskAt(i + tagOffset);
+            const tag = parseDollarTagAt(text, i);
+            if (tag) {
+                if (dollarTagIndex === undefined) {
+                    dollarTagIndex = buildDollarTagPositionIndex(text);
                 }
-                i += dollarTag.length - 1;
-                continue;
+                if (hasDollarTagAtOrAfter(dollarTagIndex, tag, i + tag.length)) {
+                    dollarTag = tag;
+                    for (let tagOffset = 0; tagOffset < dollarTag.length; tagOffset += 1) {
+                        maskAt(i + tagOffset);
+                    }
+                    i += dollarTag.length - 1;
+                    continue;
+                }
             }
         }
 
@@ -192,7 +271,25 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = '
         }
     }
 
-    return chars.join('');
+    closeRun();
+    if (ranges.length === 0) {
+        return text;
+    }
+    const parts: string[] = [];
+    let copiedUntil = 0;
+    for (let index = 0; index < ranges.length; index += 2) {
+        const start = ranges[index];
+        const end = ranges[index + 1];
+        if (start > copiedUntil) {
+            parts.push(text.slice(copiedUntil, start));
+        }
+        parts.push(text.slice(start, end).replace(/[^\n]/g, ' '));
+        copiedUntil = end;
+    }
+    if (copiedUntil < text.length) {
+        parts.push(text.slice(copiedUntil));
+    }
+    return parts.join('');
 };
 
 export const collectQueryEditorObjectDecorationCandidates = (

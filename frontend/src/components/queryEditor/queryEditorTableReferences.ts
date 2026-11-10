@@ -3,7 +3,6 @@ import {
     supportsQueryEditorBracketIdentifier,
     supportsQueryEditorEscapedBracketIdentifier,
     QUERY_EDITOR_SQL_UNQUOTED_IDENTIFIER_PATTERN,
-    isQuotedQueryIdentifierPartForDialect,
     splitQueryIdentifierPathSegments,
 } from './queryEditorIdentifierPaths';
 import { maskQueryEditorSqlLiteralsAndComments } from './queryEditorSqlScan';
@@ -57,16 +56,45 @@ const buildQueryEditorSqlIdentifierPattern = (dbType = ''): string => {
     return `(?:${quotedWithoutBrackets}|${QUERY_EDITOR_SQL_UNQUOTED_IDENTIFIER_PATTERN})`;
 };
 
-const tokenizeQueryEditorSqlReferences = (source: string, dbType = ''): QueryEditorSqlReferenceToken[] => {
-    const masked = maskQueryEditorSqlLiteralsAndComments(source, dbType);
-    const tokenRegex = new RegExp(`${buildQueryEditorSqlIdentifierPattern(dbType)}|[().,;]`, 'g');
+// 词法器每次调用都会为同一方言重建正则；大文档下单次分析动辄百万级 token，
+// 正则编译与逐 token 的方言判定都会累加成肉眼可见的卡顿。方言在这里只影响
+// 「方括号是否算定界标识符」，因此把布尔量算一次，token 的 quoted 直接由
+// 首尾字符判断（正则匹配出的 token 不含首尾空白，与逐字符辅助函数等价）。
+const queryEditorReferenceTokenRegexCache = new Map<string, RegExp>();
+
+const getQueryEditorReferenceTokenRegex = (dbType = '', bracketIdentifiers: boolean): RegExp => {
+    const key = `${String(dbType || '')}\u0000${bracketIdentifiers ? 1 : 0}`;
+    const cached = queryEditorReferenceTokenRegexCache.get(key);
+    if (cached) return cached;
+    const regex = new RegExp(`${buildQueryEditorSqlIdentifierPattern(dbType)}|[().,;]`, 'g');
+    if (queryEditorReferenceTokenRegexCache.size > 32) {
+        queryEditorReferenceTokenRegexCache.clear();
+    }
+    queryEditorReferenceTokenRegexCache.set(key, regex);
+    return regex;
+};
+
+const isQuotedReferenceToken = (raw: string, bracketIdentifiers: boolean): boolean => {
+    if (raw.length < 2) return false;
+    const first = raw[0];
+    if (first !== '`' && first !== '"' && !(bracketIdentifiers && first === '[')) {
+        return false;
+    }
+    const closing = first === '[' ? ']' : first;
+    return raw[raw.length - 1] === closing;
+};
+
+const tokenizeQueryEditorSqlReferences = (masked: string, dbType = ''): QueryEditorSqlReferenceToken[] => {
+    const bracketIdentifiers = supportsQueryEditorBracketIdentifier(dbType);
+    const tokenRegex = getQueryEditorReferenceTokenRegex(dbType, bracketIdentifiers);
+    tokenRegex.lastIndex = 0;
     const tokens: QueryEditorSqlReferenceToken[] = [];
     let match: RegExpExecArray | null;
     while ((match = tokenRegex.exec(masked)) !== null) {
         const raw = match[0] || '';
         tokens.push({
             raw,
-            quoted: !QUERY_EDITOR_SQL_REFERENCE_PUNCTUATION.has(raw) && isQuotedQueryIdentifierPartForDialect(raw, dbType),
+            quoted: !QUERY_EDITOR_SQL_REFERENCE_PUNCTUATION.has(raw) && isQuotedReferenceToken(raw, bracketIdentifiers),
         });
     }
     return tokens;
@@ -87,7 +115,11 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
     expectsTableSource: boolean;
     allowsTableAlias: boolean;
 } => {
-    const tokens = tokenizeQueryEditorSqlReferences(String(source || ''), dbType);
+    const sourceText = String(source || '');
+    const tokens = tokenizeQueryEditorSqlReferences(
+        maskQueryEditorSqlLiteralsAndComments(sourceText, dbType),
+        dbType,
+    );
     const references: QueryEditorTableReference[] = [];
     const states: QueryEditorSqlReferenceDepthState[] = [{
         fromListActive: false,
@@ -95,6 +127,12 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
         sourceContextActive: false,
     }];
     let depth = 0;
+    // 方言归一化与 iotdb 路径上限在循环外算一次：旧实现在每个表源处都调用
+    // resolveSqlDialect，百万级 token 的文档里会累加成可观测的卡顿。
+    const normalizedDialect = String(resolveSqlDialect(dbType) || dbType || '').toLowerCase();
+    const maxPathTokens = normalizedDialect === 'iotdb'
+        ? QUERY_EDITOR_IOTDB_TABLE_PATH_MAX_PARTS
+        : 3;
 
     const getState = () => {
         if (!states[depth]) {
@@ -165,9 +203,6 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
 
             const pathTokens = [token.raw];
             let pathEnd = index;
-            const maxPathTokens = String(resolveSqlDialect(dbType) || dbType || '').toLowerCase() === 'iotdb'
-                ? QUERY_EDITOR_IOTDB_TABLE_PATH_MAX_PARTS
-                : 3;
             while (
                 pathTokens.length < maxPathTokens
                 && tokens[pathEnd + 1]?.raw === '.'
@@ -344,9 +379,39 @@ const defineHiddenReferenceProperty = <T extends object, K extends PropertyKey, 
     return target as T & Record<K, V>;
 };
 
-export const collectQueryEditorTableReferences = (source: string, dbType = ''): QueryEditorTableReference[] => (
-    analyzeQueryEditorTableReferences(source, dbType).references
-);
+type QueryEditorTableReferencesCacheEntry = {
+    source: string;
+    dbType: string;
+    references: QueryEditorTableReference[];
+};
+
+let tableReferencesCache: QueryEditorTableReferencesCacheEntry | null = null;
+
+// 超大文档不参与单条缓存：缓存项会以强引用同时钉住整篇源文本和全部引用对象
+// （10MB 文档实测可达上百 MB），而大文档本身每次都要重扫，缓存命中率极低。
+const QUERY_EDITOR_TABLE_REFERENCES_CACHE_MAX_SOURCE_LENGTH = 200_000;
+
+export const clearQueryEditorTableReferencesCache = (): void => {
+    tableReferencesCache = null;
+};
+
+export const collectQueryEditorTableReferences = (source: string, dbType = ''): QueryEditorTableReference[] => {
+    const normalizedSource = String(source ?? '');
+    const normalizedDbType = String(dbType ?? '');
+    if (normalizedSource.length > QUERY_EDITOR_TABLE_REFERENCES_CACHE_MAX_SOURCE_LENGTH) {
+        tableReferencesCache = null;
+        return analyzeQueryEditorTableReferences(normalizedSource, normalizedDbType).references;
+    }
+    const cached = tableReferencesCache;
+    if (cached && cached.source === normalizedSource && cached.dbType === normalizedDbType) {
+        return cached.references;
+    }
+    const references = analyzeQueryEditorTableReferences(normalizedSource, normalizedDbType).references;
+    // Inline ghost completion asks for the same statement several times per
+    // keystroke; cache one result instead of re-lexing the whole text.
+    tableReferencesCache = { source: normalizedSource, dbType: normalizedDbType, references };
+    return references;
+};
 
 export type QueryEditorExecutionContext = { dbName?: string; schemaName?: string };
 
