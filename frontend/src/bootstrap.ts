@@ -47,11 +47,12 @@ const isPluginPageRoute = (): boolean => (
 );
 
 const loadEntry = async (): Promise<void> => {
-  // Wails v2 and v3 used different macOS localStorage origins. Restore the
-  // legacy payload before importing the store so hydration sees the settings.
-  // The migration endpoint only exists in packaged builds (the Vite dev server
-  // does not proxy the Go asset middleware). Plugin pages and detached windows
-  // share the app origin but must not run the app-level migration.
+  // Current v3 builds pin the window to the v2 origin, so the packaged app
+  // already sees the v2 localStorage and must not migrate it into itself.
+  // The endpoint is a fallback for builds that still use the v3 default
+  // origin; it only exists in packaged builds (the Vite dev server does not
+  // proxy the Go asset middleware). Plugin pages and detached windows share
+  // the app origin but must not run the app-level migration.
   if (!import.meta.env.DEV && !isNativeDetachedWindowRoute() && !isPluginPageRoute()) {
     migrateLegacyLocalStorageIfNeeded();
   }
