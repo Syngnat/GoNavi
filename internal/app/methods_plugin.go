@@ -217,10 +217,13 @@ func (a *App) PluginOpenWindow(id, locale, theme string) connection.QueryResult 
 	if _, err := a.pluginManager(a.pluginContext()); err != nil {
 		return a.pluginFailure("runtime_unavailable")
 	}
-	a.plugins.mu.Lock()
-	windows := a.plugins.windows
-	a.plugins.mu.Unlock()
+	windows, err := a.ensurePluginWindows(a.pluginContext())
+	if err != nil {
+		logger.Warnf("Plugin window host unavailable: %v", err)
+		return a.pluginFailure("window_unavailable")
+	}
 	if windows == nil {
+		logger.Warnf("Plugin window host is disabled for this runtime")
 		return a.pluginFailure("window_unavailable")
 	}
 	value, err := windows.Open(a.pluginContext(), id, id, nil, locale, theme)

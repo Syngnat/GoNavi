@@ -80,6 +80,17 @@ export default defineConfig({
     // Let Wails discover the next available port when another Vite instance
     // is already listening on the default development port.
     strictPort: false,
+    // The wails3 dev window loads through Wails' own asset proxy, so Vite sees
+    // "wails" as the Host header instead of localhost. Without this allowlist
+    // the development window only renders "Blocked request. This host
+    // (\"wails\") is not allowed." and never reaches the application.
+    allowedHosts: ['wails'],
+    // The page origin is wails://wails, so Vite's default HMR host would be
+    // the non-routable name "wails". Point the socket back at the loopback
+    // server that Wails proxies assets from.
+    hmr: {
+      host: '127.0.0.1',
+    },
     fs: {
       // Worktrees may share node_modules through a directory junction. Vite's
       // CSS asset URLs use its real path, including Monaco's codicon font.
