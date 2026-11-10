@@ -1,0 +1,165 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const state = vi.hoisted(() => ({
+    sharedAllColumnsData: [] as any[],
+    sharedViewsData: [] as any[],
+    sharedMaterializedViewsData: [] as any[],
+    sharedSynonymsData: [] as any[],
+    sharedRoutinesData: [] as any[],
+    sharedVisibleDbs: [] as string[],
+}));
+
+vi.mock('../queryEditorCompletionState', () => state);
+
+import { buildSqlCompletionGlobalSuggestions } from './sqlCompletionGlobalSuggestions';
+import type { CompletionColumnMeta } from '../QueryEditorHelpers';
+
+const monaco = {
+    languages: {
+        CompletionItemKind: {
+            Field: 1,
+            Class: 2,
+            Keyword: 3,
+            Function: 4,
+            Module: 5,
+            Variable: 6,
+            Unit: 7,
+            Struct: 8,
+            Event: 9,
+            Snippet: 10,
+        },
+    },
+    Range: class {
+        constructor(
+            public startLineNumber: number,
+            public startColumn: number,
+            public endLineNumber: number,
+            public endColumn: number,
+        ) {}
+    },
+    editor: { TrackedRangeStickiness: { NeverGrowsWhenTypingAtEdges: 1 } },
+} as any;
+
+const column = (name: string, tableName = 'fs_mkefu_server_info', dbName = 'mkefu_ai_dev'): CompletionColumnMeta => ({
+    name,
+    tableName,
+    dbName,
+    type: 'varchar(255)',
+} as CompletionColumnMeta);
+
+/**
+ * 最小可用的构建参数。只关心候选合并与排序，其余能力用恒等实现占位，
+ * 避免把测试绑死在补全器的内部细节上。
+ */
+const buildInput = (overrides: Record<string, unknown> = {}) => ({
+    expectsTableName: false,
+    foundTables: new Set(['mkefu_ai_dev\u0000fs_mkefu_server_info']),
+    activeDialect: 'mysql',
+    referencedColumns: [] as CompletionColumnMeta[],
+    wordPrefix: '',
+    isCurrentCompletionDatabase: () => true,
+    sortGroups: {
+        keyword: '1', func: '2', routineCurrent: '2', routineOther: '2',
+        tableCurrent: '3', tableOther: '3', columnCurrent: '0', columnOther: '0',
+        db: '4',
+    },
+    monaco,
+    quoteCompletionPart: (value: string) => value,
+    applyCompletionFragmentCase: (value: string) => value,
+    rawWordPrefix: '',
+    range: new monaco.Range(1, 1, 1, 1),
+    currentDatabase: 'mkefu_ai_dev',
+    completionTables: [] as any[],
+    splitSchemaAndTable: (name: string) => ({ schema: '', table: name }),
+    buildDbQualifiedTableSuggestionMeta: (dbName: string, tableName: string) => ({
+        displayName: tableName,
+        insertName: tableName,
+        insertText: tableName,
+        dbQualifiedLabel: dbName ? `${dbName}.${tableName}` : tableName,
+    }),
+    buildTableSuggestion: (label: string, detail: string) => ({ label, detail }),
+    appendTableSourceAlias: (text: string) => text,
+    quoteCompletionPath: (value: string) => value,
+    getPrefixMatchRank: () => '0',
+    buildViewSuggestionMeta: () => ({ displayName: '', insertText: '' }),
+    getViewTypeLabel: () => 'view',
+    getViewSuggestionScope: () => 'current',
+    oracleLoginOwner: '',
+    buildSynonymSuggestion: () => null,
+    buildRoutineSuggestionMeta: () => ({ displayName: '', insertText: '' }),
+    expectsRoutineName: false,
+    getRoutineTypeLabel: () => 'fn',
+    dialectKeywords: [] as string[],
+    dialectFunctions: [] as string[],
+    ...overrides,
+});
+
+describe('buildSqlCompletionGlobalSuggestions', () => {
+    beforeEach(() => {
+        state.sharedAllColumnsData.length = 0;
+        state.sharedViewsData.length = 0;
+        state.sharedMaterializedViewsData.length = 0;
+        state.sharedSynonymsData.length = 0;
+        state.sharedRoutinesData.length = 0;
+        state.sharedVisibleDbs.length = 0;
+    });
+
+    // 回归：预加载列（sharedAllColumnsData 索引）与按别名解析出的引用列
+    // 经常是同一列。直接拼接会让补全列表出现两条一模一样的候选。
+    it('emits each referenced column once even when it is also preloaded', () => {
+        const shared = column('encoding_aes_key');
+        state.sharedAllColumnsData.push(shared);
+
+        const { suggestions } = buildSqlCompletionGlobalSuggestions(buildInput({
+            referencedColumns: [column('encoding_aes_key')],
+        }) as any);
+
+        const columnSuggestions = suggestions.filter((item: any) => (
+            item.kind === monaco.languages.CompletionItemKind.Field
+            && String(item.label?.label ?? item.label) === 'encoding_aes_key'
+        ));
+        expect(columnSuggestions).toHaveLength(1);
+    });
+
+    it('keeps distinct columns even when they share a name across tables', () => {
+        const usersId = column('id', 'users', 'db');
+        const ordersId = column('id', 'orders', 'db');
+        state.sharedAllColumnsData.push(usersId, ordersId);
+
+        const { suggestions } = buildSqlCompletionGlobalSuggestions(buildInput({
+            foundTables: new Set(['db\u0000users', 'db\u0000orders']),
+            // 两列同名列、不同表：去重键必须包含表名，否则会被误合并成一条。
+            activeDialect: 'mysql',
+            // 直接给出引用列，避免依赖共享索引的键格式细节。
+            referencedColumns: [usersId, ordersId],
+        }) as any);
+
+        const idSuggestions = suggestions.filter((item: any) => (
+            item.kind === monaco.languages.CompletionItemKind.Field
+            && String(item.label?.label ?? item.label) === 'id'
+        ));
+        expect(idSuggestions).toHaveLength(2);
+    });
+
+    // 回归：WHERE 里两张表的同名列会共享同一个排序组，只按「当前库」分组会让
+    // 它们完全同序、退化成字母序，把用户正在查的表排到后面。
+    it('ranks columns of tables in the current statement above other loaded tables', () => {
+        const currentTableColumn = column('id', 'wechat_mp_auth_corp_info', 'mkefu_ai_dev');
+        const otherTableColumn = column('id', 'fs_mkefu_server_info', 'mkefu_ai_dev');
+        state.sharedAllColumnsData.push(otherTableColumn, currentTableColumn);
+
+        const { suggestions } = buildSqlCompletionGlobalSuggestions(buildInput({
+            // 当前语句只引用了 wechat_mp_auth_corp_info。
+            foundTables: new Set(['mkefu_ai_dev\u0000wechat_mp_auth_corp_info']),
+            referencedColumns: [currentTableColumn],
+        }) as any);
+
+        const idSuggestions = suggestions.filter((item: any) => (
+            item.kind === monaco.languages.CompletionItemKind.Field
+            && String(item.label?.label ?? item.label) === 'id'
+        ));
+        expect(idSuggestions).toHaveLength(1);
+        // columnCurrent('00') + 引用表优先标记('0') + 匹配等级 + 列名。
+        expect(idSuggestions[0].sortText.startsWith('000')).toBe(true);
+    });
+});
