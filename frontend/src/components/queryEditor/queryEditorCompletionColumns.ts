@@ -60,6 +60,42 @@ export const buildCompletionColumnMetadataIdentityKey = (
     columnName: string,
 ): string => buildMetadataIdentityKey(metadataDialect, dbName, tableName, columnName);
 
+// 合并共享列（补全命中缓存、但该表还没镜像进 sharedAllColumnsData 时）需要
+// 判断「哪些列已经存在」。旧实现每次都对着整个 sharedAllColumnsData 重建一个
+// Set —— AI 元数据预热可能灌入整库列（数十万条），于是每次补全都付一次全量
+// 建集。这里沿用上面的「数组身份 + 方言」缓存思路，把已存在键集缓存起来。
+const sharedColumnsKeySetCache = new WeakMap<
+    CompletionColumnMeta[],
+    Map<MetadataIdentityMode, Set<string>>
+>();
+
+export const getSharedColumnIdentityKeySet = (
+    metadataDialect: string,
+    columns: CompletionColumnMeta[],
+): Set<string> => {
+    const identityMode = getMetadataIdentityMode(metadataDialect);
+    let byMode = sharedColumnsKeySetCache.get(columns);
+    if (!byMode) {
+        byMode = new Map<MetadataIdentityMode, Set<string>>();
+        sharedColumnsKeySetCache.set(columns, byMode);
+    }
+    const cached = byMode.get(identityMode);
+    if (cached) {
+        return cached;
+    }
+    const keys = new Set<string>();
+    columns.forEach((column) => {
+        keys.add(buildMetadataIdentityKey(
+            metadataDialect,
+            column.dbName,
+            column.tableName,
+            column.name,
+        ));
+    });
+    byMode.set(identityMode, keys);
+    return keys;
+};
+
 export const findSharedPreloadedColumns = (
     metadataDialect: string,
     dbName: string,
