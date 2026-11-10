@@ -5,7 +5,6 @@ import {
     getTabQueryValue,
     normalizeMetadataDialect,
     resolveOracleLikeDefaultSchemaName,
-    collectQueryEditorReferencedDatabaseNames,
     QUERY_EDITOR_OBJECT_DECORATION_MAX_TEXT_LENGTH,
     type CompletionSynonymMeta,
 } from '../QueryEditorHelpers';
@@ -41,6 +40,7 @@ import {
     buildQueryEditorMetadataIdentityKey,
 } from '../queryEditorCompletionTables';
 import { isConnectionScopedQueryEditorMetadata } from '../queryEditorLazyTablesCache';
+import { collectQueryEditorReferencedDatabaseNamesForModel } from '../queryEditorReferencedDatabasesCache';
 import {
     fetchQueryEditorDatabaseMetadata,
     fetchQueryEditorSynonymMetadata,
@@ -476,11 +476,14 @@ export const useQueryEditorMetadataLoading = ({
             if (queryEditorActiveRef.current) {
                 setSharedCurrentDb(metadataDbName);
             }
-            const metadataDbNames = collectQueryEditorReferencedDatabaseNames(
-                getCurrentQuery(),
+            // 按 model 版本号复用结果：键入防抖那条路径刚为同一份文档算过一遍，
+            // 10MB 下重复扫描要再付约 0.5 秒。文档变了版本号就变，自然失效。
+            const metadataDbNames = collectQueryEditorReferencedDatabaseNamesForModel(
+                editorRef.current?.getModel?.(),
                 metadataDbName,
                 visibleDbs,
                 metadataDialect,
+                getCurrentQuery,
             );
             if (metadataDbNames.length === 0 && connectionScopedMetadata) {
                 metadataDbNames.push('');

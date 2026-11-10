@@ -233,7 +233,66 @@ export const usesQueryEditorDatabaseQualifiedTwoPartNames = (dialect: string): b
         || normalizedDialect === 'tdengine';
 };
 
+// 键入防抖（450ms）与元数据 effect 会对同一份文档各跑一次这条扫描：
+// 10MB 下每次约 0.5 秒，叠加近 1 秒。这里按完整输入元组缓存一条结果，
+// 命中即返回副本（调用方会 push('')，不能共享数组引用）。
+// 仅缓存不超过阈值的文档，避免把整篇文本长期钉在模块全局。
+type QueryEditorReferencedDatabaseNamesCacheEntry = {
+    fullText: string;
+    currentDb: string;
+    visibleDbsKey: string;
+    dialect: string;
+    names: string[];
+};
+
+const QUERY_EDITOR_REFERENCED_DATABASES_CACHE_MAX_TEXT_LENGTH = 200_000;
+let referencedDatabaseNamesCache: QueryEditorReferencedDatabaseNamesCacheEntry | null = null;
+
+export const clearQueryEditorReferencedDatabaseNamesCache = (): void => {
+    referencedDatabaseNamesCache = null;
+};
+
 export const collectQueryEditorReferencedDatabaseNames = (
+    fullText: string,
+    currentDb: string,
+    visibleDbs: string[],
+    dialect = '',
+): string[] => {
+    const sourceText = String(fullText ?? '');
+    // 可证明的短路：库名只可能来自「带限定符的引用」，而 reference.parts 是
+    // 按 '.' 切分的结果，两段及以上必然要求文本里至少有一个 '.'（在字符串/
+    // 注释里的点也只会让本判断更保守）。没有 '.' 时结果恒为 [currentDb]。
+    if (!sourceText.includes('.')) {
+        const onlyCurrentDb = String(currentDb || '').trim();
+        return onlyCurrentDb ? [onlyCurrentDb] : [];
+    }
+    const cached = referencedDatabaseNamesCache;
+    if (sourceText.length > QUERY_EDITOR_REFERENCED_DATABASES_CACHE_MAX_TEXT_LENGTH) {
+        referencedDatabaseNamesCache = null;
+        return collectQueryEditorReferencedDatabaseNamesUncached(sourceText, currentDb, visibleDbs, dialect);
+    }
+    const visibleDbsKey = (visibleDbs || []).join('\u0000');
+    if (
+        cached
+        && cached.fullText === sourceText
+        && cached.currentDb === currentDb
+        && cached.visibleDbsKey === visibleDbsKey
+        && cached.dialect === dialect
+    ) {
+        return cached.names.slice();
+    }
+    const names = collectQueryEditorReferencedDatabaseNamesUncached(sourceText, currentDb, visibleDbs, dialect);
+    referencedDatabaseNamesCache = {
+        fullText: sourceText,
+        currentDb,
+        visibleDbsKey,
+        dialect,
+        names: names.slice(),
+    };
+    return names;
+};
+
+const collectQueryEditorReferencedDatabaseNamesUncached = (
     fullText: string,
     currentDb: string,
     visibleDbs: string[],
