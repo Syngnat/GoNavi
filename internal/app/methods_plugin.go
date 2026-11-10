@@ -211,6 +211,7 @@ func (a *App) pluginInvokeContext(ctx context.Context, id, command, argumentsJSO
 // locale and theme mirror the current main-application appearance so the
 // plugin window can follow them; empty values keep the plugin's own defaults.
 func (a *App) PluginOpenWindow(id, locale, theme string) connection.QueryResult {
+	logger.Infof("Plugin open window requested: id=%q", id)
 	if !a.pluginManagementAllowed() || a.headlessRuntime {
 		return a.pluginFailure("window_unavailable")
 	}

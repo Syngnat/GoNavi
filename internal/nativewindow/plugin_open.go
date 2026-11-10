@@ -86,6 +86,7 @@ func (c *PluginController) Open(ctx context.Context, id, windowKey string, launc
 	entry.info.PID = process.PID()
 	info := entry.info
 	c.mu.Unlock()
+	logger.Infof("plugin window spawned: id=%s pid=%d endpoint=%s", info.PluginID, info.PID, c.endpoint)
 	go c.supervise(entry, process)
 	if ctx.Err() != nil {
 		c.revokeEntry(entry)
@@ -201,6 +202,7 @@ func (c *PluginController) checkHealth(entry *pluginWindowEntry, now time.Time) 
 		expired = now.Sub(entry.heartbeat) > c.heartbeatTimeout
 	}
 	if err != nil || expired {
+		logger.Warnf("plugin window revoked: id=%s err=%v expired=%t heartbeatSeen=%t", entry.info.PluginID, err, expired, !entry.heartbeat.IsZero())
 		c.revokeLocked(entry)
 	}
 }
@@ -210,7 +212,9 @@ func (c *PluginController) supervise(entry *pluginWindowEntry, process pluginPro
 	// Wait must run concurrently with the bounded stop timer, and is always joined.
 	waited := make(chan struct{})
 	go func() {
-		if err := process.Wait(); err != nil {
+		err := process.Wait()
+		logger.Infof("plugin window process ended: id=%s pid=%d err=%v", entry.info.PluginID, entry.info.PID, err)
+		if err != nil {
 			logger.Error(err, "plugin window process exited: %s", entry.info.PluginID)
 		}
 		close(waited)
