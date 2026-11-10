@@ -355,129 +355,102 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     min-height: 260px;
 }
 
+/* ── 补全列表：统一的「两行」排版 ─────────────────────────────────────────
+   所有候选（字段 / 关键字 / 函数 / 表 / 视图…）都排成两行：
+       第一行  图标 + 名称
+       第二行        类型 · 注释（右对齐）
+   双行的意义在于：超长名称不再被右侧类型挤成省略号，名称与类型各自完整可读。
+   两类候选在 DOM 里同构（[.icon-label][.left 名称][.right 详情]），因此用同一套
+   grid 规则覆盖，避免两套布局算出不同的行高与文字起点。 */
 .gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main {
-    justify-content: flex-start;
-    gap: 6px;
-}
-
-/* 补全主名称优先完整显示，避免被右侧表名/类型挤成 primary_ent... */
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-}
-
-/* 表名/类型等元数据让位：始终可见，但空间不足时优先压缩/省略右侧 */
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .right {
-    flex: 0 1 auto;
-    flex-shrink: 4;
-    max-width: 48%;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .right > .details-label {
-    display: inline !important;
-    margin-left: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* 字段候选的备注跟随加宽后的弹层使用剩余空间，避免被默认 48% 列宽提前截断。 */
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .left {
-    flex: 0 1 auto;
-    min-width: 0;
-}
-
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .right {
-    flex: 1 1 auto;
-    max-width: none;
-}
-
-/* 表候选使用 Monaco 原生 CompletionItemLabel：第一行表名，第二行注释。 */
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) {
-    height: var(--gn-query-suggest-row-height, 36px) !important;
-    min-height: var(--gn-query-suggest-row-height, 36px) !important;
-    max-height: var(--gn-query-suggest-row-height, 36px) !important;
-}
-
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents {
-    height: var(--gn-query-suggest-row-height, 36px) !important;
-    overflow: visible !important;
-}
-
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main {
     display: grid !important;
-    grid-template-columns: 18px minmax(0, 1fr);
-    grid-template-rows: var(--gn-query-suggest-name-row-height, 18px) var(--gn-query-suggest-comment-row-height, 18px);
+    /* 22px = .contents 的 2px 内边距 + 16px 图标 + 4px 右间距，
+       让名称与图标在各行之间保持同一条竖线。 */
+    grid-template-columns: 22px minmax(0, 1fr);
+    grid-template-rows: var(--gn-query-suggest-name-row, 18px) var(--gn-query-suggest-detail-row, 18px);
     grid-template-areas:
         "icon name"
-        "comment comment";
+        "detail detail";
     align-content: center;
+    justify-content: initial !important;
     gap: 0 !important;
-    height: var(--gn-query-suggest-row-height, 36px);
-    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
-    overflow: visible;
-    white-space: normal;
+    height: 100%;
+    overflow: hidden;
 }
 
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .icon-label.codicon {
+/* 图标列：两类候选都在这里放 .icon-label.codicon（16px codicon）。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .icon-label.codicon {
     grid-area: icon;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     align-self: center;
+    justify-self: center;
+    margin: 0 !important;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 80%;
 }
 
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .left {
+/* 名称行：单行显示，超长省略；不换行、不撑高。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left {
     grid-area: name;
-    display: flex;
+    display: flex !important;
     align-items: center;
-    width: 100%;
-    height: var(--gn-query-suggest-name-row-height, 18px);
+    flex: initial !important;
     min-width: 0;
     max-width: none;
-    overflow: visible;
-    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
+    height: var(--gn-query-suggest-name-row, 18px);
+    overflow: hidden;
+    line-height: var(--gn-query-suggest-name-row, 18px) !important;
 }
 
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .left > .monaco-icon-label {
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left > .monaco-icon-label {
     min-width: 0;
     max-width: 100%;
-    height: var(--gn-query-suggest-name-row-height, 18px);
+    height: var(--gn-query-suggest-name-row, 18px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    line-height: var(--gn-query-suggest-name-row-height, 18px);
+    line-height: var(--gn-query-suggest-name-row, 18px);
 }
 
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right {
-    grid-area: comment;
-    display: flex;
+/* 详情行：类型 · 注释，占满整行并右对齐。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .right {
+    grid-area: detail;
+    display: flex !important;
     align-items: center;
     justify-content: flex-end;
+    flex: initial !important;
     width: 100%;
-    height: 18px;
+    max-width: none !important;
     min-width: 0;
-    max-width: none;
-    overflow: visible;
-    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
+    height: var(--gn-query-suggest-detail-row, 18px);
+    overflow: hidden;
+    line-height: var(--gn-query-suggest-detail-row, 18px) !important;
 }
 
-.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right > .details-label {
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .right > .details-label {
     display: block !important;
-    width: max-content;
+    width: max-content !important;
     min-width: 0;
     max-width: none;
     flex: 0 0 auto;
     margin-left: 0 !important;
-    overflow: visible;
+    overflow: hidden;
     color: var(--vscode-editorSuggestWidget-foreground);
     font-size: 11px !important;
-    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
+    line-height: var(--gn-query-suggest-detail-row, 18px) !important;
     opacity: 0.68;
     text-align: right;
     white-space: nowrap;
+}
+
+/* Monaco 对「聚焦 + 悬停」的候选会额外套 width: calc(100% - 26px)，把详情压窄
+   导致鼠标移上去反而更省略。统一覆盖，让悬停不改变详情宽度。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget:not(.docs-side) .monaco-list .monaco-list-row.focused:hover > .contents > .main > .right.can-expand-details > .details-label {
+    display: block !important;
+    width: max-content !important;
+    text-align: right;
 }
 
 .gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.focused:not(.string-label) > .contents > .main > .right > .details-label {
