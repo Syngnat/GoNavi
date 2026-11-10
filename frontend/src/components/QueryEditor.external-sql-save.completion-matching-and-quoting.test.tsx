@@ -616,7 +616,7 @@ describe('QueryEditor external SQL save', () => {
 
     expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'front_end_sys');
     expect(labels).toContain('fs_org_auth_application');
-    expect(tableSuggestion?.detail).toBe('表 - 认证申请表');
+    expect(tableSuggestion?.detail).toBe('认证申请表 - 表');
     await act(async () => {
       renderer.unmount();
     });

@@ -3,7 +3,7 @@ import {
     rankQueryEditorCompletionCandidate, buildColumnCompletionDetail,
     buildColumnCompletionDocumentation, resolveQueryEditorCompletionFilterText,
     findCompletionTablesByDatabase, createBoundedQueryEditorCompletionCandidateBatch,
-    type CompletionTableMeta, appendCommentToDetail, buildCompletionDocumentation,
+    type CompletionTableMeta, normalizeCommentText, buildCompletionDocumentation,
     type CompletionViewMeta, materializeBoundedQueryEditorCompletionBatches,
     QUERY_EDITOR_SQL_THREE_PART_COMPLETION_REGEX,
 } from '../QueryEditorHelpers';
@@ -18,6 +18,12 @@ import {
 } from '../queryEditorCompletionState';
 import { buildMetadataIdentityKey } from '../../../utils/metadataIdentity';
 import { t as translate } from '../../../i18n';
+
+// 详情统一为「限定信息 - 对象类型」：类型固定在行尾，与全局补全保持同一列。
+// typeLabel 形如「表 (db) / 视图 (db.schema) / 存储过程 (db)」，已含对象类型与其限定名。
+const buildCompletionDetailTypeLast = (typeLabel: string, comment?: string): string => (
+    [normalizeCommentText(comment), typeLabel].filter(Boolean).join(' - ')
+);
 import type { createSqlCompletionSuggestionBuilders } from './sqlCompletionSuggestionBuilders';
 import type { resolveSqlCompletionStatementContext } from './sqlCompletionStatementContext';
 
@@ -139,7 +145,7 @@ export const resolveDatabaseQualifierSqlCompletion = async ({
                         quoteCompletionPath(applyCompletionFragmentCase(meta.insertName, rawPrefix)),
                         meta.insertName,
                     ),
-                    detail: appendCommentToDetail(`${translate('query_editor.object_info.table')} (${table.dbName})`, table.comment),
+                    detail: buildCompletionDetailTypeLast(`${translate('query_editor.object_info.table')} (${table.dbName})`, table.comment),
                     documentation: buildCompletionDocumentation(table.comment),
                     range,
                     sortText: `0${rankQueryEditorCompletionCandidate(prefix, [meta.displayName, table.tableName]) ?? 9}${meta.displayName}`,
@@ -166,7 +172,7 @@ export const resolveDatabaseQualifierSqlCompletion = async ({
                         label: meta.displayName,
                         kind: monaco.languages.CompletionItemKind.Class,
                         insertText: quoteCompletionPath(meta.displayName),
-                        detail: `${getViewTypeLabel(materialized)} (${view.dbName})`,
+                        detail: buildCompletionDetailTypeLast(`${getViewTypeLabel(materialized)} (${view.dbName})`),
                         filterText: resolveQueryEditorCompletionFilterText(prefix, [meta.displayName, meta.objectName, view.viewName])
                             || meta.displayName,
                         range,
@@ -207,7 +213,7 @@ export const resolveDatabaseQualifierSqlCompletion = async ({
                     kind: monaco.languages.CompletionItemKind.Function,
                     insertText: meta.insertText,
                     insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                    detail: `${getRoutineTypeLabel(routine.routineType)} (${routine.dbName})`,
+                    detail: buildCompletionDetailTypeLast(`${getRoutineTypeLabel(routine.routineType)} (${routine.dbName})`),
                     range,
                     sortText: '1' + meta.displayName,
                 };
@@ -283,7 +289,7 @@ export const resolveSchemaQualifierSqlCompletion = ({
                     quoteCompletionPart(applyCompletionFragmentCase(parsed.table, rawPrefix)),
                     parsed.table,
                 ),
-                detail: appendCommentToDetail(`${translate('query_editor.object_info.table')} (${table.dbName}${parsed.schema ? '.' + parsed.schema : ''})`, table.comment),
+                detail: buildCompletionDetailTypeLast(`${translate('query_editor.object_info.table')} (${table.dbName}${parsed.schema ? '.' + parsed.schema : ''})`, table.comment),
                 documentation: buildCompletionDocumentation(table.comment),
                 range,
                 sortText: `0${rankQueryEditorCompletionCandidate(prefix, [parsed.table, table.tableName]) ?? 9}${parsed.table}`,
@@ -308,7 +314,7 @@ export const resolveSchemaQualifierSqlCompletion = ({
                     label: meta.objectName,
                     kind: monaco.languages.CompletionItemKind.Class,
                     insertText: quoteCompletionPart(meta.objectName),
-                    detail: `${getViewTypeLabel(materialized)} (${getViewSuggestionScope(view, meta)})`,
+                    detail: buildCompletionDetailTypeLast(`${getViewTypeLabel(materialized)} (${getViewSuggestionScope(view, meta)})`),
                     filterText: resolveQueryEditorCompletionFilterText(prefix, [meta.objectName, view.viewName])
                         || meta.objectName,
                     range,
@@ -347,7 +353,7 @@ export const resolveSchemaQualifierSqlCompletion = ({
                 kind: monaco.languages.CompletionItemKind.Function,
                 insertText: `${quoteCompletionPart(meta.objectName)}($0)`,
                 insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                detail: `${getRoutineTypeLabel(routine.routineType)} (${routine.dbName}${meta.schemaName ? '.' + meta.schemaName : ''})`,
+                detail: buildCompletionDetailTypeLast(`${getRoutineTypeLabel(routine.routineType)} (${routine.dbName}${meta.schemaName ? '.' + meta.schemaName : ''})`),
                 range,
                 sortText: '1' + meta.objectName,
             };

@@ -999,7 +999,7 @@ describe("i18n catalog", () => {
     );
     const databaseQualifiedTableDetailSource = sliceBetween(
       databaseQualifiedTableCompletionSource,
-      "                    detail: appendCommentToDetail(",
+      "                    detail: buildCompletionDetailTypeLast(",
       "                    documentation: buildCompletionDocumentation(table.comment),",
     );
 
@@ -1025,7 +1025,7 @@ describe("i18n catalog", () => {
     );
     const schemaQualifiedTableDetailSource = sliceBetween(
       schemaQualifiedTableCompletionSource,
-      "                detail: appendCommentToDetail(",
+      "                detail: buildCompletionDetailTypeLast(",
       "                documentation: buildCompletionDocumentation(table.comment),",
     );
 
@@ -1051,7 +1051,7 @@ describe("i18n catalog", () => {
     );
     const globalCrossDbTableDetailSource = sliceBetween(
       globalCrossDbTableCompletionSource,
-      "                    detail: appendCommentToDetail(",
+      "                    detail: buildCompletionDetailTypeLast(",
       "                    documentation: buildCompletionDocumentation(table.comment),",
     );
 
@@ -1077,7 +1077,7 @@ describe("i18n catalog", () => {
     );
     const currentDbTableDetailSource = sliceBetween(
       currentDbTableCompletionSource,
-      "                detail: appendCommentToDetail(",
+      "                detail: buildCompletionDetailTypeLast(",
       "                documentation: buildCompletionDocumentation(table.comment),",
     );
 
