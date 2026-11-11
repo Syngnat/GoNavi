@@ -99,8 +99,6 @@ body[data-ui-version="v2"] .plugin-manager-tabs > .ant-tabs-nav .ant-tabs-tab::a
 
 .plugin-installed-card .plugin-installed-version-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
 .plugin-installed-card .plugin-update-available { margin: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; color: var(--gn-accent); border-color: var(--gn-br-2); background: var(--gn-bg-panel-2); }
-.plugin-installed-card .plugin-update-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--gn-br-1); }
-.plugin-installed-card .plugin-update-footer > .ant-btn { max-width: 100%; height: auto; padding: 4px 12px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
-.plugin-installed-card .plugin-update-source { max-width: 100%; color: var(--gn-fg-3); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-installed-card .plugin-update-source { max-width: 100%; margin-top: 12px !important; color: var(--gn-fg-3); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .plugin-package-size { font-variant-numeric: tabular-nums; }
 .plugin-library-header .plugin-library-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }

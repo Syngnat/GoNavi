@@ -23,8 +23,10 @@ interface Props {
   update?: { version: string; sourceLabel: string };
   onUpdate?: () => void;
   updateDisabled?: boolean;
+  // 包内没有图标时用于回退的市场 Logo 候选；未安装/无声明时为空。
+  logoSources?: string[];
 }
-export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpdate, updateDisabled = false }: Props) {
+export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpdate, updateDisabled = false, logoSources }: Props) {
   const { t } = useI18n();
   const id = plugin.manifest.id;
   const active = plugin.state === 'running' && plugin.desiredEnabled && !manager.revoked.has(id);
@@ -34,7 +36,8 @@ export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpda
   return <article className="plugin-card plugin-installed-card">
     <header className="plugin-card-header">
       <div className="plugin-installed-heading">
-        <PluginLogo pluginId={id} name={plugin.manifest.name} version={plugin.manifest.version} />
+        <PluginLogo pluginId={id} name={plugin.manifest.name} version={plugin.manifest.version}
+          installed remoteSources={logoSources} />
         <div className="plugin-installed-heading-text">
           <Typography.Title level={5}>{plugin.manifest.name}</Typography.Title>
           <code className="plugin-identity">{id}</code>
@@ -52,18 +55,14 @@ export function PluginCard({ plugin, manager, expanded, onToggle, update, onUpda
       description={t('plugin.card.manifest_incompatible_hint')} />}
     {plugin.lastError && <Alert showIcon type="error" message={t('plugin.card.last_error')} description={plugin.lastError} />}
     <PluginLifecycleControls plugin={plugin} allowed={manager.runtime.managementAllowed} safeMode={manager.runtime.safeMode}
-      busy={Boolean(manager.busy[id])} onEnabled={(enabled) => void manager.setEnabled(id, enabled)} onRemove={() => void manager.remove(id, false)} />
-    {update && <footer className="plugin-update-footer">
-      <Button type="primary" size="small" disabled={updateDisabled || !onUpdate} onClick={() => { if (!updateDisabled) onUpdate?.(); }}>
-        {t('plugin.update.action', { version: update.version })}
-      </Button>
-      <span className="plugin-update-source">{t('plugin.update.source', { source: update.sourceLabel })}</span>
-    </footer>}
+      busy={Boolean(manager.busy[id])} onEnabled={(enabled) => void manager.setEnabled(id, enabled)} onRemove={() => void manager.remove(id, false)}
+      update={update ? { label: t('plugin.update.action_short'), disabled: updateDisabled || !onUpdate, onClick: () => { if (!updateDisabled) onUpdate?.(); } } : undefined} />
     {expanded && <Drawer open title={plugin.manifest.name} width="min(720px, 100vw)" onClose={onToggle}
       rootClassName="plugin-installed-details" destroyOnClose>
       <div className="plugin-card-details">
       {plugin.manifest.description && <Typography.Paragraph type="secondary">{plugin.manifest.description}</Typography.Paragraph>}
       {permissions.length > 0 && <div className="plugin-permissions">{permissions.map((permission) => <Tag key={permission}>{pluginPermissionText(permission, t, plugin.manifest.permissionNotes?.[permission])}</Tag>)}</div>}
+      {update && <p className="plugin-update-source">{t('plugin.update.source', { source: update.sourceLabel })}</p>}
       <PluginDataSourceSummary manifest={plugin.manifest} />
       <PluginAIProviderSummary manifest={plugin.manifest} />
       <PluginExporterSummary manifest={plugin.manifest} />

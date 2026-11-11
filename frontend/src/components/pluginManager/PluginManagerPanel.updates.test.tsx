@@ -20,7 +20,9 @@ vi.mock('../../pluginMarket/versionsApi', () => ({ loadMarketVersions: mocks.ver
 vi.mock('../../pluginMarket/api', () => ({ marketAPI: { install: mocks.install } }));
 vi.mock('../../pluginMarket/PluginMarketPanel', () => ({ PluginMarketPanel: () => null }));
 vi.mock('./LocalInstallPanel', () => ({ LocalInstallPanel: () => null }));
-vi.mock('./PluginLifecycleControls', () => ({ PluginLifecycleControls: () => null }));
+// 更新按钮与启停按钮同排，由 PluginLifecycleControls 渲染，这里原样暴露出来。
+vi.mock('./PluginLifecycleControls', () => ({ PluginLifecycleControls: (props: { update?: { label: string; disabled: boolean; onClick: () => void } }) =>
+  props.update ? <button type="button" data-component="button" disabled={props.update.disabled} onClick={props.update.onClick}>{props.update.label}</button> : null }));
 vi.mock('./PluginCommandsPanel', () => ({ PluginCommandsPanel: () => null }));
 vi.mock('./PluginPageList', () => ({ PluginPageList: () => null }));
 vi.mock('../../pluginMarket/MarketDetailDrawer', () => ({ MarketDetailDrawer: (props: Record<string, unknown>) => <div data-market-details {...props} /> }));
@@ -37,7 +39,7 @@ const installed: PluginStatus = { manifest: { schemaVersion: 1, apiVersion: 1, i
 const remote: MarketPlugin = { id: installed.manifest.id, name: 'MongoShell', version: '1.0.2', description: '', author: 'GoNavi', publisherId: 'com.gonavi', official: true, platforms: ['darwin/arm64'], sourceId: source.sourceId, updatedAt: '', ratingAverage: 0, ratingCount: 0, downloadCount: 0, artifact: { version: '1.0.2', sha256: 'c'.repeat(64), sizeBytes: 100, platform: 'all', url: 'https://market.test/artifact' } };
 let view: ReactTestRenderer | undefined;
 const buttons = () => view!.root.findAllByProps({ 'data-component': 'button' });
-const updateButton = () => buttons().find((b) => String(b.props.children).startsWith('plugin.update.action'));
+const updateButton = () => buttons().find((b) => String(b.props.children).startsWith('plugin.update.action_short'));
 async function mount() { await act(async () => { view = create(<PluginManagerPanel />); }); }
 beforeEach(() => { vi.clearAllMocks(); mocks.allowed = true; mocks.plugins = [installed]; mocks.sources.mockResolvedValue([source]); mocks.versions.mockResolvedValue({ versions: [{ plugin: remote, compatible: true, reason: '' }] } satisfies MarketVersionPage); });
 afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; });
@@ -48,7 +50,8 @@ describe('installed plugin update discovery', () => {
     expect(mocks.versions).toHaveBeenCalledWith(installed.manifest.id, source.sourceId, true);
     const button = updateButton();
     expect(button).toBeDefined();
-    expect(button!.props.children).toContain('1.0.2');
+    // 按钮文案不带版本号；可用版本仍显示在卡片头部。
+    expect(button!.props.children).toBe('plugin.update.action_short');
     expect(button!.props.disabled).toBe(false);
     await act(async () => { button!.props.onClick(); });
     const detail = view!.root.findByProps({ 'data-market-details': true });

@@ -226,7 +226,11 @@ func TestInstallProvenanceUsesSourceAndCanonicalDigest(t *testing.T) {
 	defer server.Close()
 	service := newTestService(t, server.URL, false)
 	canonical := archiveDigest([]byte("canonical file content digest"))
-	assertErrorIs(t, service.VerifyInstallSource(t.Context(), "publisher.plugin", canonical), ErrSourceMismatch)
+	// A package installed outside the marketplace has no provenance record; that is not a
+	// hijack risk, so it may be updated online once a fresh inspection is approved.
+	if err := service.VerifyInstallSource(t.Context(), "publisher.plugin", canonical); err != nil {
+		t.Fatalf("sideloaded package must be updatable from the market: %v", err)
+	}
 	assertErrorIs(t, service.RecordInstall(t.Context(), "publisher.plugin", "arbitrary-path", canonical), ErrInvalidRequest)
 	path, cleanup, err := service.Download(t.Context(), "publisher.plugin", "1.0.0", digest)
 	if err != nil {
@@ -257,7 +261,10 @@ func TestInstallProvenanceUsesSourceAndCanonicalDigest(t *testing.T) {
 	if err = restarted.ForgetInstall(t.Context(), "publisher.plugin"); err != nil {
 		t.Fatal(err)
 	}
-	assertErrorIs(t, restarted.VerifyInstallSource(t.Context(), "publisher.plugin", canonical), ErrSourceMismatch)
+	// Forgetting the binding returns the package to the sideloaded state, which is updatable.
+	if err = restarted.VerifyInstallSource(t.Context(), "publisher.plugin", canonical); err != nil {
+		t.Fatalf("forgotten provenance must allow a fresh market update: %v", err)
+	}
 	cleanup()
 	assertErrorIs(t, service.RecordInstall(t.Context(), "publisher.plugin", path, canonical), ErrInvalidRequest)
 }
@@ -295,5 +302,10 @@ func TestProvenanceRejectsMutatedDownloadAndSurfacesPersistenceError(t *testing.
 	if err = service.RecordInstall(t.Context(), "publisher.plugin", path, canonical); err == nil {
 		t.Fatal("provenance persistence failure hidden")
 	}
-	assertErrorIs(t, service.VerifyInstallSource(t.Context(), "publisher.plugin", canonical), ErrSourceMismatch)
+	// The failed record leaves no binding behind, which is indistinguishable from a sideloaded
+	// package; that state is updatable. The source guard still protects every package that does
+	// carry a record — see TestInstallProvenanceUsesSourceAndCanonicalDigest.
+	if err = service.VerifyInstallSource(t.Context(), "publisher.plugin", canonical); err != nil {
+		t.Fatalf("unrecorded install was treated as a source conflict: %v", err)
+	}
 }
