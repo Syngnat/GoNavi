@@ -133,7 +133,7 @@ func TestSetEnabledEmptyBlocksDefaultScan(t *testing.T) {
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeRollout(t, sessionsDir, "rollout-e.jsonl", metaLine)
+	writeRollout(t, sessionsDir, "rollout-e.jsonl", metaLine, userMessageLine)
 	svc := &Service{CodexDir: codexDir, ClaudeDir: filepath.Join(t.TempDir(), "absent")}
 	if len(svc.List("", "")) != 1 {
 		t.Fatal("precondition: nil Enabled scans by default")

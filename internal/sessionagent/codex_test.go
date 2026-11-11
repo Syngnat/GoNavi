@@ -18,6 +18,7 @@ func writeRollout(t *testing.T, dir, name string, lines ...string) string {
 }
 
 const metaLine = `{"type":"session_meta","payload":{"id":"th-1","cwd":"C:/work/demo","timestamp":1760000000}}`
+const userMessageLine = `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"测试会话"}]}}`
 
 func TestMakePreviewTruncatesLinesThenChars(t *testing.T) {
 	text := strings.Repeat("line\n", 20) + strings.Repeat("x", 2000)
