@@ -230,19 +230,37 @@ func Error(err error, format string, args ...any) {
 	Errorf("%s；错误链：%s", msg, ErrorChain(err))
 }
 
+// isErrorTextAlreadyCovered 判断一段错误文本是否已经被前面某一层完整包含。
+//
+// 只对足够长的文本做包含判断：短文本（如 "EOF"、""）容易误伤，宁可重复也不
+// 丢掉有意义的一行。
+func isErrorTextAlreadyCovered(existing []string, candidate string) bool {
+	const minCoverableLength = 12
+	if len(candidate) < minCoverableLength {
+		return false
+	}
+	for _, part := range existing {
+		if part == candidate || strings.Contains(part, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func ErrorChain(err error) string {
 	if err == nil {
 		return ""
 	}
 
 	var parts []string
-	seen := map[string]struct{}{}
 	cur := err
 	truncated := false
 	for i := 0; cur != nil && i < 20; i++ {
 		s := cur.Error()
-		if _, ok := seen[s]; !ok {
-			seen[s] = struct{}{}
+		// 汇总型错误（connectAttemptError 等）的消息里已经内嵌了 cause 的完整
+		// 文本，只做整串相等去重仍会把同一段错误打印两遍。这里再跳过「已经被
+		// 前面某条消息包含」的层。
+		if !isErrorTextAlreadyCovered(parts, s) {
 			parts = append(parts, s)
 		}
 		cur = errors.Unwrap(cur)

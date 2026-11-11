@@ -62,6 +62,27 @@ export interface BuildSqlCompletionGlobalSuggestionsInput {
     dialectFunctions: ReturnType<typeof createSqlCompletionDialectContext>['dialectFunctions'];
 }
 
+/** 去掉 `catalog.schema.table` 里的前缀，只留最后一段。 */
+export const stripCompletionTableQualifiers = (tableName: string): string => {
+    const text = String(tableName || '').trim();
+    if (!text.includes('.')) return text;
+    const parts = text.split('.');
+    return parts[parts.length - 1].trim();
+};
+
+/** 去掉标识符两侧的 `"`、`` ` ``、`[]`，只用于去重键的比较。 */
+export const stripCompletionIdentifierDelimiters = (identifier: string): string => {
+    const text = String(identifier || '').trim();
+    if (text.length < 2) return text;
+    const first = text[0];
+    const last = text[text.length - 1];
+    if ((first === '"' && last === '"') || (first === '`' && last === '`')) {
+        return text.slice(1, -1);
+    }
+    if (first === '[' && last === ']') return text.slice(1, -1);
+    return text;
+};
+
 export const buildSqlCompletionGlobalSuggestions = ({
     expectsTableName, foundTables, tableReferenceOrder, activeDialect, referencedColumns, wordPrefix,
     isCurrentCompletionDatabase, sortGroups, monaco, quoteCompletionPart,
@@ -90,11 +111,19 @@ export const buildSqlCompletionGlobalSuggestions = ({
         const seen = new Set<string>();
         const merged: CompletionColumnMeta[] = [];
         for (const column of [...primary, ...secondary]) {
+            // 同一张表在两个来源里的写法可能不同：DuckDB 附加库的 GetAllColumns 返回
+            // `catalog.schema.table`，而别名解析出来的是 `schema.table`；SQL Server
+            // 的目录元数据还会带方括号。只按 trim + 大小写归一化会让同一列算出两个
+            // 键，去重失效，候选里出现重复项。
+            //
+            // 这里改用「表名最后一段 + 列名」：库名与 schema 前缀不参与，足以区分
+            // 同一候选列表里实际会出现的列。
             const key = buildCompletionColumnMetadataIdentityKey(
                 activeDialect,
-                column.dbName || '',
-                column.tableName || '',
-                column.name || '',
+                // 表名只取最后一段，并去掉各种定界符。
+                '',
+                stripCompletionTableQualifiers(column.tableName || ''),
+                stripCompletionIdentifierDelimiters(column.name || ''),
             );
             if (key) {
                 if (seen.has(key)) continue;
@@ -110,42 +139,52 @@ export const buildSqlCompletionGlobalSuggestions = ({
     );
     // 列候选的排序前缀：当前语句 FROM/JOIN 引用的表优先，其次才是当前库。
     // 只按「当前库 vs 其他库」分组会让 WHERE 里两张表的同名列完全同序，
-    // 结果按字母序把用户正在查的那张表排到后面（例如 fs_* 排在 wechat_* 之前）。
-    const buildColumnSortPrefix = (column: CompletionColumnMeta): string => {
-        const isCurrentDb = isCurrentCompletionDatabase(column.dbName || '');
-        const identityKeys = buildQueryEditorMetadataIdentityKeys(
+    // 结果按字母序把用户正在写的那张表排到后面（例如 fs_* 排在 wechat_* 之前）。
+    //
+    // 同一个候选在一次补全里会被 getMatchRank / getSelectionKey / buildSuggestion
+    // 各问一次，identityKeys 的推导（含 splitQualifiedNameSegments）不便宜，
+    // 按列对象缓存一次即可。
+    const identityKeysByColumn = new WeakMap<CompletionColumnMeta, string[]>();
+    const resolveColumnIdentityKeys = (column: CompletionColumnMeta): string[] => {
+        const cached = identityKeysByColumn.get(column);
+        if (cached) return cached;
+        const keys = buildQueryEditorMetadataIdentityKeys(
             activeDialect,
             column.dbName || '',
             column.tableName || '',
         );
+        identityKeysByColumn.set(column, keys);
+        return keys;
+    };
+    const buildColumnSortPrefix = (column: CompletionColumnMeta): string => {
+        const isCurrentDb = isCurrentCompletionDatabase(column.dbName || '');
+        const identityKeys = resolveColumnIdentityKeys(column);
         const isReferencedTable = identityKeys.some((key) => foundTables.has(key));
+        const groupPrefix = isCurrentDb ? sortGroups.columnCurrent : sortGroups.columnOther;
         if (!isReferencedTable) {
             // 未引用的表排在同库/跨库分组的最后。
-            const groupPrefix = isCurrentDb ? sortGroups.columnCurrent : sortGroups.columnOther;
             return `${groupPrefix}9`;
         }
         // 引用的表之间再按它在语句中的出现顺序分档：用户正在写的 FROM 表优先，
         // 后面的 JOIN 表依次靠后，避免同档内退化成字母序。
+        //
+        // 分档必须按真实下标而不是夹紧到 8：夹紧会让第 9 张起的表全部落进同一档，
+        // 在子查询多的语句里重新退化成字母序。
         const order = identityKeys.reduce<number | null>((best, key) => {
             const index = tableReferenceOrder?.get(key);
             if (index === undefined) return best;
             return best === null || index < best ? index : best;
         }, null);
-        const orderRank = order === null ? 0 : Math.min(order, 8);
-        const groupPrefix = isCurrentDb ? sortGroups.columnCurrent : sortGroups.columnOther;
-        return `${groupPrefix}${orderRank}`;
+        const orderRank = order === null ? 0 : order;
+        // 用定宽数字，保证 sortText 的字典序与数值序一致（'10' < '2' 是错的）。
+        return `${groupPrefix}${String(Math.min(orderRank, 99)).padStart(2, '0')}`;
     };
 
     const relevantColumnBatch = createBoundedQueryEditorCompletionCandidateBatch({
         candidates: relevantColumnCandidates,
         prefix: wordPrefix,
         getMatchRank: (column, normalizedPrefix) => {
-            const columnIdentityKeys = buildQueryEditorMetadataIdentityKeys(
-                activeDialect,
-                column.dbName || '',
-                column.tableName || '',
-            );
-            if (!columnIdentityKeys.some((key) => foundTables.has(key))) {
+            if (!resolveColumnIdentityKeys(column).some((key) => foundTables.has(key))) {
                 return null;
             }
             return rankQueryEditorCompletionCandidate(normalizedPrefix, [column.name]);

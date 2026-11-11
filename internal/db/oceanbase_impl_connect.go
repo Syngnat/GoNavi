@@ -190,7 +190,8 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 			}
 			localHost, localPort, ok := parseHostPortWithDefault(forwarder.LocalAddr, defaultOceanBasePort)
 			if !ok {
-				lastErr = err
+				// 这里 err 必然为 nil（上一段 if err != nil 已 continue），不能拿它
+				// 覆盖 lastErr，否则会把更早一次尝试记下的底层 cause 清空。
 				errorDetails = append(errorDetails, fmt.Sprintf("%s 解析 SSH 本地转发地址失败：%s", address, forwarder.LocalAddr))
 				releaseForwarder()
 				continue

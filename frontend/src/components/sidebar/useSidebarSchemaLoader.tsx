@@ -71,10 +71,17 @@ const loadSidebarSchemaContents = async (task: SchemaLoadTask) => {
     const tableRows = Array.isArray(result.data) ? result.data as Record<string, unknown>[] : [];
     let statusRows: Record<string, unknown>[] = [];
     let objects = emptyObjects();
+    // 旧子树只在第一次 publish 时清一次。后两次 publish（对象/统计晚到）会带着
+    // 新渲染的 children 再来，若每次都清，刚展开的表会被折叠、loadedKeys 被反复
+    // 丢弃，preserveSidebarSchemaObjectChildren 也失去意义。
+    let staleSubtreeCleared = false;
     const publish = (notify = false) => {
       if (!current()) return;
       // 数据到手后才丢弃旧的子树与展开状态：中途失败时原节点保持原样。
-      clearStaleSubtree();
+      if (!staleSubtreeCleared) {
+        staleSubtreeCleared = true;
+        clearStaleSubtree();
+      }
       const builder = createSidebarDatabaseChildrenBuilder({
         schemasResult: { schemas: [schema], supported: true }, tableEntries: buildSidebarSchemaTableEntries(scoped, schema, tableRows, statusRows),
         conn: scoped, key: databaseKey, dbName: connection.dbName, node, loadTables,

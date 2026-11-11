@@ -278,6 +278,18 @@ describe('oracle identifier quoting folds bare names instead of forcing quotes',
     expect(quoteSqlIdentifierPath('oracle', '"HR"."Order Items"')).toBe('"HR"."Order Items"');
   });
 
+  // 回归：全大写 + 合法裸名的判断漏了保留字。`DATE` / `LEVEL` / `ROWID` 这类
+  // 名字裸写会直接报 ORA-00904 / ORA-00911，表设计器生成的 DDL 因此不可执行。
+  it('quotes reserved words even when they are all upper case', () => {
+    for (const reserved of ['DATE', 'LEVEL', 'ROWID', 'NUMBER', 'ORDER', 'COMMENT', 'SIZE', 'SESSION']) {
+      expect(quoteSqlIdentifierPart('oracle', reserved)).toBe(`"${reserved}"`);
+    }
+    // 可作列名的词不应被误加引号。
+    for (const usable of ['VALUE', 'TYPE', 'NAME', 'STATUS', 'ORDERS']) {
+      expect(quoteSqlIdentifierPart('oracle', usable)).toBe(usable);
+    }
+  });
+
   it('quotes names that cannot be written bare', () => {
     expect(quoteSqlIdentifierPart('oracle', 'order items')).toBe('"order items"');
     expect(quoteSqlIdentifierPart('oracle', 'my-table')).toBe('"my-table"');

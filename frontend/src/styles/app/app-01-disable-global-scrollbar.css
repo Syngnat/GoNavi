@@ -367,7 +367,7 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     /* 22px = .contents 的 2px 内边距 + 16px 图标 + 4px 右间距，
        让名称与图标在各行之间保持同一条竖线。 */
     grid-template-columns: 22px minmax(0, 1fr);
-    grid-template-rows: var(--gn-query-suggest-name-row, 18px) var(--gn-query-suggest-detail-row, 18px);
+    grid-template-rows: var(--gn-query-suggest-name-row-height, 18px) var(--gn-query-suggest-comment-row-height, 18px);
     grid-template-areas:
         "icon name"
         "detail detail";
@@ -399,19 +399,19 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     flex: initial !important;
     min-width: 0;
     max-width: none;
-    height: var(--gn-query-suggest-name-row, 18px);
+    height: var(--gn-query-suggest-name-row-height, 18px);
     overflow: hidden;
-    line-height: var(--gn-query-suggest-name-row, 18px) !important;
+    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
 }
 
 .gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left > .monaco-icon-label {
     min-width: 0;
     max-width: 100%;
-    height: var(--gn-query-suggest-name-row, 18px);
+    height: var(--gn-query-suggest-name-row-height, 18px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    line-height: var(--gn-query-suggest-name-row, 18px);
+    line-height: var(--gn-query-suggest-name-row-height, 18px);
 }
 
 /* 详情行：类型 · 注释，占满整行并右对齐。 */
@@ -424,9 +424,9 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     width: 100%;
     max-width: none !important;
     min-width: 0;
-    height: var(--gn-query-suggest-detail-row, 18px);
+    height: var(--gn-query-suggest-comment-row-height, 18px);
     overflow: hidden;
-    line-height: var(--gn-query-suggest-detail-row, 18px) !important;
+    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
 }
 
 .gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .right > .details-label {
@@ -439,7 +439,7 @@ body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer
     overflow: hidden;
     color: var(--vscode-editorSuggestWidget-foreground);
     font-size: 11px !important;
-    line-height: var(--gn-query-suggest-detail-row, 18px) !important;
+    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
     opacity: 0.68;
     text-align: right;
     white-space: nowrap;

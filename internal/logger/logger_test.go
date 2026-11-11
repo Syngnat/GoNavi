@@ -455,6 +455,41 @@ func TestErrorChain_DeduplicatesMessages(t *testing.T) {
 	}
 }
 
+// summaryCauseError 模拟 connectAttemptError：消息里已内嵌 cause 文本。
+type summaryCauseError struct {
+	message string
+	cause   error
+}
+
+func (e summaryCauseError) Error() string { return e.message }
+func (e summaryCauseError) Unwrap() error { return e.cause }
+
+// 回归：connectAttemptError 这类汇总错误的消息里已经内嵌了 cause 的完整文本，
+// 只做整串相等去重会把同一段错误打印两遍。
+func TestErrorChain_SkipsCauseAlreadyEmbeddedInSummary(t *testing.T) {
+	cause := errors.New("dial tcp 10.0.0.1:3306: connect: connection refused")
+	summary := errors.New("全部连接尝试失败：" + cause.Error())
+
+	got := ErrorChain(summaryCauseError{message: summary.Error(), cause: cause})
+
+	// 汇总已经把 cause 的文本包含进去了，cause 不应再单独出现一次。
+	if strings.Count(got, cause.Error()) != 1 {
+		t.Fatalf("cause text should appear exactly once, got %q", got)
+	}
+}
+
+// 短文本（如 EOF）不做包含判断，避免误伤。
+func TestErrorChain_KeepsShortCauseAfterLongSummary(t *testing.T) {
+	cause := errors.New("EOF")
+	summary := errors.New("连接失败：读取握手包时对端断开，请检查网络与代理配置")
+
+	got := ErrorChain(summaryCauseError{message: summary.Error(), cause: cause})
+
+	if !strings.Contains(got, "EOF") {
+		t.Fatalf("short cause should still be printed, got %q", got)
+	}
+}
+
 func TestErrorChain_TruncatesLongChain(t *testing.T) {
 	// Build a chain of 25 errors (exceeds the 20-level limit)
 	var err error = errors.New("base")

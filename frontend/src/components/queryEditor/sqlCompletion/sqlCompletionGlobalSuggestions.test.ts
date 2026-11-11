@@ -11,7 +11,11 @@ const state = vi.hoisted(() => ({
 
 vi.mock('../queryEditorCompletionState', () => state);
 
-import { buildSqlCompletionGlobalSuggestions } from './sqlCompletionGlobalSuggestions';
+import {
+    buildSqlCompletionGlobalSuggestions,
+    stripCompletionIdentifierDelimiters,
+    stripCompletionTableQualifiers,
+} from './sqlCompletionGlobalSuggestions';
 import type { CompletionColumnMeta } from '../QueryEditorHelpers';
 
 const monaco = {
@@ -121,6 +125,23 @@ describe('buildSqlCompletionGlobalSuggestions', () => {
         expect(columnSuggestions).toHaveLength(1);
     });
 
+    // 回归：同一张表在两个来源里的写法可能不同——DuckDB 附加库的 GetAllColumns
+    // 返回 `catalog.schema.table`，别名解析出来的是 `schema.table`；SQL Server 的
+    // 目录元数据还会带方括号。只按 trim + 大小写归一化会让同一列算出两个键。
+    // 回归：DuckDB 附加库的目录元数据返回 `catalog.schema.table`，别名解析得到
+    // `schema.table`；SQL Server 的目录名还带方括号。去重键必须能把这几种写法
+    // 归一到同一张表，否则同一列会在候选里出现两次。
+    it('normalizes table qualifiers and identifier delimiters for the dedupe key', () => {
+        expect(stripCompletionTableQualifiers('analytics.main.users')).toBe('users');
+        expect(stripCompletionTableQualifiers('main.users')).toBe('users');
+        expect(stripCompletionTableQualifiers('users')).toBe('users');
+
+        expect(stripCompletionIdentifierDelimiters('[Order Details]')).toBe('Order Details');
+        expect(stripCompletionIdentifierDelimiters('"Order Details"')).toBe('Order Details');
+        expect(stripCompletionIdentifierDelimiters('`Order Details`')).toBe('Order Details');
+        expect(stripCompletionIdentifierDelimiters('payload')).toBe('payload');
+    });
+
     it('keeps distinct columns even when they share a name across tables', () => {
         const usersId = column('id', 'users', 'db');
         const ordersId = column('id', 'orders', 'db');
@@ -185,5 +206,32 @@ describe('buildSqlCompletionGlobalSuggestions', () => {
         expect(ids).toHaveLength(2);
         // 先出现的表排序键更小。
         expect(String(ids[0].sortText) < String(ids[1].sortText)).toBe(true);
+    });
+
+    // 回归：分档以前夹紧到 8，第 9 张起的表全部落进同一档，在子查询多的语句里
+    // 重新退化成字母序。另外档位必须定宽，否则 '10' 会排在 '2' 前面。
+    it('keeps table order beyond the eighth reference and pads ranks to two digits', () => {
+        const early = column('id', 't02', 'db');
+        const late = column('id', 't10', 'db');
+        state.sharedAllColumnsData.push(early, late);
+
+        const earlyKey = 'db\u0000t02';
+        const lateKey = 'db\u0000t10';
+        const { suggestions } = buildSqlCompletionGlobalSuggestions(buildInput({
+            foundTables: new Set([earlyKey, lateKey]),
+            tableReferenceOrder: new Map([[earlyKey, 2], [lateKey, 10]]),
+            referencedColumns: [early, late],
+        }) as any);
+
+        const ids = suggestions.filter((item: any) => (
+            item.kind === monaco.languages.CompletionItemKind.Field
+            && String(item.label?.label ?? item.label) === 'id'
+        ));
+        expect(ids).toHaveLength(2);
+        expect(String(ids[0].sortText) < String(ids[1].sortText)).toBe(true);
+        // 分组前缀是 1 个字符（本测试的 sortGroups.columnCurrent = '0'），
+        // 其后是两位定宽档位：'02' 与 '10'。
+        expect(String(ids[0].sortText).slice(1, 3)).toBe('02');
+        expect(String(ids[1].sortText).slice(1, 3)).toBe('10');
     });
 });

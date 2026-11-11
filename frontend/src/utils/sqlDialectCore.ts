@@ -306,8 +306,31 @@ const needsPgLikeQuote = (ident: string): boolean => !/^[a-z_][a-z0-9_]*$/.test(
 //   - 含空格、连字符、中文等裸名不允许的字符：必须加引号。
 //
 // 注意不能只看「是否是合法裸名」——`orders` 语法上合法，语义上却是另一个对象。
+//
+// 保留字同样不能裸写：`DATE` / `LEVEL` / `ORDER` / `NUMBER` / `ROWID` 这类名字
+// 全大写且符合裸名规则，但裸写会直接报 ORA-00904/ORA-00911。保留字表只收录
+// 真正不能作为标识符使用的词；`VALUE` / `TYPE` / `NAME` 等可作列名的未收录。
 const ORACLE_BARE_IDENT_RE = /^[A-Z_][A-Z0-9_$#]*$/;
-const needsOracleQuote = (ident: string): boolean => !ORACLE_BARE_IDENT_RE.test(ident);
+const ORACLE_RESERVED_WORDS = new Set([
+  'access', 'add', 'all', 'alter', 'and', 'any', 'as', 'asc', 'audit', 'between',
+  'by', 'char', 'check', 'cluster', 'column', 'comment', 'compress', 'connect',
+  'create', 'current', 'date', 'decimal', 'default', 'delete', 'desc', 'distinct',
+  'drop', 'else', 'exclusive', 'exists', 'file', 'float', 'for', 'from', 'grant',
+  'group', 'having', 'identified', 'immediate', 'in', 'increment', 'index',
+  'initial', 'insert', 'integer', 'intersect', 'into', 'is', 'level', 'like',
+  'lock', 'long', 'maxextents', 'minus', 'mlslabel', 'mode', 'modify', 'noaudit',
+  'nocompress', 'not', 'nowait', 'null', 'number', 'of', 'offline', 'on', 'online',
+  'option', 'or', 'order', 'pctfree', 'prior', 'privileges', 'public', 'raw',
+  'rename', 'resource', 'revoke', 'row', 'rowid', 'rownum', 'rows', 'select',
+  'session', 'set', 'share', 'size', 'smallint', 'start', 'successful', 'synonym',
+  'sysdate', 'table', 'then', 'to', 'trigger', 'uid', 'union', 'unique', 'update',
+  'user', 'validate', 'values', 'varchar', 'varchar2', 'view', 'whenever', 'where',
+  'with',
+]);
+const needsOracleQuote = (ident: string): boolean =>
+  !ORACLE_BARE_IDENT_RE.test(ident)
+  // 只有「全大写且与保留字同名」才需要引号；小写名本来就进不了上一条正则。
+  || ORACLE_RESERVED_WORDS.has(ident.toLowerCase());
 
 export const unquoteSqlIdentifierPart = stripIdentifierQuotes;
 

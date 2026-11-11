@@ -128,10 +128,31 @@ func annotateOracleValidationError(err error) error {
 	// 任何可操作信息。最常见的原因是端口指向了非 Oracle 监听（例如把 MySQL 端口
 	// 当成 Oracle 用）、Service Name/SID 写错，或中间有代理/防火墙截断。这里补一层
 	// 具体提示，避免用户只看到「EOF」而无从下手。
-	if strings.Contains(message, "eof") {
+	//
+	// 必须整词匹配：`strings.Contains(message, "eof")` 会把主机名、用户名、路径里
+	// 恰好含 "eof" 的无关错误也误判成握手失败（如 host "eoffice-db"）。
+	if isOracleEOFHandshakeError(message) {
 		return fmt.Errorf("%w（Oracle 握手阶段连接被对端直接关闭或响应不完整；请确认端口是 Oracle 监听端口（不是 MySQL/SQL Server 等其它协议）、Service Name 或 SID 填写正确，并确认客户端与服务端版本/字符集兼容；如经 SSH 隧道或代理，请检查代理是否在握手时中断连接）", err)
 	}
 	return err
+}
+
+// isOracleEOFHandshakeError 判断错误文本是否是「握手中断」形态。
+//
+// 只认整词 EOF / unexpected EOF，避免 host/user/path 里含 "eof" 的无关错误被
+// 误判（调用方传入的已是小写文本）。
+func isOracleEOFHandshakeError(lowerMessage string) bool {
+	if lowerMessage == "eof" || lowerMessage == "unexpected eof" {
+		return true
+	}
+	for _, token := range strings.FieldsFunc(lowerMessage, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z')
+	}) {
+		if token == "eof" {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {

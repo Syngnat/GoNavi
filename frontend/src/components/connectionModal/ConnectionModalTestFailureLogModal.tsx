@@ -65,8 +65,12 @@ export const ConnectionModalTestFailureLogModal = ({
     line.text.toLowerCase().includes(keyword.toLowerCase())
   ));
   // 默认停在有内容的那个页签：日志读到了就展示日志，读不到再看错误详情。
-  const [activeTab, setActiveTab] = useState<string>("log");
-  const resolvedTab = snapshot && logLines.length > 0 ? activeTab : "error";
+  //
+  // 之后由用户主导：以前这里每次都把「无日志行」硬编码回落到 error，结果加载中、
+  // 读取失败、日志为空三种情况下「运行日志」页签点不动，页面里的 spinner、读取
+  // 失败兜底与空日志提示永远看不到。
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const resolvedTab = activeTab ?? (logLines.length > 0 ? "log" : "error");
 
   let logBody: React.ReactNode;
   if (testLog?.loading && !snapshot) {

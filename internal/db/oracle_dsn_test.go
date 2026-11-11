@@ -140,3 +140,29 @@ func TestAnnotateOracleValidationErrorAddsClosedConnectionHint(t *testing.T) {
 		t.Fatalf("expected closed connection hint, got %v", err)
 	}
 }
+
+func TestAnnotateOracleValidationErrorAddsEOFHint(t *testing.T) {
+	t.Parallel()
+
+	for _, message := range []string{"EOF", "unexpected EOF", "read tcp: EOF"} {
+		err := annotateOracleValidationError(errors.New(message))
+		if err == nil || !strings.Contains(err.Error(), "握手阶段") {
+			t.Fatalf("expected handshake hint for %q, got %v", message, err)
+		}
+	}
+}
+
+// 回归：以前用 strings.Contains(message, "eof") 判断，主机名或用户名里含 "eof"
+// 的无关错误会被误判成握手失败，附加一段误导性的排查提示。
+func TestAnnotateOracleValidationErrorIgnoresEOFSubstring(t *testing.T) {
+	t.Parallel()
+
+	const message = "dial tcp: lookup eoffice-db.internal: no such host"
+	err := annotateOracleValidationError(errors.New(message))
+	if err == nil {
+		t.Fatal("expected the original error back")
+	}
+	if strings.Contains(err.Error(), "握手阶段") {
+		t.Fatalf("substring \"eof\" in host must not trigger the handshake hint, got %v", err)
+	}
+}
