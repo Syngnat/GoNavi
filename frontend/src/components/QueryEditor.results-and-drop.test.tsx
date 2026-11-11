@@ -416,16 +416,16 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'sqlite' }),
       '',
-      `${sql} LIMIT 5000`,
+      sql,
       'query-1',
     );
     renderer.unmount();
   });
 
-  it('places the Dameng row limit before a trailing WITH UR clause', async () => {
+  // 「最大返回行数」已移除：执行 SQL 不再注入 LIMIT，语句原样发出。
+  it('sends the Dameng statement verbatim without injecting a row limit', async () => {
     storeState.connections[0].config.type = 'dameng';
     storeState.connections[0].config.database = 'GXCM';
-    storeState.queryOptions.maxRows = 500;
     const sql = [
       'SELECT DISTINCT v.emp_id, v.emp_name, s.stru_order',
       'FROM pub_stru s, pub_emp_view_all v',
@@ -455,7 +455,8 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'dameng' }),
       'GXCM',
-      sql.replace(' WITH ur;', ' LIMIT 500 OFFSET 0 WITH ur'),
+      // 执行时语句末尾的分号会被剥掉，这是既有行为。
+      sql.replace(/;$/, ''),
       'query-1',
     );
     renderer.unmount();

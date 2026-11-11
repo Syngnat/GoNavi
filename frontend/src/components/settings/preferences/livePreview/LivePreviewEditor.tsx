@@ -7,7 +7,7 @@ import { comboToMonacoKeyBinding } from '../../../../utils/shortcuts';
 import { useLivePreviewQueryControls } from './useLivePreviewQueryControls';
 const MonacoEditor = lazy(() => import('../../../MonacoEditor'));
 
-type Props = { value: string; connectionName?: string; onChange: (sql: string) => void; onRun: (sql: string, maxRows: number) => void; onStatus?: (status: string) => void; children?: ReactNode };
+type Props = { value: string; connectionName?: string; onChange: (sql: string) => void; onRun: (sql: string) => void; onStatus?: (status: string) => void; children?: ReactNode };
 export function LivePreviewEditor({ value, connectionName = 'Demo · MySQL', onChange, onRun, onStatus = () => undefined, children }: Props) {
   const t = useOptionalI18n()?.t ?? defaultTranslate;
   const controls = useLivePreviewQueryControls({ value, connectionName, onChange, onRun, onStatus });

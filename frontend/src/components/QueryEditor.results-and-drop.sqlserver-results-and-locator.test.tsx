@@ -911,7 +911,7 @@ describe('QueryEditor external SQL save', () => {
       expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(
         expect.anything(),
         'main',
-        'SELECT NAME FROM users LIMIT 5000',
+        'SELECT NAME FROM users',
         'query-1',
       );
       expect(dataGridState.latestProps?.data?.[0]).toMatchObject({ NAME: 'alpha' });

@@ -32,7 +32,7 @@ function createInput(sql: string, saved: boolean, readOnly = false) {
     conn: { id: 'kingbase', name: 'Kingbase', config }, metadataGenerationRef: { current: 0 }, currentConnectionId: 'kingbase',
     isQueryEditorMetadataRequestCurrent: () => true, tablesRef: { current: [] }, isActive: true, executionDbName: 'lab',
     isCurrentRun: () => true, executionConfig: applyQueryEditorSchemaSearchPath(config, 'dbms_job'),
-    queryOptions: { maxRows: 0, showColumnComment: true } as RunQueryEditorSqlStatementsInput['queryOptions'], driver: 'kingbase',
+    queryOptions: { showColumnComment: true } as unknown as RunQueryEditorSqlStatementsInput['queryOptions'], driver: 'kingbase',
     containsOraclePlsqlDefinition: () => false, normalizeOracleSqlPlusSlashTerminators: text => text,
     recordExecutionOrigin: vi.fn(), executableSQL: sql, runOptions: undefined, paramsDialogState: { open: false, analysis: null },
     paramsState: { analyzeNow: vi.fn(async () => null), quotedPlaceholders: true } as unknown as RunQueryEditorSqlStatementsInput['paramsState'],

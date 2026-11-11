@@ -11,7 +11,7 @@ import { getShortcutPlatform, resolveShortcutBinding, type ShortcutAction } from
 import type { SqlEditorCommitMode } from '../../../QueryEditorTransactionSettings';
 import type { SavedConnection } from '../../../../types';
 
-type Props = { value: string; connectionName: string; onChange: (sql: string) => void; onRun: (sql: string, maxRows: number) => void; onStatus: (status: string) => void };
+type Props = { value: string; connectionName: string; onChange: (sql: string) => void; onRun: (sql: string) => void; onStatus: (status: string) => void };
 export function useLivePreviewQueryControls({ value, connectionName, onChange, onRun, onStatus }: Props) {
   const t = useOptionalI18n()?.t ?? defaultTranslate;
   const shortcuts = useStore(state => state.shortcutOptions);
@@ -22,7 +22,6 @@ export function useLivePreviewQueryControls({ value, connectionName, onChange, o
   const [wordWrap, setWordWrap] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [resultsVisible, setResultsVisible] = useState(true);
-  const [maxRows, setMaxRows] = useState(100);
   const [commitMode, setCommitMode] = useState<SqlEditorCommitMode>('manual');
   const [commitDelay, setCommitDelay] = useState(0);
   const [keywordCase, setKeywordCase] = useState(formatOptions.keywordCase);
@@ -34,7 +33,7 @@ export function useLivePreviewQueryControls({ value, connectionName, onChange, o
     const selection = editor?.getSelection();
     const selected = selection ? editor?.getModel()?.getValueInRange(selection) : '';
     setResultsVisible(true); setFullscreen(false);
-    onRun(selected?.trim() ? selected : getSql(), maxRows);
+    onRun(selected?.trim() ? selected : getSql());
   };
   const applySql = (sql: string) => {
     const editor = editorRef.current;
@@ -49,7 +48,7 @@ export function useLivePreviewQueryControls({ value, connectionName, onChange, o
   const save = () => { setSavedSql(getSql()); onStatus(t('settings.preview.saved_query')); };
   const connection: SavedConnection = { id: 'preview', name: connectionName, config: { type: 'mysql', host: 'demo.invalid', port: 3306, user: 'demo', database: 'sales' } };
   const toolbar: QueryEditorToolbarProps = {
-    currentConnectionId: connection.id, currentDb: 'sales', queryCapableConnections: [connection], dbList: ['sales'], maxRows,
+    currentConnectionId: connection.id, currentDb: 'sales', queryCapableConnections: [connection], dbList: ['sales'],
     sqlEditorCommitMode: commitMode, sqlEditorAutoCommitDelayMs: commitDelay, pendingTransactionToolbar: null,
     activeShortcutPlatform: platform, runQueryShortcutBinding: binding('runQuery'), saveQueryShortcutBinding: binding('saveQuery'),
     formatSqlShortcutBinding: binding('formatSql'), triggerSqlAiCompletionShortcutBinding: binding('triggerSqlAiCompletion'),
@@ -63,7 +62,7 @@ export function useLivePreviewQueryControls({ value, connectionName, onChange, o
       { key: 'upper', label: t('query_editor.format.keyword_upper'), onClick: () => setKeywordCase('upper') },
       { key: 'lower', label: t('query_editor.format.keyword_lower'), onClick: () => setKeywordCase('lower') },
     ], formatSettingsSelectedKeys: [keywordCase],
-    onConnectionChange: localOnly, onDatabaseChange: localOnly, onMaxRowsChange: setMaxRows,
+    onConnectionChange: localOnly, onDatabaseChange: localOnly,
     onCommitModeChange: setCommitMode, onAutoCommitDelayMsChange: setCommitDelay,
     onCaptureEditorCursorPosition: () => undefined, onRun: run, onCancel: localOnly, onQuickSave: save,
     onFindInEditor: () => { void editorRef.current?.getAction('actions.find')?.run(); },

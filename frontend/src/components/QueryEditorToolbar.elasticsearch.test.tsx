@@ -81,7 +81,6 @@ const buildProps = (overrides: Record<string, unknown> = {}) => ({
   currentDb: 'events',
   queryCapableConnections: [{ id: 'es-1', name: 'Elasticsearch', config: { type: 'elasticsearch' } } as any],
   dbList: ['events', 'logs'],
-  maxRows: 5000,
   sqlEditorCommitMode: 'manual' as const,
   sqlEditorAutoCommitDelayMs: 0,
   pendingTransactionToolbar: <span>pending transaction</span>,
@@ -211,7 +210,7 @@ describe('QueryEditorToolbar Elasticsearch mode', () => {
       renderer = create(<QueryEditorToolbar {...buildProps()} />);
     });
 
-    expect(antdState.selectProps).toHaveLength(3);
+    expect(antdState.selectProps).toHaveLength(2);
     expect(antdState.transactionProps).toHaveLength(1);
     expect(menuKeys()).toEqual(expect.arrayContaining([
       'ai-inline-completion',
@@ -309,7 +308,7 @@ describe('QueryEditorToolbar Elasticsearch mode', () => {
       })} />);
     });
 
-    expect(antdState.selectProps).toHaveLength(4);
+    expect(antdState.selectProps).toHaveLength(3);
     expect(antdState.selectProps[2]).toMatchObject({
       className: expect.stringContaining('gn-v2-query-toolbar-schema-select'),
       value: 'sales',

@@ -195,18 +195,26 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('cancels a pending page query before its query id exists', async () => {
-    storeState.queryOptions.maxRows = 2;
+    // 初始页大小固定 100：首屏取满一页才会生成分页状态。
+    const pageSize = 100;
     let resolvePageQueryId!: (queryId: string) => void;
     backendApp.GenerateQueryID
       .mockResolvedValueOnce('query-initial')
+      // 后台自动统计会先取一个 id，这里给它固定值，让后面的"翻页 id 尚未返回"仍然成立。
+      .mockResolvedValueOnce('query-auto-count')
       .mockReturnValueOnce(new Promise((resolve) => {
         resolvePageQueryId = resolve;
       }));
     backendApp.DBQueryMulti
       .mockResolvedValueOnce({
         success: true,
-        data: [{ columns: ['value'], rows: [{ value: 1 }, { value: 2 }] }],
+        data: [{
+          columns: ['value'],
+          rows: Array.from({ length: pageSize }, (_item, index) => ({ value: index + 1 })),
+        }],
       })
+      // 首屏之后后台自动补一次 COUNT(*)（此处挂起，不影响翻页请求的断言）。
+      .mockReturnValueOnce(new Promise(() => {}))
       .mockResolvedValueOnce({
         success: true,
         data: [{ columns: ['value'], rows: [{ value: 3 }] }],
@@ -224,7 +232,7 @@ describe('QueryEditor external SQL save', () => {
     expect(dataGridState.latestProps?.onPageChange).toEqual(expect.any(Function));
 
     await act(async () => {
-      void dataGridState.latestProps.onPageChange(2, 2);
+      void dataGridState.latestProps.onPageChange(2, pageSize);
       await Promise.resolve();
     });
     expect(dataGridState.latestProps?.loading).toBe(true);
@@ -241,7 +249,8 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(messageApi.success).toHaveBeenCalledWith('查询已中止。');
-    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(1);
+    // 2 次 = 首屏查询 + 后台自动统计（其响应被挂起，不会落到表格上）。
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(2);
   });
 
   it('cancels a Mongo multi-statement run between statement query ids', async () => {
