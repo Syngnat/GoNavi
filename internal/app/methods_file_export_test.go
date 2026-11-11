@@ -280,6 +280,59 @@ func TestWriteRowsToFile_JSON_NumberKeepPlainText(t *testing.T) {
 	}
 }
 
+// 回归：encoding/json 默认把 < > & 转成 \u003c \u003e \u0026。导出的是数据文件
+// 而不是 HTML 片段，这种转义只会让用户看到一堆 \u00xx，与库里的值对不上。
+func TestWriteRowsToFile_JSON_DoesNotEscapeHTMLCharacters(t *testing.T) {
+	f, err := os.CreateTemp("", "gonavi-export-html-*.json")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	data := []map[string]interface{}{
+		{
+			"expr": "a > b && c < d",
+			"html": `<div class="x">A&B</div>`,
+			"quote": `He said "hi"`,
+			"path":  `C:\tmp\a.txt`,
+			"uni":   "中文 & <tag>",
+		},
+	}
+	if err := writeRowsToFile(f, data, []string{"expr", "html", "quote", "path", "uni"}, ExportFileOptions{Format: "json"}); err != nil {
+		t.Fatalf("写入 json 失败: %v", err)
+	}
+
+	contentBytes, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("读取 json 失败: %v", err)
+	}
+	content := string(contentBytes)
+	for _, escaped := range []string{`\u003c`, `\u003e`, `\u0026`} {
+		if strings.Contains(content, escaped) {
+			t.Fatalf("json 导出不应把 %s 转义: %s", escaped, content)
+		}
+	}
+	if !strings.Contains(content, `a > b && c < d`) {
+		t.Fatalf("原始字符应原样保留: %s", content)
+	}
+
+	// 关闭 HTML 转义不能破坏 JSON 合法性：引号与反斜杠仍须正确转义。
+	var decoded []map[string]interface{}
+	if err := json.Unmarshal(contentBytes, &decoded); err != nil {
+		t.Fatalf("导出内容不是合法 JSON: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("期望 1 行，实际 %d", len(decoded))
+	}
+	if decoded[0]["quote"] != `He said "hi"` {
+		t.Fatalf("引号往返失败: %#v", decoded[0]["quote"])
+	}
+	if decoded[0]["path"] != `C:\tmp\a.txt` {
+		t.Fatalf("反斜杠往返失败: %#v", decoded[0]["path"])
+	}
+}
+
 func TestWriteRowsToFile_JSONKeepsNilAsJSONNull(t *testing.T) {
 	f, err := os.CreateTemp("", "gonavi-export-null-*.json")
 	if err != nil {
