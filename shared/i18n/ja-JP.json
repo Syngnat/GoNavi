@@ -13942,5 +13942,7 @@
   "plugin.market.install_permission_ui_detail": "サンドボックスページ {{count}} 件",
   "plugin.market.install_permission_export": "データエクスポート",
   "plugin.market.install_permission_export_detail": "エクスポーター {{count}} 件",
-  "plugin.market.install_confirm_hint": "上のアドレスを貼り付けて確認"
+  "plugin.market.install_confirm_hint": "上のアドレスを貼り付けて確認",
+  "db.backend.error.oracle_conn_closed": "（Oracle 接続が検証段階でサーバー側から閉じられたか、ドライバーのタイムアウトで中断されました。待ち受けポートが Oracle プロトコルのポートか、サービス名（Service Name）または SID が正しいか、DBA_PRIVILEGE/AUTH_TYPE などの認証パラメーターが一致しているかを確認してください）",
+  "db.backend.error.oracle_handshake_eof": "（Oracle のハンドシェイク段階で接続が相手側から閉じられたか、応答が不完全でした。ポートが Oracle の待ち受けポート（MySQL/SQL Server などではない）か、サービス名または SID が正しいか、クライアントとサーバーのバージョン・文字セットが互換か確認してください。SSH トンネルやプロキシ経由の場合は、ハンドシェイク中に切断していないか確認してください）"
 }

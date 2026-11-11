@@ -122,7 +122,7 @@ func annotateOracleValidationError(err error) error {
 	}
 	message := strings.ToLower(err.Error())
 	if strings.Contains(message, "use of closed network connection") {
-		return fmt.Errorf("%w（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、服务名（Service Name）或 SID 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）", err)
+		return fmt.Errorf("%w%s", err, localizedDriverRuntimeText("db.backend.error.oracle_conn_closed", nil))
 	}
 	// `EOF` / `unexpected EOF` 是驱动在握手阶段读不到完整响应的通用症状，本身不含
 	// 任何可操作信息。最常见的原因是端口指向了非 Oracle 监听（例如把 MySQL 端口
@@ -132,7 +132,7 @@ func annotateOracleValidationError(err error) error {
 	// 必须整词匹配：`strings.Contains(message, "eof")` 会把主机名、用户名、路径里
 	// 恰好含 "eof" 的无关错误也误判成握手失败（如 host "eoffice-db"）。
 	if isOracleEOFHandshakeError(message) {
-		return fmt.Errorf("%w（Oracle 握手阶段连接被对端直接关闭或响应不完整；请确认端口是 Oracle 监听端口（不是 MySQL/SQL Server 等其它协议）、Service Name 或 SID 填写正确，并确认客户端与服务端版本/字符集兼容；如经 SSH 隧道或代理，请检查代理是否在握手时中断连接）", err)
+		return fmt.Errorf("%w%s", err, localizedDriverRuntimeText("db.backend.error.oracle_handshake_eof", nil))
 	}
 	return err
 }

@@ -13942,5 +13942,7 @@
   "plugin.market.install_permission_ui_detail": "Песочниц: {{count}}",
   "plugin.market.install_permission_export": "Экспорт данных",
   "plugin.market.install_permission_export_detail": "Экспортёров: {{count}}",
-  "plugin.market.install_confirm_hint": "Вставьте адрес выше для подтверждения"
+  "plugin.market.install_confirm_hint": "Вставьте адрес выше для подтверждения",
+  "db.backend.error.oracle_conn_closed": " (соединение Oracle было закрыто сервером или прервано по таймауту драйвера на этапе проверки; проверьте, что порт соответствует протоколу Oracle, что Service Name или SID указаны верно и что DBA_PRIVILEGE/AUTH_TYPE соответствуют учётной записи)",
+  "db.backend.error.oracle_handshake_eof": " (рукопожатие Oracle было закрыто удалённой стороной или вернуло неполный ответ; убедитесь, что порт является портом прослушивания Oracle (а не MySQL/SQL Server), что Service Name или SID указаны верно и что версии клиента и сервера, а также кодировки совместимы; при работе через SSH-туннель или прокси проверьте, не обрывается ли соединение во время рукопожатия)"
 }

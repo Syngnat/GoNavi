@@ -13942,5 +13942,7 @@
   "plugin.market.install_permission_ui_detail": "{{count}} 個沙箱頁面",
   "plugin.market.install_permission_export": "資料匯出",
   "plugin.market.install_permission_export_detail": "{{count}} 個匯出器",
-  "plugin.market.install_confirm_hint": "貼上上方位址以確認"
+  "plugin.market.install_confirm_hint": "貼上上方位址以確認",
+  "db.backend.error.oracle_conn_closed": "（Oracle 連線在驗證階段被伺服端關閉或被驅動逾時中斷；請檢查監聽埠是否為 Oracle 協定埠、服務名（Service Name）或 SID 是否正確、認證參數如 DBA_PRIVILEGE/AUTH_TYPE 是否相符）",
+  "db.backend.error.oracle_handshake_eof": "（Oracle 握手階段連線被對端直接關閉或回應不完整；請確認埠是 Oracle 監聽埠（不是 MySQL/SQL Server 等其它協定）、Service Name 或 SID 填寫正確，並確認用戶端與伺服端版本/字元集相容；如經 SSH 通道或代理，請檢查代理是否在握手時中斷連線）"
 }

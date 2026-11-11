@@ -13942,5 +13942,7 @@
   "plugin.market.install_permission_ui_detail": "{{count}} 个沙箱页面",
   "plugin.market.install_permission_export": "数据导出",
   "plugin.market.install_permission_export_detail": "{{count}} 个导出器",
-  "plugin.market.install_confirm_hint": "粘贴上方地址以确认"
+  "plugin.market.install_confirm_hint": "粘贴上方地址以确认",
+  "db.backend.error.oracle_conn_closed": "（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、服务名（Service Name）或 SID 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）",
+  "db.backend.error.oracle_handshake_eof": "（Oracle 握手阶段连接被对端直接关闭或响应不完整；请确认端口是 Oracle 监听端口（不是 MySQL/SQL Server 等其它协议）、Service Name 或 SID 填写正确，并确认客户端与服务端版本/字符集兼容；如经 SSH 隧道或代理，请检查代理是否在握手时中断连接）"
 }

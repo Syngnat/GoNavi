@@ -13942,5 +13942,7 @@
   "plugin.market.install_permission_ui_detail": "{{count}} Sandbox-Seiten",
   "plugin.market.install_permission_export": "Datenexport",
   "plugin.market.install_permission_export_detail": "{{count}} Exporter",
-  "plugin.market.install_confirm_hint": "Adresse oben einfügen zur Bestätigung"
+  "plugin.market.install_confirm_hint": "Adresse oben einfügen zur Bestätigung",
+  "db.backend.error.oracle_conn_closed": " (die Oracle-Verbindung wurde während der Validierung vom Server geschlossen oder durch einen Treiber-Timeout unterbrochen; prüfen Sie, ob der Port ein Oracle-Protokollport ist, ob Service Name bzw. SID korrekt sind und ob DBA_PRIVILEGE/AUTH_TYPE zum Konto passen)",
+  "db.backend.error.oracle_handshake_eof": " (der Oracle-Handshake wurde von der Gegenstelle geschlossen oder lieferte eine unvollständige Antwort; prüfen Sie, ob der Port ein Oracle-Listener ist (nicht MySQL/SQL Server), ob Service Name bzw. SID korrekt sind und ob Client- und Serverversion sowie Zeichensatz kompatibel sind; bei SSH-Tunnel oder Proxy prüfen Sie, ob die Verbindung während des Handshakes getrennt wird)"
 }
