@@ -273,6 +273,37 @@ describe('connectionReadOnly', () => {
     expect(isSingleReadOnlyConnectionQuery(config, incidentSql)).toBe(false);
   });
 
+  // 回归：MySQL 的 INSERT(str, pos, len, newstr) 是字符串函数。它出现在 SELECT
+  // 列表里时，按关键字判定会被当成写语句，导致只读连接直接拒绝执行一条纯读 SQL
+  // （用户反馈：同一条 SQL 在 Navicat 能查、在 GoNavi 查不出）。
+  it('treats the INSERT() string function as read-only', () => {
+    const config = { type: 'mysql', readOnly: true };
+    const sql = [
+      'SELECT CAST(id AS CHAR) AS 模块ID, device_name AS 原名称,',
+      "INSERT(device_name, CHAR_LENGTH(device_name) - LOCATE('-', REVERSE(device_name)) + 1, 1, '_') AS 修改后名称",
+      'FROM inxvision_iot.op_edge_gateway_controller',
+      "WHERE device_name REGEXP '^T[0-9]+_[0-9]+F_M(4|8|12)-[0-9]+$'",
+      'ORDER BY device_name;',
+    ].join('\n');
+
+    expect(findPotentiallyMutatingConnectionStatements(config, sql)).toEqual([]);
+    expect(findConnectionMutatingStatements(config, sql)).toEqual([]);
+    expect(isSingleReadOnlyConnectionQuery(config, sql)).toBe(true);
+  });
+
+  // 反向守卫：真正的 INSERT 语句（关键字后不跟左括号）必须仍然被判为写。
+  it('still flags real INSERT statements next to the function form', () => {
+    const config = { type: 'mysql', protection: { restrictScriptExecution: true } };
+    for (const sql of [
+      'INSERT INTO t VALUES (1)',
+      'INSERT INTO t(a) VALUES (1)',
+      'SELECT 1 INSERT INTO t VALUES (1)',
+      'SELECT INSERT(name, 1, 1, \'_\') FROM t INSERT INTO t VALUES (1)',
+    ]) {
+      expect(findPotentiallyMutatingConnectionStatements(config, sql), sql).not.toEqual([]);
+    }
+  });
+
   it('detects embedded writes without a semicolon across dialects', () => {
     const cases: Array<[string, string]> = [
       ['mysql', 'SELECT * FROM t ORDER BY id DESC\nDELETE FROM t WHERE id = 1'],

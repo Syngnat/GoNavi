@@ -16,9 +16,11 @@ import "strings"
 // `BEGIN; SELECT 1; COMMIT;` 这类显式事务脚本被误判为写操作。
 // `replace` 同样排除：SQL Server 的 REPLACE() 是只读字符串函数
 // （见 connectionReadOnly.test.ts 的既有用例）。
+// `insert` 同理排除：MySQL 的 INSERT(str, pos, len, newstr) 是字符串函数，常出现在
+// SELECT 列表里；它由 isEmbeddedInsertStatement 单独识别「INSERT 后不跟左括号」的形态。
 var embeddedWriteKeywords = map[string]struct{}{
 	// DML
-	"insert": {}, "delete": {}, "update": {}, "upsert": {},
+	"delete": {}, "update": {}, "upsert": {},
 	// DDL
 	"create": {}, "alter": {}, "drop": {}, "truncate": {}, "rename": {},
 	// 权限与数据控制
@@ -37,6 +39,20 @@ func isEmbeddedWriteKeywordToken(token string) bool {
 	}
 	_, ok := embeddedWriteKeywords[token]
 	return ok
+}
+
+// isEmbeddedInsertStatement 判断 token 之后的第一个非空白字符是否为左括号，
+// 以此区分 MySQL 的 INSERT() 字符串函数与真正的 INSERT 语句。
+func isEmbeddedInsertStatement(text string, pos int) bool {
+	for pos < len(text) {
+		switch text[pos] {
+		case ' ', '\t', '\r', '\n', '\f':
+			pos++
+			continue
+		}
+		break
+	}
+	return pos >= len(text) || text[pos] != '('
 }
 
 // isReadOnlyContextualKeyword 判断写关键字是否处于合法只读语境中，从而应予豁免。
@@ -129,6 +145,15 @@ func firstEmbeddedWriteKeyword(dbType string, text string) string {
 				previousToken = token
 				continue
 			}
+		}
+
+		if token == "insert" && !isReadOnlyContextualKeyword(previousToken) {
+			if isEmbeddedInsertStatement(text, pos) {
+				return token
+			}
+			// INSERT(...) 是字符串函数，继续扫描后续 token。
+			previousToken = token
+			continue
 		}
 
 		if isEmbeddedWriteKeywordToken(token) && !isReadOnlyContextualKeyword(previousToken) {

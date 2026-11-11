@@ -136,6 +136,38 @@ func TestContainsEmbeddedWriteStatementReadOnlyBoundaries(t *testing.T) {
 
 // TestContainsEmbeddedWriteStatementDetectsWrites 锁定真实写操作的检出，
 // 尤其覆盖"缺分号"这一本次修复的核心场景。
+// 回归：MySQL 的 INSERT(str, pos, len, newstr) 是字符串函数。它出现在 SELECT
+// 列表里时，按关键字判定会被当成写语句，导致只读连接拒绝执行一条纯读 SQL
+// （用户反馈：同一条 SQL 在 Navicat 能查、在 GoNavi 查不出）。
+func TestContainsEmbeddedWriteStatementIgnoresInsertFunction(t *testing.T) {
+	t.Parallel()
+
+	readOnly := []string{
+		`SELECT INSERT(device_name, 1, 1, '_') FROM t`,
+		`SELECT CAST(id AS CHAR) AS a, INSERT(device_name, CHAR_LENGTH(device_name) - LOCATE('-', REVERSE(device_name)) + 1, 1, '_') AS b FROM t WHERE device_name REGEXP '^T[0-9]+$' ORDER BY device_name`,
+		`WITH x AS (SELECT 1) SELECT INSERT(name, 1, 1, '_') FROM x`,
+		`SELECT INSERT (name, 1, 1, '_') FROM t`,
+	}
+	for _, sql := range readOnly {
+		if containsEmbeddedWriteStatement("mysql", sql) {
+			t.Fatalf("只读的 INSERT() 函数被误判为写操作：%s", sql)
+		}
+	}
+
+	// 反向守卫：真正的 INSERT 语句必须仍然命中，包括与函数混用的形状。
+	writes := []string{
+		`INSERT INTO t VALUES (1)`,
+		`INSERT INTO t(a) VALUES (1)`,
+		`SELECT 1 INSERT INTO t VALUES (1)`,
+		`SELECT INSERT(name, 1, 1, '_') FROM t INSERT INTO t VALUES (1)`,
+	}
+	for _, sql := range writes {
+		if !containsEmbeddedWriteStatement("mysql", sql) {
+			t.Fatalf("真实 INSERT 被漏判：%s", sql)
+		}
+	}
+}
+
 func TestContainsEmbeddedWriteStatementDetectsWrites(t *testing.T) {
 	t.Parallel()
 
