@@ -5,7 +5,7 @@ import { t as translate } from '../../../i18n';
 import {
     type QueryEditorResultSet, QUERY_EDITOR_SQL_LOG_TAB_KEY,
 } from '../../QueryEditorResultsPanel';
-import { convertMongoShellToJsonCommand, applyMongoQueryAutoLimit } from '../../../utils/mongodb';
+import { convertMongoShellToJsonCommand } from '../../../utils/mongodb';
 import { formatSqlExecutionError } from '../../../utils/sqlErrorSemantics';
 import { GenerateQueryID, DBQueryWithCancel } from '../../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
@@ -74,9 +74,6 @@ export const runQueryEditorMongoStatements = async ({
     }
 
     const nextResultSets: QueryEditorResultSet[] = [];
-    const maxRows = Number(queryOptions?.maxRows) || 0;
-    const wantsLimitProbe = Number.isFinite(maxRows) && maxRows > 0;
-    let anyTruncated = false;
     let mongoTotalDuration = 0;
     setExecutionTimingActive(true);
     try {
@@ -96,12 +93,6 @@ export const runQueryEditorMongoStatements = async ({
             }
             if (shellConvert.command) {
                 executedSql = shellConvert.command;
-            }
-        }
-        if (wantsLimitProbe) {
-            const limitResult = applyMongoQueryAutoLimit(executedSql, maxRows);
-            if (limitResult.applied) {
-                executedSql = limitResult.command;
             }
         }
         let queryId: string;
@@ -150,13 +141,8 @@ export const runQueryEditorMongoStatements = async ({
             return;
         }
         if (Array.isArray(res.data)) {
-            let rows = (res.data as any[]) || [];
-            let truncated = false;
-            if (wantsLimitProbe && Number.isFinite(maxRows) && maxRows > 0 && rows.length > maxRows) {
-                truncated = true;
-                anyTruncated = true;
-                rows = rows.slice(0, maxRows);
-            }
+            const rows = (res.data as any[]) || [];
+            const truncated = false;
             const cols = (res.fields && res.fields.length > 0)
                 ? (res.fields as string[])
                 : (rows.length > 0 ? Object.keys(rows[0]) : []);

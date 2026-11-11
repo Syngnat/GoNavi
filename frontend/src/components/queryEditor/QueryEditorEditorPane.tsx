@@ -95,6 +95,8 @@ export interface QueryEditorEditorPaneProps {
   executionElapsedLabel: QueryEditorCoreStateApi['executionElapsedLabel'];
   executionSpeedIcon: QueryEditorCoreStateApi['executionSpeedIcon'];
   executionElapsedText: QueryEditorCoreStateApi['executionElapsedText'];
+  /** 是否显示状态栏的执行耗时：运行中隐藏，出结果后才显示。 */
+  showExecutionElapsed: boolean;
   executionStatusText: QueryEditorExecutionStatusApi['executionStatusText'];
   handleMouseDown: QueryEditorEditorSplitApi['handleMouseDown'];
 }
@@ -116,7 +118,7 @@ export const QueryEditorEditorPane = ({
   handleAIAction, isObjectEditQueryTab, query, setViewDataVerifyOpen, editorStageRef,
   editorShellRef, queryEditorMonacoLanguage, darkMode, syncQueryDraft, paramsState,
   handleEditorBeforeMount, handleEditorDidMount, queryEditorMonacoOptions, executionElapsedLabel,
-  executionSpeedIcon, executionElapsedText, executionStatusText, handleMouseDown,
+  executionSpeedIcon, executionElapsedText, showExecutionElapsed, executionStatusText, handleMouseDown,
 }: QueryEditorEditorPaneProps) => (
   <div
     ref={editorPaneRef}
@@ -156,7 +158,6 @@ export const QueryEditorEditorPane = ({
             updateQueryTabDraft(tab.id, { schemaName: nextSchema });
         },
     } : undefined}
-    maxRows={queryOptions?.maxRows ?? 5000}
     sqlEditorCommitMode={sqlEditorCommitMode}
     sqlEditorAutoCommitDelayMs={sqlEditorAutoCommitDelayMs}
     pendingTransactionToolbar={pendingSqlTransaction ? sqlEditorTransactionToolbar : null}
@@ -179,7 +180,6 @@ export const QueryEditorEditorPane = ({
         void switchQueryContext(val, '');
     }}
     onDatabaseChange={handleDatabaseChange}
-    onMaxRowsChange={(maxRows) => setQueryOptions({ maxRows })}
     onCommitModeChange={(mode) => setSqlEditorTransactionOptions(
         mode === 'auto'
             ? { commitMode: mode, autoCommitDelayMs: 0 }
@@ -258,19 +258,23 @@ export const QueryEditorEditorPane = ({
       />
     </div>
     <div className="gn-query-execution-statusbar">
-      <span
-        aria-label={executionElapsedLabel}
-        className="gn-query-execution-timer"
-        role="timer"
-        title={executionElapsedLabel}
-      >
-        <span aria-hidden="true" className="gn-query-execution-speed-icon">
-          {executionSpeedIcon}
+      {/* 运行中不显示跳动的时间：默认隐藏，执行结束出结果后才显示一次最终耗时，
+          且该数字与执行日志里的 durationMs 同源。 */}
+      {showExecutionElapsed ? (
+        <span
+          aria-label={executionElapsedLabel}
+          className="gn-query-execution-timer"
+          role="timer"
+          title={executionElapsedLabel}
+        >
+          <span aria-hidden="true" className="gn-query-execution-speed-icon">
+            {executionSpeedIcon}
+          </span>
+          <span className="gn-query-execution-elapsed">
+            {executionElapsedText}
+          </span>
         </span>
-        <span className="gn-query-execution-elapsed">
-          {executionElapsedText}
-        </span>
-      </span>
+      ) : null}
       {executionStatusText ? (
         <span className="gn-query-execution-status-label" title={executionStatusText}>
           {executionStatusText}

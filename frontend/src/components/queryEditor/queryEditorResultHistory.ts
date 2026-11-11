@@ -1,9 +1,23 @@
-export const QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS = 20;
-export const QUERY_EDITOR_RESULT_HISTORY_MAX_ROWS = 50_000;
-export const QUERY_EDITOR_RESULT_HISTORY_MAX_BYTES = 64 * 1024 * 1024;
-export const QUERY_EDITOR_PINNED_RESULT_MAX_RESULTS = 5;
-export const QUERY_EDITOR_PINNED_RESULT_MAX_ROWS = 25_000;
-export const QUERY_EDITOR_PINNED_RESULT_MAX_BYTES = 32 * 1024 * 1024;
+/**
+ * 结果页签的内存兜底上限。
+ *
+ * 这里不是产品层面的「结果数量限制」：用户主动打开的结果就该留着，开多少个、
+ * 每个多少行都由用户自己决定。这几个常量只在估算内存真的超过兜底线时才生效，
+ * 用来避免把整个应用撑爆——达到阈值后按「最旧、未固定、无未提交修改」的顺序
+ * 释放，直到回到阈值内。
+ *
+ * 阈值取大一些：查询编辑器已不再给 SELECT 注入 LIMIT，一次 `SELECT *` 拿几十万
+ * 行是正常结果，若按 5 万行/64 MiB 卡，用户切到「日志」页签、结果失去活跃态保护
+ * 的瞬间就会被释放，表现为「点了日志，结果标签消失了」。
+ */
+export const QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS = 200;
+export const QUERY_EDITOR_RESULT_HISTORY_MAX_ROWS = 5_000_000;
+export const QUERY_EDITOR_RESULT_HISTORY_MAX_BYTES = 1024 * 1024 * 1024;
+/** 最近一次执行的结果只受字节兜底约束，不设行数与数量上限。 */
+export const QUERY_EDITOR_LATEST_RESULT_MAX_BYTES = 512 * 1024 * 1024;
+export const QUERY_EDITOR_PINNED_RESULT_MAX_RESULTS = 50;
+export const QUERY_EDITOR_PINNED_RESULT_MAX_ROWS = 1_000_000;
+export const QUERY_EDITOR_PINNED_RESULT_MAX_BYTES = 256 * 1024 * 1024;
 
 export type QueryEditorResultHistoryEntry = {
   key: string;
@@ -126,6 +140,14 @@ const fitsQueryEditorResultHistoryBudget = (
   && usage.bytes + resultUsage.bytes <= QUERY_EDITOR_RESULT_HISTORY_MAX_BYTES
 );
 
+/** 最近一次结果只受字节上限约束，行数不设限（见 QUERY_EDITOR_RESULT_HISTORY_MAX_ROWS）。 */
+const fitsLatestQueryEditorResultBudget = (
+  resultUsage: QueryEditorResultHistoryUsage,
+): boolean => (
+  resultUsage.count <= 1
+  && resultUsage.bytes <= QUERY_EDITOR_LATEST_RESULT_MAX_BYTES
+);
+
 export const applyQueryEditorResultHistoryBudget = <T extends QueryEditorResultHistoryEntry>(
   resultSets: T[],
   protectedKeys: Iterable<string> = [],
@@ -138,6 +160,12 @@ export const applyQueryEditorResultHistoryBudget = <T extends QueryEditorResultH
     result,
     usage: measureQueryEditorResult(result),
   }));
+
+  // 最近一次执行的结果（最后一个真实数据结果）不受 5 万行预算约束：查询已不再
+  // 注入 LIMIT，几十万行是正常结果，不该因为用户切到「日志」页签失去活跃态保护
+  // 就被立刻释放。
+  const latestIndex = measuredResults.length - 1;
+
   const selectedKeys = new Set<string>();
   let usage = { count: 0, rows: 0, bytes: 0 };
   measuredResults.forEach(({ result, usage: resultUsage }) => {
@@ -148,7 +176,11 @@ export const applyQueryEditorResultHistoryBudget = <T extends QueryEditorResultH
 
   for (let index = measuredResults.length - 1; index >= 0; index -= 1) {
     const { result, usage: resultUsage } = measuredResults[index];
-    if (selectedKeys.has(result.key) || !fitsQueryEditorResultHistoryBudget(usage, resultUsage)) continue;
+    if (selectedKeys.has(result.key)) continue;
+    const fits = index === latestIndex
+      ? fitsLatestQueryEditorResultBudget(resultUsage)
+      : fitsQueryEditorResultHistoryBudget(usage, resultUsage);
+    if (!fits) continue;
     selectedKeys.add(result.key);
     usage = addQueryEditorResultHistoryUsage(usage, resultUsage);
   }

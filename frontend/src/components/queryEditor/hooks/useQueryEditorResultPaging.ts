@@ -133,9 +133,9 @@ export const useQueryEditorResultPaging = ({
                     executionConnectionId,
                     target.executionBindings,
                     target.executionQuotedPlaceholders,
-                    // 翻页 SQL 自带 LIMIT pageSize+1，扫描预算必须容得下这一行 lookahead；
-                    // 否则后端按工具栏 maxRows 截断，下一页永远探测不到。
-                    buildQueryEditorPagedResultBudgetOptions(safePageSize),
+                    // 翻页 SQL 自带 LIMIT pageSize+1，扫描预算不能比它更窄，否则
+                    // lookahead 那一行取不到，下一页永远探测不到。
+                    buildQueryEditorPagedResultBudgetOptions(),
                 );
             } finally {
                 if (isCurrentRun()) {

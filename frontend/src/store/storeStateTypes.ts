@@ -143,7 +143,6 @@ export interface RecentSQLFile {
 export type TableOverviewViewMode = "card" | "list" | "table";
 
 export interface QueryOptions {
-  maxRows: number;
   wordWrap: boolean;
   tableOverviewViewMode?: TableOverviewViewMode;
   showColumnComment: boolean;

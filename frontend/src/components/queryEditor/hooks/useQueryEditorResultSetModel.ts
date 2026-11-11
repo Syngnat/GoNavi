@@ -349,7 +349,7 @@ export const useQueryEditorResultSetModel = ({
                 || String(executionConfig.connectionParams || '')
                     === String(currentContextConfig.connectionParams || '')
             );
-        const resultBudget = resultBudgetOverride ?? buildQueryEditorResultBudgetOptions(queryOptions?.maxRows);
+        const resultBudget = resultBudgetOverride ?? buildQueryEditorResultBudgetOptions();
         const pendingTransaction = pendingSqlTransactionRef.current;
         if (
             pendingTransaction
@@ -375,7 +375,7 @@ export const useQueryEditorResultSetModel = ({
             invokeRequestScopedApp,
         )
             .then(expandCompactQueryResult);
-    }, [buildSqlExecutionConnectionConfig, invokeRequestScopedApp, queryOptions?.maxRows]);
+    }, [buildSqlExecutionConnectionConfig, invokeRequestScopedApp]);
     return {
         splitSQLStatements, normalizeExecutableStatementList, containsOraclePlsqlDefinition,
         normalizeOracleSqlPlusSlashTerminators, getSelectedSQL, mergeResultSets,

@@ -28,7 +28,6 @@ import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
 import { extractTableNameFromMetadataRow } from '../../../utils/tableMetadataRows';
 import { buildCompletionTableMetadataIdentityKey } from '../queryEditorCompletionTables';
 import { setSharedTablesData } from '../queryEditorCompletionState';
-import { applyQueryAutoLimit } from '../../../utils/queryAutoLimit';
 import {
     type QueryParamBindingInput, bindingsFromValues, collectMissingParamNames,
     type QueryParameterAnalysisInfo,
@@ -314,15 +313,10 @@ export const runQueryEditorSqlStatements = async ({
     });
     if (!isCurrentRun()) return;
 
-    // 自动给 SELECT 语句注入行数限制（防止大结果集卡死）
-    const maxRowsForLimit = Number(queryOptions?.maxRows) || 0;
-    let anyLimitApplied = false;
-    const executablePlans = statementPlans.map((plan) => {
-        if (!Number.isFinite(maxRowsForLimit) || maxRowsForLimit <= 0) return plan;
-        const result = applyQueryAutoLimit(plan.executedSql, normalizedDbType, maxRowsForLimit, driver);
-        if (result.applied) anyLimitApplied = true;
-        return { ...plan, executedSql: result.sql };
-    });
+    // 不再给 SELECT 注入 LIMIT：工具栏的「最大返回行数」已移除，用户跑
+    // `SELECT *` 就该拿到全量结果。结果按页显示，翻页 SQL 自带 LIMIT。
+    const executablePlans = statementPlans;
+    const anyLimitApplied = false;
     const executableStatements = executablePlans.map((plan) => plan.executedSql);
     const shouldPreserveOraclePlsqlBatch = isOracleLikeDialect(normalizedDbType) && containsOraclePlsqlDefinition(sourceStatements);
     const fullSQL = shouldPreserveOraclePlsqlBatch
@@ -372,7 +366,7 @@ export const runQueryEditorSqlStatements = async ({
 
     let res: any = undefined;
     const startTime = Date.now();
-    const resultBudget = buildQueryEditorResultBudgetOptions(queryOptions?.maxRows);
+    const resultBudget = buildQueryEditorResultBudgetOptions();
     setExecutionTimingActive(true);
     try {
         res = useManagedTransaction

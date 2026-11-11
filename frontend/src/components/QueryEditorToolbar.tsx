@@ -36,7 +36,6 @@ import QueryEditorTransactionSettings, {
 } from "./QueryEditorTransactionSettings";
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorToolbarRunAction } from './queryEditor/QueryEditorToolbarRunAction';
-import QueryEditorToolbarMaxRowsSelect from './queryEditor/QueryEditorToolbarMaxRowsSelect';
 import { QueryEditorToolbarAnalysisAction } from './queryEditor/QueryEditorToolbarAnalysisAction';
 import { QueryEditorToolbarLogAction } from './queryEditor/QueryEditorToolbarLogAction';
 
@@ -61,7 +60,6 @@ export type QueryEditorToolbarProps = {
   rootConnectionSortMode?: ConnectionDisplaySortMode;
   dbList: string[];
   schemaSelect?: QueryEditorSchemaSelectProps;
-  maxRows: number;
   sqlEditorCommitMode: SqlEditorCommitMode;
   sqlEditorAutoCommitDelayMs: number;
   pendingTransactionToolbar: React.ReactNode;
@@ -85,7 +83,6 @@ export type QueryEditorToolbarProps = {
   templateMenuItems?: MenuProps["items"];
   onConnectionChange: (connectionId: string) => void;
   onDatabaseChange: (dbName: string) => void;
-  onMaxRowsChange: (maxRows: number) => void;
   onCommitModeChange: (mode: SqlEditorCommitMode) => void;
   onAutoCommitDelayMsChange: (delayMs: number) => void;
   onCaptureEditorCursorPosition: () => void;
@@ -184,7 +181,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   rootConnectionSortMode = 'createdAt',
   dbList,
   schemaSelect,
-  maxRows,
   sqlEditorCommitMode,
   sqlEditorAutoCommitDelayMs,
   pendingTransactionToolbar,
@@ -207,7 +203,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   templateMenuItems,
   onConnectionChange,
   onDatabaseChange,
-  onMaxRowsChange,
   onCommitModeChange,
   onAutoCommitDelayMsChange,
   onCaptureEditorCursorPosition,
@@ -481,10 +476,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
       )}
       {!isElasticsearchMode && (
         <>
-          <QueryEditorToolbarMaxRowsSelect
-            maxRows={maxRows}
-            onMaxRowsChange={onMaxRowsChange}
-          />
           <QueryEditorTransactionSettings
             commitMode={sqlEditorCommitMode}
             autoCommitDelayMs={sqlEditorAutoCommitDelayMs}

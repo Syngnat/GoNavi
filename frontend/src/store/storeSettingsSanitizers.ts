@@ -279,7 +279,6 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
     value && typeof value === "object"
       ? (value as Record<string, unknown>)
       : {};
-  const maxRows = Number(raw.maxRows);
   const wordWrap = raw.wordWrap === true;
   const tableOverviewViewMode =
     raw.tableOverviewViewMode === "card" ||
@@ -322,24 +321,7 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   const queryEditorEditorHeightRatio = sanitizeQueryEditorEditorHeightRatio(
     raw.queryEditorEditorHeightRatio,
   );
-  if (!Number.isFinite(maxRows) || maxRows < 0) {
-    return {
-      maxRows: 5000,
-      wordWrap,
-      tableOverviewViewMode,
-      showColumnComment,
-      showSidebarTableComment: derivedShowSidebarTableComment,
-      sidebarTableMetadataFields: orderedSidebarTableMetadataFields,
-      sidebarTableMetadataFieldOrder,
-      showColumnType,
-      alignNumericTemporalCellsRight,
-      showQueryResultsPanel,
-      showSqlExecutionLog,
-      queryEditorEditorHeightRatio,
-    };
-  }
   return {
-    maxRows: Math.min(50000, Math.trunc(maxRows)),
     wordWrap,
     tableOverviewViewMode,
     showColumnComment,

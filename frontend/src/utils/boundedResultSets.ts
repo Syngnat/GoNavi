@@ -18,8 +18,13 @@
  * requiredKeys 强制保留的，同步裁剪若只看条数就会把用户固定/未提交的结果集删掉。
  */
 
-/** 每个编辑器的结果集数量上限，与 QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS 对齐。 */
-export const MAX_RESULT_SETS_PER_EDITOR = 20;
+/**
+ * 每个编辑器的结果集数量兜底上限，与 QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS 对齐。
+ *
+ * 这不是产品层面的「结果数量限制」：用户主动打开的结果标签就该留着。该上限只在
+ * 估算内存超过兜底线时才起作用，避免长会话把应用撑爆。
+ */
+export const MAX_RESULT_SETS_PER_EDITOR = 200;
 
 export interface CapResultSetsOptions {
   /** 上限，默认 MAX_RESULT_SETS_PER_EDITOR。 */

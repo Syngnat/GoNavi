@@ -4,71 +4,38 @@ import {
   buildQueryEditorPagedResultBudgetOptions,
   buildQueryEditorResultBudgetOptions,
   QUERY_EDITOR_BUDGET_UNLIMITED,
+  QUERY_EDITOR_DEFAULT_PAGE_SIZE,
   QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
-  QUERY_EDITOR_SAFE_MAX_RESULT_BYTES,
-  QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS,
 } from './queryEditorResultBudget';
 
 describe('query editor result budget', () => {
-  it('maps a configured row limit to both per-result and total scan limits', () => {
-    expect(buildQueryEditorResultBudgetOptions(5_000)).toEqual({
-      maxRowsPerResult: 5_000,
-      maxTotalRows: 5_000,
-      maxTotalBytes: QUERY_EDITOR_SAFE_MAX_RESULT_BYTES,
-      maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
-    });
-  });
-
-  it('clamps a configured row limit to the safe ceiling', () => {
-    expect(buildQueryEditorResultBudgetOptions(QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS + 1)).toEqual({
-      maxRowsPerResult: QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS,
-      maxTotalRows: QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS,
-      maxTotalBytes: QUERY_EDITOR_SAFE_MAX_RESULT_BYTES,
-      maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
-    });
-  });
-
-  // 哨兵值必须是负数：后端四个字段都带 omitempty，0 与「字段缺省」在 JSON 上
-  // 不可区分，用 0 会让漏传字段的调用方静默变成无上限。
-  it('sends the negative unlimited sentinel for rows and total bytes', () => {
-    expect(buildQueryEditorResultBudgetOptions(0)).toEqual({
-      maxRowsPerResult: QUERY_EDITOR_BUDGET_UNLIMITED,
-      maxTotalRows: QUERY_EDITOR_BUDGET_UNLIMITED,
-      maxTotalBytes: QUERY_EDITOR_BUDGET_UNLIMITED,
-      maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
-    });
+  // 「最大返回行数」选项已移除：行数不再由应用截断，用户跑 SELECT * 就该拿到全量。
+  it('leaves row and byte dimensions unlimited', () => {
+    const budget = buildQueryEditorResultBudgetOptions();
+    expect(budget.maxRowsPerResult).toBe(QUERY_EDITOR_BUDGET_UNLIMITED);
+    expect(budget.maxTotalRows).toBe(QUERY_EDITOR_BUDGET_UNLIMITED);
+    expect(budget.maxTotalBytes).toBe(QUERY_EDITOR_BUDGET_UNLIMITED);
     expect(QUERY_EDITOR_BUDGET_UNLIMITED).toBeLessThan(0);
   });
 
-  // 单字段上限永不放开：放开它会让 Oracle 文本大对象退化成 4KiB 兜底预览，
-  // 也会让扫描预算整体变成「无预算」而丢掉截断标记。
-  it('keeps the per-field preview cap under the unlimited option', () => {
-    for (const configured of [0, undefined, null, -1, Number.NaN]) {
-      expect(buildQueryEditorResultBudgetOptions(configured).maxFieldBytes)
-        .toBe(QUERY_EDITOR_SAFE_MAX_FIELD_BYTES);
-    }
+  // 单字段上限是行数放开后唯一的内存护栏：一格超大 CLOB 直接穿过 IPC 会卡死界面。
+  // 同时 0 会让扫描预算整体变成 nil，Oracle 文本预览退化成 4KiB 兜底。
+  it('keeps the per-field preview cap', () => {
+    expect(buildQueryEditorResultBudgetOptions().maxFieldBytes)
+      .toBe(QUERY_EDITOR_SAFE_MAX_FIELD_BYTES);
+    expect(QUERY_EDITOR_SAFE_MAX_FIELD_BYTES).toBeGreaterThan(0);
   });
 
-  // 回归：翻页 SQL 会多取一行判断"还有没有下一页"。若扫描预算按工具栏 maxRows
-  // 截断（例如 100），第 101 行永远取不到，每页都被判成最后一页，几千条数据只
-  // 能翻两页，只有点「统计总数」才显示真实条数。
-  it('reserves one extra row for the pagination lookahead', () => {
-    expect(buildQueryEditorPagedResultBudgetOptions(100)).toEqual({
-      maxRowsPerResult: 101,
-      maxTotalRows: 101,
-      maxTotalBytes: QUERY_EDITOR_SAFE_MAX_RESULT_BYTES,
-      maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
-    });
-    expect(buildQueryEditorPagedResultBudgetOptions(500)).toMatchObject({
-      maxRowsPerResult: 501,
-      maxTotalRows: 501,
-    });
+  // 回归：翻页 SQL 自带 LIMIT pageSize+1。若扫描预算比它更窄，第 pageSize+1 行
+  // 取不到，每页都被判成最后一页，几千条数据只能翻两页。
+  it('does not narrow the budget below the pagination lookahead', () => {
+    const paged = buildQueryEditorPagedResultBudgetOptions();
+    expect(paged.maxRowsPerResult).toBe(QUERY_EDITOR_BUDGET_UNLIMITED);
+    expect(paged.maxTotalRows).toBe(QUERY_EDITOR_BUDGET_UNLIMITED);
+    expect(paged.maxFieldBytes).toBe(QUERY_EDITOR_SAFE_MAX_FIELD_BYTES);
   });
 
-  // 页大小超出安全上限时不放开预算：多出的那一行会被夹紧逻辑吃掉 lookahead，
-  // 但放开成"无上限扫描"代价更大，此时让调用方沿用常规预算。
-  it('leaves the budget to the caller when the page size exceeds the safe ceiling', () => {
-    expect(buildQueryEditorPagedResultBudgetOptions(0)).toBeUndefined();
-    expect(buildQueryEditorPagedResultBudgetOptions(QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS)).toBeUndefined();
+  it('starts every result at the default page size', () => {
+    expect(QUERY_EDITOR_DEFAULT_PAGE_SIZE).toBe(100);
   });
 });

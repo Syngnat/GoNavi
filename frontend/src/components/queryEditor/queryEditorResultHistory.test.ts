@@ -24,14 +24,42 @@ const buildResult = (
 });
 
 describe('query editor result history budget', () => {
-  it('evicts the oldest unpinned results and preserves the active result', () => {
+  it('keeps every result when the totals stay under the memory ceiling', () => {
     const results = Array.from({ length: 25 }, (_, index) => buildResult(`result-${index + 1}`, 1));
+
+    const budgeted = applyQueryEditorResultHistoryBudget(results, ['result-1']);
+
+    // 25 个结果远低于兜底阈值：一个都不该被释放。
+    expect(budgeted.resultSets).toHaveLength(25);
+    expect(budgeted.evictedKeys).toHaveLength(0);
+  });
+
+  it('evicts the oldest unpinned results only past the memory ceiling', () => {
+    const results = Array.from(
+      { length: QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS + 5 },
+      (_, index) => buildResult(`result-${index + 1}`, 1),
+    );
 
     const budgeted = applyQueryEditorResultHistoryBudget(results, ['result-1']);
 
     expect(budgeted.resultSets).toHaveLength(QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS);
     expect(budgeted.resultSets.map((result) => result.key)).toContain('result-1');
     expect(budgeted.evictedKeys).toHaveLength(5);
+  });
+
+  // 回归：查询编辑器已不再注入 LIMIT，`SELECT *` 拿到几十万行是正常结果。
+  // 用户切到「日志」页签时结果会失去活跃态保护，不能因此把它释放掉。
+  it('keeps a large latest result after the active tab switches to the log', () => {
+    const results = [
+      buildResult('result-1', 1_000),
+      buildResult('result-2', 300_000),
+    ];
+
+    // 活跃页签是「日志」，因此没有任何结果被 protectedKeys 保护。
+    const budgeted = applyQueryEditorResultHistoryBudget(results, []);
+
+    expect(budgeted.resultSets.map((result) => result.key)).toEqual(['result-1', 'result-2']);
+    expect(budgeted.evictedKeys).toEqual([]);
   });
 
   it('bounds retained rows while keeping pinned results', () => {
@@ -60,14 +88,16 @@ describe('query editor result history budget', () => {
   });
 
   it('accounts for wide payloads in the estimated byte budget', () => {
+    // 每份 2 MiB，凑够超过兜底字节上限的数据量。
     const sharedWidePayload = 'x'.repeat(2 * 1024 * 1024);
-    const results = Array.from({ length: 20 }, (_, index) => buildResult(
+    const count = Math.ceil(QUERY_EDITOR_RESULT_HISTORY_MAX_BYTES / (2 * 1024 * 1024)) + 4;
+    const results = Array.from({ length: count }, (_, index) => buildResult(
       `wide-${index + 1}`,
       1,
       { rawResponse: sharedWidePayload },
     ));
 
-    const budgeted = applyQueryEditorResultHistoryBudget(results, ['wide-20']);
+    const budgeted = applyQueryEditorResultHistoryBudget(results, [`wide-${count}`]);
     const retainedBytes = budgeted.resultSets.reduce(
       (sum, result) => sum + estimateQueryEditorResultSetBytes(result),
       0,
@@ -78,17 +108,21 @@ describe('query editor result history budget', () => {
   });
 
   it('keeps results with pending edits while evicting older clean history', () => {
-    const results = Array.from({ length: 22 }, (_, index) => buildResult(
-      `result-${index + 1}`,
-      1,
-      index === 0 ? { hasPendingChanges: true } : {},
-    ));
+    const results = Array.from(
+      { length: QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS + 2 },
+      (_, index) => buildResult(
+        `result-${index + 1}`,
+        1,
+        index === 0 ? { hasPendingChanges: true } : {},
+      ),
+    );
+    const latestKey = results[results.length - 1].key;
 
-    const budgeted = applyQueryEditorResultHistoryBudget(results, ['result-22']);
+    const budgeted = applyQueryEditorResultHistoryBudget(results, [latestKey]);
 
     expect(budgeted.resultSets).toHaveLength(QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS);
     expect(budgeted.resultSets.map((result) => result.key)).toContain('result-1');
-    expect(budgeted.resultSets.map((result) => result.key)).toContain('result-22');
+    expect(budgeted.resultSets.map((result) => result.key)).toContain(latestKey);
   });
 
   it('scales object estimates for rows with many fields', () => {

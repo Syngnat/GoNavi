@@ -123,7 +123,6 @@ export const createInitialStateSlice = (_set: StoreSet, _get: StoreGet): Initial
   globalProxy: { ...DEFAULT_GLOBAL_PROXY },
   sqlFormatOptions: { keywordCase: "upper" },
   queryOptions: {
-    maxRows: 5000,
     wordWrap: false,
     showColumnComment: true,
     showSidebarTableComment: false,

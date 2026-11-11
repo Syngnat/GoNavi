@@ -86,7 +86,6 @@ export const QueryEditorResultsArea = ({
         darkMode={darkMode}
         currentDb={currentDb}
         currentConnectionId={currentConnectionId}
-        maxRows={queryOptions?.maxRows ?? 5000}
         dataPreviewRequest={resultDataPreviewRequest}
         elasticsearchViewModes={elasticsearchViewModes}
         onElasticsearchViewModeChange={handleElasticsearchViewModeChange}

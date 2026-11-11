@@ -11,7 +11,9 @@ import (
 const (
 	queryEditorSafeMaxRows       = 50_000
 	queryEditorSafeMaxTotalBytes = 24 << 20
-	queryEditorSafeMaxFieldBytes = 1 << 20
+	// 单字段预览上限。行数不再限制后，这是唯一的内存护栏：一格 8MB 已远超
+	// 正常文本列，再大基本就是 CLOB/BLOB，截断预览比整块穿过 Wails 桥更安全。
+	queryEditorSafeMaxFieldBytes = 8 << 20
 
 	// queryResultBudgetUnlimited 是「显式不限」的线上哨兵值。四个字段都带
 	// omitempty，0 会被省略并退化成「字段缺省」，无法与「调用方没传」区分；
