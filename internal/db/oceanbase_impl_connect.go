@@ -158,6 +158,8 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 	}
 
 	var errorDetails []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for index, address := range addresses {
 		candidateConfig := config
 		var forwarder *ssh.LocalForwarder
@@ -182,11 +184,13 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 				if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
 					return fmt.Errorf("OceanBase Oracle (OBClient 路径) %s 创建 SSH 本地转发失败：%w", address, err)
 				}
+				lastErr = err
 				errorDetails = append(errorDetails, fmt.Sprintf("%s 创建 SSH 本地转发失败：%v", address, err))
 				continue
 			}
 			localHost, localPort, ok := parseHostPortWithDefault(forwarder.LocalAddr, defaultOceanBasePort)
 			if !ok {
+				lastErr = err
 				errorDetails = append(errorDetails, fmt.Sprintf("%s 解析 SSH 本地转发地址失败：%s", address, forwarder.LocalAddr))
 				releaseForwarder()
 				continue
@@ -198,12 +202,14 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 
 		dsn, err := buildOceanBaseOracleOBClientDSN(candidateConfig)
 		if err != nil {
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败：%v", address, err))
 			releaseForwarder()
 			continue
 		}
 		db, err := sql.Open(oceanbaseOracleOBClientDriver, dsn)
 		if err != nil {
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败：%v", address, err))
 			releaseForwarder()
 			continue
@@ -216,6 +222,7 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 		cancel()
 		if pingErr != nil {
 			_ = db.Close()
+			lastErr = pingErr
 			errorDetails = append(errorDetails, formatOceanBaseOBClientAttemptError(address, pingErr))
 			releaseForwarder()
 			continue
@@ -233,7 +240,7 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 	if len(errorDetails) == 0 {
 		return fmt.Errorf("OceanBase Oracle (OBClient 路径) 连接建立后验证失败：未找到可用地址")
 	}
-	return fmt.Errorf("OceanBase Oracle (OBClient 路径) 连接建立后验证失败：%s", strings.Join(errorDetails, "；"))
+	return newConnectAttemptError("OceanBase Oracle (OBClient 路径) 连接建立后验证失败", errorDetails, lastErr)
 }
 
 // formatOceanBaseOBClientAttemptError 给 OBClient 路径下的握手失败添加针对 attribute 调试的提示。
@@ -331,6 +338,8 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var errorDetails []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for index, address := range addresses {
 		candidateConfig := runConfig
 		host, port, ok := parseHostPortWithDefault(address, defaultOceanBasePort)
@@ -346,11 +355,13 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
 				return fmt.Errorf("OceanBase %s 创建 SSH 隧道失败：%w", address, err)
 			}
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败：%v", address, err))
 			continue
 		}
 		db, err := sql.Open(oceanbaseDriverName, dsn)
 		if err != nil {
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败：%v", address, err))
 			continue
 		}
@@ -362,6 +373,7 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 		cancel()
 		if pingErr != nil {
 			_ = db.Close()
+			lastErr = pingErr
 			errorDetails = append(errorDetails, formatOceanBaseMySQLAttemptError(address, pingErr))
 			continue
 		}
@@ -376,7 +388,7 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	if len(errorDetails) == 0 {
 		return fmt.Errorf("连接建立后验证失败：未找到可用的 OceanBase 地址")
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(errorDetails, "；"))
+	return newConnectAttemptError("连接建立后验证失败", errorDetails, lastErr)
 }
 
 func (o *OceanBaseDB) connectOracleViaOBClientThenTNS(config connection.ConnectionConfig) error {

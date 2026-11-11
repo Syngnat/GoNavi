@@ -121,10 +121,17 @@ func annotateOracleValidationError(err error) error {
 		return nil
 	}
 	message := strings.ToLower(err.Error())
-	if !strings.Contains(message, "use of closed network connection") {
-		return err
+	if strings.Contains(message, "use of closed network connection") {
+		return fmt.Errorf("%w（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、服务名（Service Name）或 SID 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）", err)
 	}
-	return fmt.Errorf("%w（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、服务名（Service Name）或 SID 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）", err)
+	// `EOF` / `unexpected EOF` 是驱动在握手阶段读不到完整响应的通用症状，本身不含
+	// 任何可操作信息。最常见的原因是端口指向了非 Oracle 监听（例如把 MySQL 端口
+	// 当成 Oracle 用）、Service Name/SID 写错，或中间有代理/防火墙截断。这里补一层
+	// 具体提示，避免用户只看到「EOF」而无从下手。
+	if strings.Contains(message, "eof") {
+		return fmt.Errorf("%w（Oracle 握手阶段连接被对端直接关闭或响应不完整；请确认端口是 Oracle 监听端口（不是 MySQL/SQL Server 等其它协议）、Service Name 或 SID 填写正确，并确认客户端与服务端版本/字符集兼容；如经 SSH 隧道或代理，请检查代理是否在握手时中断连接）", err)
+	}
+	return err
 }
 
 func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
@@ -179,11 +186,15 @@ func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开：
+	// 否则 logger.ErrorChain 只能重复外层消息，日志里会出现两遍同样的内容。
+	var lastErr error
 	for idx, attempt := range attempts {
 		dsn := o.getDSN(attempt)
 		logger.Infof("Oracle 连接参数摘要：地址=%s:%d 用户=%s %s", attempt.Host, attempt.Port, attempt.User, oracleDSNLogSummary(attempt, dsn))
 		db, err := openOracleSQLDatabase(dsn, attempt.RuntimeOracleCurrentSchema())
 		if err != nil {
+			lastErr = err
 			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
 			continue
 		}
@@ -195,7 +206,9 @@ func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
 		if err := o.Ping(); err != nil {
 			_ = db.Close()
 			o.conn = nil
-			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, annotateOracleValidationError(err)))
+			annotated := annotateOracleValidationError(err)
+			lastErr = annotated
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, annotated))
 			continue
 		}
 		if idx > 0 {
@@ -203,7 +216,10 @@ func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
 		}
 		return nil
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+	if len(failures) == 0 {
+		return fmt.Errorf("连接建立后验证失败：未找到可用的连接参数")
+	}
+	return newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 }
 
 func (o *OracleDB) Close() error {

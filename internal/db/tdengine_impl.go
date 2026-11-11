@@ -144,6 +144,8 @@ func (t *TDengineDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for idx, attemptConfig := range attempts {
 		db, wsErr := t.runConnectAttempt(attemptConfig, tdengineWebSocketDriver, t.getDSN(attemptConfig))
 		if wsErr == nil {
@@ -154,6 +156,7 @@ func (t *TDengineDB) Connect(config connection.ConnectionConfig) (err error) {
 		if db != nil {
 			_ = db.Close()
 		}
+		lastErr = wsErr
 		failures = append(failures, fmt.Sprintf("第%d次 WebSocket 连接验证失败: %s", idx+1, safeTDengineErrorText(wsErr, attemptConfig)))
 
 		if !t.shouldFallbackToREST(attemptConfig, wsErr) {
@@ -171,9 +174,10 @@ func (t *TDengineDB) Connect(config connection.ConnectionConfig) (err error) {
 		if restDB != nil {
 			_ = restDB.Close()
 		}
+		lastErr = restErr
 		failures = append(failures, fmt.Sprintf("第%d次 RESTful 连接验证失败: %s", idx+1, safeTDengineErrorText(restErr, attemptConfig)))
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+	return newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 }
 
 func (t *TDengineDB) runConnectAttempt(config connection.ConnectionConfig, driverName, dsn string) (*sql.DB, error) {

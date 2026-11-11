@@ -94,10 +94,13 @@ func (v *VastbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for idx, attempt := range attempts {
 		dsn := v.getDSN(attempt)
 		db, err := sql.Open("postgres", dsn)
 		if err != nil {
+			lastErr = err
 			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
 			continue
 		}
@@ -107,6 +110,7 @@ func (v *VastbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 		if err := v.Ping(); err != nil {
 			_ = db.Close()
 			v.conn = nil
+			lastErr = err
 			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
 			continue
 		}
@@ -115,7 +119,7 @@ func (v *VastbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 		}
 		return nil
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+	return newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 }
 
 func (v *VastbaseDB) Close() error {

@@ -44,8 +44,12 @@ func resolveKingbaseConnectDatabases(config connection.ConnectionConfig) []strin
 // the user left the database empty, append self-service guidance: business
 // databases usually stay reachable while test/template1 are broken server-side
 // (e.g. after the server lost the OS locale it was initialized with).
-func kingbaseConnectFailureError(failures []string, maintenanceFallback bool) error {
-	err := fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+func kingbaseConnectFailureError(failures []string, maintenanceFallback bool, causes ...error) error {
+	var lastErr error
+	if len(causes) > 0 {
+		lastErr = causes[0]
+	}
+	err := newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 	if maintenanceFallback {
 		err = fmt.Errorf("%w%s", err, localizedDriverRuntimeText("db.backend.error.kingbase_maintenance_database_hint", nil))
 	}

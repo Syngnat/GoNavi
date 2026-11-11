@@ -166,6 +166,8 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for sslIndex, sslConfig := range sslAttempts {
 		sslLabel := "SSL"
 		if sslIndex > 0 {
@@ -180,6 +182,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 
 			dbConn, err := openGaussDB("gaussdb", dsn)
 			if err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
 			}
@@ -187,6 +190,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 			g.conn = dbConn
 
 			if err := g.Ping(); err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 验证失败: %v", sslLabel, dbName, err))
 				_ = dbConn.Close()
 				g.conn = nil
@@ -201,6 +205,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 			}
 
 			if err := g.ensureSearchPath(config, dsn); err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
 				if g.conn != nil {
 					_ = g.conn.Close()
@@ -216,7 +221,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 	if len(failures) == 0 {
 		return fmt.Errorf("连接建立后验证失败：未找到可用的连接数据库")
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+	return newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 }
 
 func (g *GaussDB) ensureSearchPath(config connection.ConnectionConfig, baseDSN string) error {

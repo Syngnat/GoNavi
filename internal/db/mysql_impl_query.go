@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
@@ -26,6 +25,8 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 	defaultPort := resolveMySQLCompatibleDefaultPort(runConfig)
 
 	var errorDetails []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for index, address := range addresses {
 		candidateConfig := runConfig
 		host, port, ok := parseHostPortWithDefault(address, defaultPort)
@@ -38,6 +39,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 		if candidateConfig.UseHTTPTunnel && isNavicatMySQLTunnelURL(candidateConfig.HTTPTunnel.Host) {
 			connector, connectorErr := newNavicatMySQLTunnelConnector(candidateConfig)
 			if connectorErr != nil {
+				lastErr = connectorErr
 				errorDetails = append(errorDetails, fmt.Sprintf("%s Navicat HTTP 隧道配置失败: %v", address, connectorErr))
 				continue
 			}
@@ -49,6 +51,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 			cancel()
 			if pingErr != nil {
 				_ = db.Close()
+				lastErr = pingErr
 				errorDetails = append(errorDetails, fmt.Sprintf("%s [Navicat HTTP 隧道] 验证失败: %v", address, pingErr))
 				continue
 			}
@@ -64,11 +67,13 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 			if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
 				return fmt.Errorf("MySQL %s 创建 SSH 隧道失败: %w", address, err)
 			}
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败: %v", address, err))
 			continue
 		}
 		plans, err := buildMySQLCompatibleConnectPlans(candidateConfig, protocol, address, candidateConfig.Database)
 		if err != nil {
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败: %v", address, err))
 			continue
 		}
@@ -77,8 +82,10 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 			db, err := sql.Open("mysql", plan.dsn)
 			if err != nil {
 				if len(plans) > 1 || plan.label != mySQLCompatPlanDefaultLabel {
+					lastErr = err
 					errorDetails = append(errorDetails, fmt.Sprintf("%s [%s] 打开失败: %v", address, plan.label, err))
 				} else {
+					lastErr = err
 					errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败: %v", address, err))
 				}
 				continue
@@ -92,8 +99,10 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 			if pingErr != nil {
 				_ = db.Close()
 				if len(plans) > 1 || plan.label != mySQLCompatPlanDefaultLabel {
+					lastErr = pingErr
 					errorDetails = append(errorDetails, fmt.Sprintf("%s [%s] 验证失败: %v", address, plan.label, pingErr))
 				} else {
+					lastErr = pingErr
 					errorDetails = append(errorDetails, fmt.Sprintf("%s 验证失败: %v", address, pingErr))
 				}
 				continue
@@ -113,7 +122,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 	if len(errorDetails) == 0 {
 		return fmt.Errorf("连接建立后验证失败：未找到可用的 MySQL 地址")
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(errorDetails, "；"))
+	return newConnectAttemptError("连接建立后验证失败", errorDetails, lastErr)
 }
 
 func (m *MySQLDB) SupportsBatchWrites() bool {
