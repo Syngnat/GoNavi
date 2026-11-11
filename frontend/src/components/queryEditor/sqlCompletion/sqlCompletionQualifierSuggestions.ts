@@ -19,13 +19,9 @@ import {
 import { buildMetadataIdentityKey } from '../../../utils/metadataIdentity';
 import { t as translate } from '../../../i18n';
 
-// 详情统一为「限定信息 - 对象类型」：类型固定在行尾，与全局补全保持同一列。
-// typeLabel 形如「表 (db) / 视图 (db.schema) / 存储过程 (db)」，已含对象类型与其限定名。
-const buildCompletionDetailTypeLast = (typeLabel: string, comment?: string): string => (
-    [normalizeCommentText(comment), typeLabel].filter(Boolean).join(' - ')
-);
 import type { createSqlCompletionSuggestionBuilders } from './sqlCompletionSuggestionBuilders';
 import type { resolveSqlCompletionStatementContext } from './sqlCompletionStatementContext';
+import { buildCompletionDetailTypeLast } from './sqlCompletionDetailFormat';
 
 export interface ResolveThreePartSqlCompletionInput {
     linePrefix: ReturnType<typeof resolveSqlCompletionStatementContext>['linePrefix'];

@@ -20,12 +20,7 @@ import { buildQueryEditorMetadataIdentityKey } from '../queryEditorCompletionTab
 import { sqlKeywordPriority } from '../../../utils/sqlDialect';
 import type { createSqlCompletionDialectContext } from './sqlCompletionDialectContext';
 import type { createSqlCompletionSuggestionBuilders } from './sqlCompletionSuggestionBuilders';
-
-// 右侧详情列的统一格式：「注释 - 对象类型」。类型固定在整行最末端，
-// 这样同一列的类型文本不会因为有没有注释而左右移动。
-const buildCompletionDetailTypeLast = (typeLabel: string, comment?: string): string => (
-    [normalizeCommentText(comment), typeLabel].filter(Boolean).join(' - ')
-);
+import { buildCompletionDetailTypeLast } from './sqlCompletionDetailFormat';
 
 export interface BuildSqlCompletionGlobalSuggestionsInput {
     expectsTableName: boolean;
