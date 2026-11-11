@@ -23,6 +23,7 @@ import { useQueryEditorMonacoMount } from './queryEditor/hooks/useQueryEditorMon
 import { useQueryEditorFormatting } from './queryEditor/hooks/useQueryEditorFormatting';
 import { useQueryEditorResultSetModel } from './queryEditor/hooks/useQueryEditorResultSetModel';
 import { useQueryEditorResultReload } from './queryEditor/hooks/useQueryEditorResultReload';
+import { useQueryEditorAutoTotalCount } from './queryEditor/hooks/useQueryEditorAutoTotalCount';
 import { useQueryEditorResultPaging } from './queryEditor/hooks/useQueryEditorResultPaging';
 import { useQueryEditorElasticsearchRun } from './queryEditor/hooks/useQueryEditorElasticsearchRun';
 import { useQueryEditorRun } from './queryEditor/hooks/useQueryEditorRun';
@@ -54,7 +55,7 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
       setQueryEditorMetadataReloadTick, queryEditorMetadataForceReloadRef, queryContextLockRunSeq,
       queryContextLockRunSeqRef, lockQueryContextForRun, unlockQueryContextForRun,
       executionTimingActive, setExecutionTimingActive, executionAwaitingDriverRef,
-      executionElapsedText, executionElapsedLabel, executionSpeedIcon, beginQueryEditorRunClock,
+      executionElapsedText, showExecutionElapsed, executionElapsedLabel, executionSpeedIcon, beginQueryEditorRunClock,
       finishQueryEditorSqlClock, executionError, setExecutionError, executionErrorRef,
       currentQueryId, setCurrentQueryId, isSqlSnippetPickerOpen, setIsSqlSnippetPickerOpen,
       isDuckDBAttachPickerOpen, setIsDuckDBAttachPickerOpen, sqlSnippetPickerKeyword,
@@ -364,6 +365,10 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
       finishQueryEditorSqlClock,
   });
 
+  // 查询结果出来后自动在后台补一次 COUNT(*)：结果区与页签才能显示真实总数，
+  // 不必等用户手动点「统计总数」。
+  useQueryEditorAutoTotalCount({ resultSets, handleRequestResultTotalCount });
+
   const { handleElasticsearchRun } = useQueryEditorElasticsearchRun({
       isActive, getCurrentQuery, connections, currentConnectionId, currentDb, editorRef, runSeqRef,
       currentQueryIdRef, clearQueryId, setElasticsearchServerMajor, beginQueryEditorRunClock,
@@ -520,7 +525,7 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
         handleEditorDidMount={handleEditorDidMount}
         queryEditorMonacoOptions={queryEditorMonacoOptions}
         executionElapsedLabel={executionElapsedLabel} executionSpeedIcon={executionSpeedIcon}
-        executionElapsedText={executionElapsedText} executionStatusText={executionStatusText}
+        executionElapsedText={executionElapsedText} showExecutionElapsed={showExecutionElapsed} executionStatusText={executionStatusText}
         handleMouseDown={handleMouseDown}
       />
 

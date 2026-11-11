@@ -333,6 +333,43 @@ describe('QueryEditorToolbar layout', () => {
     }
   });
 
+  // 回归：状态栏曾经在 RPC 返回时就把后端 durationMs 写进完成态。那个值是「驱动侧
+  // SQL 执行耗时，不含建连与结果回传」，而运行按钮要等结果集加工完才停转，于是用户
+  // 会看到按钮还在转、下面已显示「执行完成 1.64s」，按钮停下后数字又跳成 656ms。
+  it('does not restart the elapsed clock when timingActivity stays on', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    let elapsedMs = -1;
+    let renderer: ReactTestRenderer | null = null;
+    const Harness: React.FC<{ timingActive: boolean; runToken: number }> = ({ timingActive, runToken }) => {
+      elapsedMs = useQueryExecutionElapsed(timingActive, runToken, null);
+      return null;
+    };
+    try {
+      act(() => {
+        renderer = create(<Harness timingActive runToken={7} />);
+      });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
+      expect(elapsedMs).toBe(800);
+
+      // 同一轮执行的普通重渲染：计时必须继续累加，不能归零。
+      act(() => {
+        renderer?.update(<Harness timingActive runToken={7} />);
+      });
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(elapsedMs).toBe(1_200);
+    } finally {
+      act(() => {
+        renderer?.unmount();
+      });
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps live and completed execution time at the editor bottom-left', () => {
     const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
     const timerSource = readFileSync(new URL('./queryEditor/queryEditorExecutionTimer.ts', import.meta.url), 'utf8');

@@ -24,12 +24,7 @@ import {
     type QueryEditorResultSet,
     QUERY_EDITOR_SQL_LOG_TAB_KEY,
 } from '../../QueryEditorResultsPanel';
-import {
-    applyQueryEditorResultHistoryBudget,
-    QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS,
-    QUERY_EDITOR_RESULT_HISTORY_MAX_ROWS,
-    QUERY_EDITOR_RESULT_HISTORY_MAX_BYTES,
-} from '../queryEditorResultHistory';
+import { applyQueryEditorResultHistoryBudget } from '../queryEditorResultHistory';
 import { t as translate } from '../../../i18n';
 import { useQueryEditorResultHistoryBudget } from '../useQueryEditorResultHistoryBudget';
 import {
@@ -129,11 +124,7 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
     resultSetsRef.current = resultSets;
     activeResultKeyRef.current = activeResultKey;
     const notifyResultHistoryTrimmed = useCallback(() => {
-        void message.info(translate('query_editor.results_panel.message.history_trimmed', {
-            results: QUERY_EDITOR_RESULT_HISTORY_MAX_RESULTS,
-            rows: QUERY_EDITOR_RESULT_HISTORY_MAX_ROWS,
-            size: Math.round(QUERY_EDITOR_RESULT_HISTORY_MAX_BYTES / 1024 / 1024),
-        }));
+        void message.info(translate('query_editor.results_panel.message.history_trimmed'));
     }, []);
     useEffect(() => {
         if ((restoredResultHistoryRef.current?.evictedKeys.length || 0) === 0) return;
@@ -172,6 +163,10 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
         executionAwaitingDriverRef,
     );
     const executionElapsedText = formatQueryExecutionElapsed(executionElapsedMs);
+    // 运行中不显示耗时：以 loading 为准，而不是 executionTimingActive。
+    // 后者在 RPC 返回时就变 false，但结果集加工、元数据回填仍在进行，运行按钮
+    // 还在转圈；那时显示耗时会出现「按钮还在转、下面已经报完时间」的矛盾。
+    const showExecutionElapsed = !loading && completedExecutionElapsedMs !== null;
     const executionElapsedLabel = translate('query_editor.execution.elapsed', {
         duration: executionElapsedText,
     });
@@ -185,10 +180,15 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
         result: { durationMs?: unknown } | null | undefined,
         startedAt: number,
     ) => {
-        const durationMs = resolveReportedQueryDurationMs(result, Date.now() - startedAt);
+        // 状态栏与执行日志必须显示同一个数字，都用后端 durationMs
+        // （驱动侧 SQL 执行耗时）。没有后端值时退回墙钟。
+        const reportedMs = resolveReportedQueryDurationMs(
+            result,
+            Math.max(0, Math.round(Date.now() - startedAt)),
+        );
         setExecutionTimingActive(false);
-        setCompletedExecutionElapsedMs(durationMs);
-        return durationMs;
+        setCompletedExecutionElapsedMs(reportedMs);
+        return reportedMs;
     }, []);
     const [executionError, setExecutionError] = useState<string>('');
     // 渲染期同步最新执行错误，keydown 监听从 ref 读取，避免每次执行后重注册监听。
@@ -385,7 +385,7 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
         queryEditorMetadataReloadTick, setQueryEditorMetadataReloadTick,
         queryEditorMetadataForceReloadRef, queryContextLockRunSeq, queryContextLockRunSeqRef,
         lockQueryContextForRun, unlockQueryContextForRun, executionTimingActive,
-        setExecutionTimingActive, executionAwaitingDriverRef, executionElapsedText,
+        setExecutionTimingActive, executionAwaitingDriverRef, executionElapsedText, showExecutionElapsed,
         executionElapsedLabel, executionSpeedIcon, beginQueryEditorRunClock,
         finishQueryEditorSqlClock, executionError, setExecutionError, executionErrorRef,
         currentQueryId, setCurrentQueryId, isSqlSnippetPickerOpen, setIsSqlSnippetPickerOpen,

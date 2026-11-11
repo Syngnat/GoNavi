@@ -167,13 +167,8 @@ export const useQueryEditorResultReload = ({
                 && rsData.columns[0] === 'affectedRows';
             if (isAffectedResult) return; // 不应该出现，但保险起见
 
-            let rows = Array.isArray(rsData.rows) ? rsData.rows : [];
-            const maxRows = Number(queryOptions?.maxRows) || 0;
-            let truncated = false;
-            if (Number.isFinite(maxRows) && maxRows > 0 && rows.length > maxRows) {
-                truncated = true;
-                rows = rows.slice(0, maxRows);
-            }
+            const rows = Array.isArray(rsData.rows) ? rsData.rows : [];
+            const truncated = false;
             const cols = (rsData.columns && rsData.columns.length > 0)
                 ? rsData.columns
                 : (rows.length > 0 ? Object.keys(rows[0]) : []);
@@ -211,13 +206,18 @@ export const useQueryEditorResultReload = ({
         }
     };
 
-    const handleRequestResultTotalCount = async (resultKey: string) => {
+    const handleRequestResultTotalCount = async (
+        resultKey: string,
+        options?: { silent?: boolean; queryTimeoutSeconds?: number },
+    ) => {
         const target = resultSetsRef.current.find((item) => item.key === resultKey);
         const executionConnectionId = target?.executionConnectionId || currentConnectionId;
         const conn = connections.find(c => c.id === executionConnectionId);
         if (!conn) return;
         const executionDbName = target?.executionDbName ?? currentDb;
         if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName, target.page.baseSql) || resultTotalCountRequestsRef.current[resultKey]) return;
+        // 自动统计是后台行为：失败/超时不弹错误，只把按钮恢复成可手动重试。
+        const silent = options?.silent === true;
         const config = {
             ...conn.config,
             port: Number(conn.config.port),
@@ -226,6 +226,10 @@ export const useQueryEditorResultReload = ({
             useSSH: conn.config.useSSH || false,
             ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
             timeout: resolveQueryEditorConnectionTimeout(conn.config),
+            // 自动统计用短超时：COUNT(*) 在大表上可能很慢，不能让它长期占着连接。
+            ...(options?.queryTimeoutSeconds && options.queryTimeoutSeconds > 0
+                ? { queryTimeout: options.queryTimeoutSeconds }
+                : {}),
         };
         const normalizedDbType = String(resolveSqlDialect(
             String(config.type || 'mysql'),
@@ -292,7 +296,7 @@ export const useQueryEditorResultReload = ({
             if (!isCurrentRequest()) return;
             if (!res?.success) {
                 finishLoading();
-                message.error(String(res?.message || translate('data_viewer.message.total_count_failed')));
+                if (!silent) message.error(String(res?.message || translate('data_viewer.message.total_count_failed')));
                 return;
             }
             const resultSetData = Array.isArray(res.data) ? res.data[0] : null;
@@ -300,7 +304,7 @@ export const useQueryEditorResultReload = ({
             const total = parseQueryResultTotalCount(countRow);
             if (total === null) {
                 finishLoading();
-                message.error(translate('data_viewer.message.total_count_parse_failed'));
+                if (!silent) message.error(translate('data_viewer.message.total_count_parse_failed'));
                 return;
             }
 
@@ -331,9 +335,11 @@ export const useQueryEditorResultReload = ({
                 dbName: executionDbName,
             });
             finishLoading();
-            message.error(translate('data_viewer.message.total_count_failed_detail', {
-                detail: String(error?.message || error || translate('common.unknown')),
-            }));
+            if (!silent) {
+                message.error(translate('data_viewer.message.total_count_failed_detail', {
+                    detail: String(error?.message || error || translate('common.unknown')),
+                }));
+            }
         }
     };
 

@@ -663,7 +663,11 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                         if (rs.resultType === 'message') return <span className="query-result-tab-count" data-query-result-tab-count="true">i</span>;
                         if (isAffectedRowsResult(rs)) return <span className="query-result-tab-count" data-query-result-tab-count="true">✓</span>;
                         if (!Array.isArray(rs.rows)) return null;
-                        return <span className="query-result-tab-count" data-query-result-tab-count="true">{rs.rows.length}</span>;
+                        // 总数已知时显示总数而不是当前页行数：结果集按页加载，
+                        // rows.length 永远等于页大小，会被误读成"只查出这么多"。
+                        const knownTotal = rs.page?.totalKnown === true ? Number(rs.page.total) : NaN;
+                        const countText = Number.isFinite(knownTotal) ? knownTotal : rs.rows.length;
+                        return <span className="query-result-tab-count" data-query-result-tab-count="true">{countText}</span>;
                     })()}
                     <Tooltip title={t('query_editor.result.close')}>
                         <span
