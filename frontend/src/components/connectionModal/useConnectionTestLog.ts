@@ -41,15 +41,31 @@ const toLevel = (line: string): ConnectionTestLogLine["level"] => {
  * 太长或含中文时日志里往往匹配不到任何行。这里优先取最有辨识度的短片段：
  * 冒号/分号后的最后一段，且长度适中、含 ASCII 字母。
  */
+// 错误消息末尾常带「（详细日志：C:\Users\x\.GoNavi\Logs\gonavi.log）」这类提示。
+// 它同时含冒号和字母，会被上面的分段规则选中，结果是拿一个文件路径去过滤日志——
+// 一条都匹配不到。这里显式识别路径形态并跳过。
+const looksLikeFilePath = (segment: string): boolean => (
+  /[\\/]/.test(segment)
+  || /\.(?:log|txt|json|db|sqlite3?)\b/i.test(segment)
+  || /^[A-Za-z]:$/.test(segment)
+  || /详细日志|日志文件|log file/i.test(segment)
+);
+
 export const pickConnectionTestLogKeyword = (reason: string): string => {
   const text = String(reason || "").trim();
   if (!text) return "";
-  const segments = text
-    .split(/[：:；;\n]/)
+  // 括号里的「详细日志：...」是附加说明，不是错误本体，先整体剥掉；
+  // 否则冒号落在括号内，错误本身会和说明粘成一个片段。
+  const withoutHint = text
+    .replace(/[（(][^）)]*详细日志[^）)]*[）)]/g, " ")
+    .replace(/[（(][^）)]*[\\/][^）)]*[）)]/g, " ");
+  const segments = withoutHint
+    .split(/[：:；;，,。\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
   for (let index = segments.length - 1; index >= 0; index -= 1) {
     const segment = segments[index];
+    if (looksLikeFilePath(segment)) continue;
     // 日志里的可检索片段通常是英文错误（EOF、timeout、refused…）。
     if (segment.length >= 3 && segment.length <= 80 && /[A-Za-z]{2}/.test(segment)) {
       return segment;

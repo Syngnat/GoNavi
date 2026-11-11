@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Modal from "../common/ResizableDraggableModal";
 import { FileTextOutlined, FolderOpenOutlined, ReloadOutlined } from "@ant-design/icons";
 import { t } from "../../i18n";
@@ -58,6 +59,14 @@ export const ConnectionModalTestFailureLogModal = ({
   const logError = String(testLog?.error || "").trim();
   const keyword = pickConnectionTestLogKeyword(String(resolvedTestResultMessage || ""));
   const logLines = snapshot?.lines || [];
+  // 关键词只有在日志里真的命中时才值得显示；否则那枚标签会把用户引向
+  // 一个并不存在的匹配项。这里以后端返回的首行做一次确认。
+  const keywordMatched = Boolean(keyword) && logLines.some((line) => (
+    line.text.toLowerCase().includes(keyword.toLowerCase())
+  ));
+  // 默认停在有内容的那个页签：日志读到了就展示日志，读不到再看错误详情。
+  const [activeTab, setActiveTab] = useState<string>("log");
+  const resolvedTab = snapshot && logLines.length > 0 ? activeTab : "error";
 
   let logBody: React.ReactNode;
   if (testLog?.loading && !snapshot) {
@@ -154,6 +163,8 @@ export const ConnectionModalTestFailureLogModal = ({
     >
       <Tabs
         size="small"
+        activeKey={resolvedTab}
+        onChange={setActiveTab}
         items={[
           {
             key: "error",
@@ -179,7 +190,7 @@ export const ConnectionModalTestFailureLogModal = ({
             label: (
               <Space size={6}>
                 {t("connection.modal.failureDialog.logTab")}
-                {keyword && <Tag color="default">{keyword}</Tag>}
+                {keywordMatched && <Tag color="default">{keyword}</Tag>}
               </Space>
             ),
             children: logBody,
