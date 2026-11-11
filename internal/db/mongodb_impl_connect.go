@@ -311,6 +311,7 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 	attemptNo := 0
 
 	var errorDetails []string
+	var lastErr error
 	for sslIndex, sslConfig := range sslAttempts {
 		sslLabel := mongoAttemptSSLLabel(sslConfig, sslIndex > 0)
 
@@ -359,6 +360,7 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 				}
 				logger.Warnf("MongoDB 连接尝试失败：%d/%d 模式=%s 凭据=%s 耗时=%s 错误=%v",
 					attemptNo, totalAttempts, sslLabel, authLabel, time.Since(attemptStarted).Round(time.Millisecond), attemptErr)
+				lastErr = attemptErr
 				detail := fmt.Sprintf("%s %s连接失败: %v", sslLabel, authLabel, attemptErr)
 				if sshRouteHint != "" {
 					detail = fmt.Sprintf("%s（%s）", detail, sshRouteHint)
@@ -379,6 +381,7 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 				}
 				logger.Warnf("MongoDB 连接尝试验证失败：%d/%d 模式=%s 凭据=%s 耗时=%s 错误=%v",
 					attemptNo, totalAttempts, sslLabel, authLabel, time.Since(attemptStarted).Round(time.Millisecond), attemptErr)
+				lastErr = attemptErr
 				detail := fmt.Sprintf("%s %s验证失败: %v", sslLabel, authLabel, attemptErr)
 				if sshRouteHint != "" {
 					detail = fmt.Sprintf("%s（%s）", detail, sshRouteHint)
@@ -396,7 +399,7 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	if len(errorDetails) > 0 {
-		return fmt.Errorf("MongoDB 连接失败：%s", strings.Join(errorDetails, "；"))
+		return newConnectAttemptError("MongoDB 连接失败", errorDetails, lastErr)
 	}
 
 	return fmt.Errorf("MongoDB 连接失败：无可用连接方案")

@@ -49,9 +49,11 @@ func kingbaseConnectFailureError(failures []string, maintenanceFallback bool, ca
 	if len(causes) > 0 {
 		lastErr = causes[0]
 	}
-	err := newConnectAttemptError("连接建立后验证失败", failures, lastErr)
+	prefix := "连接建立后验证失败"
 	if maintenanceFallback {
-		err = fmt.Errorf("%w%s", err, localizedDriverRuntimeText("db.backend.error.kingbase_maintenance_database_hint", nil))
+		// 提示并入前缀，而不是在外面再包一层 fmt.Errorf("%w%s")：那样会让
+		// logger.ErrorChain 先打印「汇总+提示」、再打印同一段汇总，明细重复两遍。
+		prefix += localizedDriverRuntimeText("db.backend.error.kingbase_maintenance_database_hint", nil)
 	}
-	return err
+	return newConnectAttemptError(prefix, failures, lastErr)
 }

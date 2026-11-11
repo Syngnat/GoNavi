@@ -37,3 +37,32 @@ func TestNewConnectAttemptErrorWithoutCause(t *testing.T) {
 		t.Fatal("no cause expected")
 	}
 }
+
+func TestWrapDatabaseConnectCause(t *testing.T) {
+	cause := errors.New("dial tcp: connection refused")
+
+	t.Run("nil message stays nil", func(t *testing.T) {
+		if got := wrapDatabaseConnectCause(nil, cause); got != nil {
+			t.Fatalf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("nil cause keeps the message as-is", func(t *testing.T) {
+		message := errors.New("连接失败")
+		got := wrapDatabaseConnectCause(message, nil)
+		if got != message {
+			t.Fatalf("expected the original message, got %v", got)
+		}
+	})
+
+	t.Run("wraps cause so it stays unwrappable", func(t *testing.T) {
+		message := errors.New("连接失败")
+		got := wrapDatabaseConnectCause(message, cause)
+		if got.Error() != "连接失败" {
+			t.Fatalf("unexpected message: %q", got.Error())
+		}
+		if !errors.Is(got, cause) {
+			t.Fatalf("cause should be reachable through the chain, got %v", got)
+		}
+	})
+}

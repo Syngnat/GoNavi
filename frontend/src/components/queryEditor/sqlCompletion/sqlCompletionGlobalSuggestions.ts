@@ -195,7 +195,6 @@ export const buildSqlCompletionGlobalSuggestions = ({
             + column.name
         ),
         buildSuggestion: (column) => {
-            const isCurrentDb = isCurrentCompletionDatabase(column.dbName || '');
             return {
                 label: column.name,
                 kind: monaco.languages.CompletionItemKind.Field,
