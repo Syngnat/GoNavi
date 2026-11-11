@@ -258,10 +258,19 @@ describe('sqlDialect', () => {
 // 过去这里无条件加引号，导致小写表名（如元数据或用户输入的小写对象）被拼成
 // `"hr"."employees"`，Oracle 找不到 `HR.EMPLOYEES` 而报 ORA-00942。
 describe('oracle identifier quoting folds bare names instead of forcing quotes', () => {
-  it('leaves a legal bare name unquoted so Oracle folds it to upper case', () => {
-    expect(quoteSqlIdentifierPart('oracle', 'qcreformreceive')).toBe('qcreformreceive');
+  // 全大写才能裸写：裸名会被 Oracle 折叠成大写，所以 `ORDERS` 裸写仍指向
+  // `ORDERS`；而小写/混合大小写只有带引号才指向原对象。
+  it('leaves an all-upper-case name unquoted so Oracle folds it to the same object', () => {
+    expect(quoteSqlIdentifierPart('oracle', 'ORDERS')).toBe('ORDERS');
+    expect(quoteSqlIdentifierPath('oracle', 'CRH_QC.QCREFORMRECEIVE'))
+      .toBe('CRH_QC.QCREFORMRECEIVE');
+  });
+
+  it('quotes lower-case and mixed-case names, which only match case-sensitively', () => {
+    expect(quoteSqlIdentifierPart('oracle', 'qcreformreceive')).toBe('"qcreformreceive"');
+    expect(quoteSqlIdentifierPart('oracle', 'Order_Items')).toBe('"Order_Items"');
     expect(quoteSqlIdentifierPath('oracle', 'crh_qc.qcreformreceive'))
-      .toBe('crh_qc.qcreformreceive');
+      .toBe('"crh_qc"."qcreformreceive"');
   });
 
   it('keeps delimiters when the source was explicitly quoted', () => {
@@ -276,9 +285,10 @@ describe('oracle identifier quoting folds bare names instead of forcing quotes',
   });
 
   it('applies the same rule to the other Oracle-family dialects', () => {
-    expect(quoteSqlIdentifierPart('dameng', 'qcreformreceive')).toBe('qcreformreceive');
-    expect(quoteSqlIdentifierPart('oceanbase', 'qcreformreceive', { oceanBaseProtocol: 'oracle' }))
-      .toBe('qcreformreceive');
+    expect(quoteSqlIdentifierPart('dameng', 'ORDERS')).toBe('ORDERS');
+    expect(quoteSqlIdentifierPart('dameng', 'orders')).toBe('"orders"');
+    expect(quoteSqlIdentifierPart('oceanbase', 'ORDERS', { oceanBaseProtocol: 'oracle' }))
+      .toBe('ORDERS');
   });
 });
 

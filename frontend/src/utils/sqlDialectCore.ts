@@ -298,11 +298,16 @@ const escapeBracketIdentifier = (value: string) => String(value || '').replace(/
 const needsPgLikeQuote = (ident: string): boolean => !/^[a-z_][a-z0-9_]*$/.test(ident);
 
 // Oracle 家族：裸标识符会被折叠为大写，双引号则精确匹配、区分大小写。
-// 因此「裸名合法」的标识符一律不加引号——`qcreformreceive` 与
-// `QCREFORMRECEIVE` 都能命中同名对象；一旦加了引号，小写名就只能匹到
-// 小写对象，反而触发 ORA-00942（对象明明存在却报不存在）。只有含空格、
-// 连字符等裸名不允许的字符时才必须定界。
-const needsOracleQuote = (ident: string): boolean => !/^[A-Za-z_][A-Za-z0-9_$#]*$/.test(ident);
+//
+// 判断依据是「这个名字能不能裸写后仍指向同一个对象」：
+//   - 全大写（`ORDERS`）：裸写折叠后仍是 `ORDERS`，不加引号。
+//   - 小写或混合大小写（`orders`、`Order_Items`）：只有带引号才指向原对象；
+//     裸写会被折叠成 `ORDERS`，反而查不到（正是 ORA-00942 的来源）。
+//   - 含空格、连字符、中文等裸名不允许的字符：必须加引号。
+//
+// 注意不能只看「是否是合法裸名」——`orders` 语法上合法，语义上却是另一个对象。
+const ORACLE_BARE_IDENT_RE = /^[A-Z_][A-Z0-9_$#]*$/;
+const needsOracleQuote = (ident: string): boolean => !ORACLE_BARE_IDENT_RE.test(ident);
 
 export const unquoteSqlIdentifierPart = stripIdentifierQuotes;
 
