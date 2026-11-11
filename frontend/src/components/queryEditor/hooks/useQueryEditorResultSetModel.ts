@@ -18,7 +18,7 @@ import {
     applyQueryEditorSchemaSearchPath,
 } from '../queryEditorSchemaContext';
 import type { QueryParamBindingInput } from '../params/queryEditorParamsModel';
-import { buildQueryEditorResultBudgetOptions } from '../queryEditorResultBudget';
+import { buildQueryEditorResultBudgetOptions, type QueryEditorResultBudgetOptions } from '../queryEditorResultBudget';
 import { canReusePendingSqlEditorTransactionForType } from '../../../utils/sqlEditorTransaction';
 import type { ConnectionConfig } from '../../../types';
 import {
@@ -335,6 +335,7 @@ export const useQueryEditorResultSetModel = ({
         executionConnectionId = currentConnectionIdRef.current,
         paramBindings?: QueryParamBindingInput[],
         quotedPlaceholders = true,
+        resultBudgetOverride?: QueryEditorResultBudgetOptions,
     ) => {
         const executionConfig = connectionParamsOverride === undefined
             ? buildSqlExecutionConnectionConfig(config)
@@ -348,7 +349,7 @@ export const useQueryEditorResultSetModel = ({
                 || String(executionConfig.connectionParams || '')
                     === String(currentContextConfig.connectionParams || '')
             );
-        const resultBudget = buildQueryEditorResultBudgetOptions(queryOptions?.maxRows);
+        const resultBudget = resultBudgetOverride ?? buildQueryEditorResultBudgetOptions(queryOptions?.maxRows);
         const pendingTransaction = pendingSqlTransactionRef.current;
         if (
             pendingTransaction

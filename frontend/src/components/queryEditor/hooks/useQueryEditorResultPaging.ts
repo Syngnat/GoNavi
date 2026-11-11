@@ -2,6 +2,7 @@ import { message } from 'antd';
 import { hivePaginationNeedsOrder } from '../../../utils/hivePagination';
 import type { GridSortInfoItem } from '../../../utils/dataGridSort';
 import { canUseQueryEditorDatabaseContext } from '../queryEditorLazyTablesCache';
+import { buildQueryEditorPagedResultBudgetOptions } from '../queryEditorResultBudget';
 import { resolveSqlDialect } from '../../../utils/sqlDialect';
 import {
     buildQueryResultPageSql,
@@ -132,6 +133,9 @@ export const useQueryEditorResultPaging = ({
                     executionConnectionId,
                     target.executionBindings,
                     target.executionQuotedPlaceholders,
+                    // 翻页 SQL 自带 LIMIT pageSize+1，扫描预算必须容得下这一行 lookahead；
+                    // 否则后端按工具栏 maxRows 截断，下一页永远探测不到。
+                    buildQueryEditorPagedResultBudgetOptions(safePageSize),
                 );
             } finally {
                 if (isCurrentRun()) {

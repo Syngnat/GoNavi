@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildQueryEditorPagedResultBudgetOptions,
   buildQueryEditorResultBudgetOptions,
   QUERY_EDITOR_BUDGET_UNLIMITED,
   QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
@@ -46,5 +47,28 @@ describe('query editor result budget', () => {
       expect(buildQueryEditorResultBudgetOptions(configured).maxFieldBytes)
         .toBe(QUERY_EDITOR_SAFE_MAX_FIELD_BYTES);
     }
+  });
+
+  // 回归：翻页 SQL 会多取一行判断"还有没有下一页"。若扫描预算按工具栏 maxRows
+  // 截断（例如 100），第 101 行永远取不到，每页都被判成最后一页，几千条数据只
+  // 能翻两页，只有点「统计总数」才显示真实条数。
+  it('reserves one extra row for the pagination lookahead', () => {
+    expect(buildQueryEditorPagedResultBudgetOptions(100)).toEqual({
+      maxRowsPerResult: 101,
+      maxTotalRows: 101,
+      maxTotalBytes: QUERY_EDITOR_SAFE_MAX_RESULT_BYTES,
+      maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
+    });
+    expect(buildQueryEditorPagedResultBudgetOptions(500)).toMatchObject({
+      maxRowsPerResult: 501,
+      maxTotalRows: 501,
+    });
+  });
+
+  // 页大小超出安全上限时不放开预算：多出的那一行会被夹紧逻辑吃掉 lookahead，
+  // 但放开成"无上限扫描"代价更大，此时让调用方沿用常规预算。
+  it('leaves the budget to the caller when the page size exceeds the safe ceiling', () => {
+    expect(buildQueryEditorPagedResultBudgetOptions(0)).toBeUndefined();
+    expect(buildQueryEditorPagedResultBudgetOptions(QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS)).toBeUndefined();
   });
 });

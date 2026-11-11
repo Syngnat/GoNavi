@@ -33,7 +33,7 @@ import {
     type QueryParamBindingInput, bindingsFromValues, collectMissingParamNames,
     type QueryParameterAnalysisInfo,
 } from '../params/queryEditorParamsModel';
-import { buildQueryEditorResultBudgetOptions } from '../queryEditorResultBudget';
+import { buildQueryEditorResultBudgetOptions, type QueryEditorResultBudgetOptions } from '../queryEditorResultBudget';
 import { resolveReportedQueryDurationMs } from '../queryEditorExecutionTimer';
 import {
     collectOracleCompileTargets, loadOracleCompileErrors, formatOracleCompileErrors,
@@ -97,7 +97,7 @@ export interface RunQueryEditorSqlStatementsInput {
     runState: { queryId: string; sqlDurationMs?: number; };
     setQueryId: (id: string) => void;
     setExecutionTimingActive: React.Dispatch<React.SetStateAction<boolean>>;
-    executeSqlEditorMultiQuery: (config: Record<string, any>, dbName: string, sql: string, queryId: string, sourceStatements: string[], dbType?: string, connectionParamsOverride?: string, executionConnectionId?: string, paramBindings?: QueryParamBindingInput[], quotedPlaceholders?: boolean) => Promise<connection.QueryResult>;
+    executeSqlEditorMultiQuery: (config: Record<string, any>, dbName: string, sql: string, queryId: string, sourceStatements: string[], dbType?: string, connectionParamsOverride?: string, executionConnectionId?: string, paramBindings?: QueryParamBindingInput[], quotedPlaceholders?: boolean, resultBudgetOverride?: QueryEditorResultBudgetOptions) => Promise<connection.QueryResult>;
     executionConnectionParams: string | undefined;
     executionSchemaName?: string;
     finishQueryEditorSqlClock: (result: { durationMs?: unknown; } | null | undefined, startedAt: number) => number;

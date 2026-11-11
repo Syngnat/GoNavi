@@ -47,3 +47,31 @@ export const buildQueryEditorResultBudgetOptions = (
     maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
   };
 };
+
+/**
+ * 翻页请求的扫描预算：必须放得下 lookahead 那一行。
+ *
+ * 翻页 SQL 自带 `LIMIT pageSize+1 OFFSET ...`，多取的一行只用于判断"还有没有下
+ * 一页"。若沿用工具栏的 `maxRows` 预算（例如用户把最大行数设为 100），后端会在第
+ * pageSize 行处截断，第 pageSize+1 行永远取不到，于是每页都被判成最后一页：
+ * 下一页按钮禁用，页数停在「当前页 / 当前页」，总数被算成 (current+1)*pageSize。
+ * 结果就是几千条数据只能翻两页，点「统计总数」才恢复正常。
+ *
+ * 页大小为 0 表示用户在结果分页栏里选了「不限」：此时翻页 SQL 不带 LIMIT，
+ * 需要一次取全部行，沿用调用方的常规预算（不在这里放开，避免无上限扫描）。
+ */
+export const buildQueryEditorPagedResultBudgetOptions = (
+  pageSize: number,
+): QueryEditorResultBudgetOptions | undefined => {
+  const parsed = Math.trunc(Number(pageSize) || 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  const lookaheadRows = parsed + 1;
+  // 页大小已经逼近安全上限时，多出的那一行会撞上夹紧逻辑而丢掉 lookahead。
+  if (lookaheadRows > QUERY_EDITOR_UNLIMITED_SAFE_MAX_ROWS) return undefined;
+  return {
+    maxRowsPerResult: lookaheadRows,
+    maxTotalRows: lookaheadRows,
+    maxTotalBytes: QUERY_EDITOR_SAFE_MAX_RESULT_BYTES,
+    maxFieldBytes: QUERY_EDITOR_SAFE_MAX_FIELD_BYTES,
+  };
+};
