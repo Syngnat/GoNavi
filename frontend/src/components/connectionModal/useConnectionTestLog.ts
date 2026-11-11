@@ -111,8 +111,13 @@ export const useConnectionTestLog = ({
       const keyword = pickConnectionTestLogKeyword(reason);
       let result = await ReadAppLogTail(80, keyword);
       // 关键词过滤不到内容时退回纯尾部日志：用户至少能看到日志长什么样。
-      if (keyword && (!result?.success || !Array.isArray((result.data as AppLogTailData)?.lines)
-        || ((result.data as AppLogTailData).lines || []).length === 0)) {
+      // 只在「读成功但没命中」时重试：读取本身失败（文件不存在/无法打开）时再
+      // 调一次必然同样失败，还会用第二次的空结果覆盖第一次的真实错误。
+      const keywordMissed = Boolean(keyword)
+        && result?.success === true
+        && Array.isArray((result.data as AppLogTailData)?.lines)
+        && ((result.data as AppLogTailData).lines || []).length === 0;
+      if (keywordMissed) {
         result = await ReadAppLogTail(80, "");
       }
       if (!mountedRef.current || requestSeqRef.current !== requestId) {

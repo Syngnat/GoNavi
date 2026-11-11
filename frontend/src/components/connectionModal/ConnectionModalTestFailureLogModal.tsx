@@ -1,16 +1,14 @@
-import { useState } from "react";
 import Modal from "../common/ResizableDraggableModal";
 import { FileTextOutlined, FolderOpenOutlined, ReloadOutlined } from "@ant-design/icons";
 import { t } from "../../i18n";
 import { APP_NESTED_MODAL_Z_INDEX } from "../../utils/overlayZIndex";
-import { Button, Space, Spin, Tabs, Tag } from "antd";
+import { Button, Space, Tabs, Tag } from "antd";
 import type { ConnectionModalSectionRenderersApi } from "./useConnectionModalSectionRenderers";
 import type { ConnectionModalStateApi } from "./useConnectionModalState";
 import type { ConnectionModalLifecycleApi } from "./useConnectionModalLifecycle";
-import {
-  pickConnectionTestLogKeyword,
-  type ConnectionTestLogLine,
-} from "./useConnectionTestLog";
+import type { ConnectionTestLogLine } from "./useConnectionTestLog";
+import { useConnectionTestFailureLogView } from "./useConnectionTestFailureLogView";
+import { ConnectionTestFailureLogBody } from "./ConnectionTestFailureLogBody";
 
 export interface ConnectionModalTestFailureLogModalProps {
   renderConnectionModalTitle: ConnectionModalSectionRenderersApi['renderConnectionModalTitle'];
@@ -26,13 +24,6 @@ export interface ConnectionModalTestFailureLogModalProps {
     openLogDirectory: () => void;
   };
 }
-
-const LEVEL_COLORS: Record<ConnectionTestLogLine['level'], string> = {
-  ERROR: "#a8071a",
-  WARN: "#ad6800",
-  INFO: "#237804",
-  OTHER: "#595959",
-};
 
 const codeBlockStyle: React.CSSProperties = {
   margin: 0,
@@ -55,65 +46,20 @@ export const ConnectionModalTestFailureLogModal = ({
   resolvedTestResultMessage,
   testLog,
 }: ConnectionModalTestFailureLogModalProps) => {
-  const snapshot = testLog?.snapshot || null;
-  const logError = String(testLog?.error || "").trim();
-  const keyword = pickConnectionTestLogKeyword(String(resolvedTestResultMessage || ""));
-  const logLines = snapshot?.lines || [];
-  // 关键词只有在日志里真的命中时才值得显示；否则那枚标签会把用户引向
-  // 一个并不存在的匹配项。这里以后端返回的首行做一次确认。
-  const keywordMatched = Boolean(keyword) && logLines.some((line) => (
-    line.text.toLowerCase().includes(keyword.toLowerCase())
-  ));
-  // 默认停在有内容的那个页签：日志读到了就展示日志，读不到再看错误详情。
-  //
-  // 之后由用户主导：以前这里每次都把「无日志行」硬编码回落到 error，结果加载中、
-  // 读取失败、日志为空三种情况下「运行日志」页签点不动，页面里的 spinner、读取
-  // 失败兜底与空日志提示永远看不到。
-  const [activeTab, setActiveTab] = useState<string | null>(null);
-  const resolvedTab = activeTab ?? (logLines.length > 0 ? "log" : "error");
+  const {
+    snapshot, logError, logLines, keyword, keywordMatched,
+    activeTab: resolvedTab, setActiveTab, logState,
+  } = useConnectionTestFailureLogView({ resolvedTestResultMessage, testLog });
 
-  let logBody: React.ReactNode;
-  if (testLog?.loading && !snapshot) {
-    logBody = (
-      <div style={{ padding: 24, textAlign: "center" }}>
-        <Spin size="small" />
-      </div>
-    );
-  } else if (logError) {
-    logBody = (
-      <pre style={{ ...codeBlockStyle, background: "#fff2f0", border: "1px solid #ffccc7", color: "#a8071a" }}>
-        {t("connection.modal.failureDialog.logUnavailable", { detail: logError })}
-      </pre>
-    );
-  } else if (logLines.length === 0) {
-    logBody = (
-      <pre style={{ ...codeBlockStyle, background: "#fafafa", border: "1px solid #f0f0f0", color: "#595959" }}>
-        {t("connection.modal.failureDialog.logEmpty")}
-      </pre>
-    );
-  } else {
-    logBody = (
-      <div>
-        <pre style={{ ...codeBlockStyle, background: "#fafafa", border: "1px solid #f0f0f0" }}>
-          {logLines.map((line, index) => (
-            <div key={`${index}-${line.level}`} style={{ color: LEVEL_COLORS[line.level] }}>
-              {line.text}
-            </div>
-          ))}
-        </pre>
-        {snapshot?.truncated && (
-          <div style={{ marginTop: 6, fontSize: 12, color: "#8c8c8c" }}>
-            {t("connection.modal.failureDialog.logTruncated", { count: logLines.length })}
-          </div>
-        )}
-        {snapshot?.path && (
-          <div style={{ marginTop: 4, fontSize: 12, color: "#8c8c8c", wordBreak: "break-all" }}>
-            {t("connection.modal.failureDialog.logPath", { path: snapshot.path })}
-          </div>
-        )}
-      </div>
-    );
-  }
+  const logBody = (
+    <ConnectionTestFailureLogBody
+      state={logState}
+      lines={logLines}
+      error={logError}
+      truncated={snapshot?.truncated}
+      path={snapshot?.path}
+    />
+  );
 
   return (
     <Modal
