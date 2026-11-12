@@ -421,7 +421,9 @@ func TestKingbaseQueryAndColumnsUseVisibleRelationMetadata(t *testing.T) {
 	for _, schema := range []string{"", "archive"} {
 		t.Run("schema="+schema, func(t *testing.T) {
 			query := "SELECT name FROM customers LIMIT 101 OFFSET 0"
-			metadataQuery := buildPGLikeColumnsMetadataQuery(schema, "customers")
+			// GetColumns 走 Kingbase 专用查询（identity_generation 不用 to_jsonb），
+			// 与 PG 版不是同一条 SQL，stub 的 key 必须与实现一致。
+			metadataQuery := buildKingbaseColumnsMetadataQuery(schema, "customers")
 			fakeKingbaseStateMu.Lock()
 			fakeKingbaseState.queryErr = nil
 			fakeKingbaseState.queries = nil

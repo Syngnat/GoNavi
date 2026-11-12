@@ -25,10 +25,20 @@ func (e connectAttemptError) Unwrap() error { return e.cause }
 // newConnectAttemptError 用已收集的失败描述拼出汇总消息，并把 lastErr 挂到错误链上。
 // lastErr 可以为 nil（例如所有尝试都在打开连接前被跳过）。
 func newConnectAttemptError(prefix string, failures []string, lastErr error) error {
+	return newConnectAttemptErrorWithSuffix(prefix, "", failures, lastErr)
+}
+
+// newConnectAttemptErrorWithSuffix 在汇总消息末尾追加一段补充说明（如自助提示）。
+//
+// 说明追加在失败明细之后，而不是并进 prefix：并进 prefix 会把「前缀：明细」的
+// 冒号顶掉，读起来变成「验证失败。提示：…。：SSL 数据库=…」。说明仍留在同一条
+// 消息里、不额外包一层，logger.ErrorChain 也就不会把明细重复打印一遍。
+func newConnectAttemptErrorWithSuffix(prefix string, suffix string, failures []string, lastErr error) error {
 	message := prefix
 	if joined := strings.Join(failures, "；"); joined != "" {
 		message = prefix + "：" + joined
 	}
+	message += suffix
 	if lastErr == nil {
 		return fmt.Errorf("%s", message)
 	}

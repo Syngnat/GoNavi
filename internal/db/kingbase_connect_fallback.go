@@ -3,7 +3,6 @@
 package db
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -49,11 +48,11 @@ func kingbaseConnectFailureError(failures []string, maintenanceFallback bool, ca
 	if len(causes) > 0 {
 		lastErr = causes[0]
 	}
-	prefix := "连接建立后验证失败"
+	suffix := ""
 	if maintenanceFallback {
-		// 提示并入前缀，而不是在外面再包一层 fmt.Errorf("%w%s")：那样会让
+		// 提示作为消息后缀，而不是在外面再包一层 fmt.Errorf("%w%s")：那样会让
 		// logger.ErrorChain 先打印「汇总+提示」、再打印同一段汇总，明细重复两遍。
-		prefix += localizedDriverRuntimeText("db.backend.error.kingbase_maintenance_database_hint", nil)
+		suffix = localizedDriverRuntimeText("db.backend.error.kingbase_maintenance_database_hint", nil)
 	}
-	return newConnectAttemptError(prefix, failures, lastErr)
+	return newConnectAttemptErrorWithSuffix("连接建立后验证失败", suffix, failures, lastErr)
 }
