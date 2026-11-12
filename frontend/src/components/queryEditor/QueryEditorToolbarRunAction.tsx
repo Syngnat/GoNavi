@@ -1,5 +1,6 @@
 import React from 'react';
-import { Button, Tooltip } from 'antd';
+import { Tooltip } from 'antd';
+import { QueryToolbarButton } from './QueryToolbarButton';
 import { LoadingOutlined, PlayCircleOutlined } from '@ant-design/icons';
 
 export type QueryEditorToolbarRunActionProps = {
@@ -29,7 +30,7 @@ export const QueryEditorToolbarRunAction: React.FC<QueryEditorToolbarRunActionPr
   // Ant Design `loading` disables pointer events; keep a spinner icon so this same control can cancel.
   return (
     <Tooltip title={actionTitle}>
-      <Button
+      <QueryToolbarButton
         aria-label={actionAriaLabel}
         aria-busy={loading || undefined}
         className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-run-action"

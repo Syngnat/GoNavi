@@ -1,5 +1,6 @@
 import React from 'react';
-import { Button, Tooltip, type MenuProps } from 'antd';
+import { Tooltip, type MenuProps } from 'antd';
+import { QueryToolbarButton } from './QueryToolbarButton';
 import { V2Dropdown } from '../common/V2Dropdown';
 import { renderV2ActionMenuPopup } from '../common/V2ActionMenuPopup';
 import { GnChevronDownIcon, GnHistoryIcon } from '../icons/gnIcons';
@@ -35,7 +36,7 @@ export const QueryEditorToolbarAnalysisAction: React.FC<QueryEditorToolbarAnalys
         open={open}
         onOpenChange={onOpenChange}
       >
-        <Button
+        <QueryToolbarButton
           className="gn-v2-query-toolbar-analysis-action"
           aria-label={label}
           aria-haspopup="menu"
@@ -44,7 +45,7 @@ export const QueryEditorToolbarAnalysisAction: React.FC<QueryEditorToolbarAnalys
           <GnHistoryIcon aria-hidden="true" />
           <span className="gn-v2-query-toolbar-analysis-label">{label}</span>
           <GnChevronDownIcon aria-hidden="true" className="gn-v2-query-toolbar-analysis-caret" />
-        </Button>
+        </QueryToolbarButton>
       </V2Dropdown>
     </span>
   </Tooltip>

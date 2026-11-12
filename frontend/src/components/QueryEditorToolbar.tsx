@@ -1,6 +1,7 @@
 import React from "react";
-import { Button, Select, Tooltip, type MenuProps } from "antd";
+import { Select, Tooltip, type MenuProps } from "antd";
 import { V2Dropdown } from "./common/V2Dropdown";
+import { QueryToolbarButton } from "./queryEditor/QueryToolbarButton";
 import {
   BulbOutlined,
   CheckOutlined,
@@ -464,7 +465,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "templates"}
               onOpenChange={(open) => updateToolbarMenuOpen("templates", open)}
             >
-              <Button
+              <QueryToolbarButton
                 aria-label={t("query_editor.elasticsearch.action.templates")}
                 className="gn-v2-query-toolbar-icon-action"
                 icon={<GnChevronDownIcon />}
@@ -528,7 +529,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         <QueryEditorToolbarLogAction enabled={showSqlExecutionLog} onToggle={onToggleSqlExecutionLog} />
         {isElasticsearchMode && onRunAll && (
           <Tooltip title={t("query_editor.elasticsearch.action.run_all")}>
-            <Button
+            <QueryToolbarButton
               aria-label={t("query_editor.elasticsearch.action.run_all")}
               className="gn-v2-query-toolbar-icon-action"
               icon={<PlayCircleOutlined />}
@@ -540,7 +541,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         )}
         {!isElasticsearchMode && showViewDataVerify && onViewDataVerify && (
           <Tooltip title={t("result_diff.view_verify.toolbar.tooltip")}>
-            <Button
+            <QueryToolbarButton
               aria-label={t("result_diff.view_verify.toolbar")}
               className="gn-v2-query-toolbar-icon-action"
               icon={<DiffOutlined />}
@@ -569,7 +570,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               : t("query_editor.action.save")
           }
         >
-          <Button
+          <QueryToolbarButton
             aria-label={t("query_editor.action.save")}
             className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-save-action"
             type="default"
@@ -595,7 +596,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "ai"}
                 onOpenChange={(open) => updateToolbarMenuOpen("ai", open)}
               >
-                <Button
+                <QueryToolbarButton
                   className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action"
                   icon={<AiSparkOutlined />}
                   aria-label={aiMoreTitle}
@@ -610,7 +611,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           <>
             <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
               <Tooltip title={triggerSqlAiCompletionLabel}>
-                <Button
+                <QueryToolbarButton
                   aria-label={triggerSqlAiCompletionLabel}
                   className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action"
                   icon={<AiSparkOutlined />}
@@ -635,7 +636,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                     open={openToolbarMenu === "ai"}
                     onOpenChange={(open) => updateToolbarMenuOpen("ai", open)}
                   >
-                    <Button
+                    <QueryToolbarButton
                       className="gn-v2-query-toolbar-icon-action"
                       icon={<GnChevronDownIcon />}
                       aria-label={aiMoreTitle}
@@ -673,7 +674,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   open={openToolbarMenu === "more"}
                   onOpenChange={(open) => updateToolbarMenuOpen("more", open)}
                 >
-                  <Button
+                  <QueryToolbarButton
                     aria-label={t("query_editor.action.more")}
                     className="gn-v2-query-toolbar-icon-action"
                     icon={<GnMoreIcon />}
@@ -694,7 +695,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         {!isElasticsearchMode && (
           <>
             <Tooltip title={findInEditorTitle}>
-              <Button
+              <QueryToolbarButton
                 aria-label={t("query_editor.action.find_in_editor")}
                 className="gn-v2-query-toolbar-icon-action"
                 icon={<SearchOutlined />}
@@ -708,7 +709,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   : "query_editor.action.enable_word_wrap",
               )}
             >
-              <Button
+              <QueryToolbarButton
                 className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-word-wrap-action"
                 type={wordWrapEnabled ? "primary" : "default"}
                 icon={<GnWrapIcon />}
@@ -724,7 +725,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           </>
         )}
         <Tooltip title={formatSqlTitle}>
-          <Button
+          <QueryToolbarButton
             aria-label={t(isElasticsearchMode
               ? "query_editor.elasticsearch.action.format"
               : "query_editor.action.format_sql")}
@@ -755,7 +756,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "format"}
                 onOpenChange={(open) => updateToolbarMenuOpen("format", open)}
               >
-                <Button
+                <QueryToolbarButton
                   aria-label={formatSettingsTitle}
                   className="gn-v2-query-toolbar-icon-action"
                   icon={<GnSettingsIcon />}
@@ -771,7 +772,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
 
     </div>
   );
-
 
   return (
     <div
