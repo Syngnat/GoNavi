@@ -419,10 +419,12 @@ func (s *Server) writeStartupBanner(addr string) {
 			display = net.JoinHostPort("127.0.0.1", port)
 		}
 	}
-	_, _ = fmt.Fprintf(s.options.Console, "GoNavi Web Server 已启动：http://%s\n日志：%s\n", display, logger.Path())
 	if s.auth != nil && !s.auth.Status("").Configured {
-		if token := s.auth.SetupToken(); token != "" {
-			_, _ = fmt.Fprintf(s.options.Console, "首次初始化：http://%s/setup?setup=%s\n", display, url.QueryEscape(token))
+		if token := strings.TrimSpace(s.auth.SetupToken()); token != "" {
+			// 不自动打开浏览器。未初始化时日志里只给这一条带令牌的地址，由用户自己打开。
+			_, _ = fmt.Fprintf(s.options.Console, "GoNavi Web Server 已启动\n首次初始化请打开：http://%s/setup?setup=%s\n日志：%s\n", display, url.QueryEscape(token), logger.Path())
+			return
 		}
 	}
+	_, _ = fmt.Fprintf(s.options.Console, "GoNavi Web Server 已启动：http://%s\n日志：%s\n", display, logger.Path())
 }
