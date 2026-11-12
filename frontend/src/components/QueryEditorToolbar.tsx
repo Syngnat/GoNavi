@@ -1,5 +1,6 @@
 import React from "react";
-import { Button, Dropdown, Select, Tooltip, type MenuProps } from "antd";
+import { Button, Select, Tooltip, type MenuProps } from "antd";
+import { V2Dropdown } from "./common/V2Dropdown";
 import {
   BulbOutlined,
   CheckOutlined,
@@ -312,7 +313,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   const aiMoreTitle = isElasticsearchMode
     ? t("query_editor.elasticsearch.action.ai")
     : `AI · ${t("query_editor.action.more")}`;
-  const formatSettingsTitle = `${t("query_editor.action.format_sql")} · ${t("settings.title")}`;
+  const formatSettingsTitle = t("settings.title");
   const aiMenuItems: MenuProps["items"] = isElasticsearchMode
     ? [
         {
@@ -451,7 +452,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           open={openToolbarMenu === "templates" ? false : undefined}
         >
           <span className="gn-v2-query-toolbar-menu-trigger">
-            <Dropdown
+            <V2Dropdown
                 menu={{ items: templateActionMenuItems }}
                 placement="bottomLeft"
                 trigger={["click"]}
@@ -470,7 +471,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 aria-haspopup="menu"
                 aria-expanded={openToolbarMenu === "templates"}
               />
-            </Dropdown>
+            </V2Dropdown>
           </span>
         </Tooltip>
       )}
@@ -582,7 +583,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             open={openToolbarMenu === "ai" ? false : undefined}
           >
             <span className="gn-v2-query-toolbar-menu-trigger">
-              <Dropdown
+              <V2Dropdown
                 menu={{ items: aiActionMenuItems }}
                 placement="bottomRight"
                 trigger={["click"]}
@@ -602,7 +603,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   aria-expanded={openToolbarMenu === "ai"}
                   onMouseDown={onCaptureEditorCursorPosition}
                 />
-              </Dropdown>
+              </V2Dropdown>
             </span>
           </Tooltip>
         ) : (
@@ -622,7 +623,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "ai" ? false : undefined}
               >
                 <span className="gn-v2-query-toolbar-menu-trigger">
-                  <Dropdown
+                  <V2Dropdown
                     menu={{ items: aiActionMenuItems }}
                     placement="bottomRight"
                     trigger={["click"]}
@@ -642,7 +643,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                       aria-expanded={openToolbarMenu === "ai"}
                       onMouseDown={onCaptureEditorCursorPosition}
                     />
-                  </Dropdown>
+                  </V2Dropdown>
                 </span>
               </Tooltip>
             </div>
@@ -660,7 +661,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               open={openToolbarMenu === "more" ? false : undefined}
             >
               <span className="gn-v2-query-toolbar-menu-trigger">
-                <Dropdown
+                <V2Dropdown
                   menu={{ items: moreActionMenuItems }}
                   placement="bottomRight"
                   trigger={["click"]}
@@ -679,7 +680,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                     aria-haspopup="menu"
                     aria-expanded={openToolbarMenu === "more"}
                   />
-                </Dropdown>
+                </V2Dropdown>
               </span>
             </Tooltip>
           </>
@@ -738,7 +739,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             open={openToolbarMenu === "format" ? false : undefined}
           >
             <span className="gn-v2-query-toolbar-menu-trigger">
-            <Dropdown
+            <V2Dropdown
                 menu={{
                   items: formatActionMenuItems,
                   selectable: true,
@@ -761,7 +762,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   aria-haspopup="menu"
                   aria-expanded={openToolbarMenu === "format"}
                 />
-              </Dropdown>
+              </V2Dropdown>
             </span>
           </Tooltip>
         )}
@@ -770,7 +771,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
 
     </div>
   );
-
 
 
   return (

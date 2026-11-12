@@ -135,7 +135,7 @@ describe('QueryEditor external SQL save', () => {
       '搜索',
       '开启自动换行',
       '美化 SQL',
-      '美化 SQL · 设置',
+      '设置',
     ];
     const iconOnlyButtons = exactLabels.map((label) => renderer.root.find(
       (node) => node.type === 'button' && node.props?.['aria-label'] === label,

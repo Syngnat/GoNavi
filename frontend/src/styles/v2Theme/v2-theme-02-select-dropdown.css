@@ -254,6 +254,34 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu
   box-shadow: none !important;
 }
 
+/* rc-trigger 在对齐完成前把浮层放在 -1000vw。
+   进入动画的 transform: scale(0) 会让 getBoundingClientRect 为 0，
+   useAlign 直接放弃，ready 永远是 false，菜单停在屏幕外且没有异常。
+   进入态若一直停在 opacity:0，看起来就是下拉按钮点了没反应。
+   这里拆掉会把盒子量成 0 的缩放；动画关键帧仍可在播放期间覆盖。 */
+body[data-ui-version="v2"] :is(
+  .ant-slide-up-enter,
+  .ant-slide-up-appear,
+  .ant-slide-down-enter,
+  .ant-slide-down-appear,
+  .ant-zoom-enter,
+  .ant-zoom-appear,
+  .ant-zoom-big-enter,
+  .ant-zoom-big-appear
+) {
+  transform: none !important;
+  opacity: 1 !important;
+}
+
+body[data-ui-version="v2"] :is(
+  .ant-slide-up-leave,
+  .ant-slide-down-leave,
+  .ant-zoom-leave,
+  .ant-zoom-big-leave
+) {
+  pointer-events: none !important;
+}
+
 /* ─── Tables (ant-table, used by some legacy panes) ────── */
 body[data-ui-version="v2"] .ant-table {
   background: var(--gn-bg-panel) !important;

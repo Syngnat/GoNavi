@@ -70,7 +70,11 @@ describe('QueryEditorToolbarAnalysisAction', () => {
         />,
       );
     });
-    expect(antdState.dropdownProps[0]).toMatchObject({ open: true, trigger: ['click'] });
+    expect(antdState.dropdownProps[0]).toMatchObject({
+      open: true,
+      trigger: ['click'],
+      popupMotion: { motionName: 'ant-slide-up', motionDeadline: 500 },
+    });
     expect(antdState.tooltipProps[0].open).toBe(false);
     antdState.dropdownProps[0].onOpenChange(false);
     expect(onOpenChange).toHaveBeenCalledWith(false);

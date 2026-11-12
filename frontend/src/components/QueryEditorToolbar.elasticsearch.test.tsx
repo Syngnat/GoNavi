@@ -255,6 +255,10 @@ describe('QueryEditorToolbar Elasticsearch mode', () => {
       selectable: true,
       selectedKeys: ['upper'],
     });
+    expect(formatDropdown()?.popupMotion).toEqual({
+      motionName: 'ant-slide-up',
+      motionDeadline: 500,
+    });
     expect(findMenuItem('upper').extra.props).toMatchObject({
       'aria-label': 'selected',
     });
