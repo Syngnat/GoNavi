@@ -69,6 +69,12 @@ func ScanCodexSessions(dataDir string) []SessionMeta {
 	})
 	result := make([]SessionMeta, 0, len(metas))
 	for _, meta := range metas {
+		// 空会话（只有 session_meta / turn_context，没有用户或助手正文）
+		// 不进列表：Codex 自己的会话列表默认也隐藏无 preview 的线程。
+		// 过滤放在列表层而非解析层，删除时的身份校验仍能读到空会话。
+		if meta.FirstMessage == "" && meta.Summary == "" {
+			continue
+		}
 		result = append(result, *meta)
 	}
 	sortSessionsDesc(result)
@@ -110,35 +116,51 @@ type rolloutSessionMeta struct {
 	ForkedFromID string `json:"forked_from_id"`
 }
 
-// codexSubagentMarker 是 session_meta 里的子代理标记。
-type codexSubagentMarker struct {
-	Subagent bool
+// codexSessionMarker 是 session_meta 里的非根线程标记。Codex 会把
+// 子代理、guardian 审查、记忆整理等系统线程写进同一个 sessions 目录，
+// 它们不是用户会话，不能出现在列表里。
+type codexSessionMarker struct {
+	NonRoot bool
 	// ParentThreadID 子代理的父线程 ID（仅 thread_spawn 形态有）。
 	ParentThreadID string
 }
 
-// parseCodexSubagentMarker 解析子代理标记。判定信号有三：source 内含
-// subagent 对象（旧版为 true 布尔）、thread_source="subagent"。
-func parseCodexSubagentMarker(source json.RawMessage, threadSource string) codexSubagentMarker {
-	marker := codexSubagentMarker{}
-	if strings.EqualFold(strings.TrimSpace(threadSource), "subagent") {
-		marker.Subagent = true
+// parseCodexSessionMarker 解析非根线程标记。判定信号有三类：
+//  1. thread_source 为 subagent / guardian_review / memory_consolidation；
+//  2. source 含 subagent（旧式子代理，布尔/对象两种形态）；
+//  3. source 含 internal（新版 guardian / memory consolidation）。
+func parseCodexSessionMarker(source json.RawMessage, threadSource string) codexSessionMarker {
+	marker := codexSessionMarker{}
+	switch strings.ToLower(strings.TrimSpace(threadSource)) {
+	case "subagent", "guardian_review", "memory_consolidation":
+		marker.NonRoot = true
 	}
 	trimmed := strings.TrimSpace(string(source))
-	if trimmed == "" || trimmed == "null" || !strings.HasPrefix(trimmed, "{") {
+	if trimmed == "" || trimmed == "null" {
+		return marker
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		// 少数版本把 source 写成 internal_guardian 这类字符串。
+		if strings.HasPrefix(strings.ToLower(strings.Trim(trimmed, `"`)), "internal_") {
+			marker.NonRoot = true
+		}
 		return marker
 	}
 	var payload struct {
 		Subagent json.RawMessage `json:"subagent"`
+		Internal json.RawMessage `json:"internal"`
 	}
 	if err := json.Unmarshal(source, &payload); err != nil {
 		return marker
 	}
+	if jsonValuePresent(payload.Internal) {
+		marker.NonRoot = true
+	}
 	inner := strings.TrimSpace(string(payload.Subagent))
-	if inner == "" || inner == "null" {
+	if !jsonValuePresent(payload.Subagent) {
 		return marker
 	}
-	marker.Subagent = true
+	marker.NonRoot = true
 	if !strings.HasPrefix(inner, "{") {
 		return marker
 	}
@@ -151,6 +173,12 @@ func parseCodexSubagentMarker(source json.RawMessage, threadSource string) codex
 		marker.ParentThreadID = strings.TrimSpace(spawn.ThreadSpawn.ParentThreadID)
 	}
 	return marker
+}
+
+// jsonValuePresent 判断 RawMessage 是否是实际 JSON 值（而非缺失/null）。
+func jsonValuePresent(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null"
 }
 
 // codexFilenameIsSubagent 判断文件名是否为子代理 rollout：Codex 把子
@@ -210,8 +238,8 @@ func parseCodexSessionMeta(path string, titles map[string]string) (*SessionMeta,
 		if err := json.Unmarshal(item.Payload, &payload); err != nil {
 			continue
 		}
-		if parseCodexSubagentMarker(payload.Source, payload.ThreadSource).Subagent {
-			// 子代理线程不进列表。
+		if parseCodexSessionMarker(payload.Source, payload.ThreadSource).NonRoot {
+			// 子代理 / guardian / 记忆整理等系统线程不进列表。
 			return nil, nil
 		}
 		meta.SessionID = firstNonEmpty(payload.ID, payload.SessionID)
