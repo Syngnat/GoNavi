@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
     findSqlStatementRanges,
     stripLeadingSqlTrivia,
@@ -84,7 +84,8 @@ export const useQueryEditorResultSetModel = ({
         String(sql || '').replace(/(^|\n)([ \t]*\/[ \t]*);+([ \t]*(?:--[^\n]*)?)(?=\n|$)/g, '$1$2$3')
     );
 
-    const getSelectedSQL = (): string => {
+    const capturedSelectionSQLRef = useRef('');
+    const readLiveSelectedSQL = (): string => {
         const editor = editorRef.current;
         if (!editor) return '';
         const model = editor.getModel?.();
@@ -95,6 +96,18 @@ export const useQueryEditorResultSetModel = ({
         if (typeof selected !== 'string') return '';
         if (!selected.trim()) return '';
         return selected;
+    };
+    const getSelectedSQL = (): string => {
+        const editor = editorRef.current;
+        // 点运行会让编辑器失焦，选区可能先被清掉。优先用按下时记下的选区。
+        if (editor?.hasTextFocus?.()) {
+            capturedSelectionSQLRef.current = '';
+        } else if (capturedSelectionSQLRef.current.trim()) {
+            const captured = capturedSelectionSQLRef.current;
+            capturedSelectionSQLRef.current = '';
+            return captured;
+        }
+        return readLiveSelectedSQL();
     };
 
     const buildResultSetMergeKey = (result: QueryEditorResultSet): string => (
@@ -300,13 +313,18 @@ export const useQueryEditorResultSetModel = ({
         return getExecutableSQLAtCurrentCursor(model, String(model.getValue?.() ?? currentQuery), activeDialect);
     };
 
-    const captureEditorCursorPosition = (event?: React.MouseEvent<HTMLElement>) => {
-        event?.preventDefault();
+    const captureEditorCursorPosition = (_event?: React.MouseEvent<HTMLElement>) => {
+        // 不能 preventDefault。macOS 27.2 的 WebKit 会在按钮 mousedown 被取消后丢掉 click，
+        // 运行和 AI 就点了没反应；保存、美化没有这段逻辑，所以只有它们还能用。
         const editor = editorRef.current;
         const position = normalizeEditorPosition(editor?.getSelection?.()) || normalizeEditorPosition(editor?.getPosition?.());
         if (position) {
             lastEditorCursorPositionRef.current = position;
         }
+        const model = editor?.getModel?.();
+        const selection = editor?.getSelection?.();
+        const selected = model && selection ? model.getValueInRange?.(selection) : '';
+        capturedSelectionSQLRef.current = typeof selected === 'string' && selected.trim() ? selected : '';
     };
 
     const buildSqlExecutionConnectionConfig = useCallback((
