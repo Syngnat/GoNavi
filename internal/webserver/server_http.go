@@ -160,7 +160,7 @@ func (s *Server) routes() http.Handler {
 			return sessionID
 		}())
 		if !status.Configured {
-			http.Redirect(w, r, buildAuthRedirectURL("/setup", r.URL.RequestURI()), http.StatusSeeOther)
+			http.Redirect(w, r, s.buildSetupRedirectURL(r.URL.RequestURI()), http.StatusSeeOther)
 			return
 		}
 		if !status.Authenticated {
