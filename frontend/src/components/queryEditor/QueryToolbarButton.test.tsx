@@ -5,15 +5,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { QueryToolbarButton } from './QueryToolbarButton';
 
 vi.mock('antd', () => ({
-  Button: React.forwardRef((props: any, ref) => (
+  Button: React.forwardRef<HTMLButtonElement, Record<string, unknown>>((props, ref) => (
     <button
       ref={ref}
       type="button"
-      disabled={props.disabled}
-      onClick={props.onClick}
-      onPointerUp={props.onPointerUp}
+      disabled={Boolean(props.disabled)}
+      onClick={props.onClick as React.MouseEventHandler<HTMLButtonElement>}
+      onPointerUp={props.onPointerUp as React.PointerEventHandler<HTMLButtonElement>}
     >
-      {props.children}
+      {props.children as React.ReactNode}
     </button>
   )),
 }));
