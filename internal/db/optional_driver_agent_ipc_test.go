@@ -13,42 +13,50 @@ import (
 	sshbridge "GoNavi-Wails/internal/ssh"
 )
 
-func TestReadOptionalDriverAgentJSONLineEnforcesFrameLimit(t *testing.T) {
-	valid := bytes.Repeat([]byte{'x'}, OptionalDriverAgentMaxJSONLineBytes-1)
-	line, err := ReadOptionalDriverAgentJSONLine(bufio.NewReader(bytes.NewReader(append(valid, '\n'))))
-	if err != nil || len(line) != OptionalDriverAgentMaxJSONLineBytes {
-		t.Fatalf("读取上限内帧 = (%d, %v)，want (%d, nil)", len(line), err, OptionalDriverAgentMaxJSONLineBytes)
-	}
+const formerOptionalDriverAgentJSONLineLimit = 32 << 20
 
-	oversized := append(bytes.Repeat([]byte{'x'}, OptionalDriverAgentMaxJSONLineBytes), '\n')
-	line, err = ReadOptionalDriverAgentJSONLine(bufio.NewReader(bytes.NewReader(oversized)))
-	if !errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) || line != nil {
-		t.Fatalf("超限帧 = (%d, %v)，want (0, ErrOptionalDriverAgentJSONLineTooLarge)", len(line), err)
+func TestReadOptionalDriverAgentJSONLineReadsFormerOversizedFrame(t *testing.T) {
+	oversized := append(bytes.Repeat([]byte{'x'}, formerOptionalDriverAgentJSONLineLimit), '\n')
+	line, err := ReadOptionalDriverAgentJSONLine(bufio.NewReader(bytes.NewReader(oversized)))
+	if err != nil || len(line) != len(oversized) {
+		t.Fatalf("读取超大帧 = (%d, %v)，want (%d, nil)", len(line), err, len(oversized))
 	}
 }
 
-func TestOptionalDriverAgentClientRejectsOversizedResponseAndDoesNotReuseTransport(t *testing.T) {
+func TestOptionalDriverAgentClientAcceptsResponseLargerThanFormerFrameLimit(t *testing.T) {
+	data, err := json.Marshal(strings.Repeat("x", formerOptionalDriverAgentJSONLineLimit))
+	if err != nil {
+		t.Fatalf("构造超大响应数据失败：%v", err)
+	}
+	response, err := json.Marshal(optionalAgentResponse{ID: 1, Success: true, Data: data})
+	if err != nil {
+		t.Fatalf("构造超大响应失败：%v", err)
+	}
+	response = append(response, '\n')
+	if len(response) <= formerOptionalDriverAgentJSONLineLimit {
+		t.Fatalf("测试响应只有 %d 字节，未超过旧的 32 MiB 单帧上限", len(response))
+	}
+	stdout := append(append([]byte(nil), response...), []byte(`{"id":2,"success":true}`+"\n")...)
+
 	var stdin optionalAgentTestWriteCloser
-	oversized := append(bytes.Repeat([]byte{'x'}, OptionalDriverAgentMaxJSONLineBytes), '\n')
+	var out string
 	client := &optionalDriverAgentClient{
 		stdin:  &stdin,
-		reader: bufio.NewReader(bytes.NewReader(oversized)),
+		reader: bufio.NewReader(bytes.NewReader(stdout)),
 		driver: "duckdb",
 	}
-
-	err := client.call(optionalAgentRequest{Method: optionalAgentMethodQuery}, nil, nil, nil, nil)
-	if !errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
-		t.Fatalf("超限普通响应错误 = %v，want ErrOptionalDriverAgentJSONLineTooLarge", err)
+	if err := client.call(optionalAgentRequest{Method: optionalAgentMethodQuery}, &out, nil, nil, nil); err != nil {
+		t.Fatalf("超大响应失败：%v", err)
 	}
-	if err := client.call(optionalAgentRequest{Method: optionalAgentMethodPing}, nil, nil, nil, nil); !errors.Is(err, errOptionalAgentTransportStopped) {
-		t.Fatalf("超限后复用传输错误 = %v，want stopped", err)
+	if len(out) != formerOptionalDriverAgentJSONLineLimit {
+		t.Fatalf("超大响应长度 = %d，want %d", len(out), formerOptionalDriverAgentJSONLineLimit)
 	}
-	if writes := bytes.Count(stdin.Bytes(), []byte{'\n'}); writes != 1 {
-		t.Fatalf("超限后写入次数 = %d，want 1", writes)
+	if err := client.call(optionalAgentRequest{Method: optionalAgentMethodPing}, nil, nil, nil, nil); err != nil {
+		t.Fatalf("超大响应后传输应可继续使用：%v", err)
 	}
 }
 
-func TestOptionalDriverAgentClientRejectsOversizedRequest(t *testing.T) {
+func TestOptionalDriverAgentClientSendsRequestLargerThanFormerFrameLimit(t *testing.T) {
 	var stdin optionalAgentTestWriteCloser
 	client := &optionalDriverAgentClient{
 		stdin:  &stdin,
@@ -58,13 +66,13 @@ func TestOptionalDriverAgentClientRejectsOversizedRequest(t *testing.T) {
 
 	err := client.call(optionalAgentRequest{
 		Method:    optionalAgentMethodQuery,
-		SessionID: strings.Repeat("x", OptionalDriverAgentMaxJSONLineBytes),
+		SessionID: strings.Repeat("x", formerOptionalDriverAgentJSONLineLimit),
 	}, nil, nil, nil, nil)
-	if !errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
-		t.Fatalf("超限请求错误 = %v，want ErrOptionalDriverAgentJSONLineTooLarge", err)
+	if err != nil {
+		t.Fatalf("超大请求失败：%v", err)
 	}
-	if stdin.Len() != 0 {
-		t.Fatalf("超限请求仍写入 %d 字节，want 0", stdin.Len())
+	if stdin.Len() <= formerOptionalDriverAgentJSONLineLimit {
+		t.Fatalf("超大请求写入 %d 字节，未超过旧的 32 MiB 单帧上限", stdin.Len())
 	}
 }
 
@@ -119,21 +127,38 @@ func TestOptionalDriverAgentClientRejectsOutcomeUnknownOnInvalidResponse(t *test
 	}
 }
 
-func TestOptionalDriverAgentClientRejectsOversizedStreamChunkAndDoesNotReuseTransport(t *testing.T) {
-	var stdin optionalAgentTestWriteCloser
-	oversized := append(bytes.Repeat([]byte{'x'}, OptionalDriverAgentMaxJSONLineBytes), '\n')
-	client := &optionalDriverAgentClient{
-		stdin:  &stdin,
-		reader: bufio.NewReader(bytes.NewReader(oversized)),
-		driver: "duckdb",
+func TestOptionalDriverAgentClientAcceptsStreamChunkLargerThanFormerFrameLimit(t *testing.T) {
+	row, err := json.Marshal([][]string{{strings.Repeat("x", formerOptionalDriverAgentJSONLineLimit)}})
+	if err != nil {
+		t.Fatalf("构造超大流式行失败：%v", err)
+	}
+	frames := []string{
+		`{"id":1,"success":true,"chunkType":"columns","fields":["payload"]}`,
+		`{"id":1,"success":true,"chunkType":"rows","data":` + string(row) + `}`,
+		`{"id":1,"success":true,"chunkType":"done"}`,
+		`{"id":2,"success":true}`,
+	}
+	stdout := strings.Join(frames, "\n") + "\n"
+	rowsFrame := frames[1] + "\n"
+	if len(rowsFrame) <= formerOptionalDriverAgentJSONLineLimit {
+		t.Fatalf("流式行帧只有 %d 字节，未超过旧的 32 MiB 单帧上限", len(rowsFrame))
 	}
 
-	err := client.callStreamQuery(optionalAgentRequest{Method: optionalAgentMethodStreamQuery}, &optionalAgentTestStreamConsumer{})
-	if !errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
-		t.Fatalf("超限流式响应错误 = %v，want ErrOptionalDriverAgentJSONLineTooLarge", err)
+	var stdin optionalAgentTestWriteCloser
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		reader: bufio.NewReader(strings.NewReader(stdout)),
+		driver: "duckdb",
 	}
-	if err := client.call(optionalAgentRequest{Method: optionalAgentMethodPing}, nil, nil, nil, nil); !errors.Is(err, errOptionalAgentTransportStopped) {
-		t.Fatalf("流式超限后复用传输错误 = %v，want stopped", err)
+	consumer := &optionalAgentTestStreamConsumer{}
+	if err := client.callStreamQuery(optionalAgentRequest{Method: optionalAgentMethodStreamQuery}, consumer); err != nil {
+		t.Fatalf("超大流式响应失败：%v", err)
+	}
+	if len(consumer.rows) != 1 || consumer.rows[0][0] != strings.Repeat("x", formerOptionalDriverAgentJSONLineLimit) {
+		t.Fatalf("超大流式行未完整读回：rows=%d", len(consumer.rows))
+	}
+	if err := client.call(optionalAgentRequest{Method: optionalAgentMethodPing}, nil, nil, nil, nil); err != nil {
+		t.Fatalf("超大流式响应后传输应可继续使用：%v", err)
 	}
 }
 
@@ -148,9 +173,6 @@ func TestOptionalDriverAgentClientAcceptsLargeResponseWithinLimit(t *testing.T) 
 		t.Fatalf("构造响应失败：%v", err)
 	}
 	response = append(response, '\n')
-	if len(response) >= OptionalDriverAgentMaxJSONLineBytes {
-		t.Fatalf("测试响应 %d 字节，意外超过上限", len(response))
-	}
 
 	var out string
 	client := &optionalDriverAgentClient{

@@ -51,10 +51,6 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(requestID int64, req o
 		return err
 	}
 	payload = append(payload, '\n')
-	if len(payload) > OptionalDriverAgentMaxJSONLineBytes {
-		_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
-		return fmt.Errorf("发送 %s 驱动代理请求失败：%w", driverDisplayName(c.driver), ErrOptionalDriverAgentJSONLineTooLarge)
-	}
 	if err := c.writeRequestFrame(payload); err != nil {
 		stderrText := c.stderrText()
 		if stderrText == "" {
@@ -84,8 +80,7 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(requestID int64, req o
 			if errText == "" {
 				errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
 			}
-			// 单帧超限只代表「这一批数据发不出去」，agent 已就此结束该请求。
-			// 若在这里终止 transport，一条超大消息会让整个连接永久不可用。
+			// 旧版 agent 的单帧超限失败帧已经结束该请求，帧边界仍然可信。
 			if isOptionalAgentOversizeFailure(errText) {
 				return ErrOptionalDriverAgentJSONLineTooLarge
 			}
@@ -143,9 +138,9 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(requestID int64, req o
 
 // readOptionalAgentStreamFrame 读取并解析一帧流式响应，强制校验其请求 ID。
 //
-// 终止帧之前发生读取失败（含流未结束的 EOF 与超限行）或帧解码失败时，无法继续
-// 确认帧边界，ID 不匹配则说明串行管道里已经出现别的请求的帧：三种情况都直接
-// 终止并标记 transport，由后续连接重建，绝不让可疑帧流入下一个请求。
+// 终止帧之前发生读取失败（含流未结束的 EOF）或帧解码失败时，无法继续确认帧边界，
+// ID 不匹配则说明串行管道里已经出现别的请求的帧：这些情况都直接终止并标记 transport，
+// 由后续连接重建，绝不让可疑帧流入下一个请求。
 func (c *optionalDriverAgentClient) readOptionalAgentStreamFrame(requestID int64) (optionalAgentResponse, error) {
 	line, err := ReadOptionalDriverAgentJSONLine(c.reader)
 	if err != nil {
@@ -188,11 +183,11 @@ func (c *optionalDriverAgentClient) drainAbandonedStream(requestID int64, cause 
 	}
 }
 
-// isOptionalAgentOversizeFailure 判断失败帧是否是 agent 主动报告的「单帧超限」。
+// isOptionalAgentOversizeFailure 判断失败帧是否是旧版 agent 主动报告的「单帧超限」。
 //
-// agent 在写出前检查帧大小，超限时不写任何半帧，而是另写一条小的失败帧：帧边界仍然可信，
-// 同一个 transport 可以继续使用。用文案前缀而不是整串相等：上限调整后 MiB 数字会变，
-// 前缀才能匹配新旧版本的 agent。
+// 旧版 agent 在写出前检查帧大小，超限时不写任何半帧，而是另写一条小的失败帧：帧边界仍然可信，
+// 同一个 transport 可以继续使用。当前协议已取消单帧上限，这里只兼容仍在运行的旧代理。
+// 用文案前缀而不是整串相等，才能匹配不同 MiB 数字的旧文案。
 func isOptionalAgentOversizeFailure(errText string) bool {
 	return strings.HasPrefix(strings.TrimSpace(errText), "驱动代理 JSON Lines 单帧超过")
 }

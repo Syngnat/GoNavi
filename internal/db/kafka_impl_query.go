@@ -16,8 +16,8 @@ const (
 	// Kafka 没有「只读元数据」的 fetch：列出 N 条就要传 N 条完整消息。不设上限时
 	// 100 条 15 MB 的消息要传 1.5 GB；超出时返回已读到的部分并附带截断提示。
 	kafkaDefaultPreviewByteBudget int64 = 64 << 20
-	// kafkaPayloadByteBudget 是带 payload 的结果上限：结果要装进驱动代理的单帧
-	// （32 MiB），JSON 编码还会膨胀，这里留一半余量。
+	// kafkaPayloadByteBudget 是带 payload 的结果读取上限。大消息会让结果和主进程内存一起膨胀，
+	// 超出时返回已读到的部分并附带截断提示。
 	kafkaPayloadByteBudget int64 = 16 << 20
 )
 

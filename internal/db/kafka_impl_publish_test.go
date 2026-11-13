@@ -41,7 +41,7 @@ func TestKafkaPublishSetsTopicOnlyOnWriter(t *testing.T) {
 }
 
 // 默认 BatchBytes 是 1 MiB：超过就在客户端被拒，报错文案却像 broker 拒收。
-// 放宽到驱动代理单帧上限后，消息大小交给 broker 的 message.max.bytes 判定。
+// 放宽客户端批次上限后，消息大小交给 broker 的 message.max.bytes 判定。
 func TestKafkaPublishWriterAllowsMessagesBeyondOneMiB(t *testing.T) {
 	runtime, err := newKafkaGoRuntime(connection.ConnectionConfig{Type: "kafka", Host: "127.0.0.1", Port: 9092})
 	if err != nil {

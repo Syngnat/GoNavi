@@ -8,8 +8,7 @@ import (
 )
 
 // kafkaFlattenMaxPayloadBytes 限制 SELECT * 时「把 JSON payload 展开成 value.xxx 列」的消息体积。
-// 展开会让同一份内容在行里出现两次（value 与 value.data），十几 MB 的消息会顶满
-// 驱动代理的单帧上限，让整个预览流中断。显式请求的 value.xxx 列不受此限制。
+// 展开会让同一份内容在行里出现两次（value 与 value.data）。显式请求的 value.xxx 列不受此限制。
 const kafkaFlattenMaxPayloadBytes = 64 << 10
 
 func kafkaMessageRows(records []kafkaMessageRecord) []map[string]interface{} {

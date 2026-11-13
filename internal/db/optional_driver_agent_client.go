@@ -177,10 +177,6 @@ func (c *optionalDriverAgentClient) callLocked(requestID int64, req optionalAgen
 		return err
 	}
 	payload = append(payload, '\n')
-	if len(payload) > OptionalDriverAgentMaxJSONLineBytes {
-		_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
-		return markOptionalAgentWriteTransportUnknown(req, fmt.Errorf("发送 %s 驱动代理请求失败：%w", driverDisplayName(c.driver), ErrOptionalDriverAgentJSONLineTooLarge))
-	}
 	if err := c.writeRequestFrame(payload); err != nil {
 		stderrText := c.stderrText()
 		if stderrText == "" {
@@ -192,9 +188,6 @@ func (c *optionalDriverAgentClient) callLocked(requestID int64, req optionalAgen
 	for {
 		line, err := ReadOptionalDriverAgentJSONLine(c.reader)
 		if err != nil {
-			if errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
-				_ = c.forceTerminate(err)
-			}
 			stderrText := c.stderrText()
 			if stderrText == "" {
 				return markOptionalAgentWriteTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
@@ -224,9 +217,8 @@ func (c *optionalDriverAgentClient) callLocked(requestID int64, req optionalAgen
 			if errText == "" {
 				errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
 			}
-			// agent 已就该请求写出完整的失败帧，帧边界可信：只让这次请求失败，
-			// 不终止 transport，否则一条超大的结果行会让整个连接不可用。
-			// applyChanges 的写入可能已经生效，只是响应发不出来，结果标记为未知。
+			// 旧版 agent 会把超限改写成一条完整的小失败帧，帧边界可信：只让这次请求失败，
+			// 不终止 transport。applyChanges 的写入可能已经生效，结果标记为未知。
 			if isOptionalAgentOversizeFailure(errText) {
 				return markOptionalAgentWriteTransportUnknown(req, ErrOptionalDriverAgentJSONLineTooLarge)
 			}
