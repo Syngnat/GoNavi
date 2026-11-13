@@ -13944,5 +13944,21 @@
   "plugin.market.install_permission_export_detail": "エクスポーター {{count}} 件",
   "plugin.market.install_confirm_hint": "上のアドレスを貼り付けて確認",
   "db.backend.error.oracle_conn_closed": "（Oracle 接続が検証段階でサーバー側から閉じられたか、ドライバーのタイムアウトで中断されました。待ち受けポートが Oracle プロトコルのポートか、サービス名（Service Name）または SID が正しいか、DBA_PRIVILEGE/AUTH_TYPE などの認証パラメーターが一致しているかを確認してください）",
-  "db.backend.error.oracle_handshake_eof": "（Oracle のハンドシェイク段階で接続が相手側から閉じられたか、応答が不完全でした。ポートが Oracle の待ち受けポート（MySQL/SQL Server などではない）か、サービス名または SID が正しいか、クライアントとサーバーのバージョン・文字セットが互換か確認してください。SSH トンネルやプロキシ経由の場合は、ハンドシェイク中に切断していないか確認してください）"
+  "db.backend.error.oracle_handshake_eof": "（Oracle のハンドシェイク段階で接続が相手側から閉じられたか、応答が不完全でした。ポートが Oracle の待ち受けポート（MySQL/SQL Server などではない）か、サービス名または SID が正しいか、クライアントとサーバーのバージョン・文字セットが互換か確認してください。SSH トンネルやプロキシ経由の場合は、ハンドシェイク中に切断していないか確認してください）",
+  "plugin.permission.host_ai_providers_read": "AI プロバイダーのメタデータを読み取る",
+  "plugin.permission.host_ai_providers_read.description": "設定済み AI プロバイダーの名前・エンドポイント・モデル・形式を読み取ります（シークレットは含みません）",
+  "plugin.permission.host_ai_providers_write": "AI プロバイダーを追加する",
+  "plugin.permission.host_ai_providers_write.description": "選択したプロバイダーをホストの AI プロバイダー一覧に書き込みます（既存のシークレットは読み戻しません）",
+  "plugin.permission.host_clipboard": "クリップボードの読み書き",
+  "plugin.permission.host_clipboard.description": "システムクリップボードのテキストを上限付きで読み取り・置き換えます",
+  "plugin.permission.host_events": "ホストイベントを購読する",
+  "plugin.permission.host_events.description": "上限付きのホストイベント（設定・ライフサイクル・接続）を購読し、プラグイン自身のイベントを発行します",
+  "plugin.permission.host_files": "ファイルとフォルダーを選択する",
+  "plugin.permission.host_files.description": "ネイティブのファイル選択／保存ダイアログを表示し、選択されたパスを返します（読み書きはプラグイン側で行います）",
+  "plugin.permission.ui_dialog": "確認ダイアログを表示する",
+  "plugin.permission.ui_dialog.description": "ネイティブの確認ダイアログを 1 回表示し、ユーザーの選択を返します",
+  "plugin.permission.ui_progress": "タスクの進捗を報告する",
+  "plugin.permission.ui_progress.description": "上限付きのタスク進捗をホスト通知として表示します",
+  "plugin.permission.ui_sidebar": "サイドバーのグループを追加する",
+  "plugin.permission.ui_sidebar.description": "ホストの接続ツリーに展開可能なグループを追加します（ノードは宣言したコマンドが生成します）"
 }

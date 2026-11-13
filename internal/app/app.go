@@ -49,9 +49,14 @@ var (
 
 // App struct
 type App struct {
-	pluginMarket                  pluginMarketRuntimeState
-	plugins                       pluginRuntimeState
-	pluginEvents                  pluginEventBroker
+	pluginMarket pluginMarketRuntimeState
+	plugins      pluginRuntimeState
+	pluginEvents pluginEventBroker
+	// aiProviderStore 是 AI 供应商导入能力的唯一写入口，由 cmd 层注入活动 AI Service。
+	// 不做「直接写 ai_config.json」的降级：宿主把供应商缓存在内存、保存时整表回写，
+	// 绕过 Service 的写入会在下一次保存时被覆盖掉。
+	aiProviderStoreMu             sync.RWMutex
+	aiProviderStore               AIProviderStore
 	schemaWritePlans              schemaWritePlanStore
 	schemaConfirm                 func(context.Context, string) (bool, error)
 	ctx                           context.Context

@@ -481,6 +481,9 @@ func main() {
 		})
 	})
 	aiService := aiservice.NewServiceWithConfigChangeHandler(appcore.NewCloudBackupChangeHandler(backend))
+	// 供应商导入能力必须写活动 Service：宿主把供应商缓存在内存、保存时整表回写，
+	// 绕过 Service 直接改 ai_config.json 的结果会被下一次保存覆盖掉。
+	backend.SetAIProviderStore(appcore.NewAIServiceProviderStore(aiService))
 	if err := aiservice.ConfigurePluginProviderFactory(aiService, appcore.PluginAIProviderFactoryForIntegration(backend)); err != nil {
 		log.Printf("configure plugin AI provider failed: %v", err)
 	}

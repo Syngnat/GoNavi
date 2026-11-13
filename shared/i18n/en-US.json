@@ -13944,5 +13944,21 @@
   "plugin.market.install_permission_export_detail": "{{count}} exporters",
   "plugin.market.install_confirm_hint": "Paste the address above to confirm",
   "db.backend.error.oracle_conn_closed": " (the Oracle connection was closed by the server or interrupted by a driver timeout during validation; check that the port is an Oracle protocol port, that the Service Name or SID is correct, and that AUTH_TYPE/DBA_PRIVILEGE match the account)",
-  "db.backend.error.oracle_handshake_eof": " (the Oracle handshake was closed by the peer or returned an incomplete response; confirm the port is an Oracle listener (not MySQL/SQL Server), that the Service Name or SID is correct, and that client/server versions and character sets are compatible; if you go through an SSH tunnel or proxy, check that it does not cut the connection during the handshake)"
+  "db.backend.error.oracle_handshake_eof": " (the Oracle handshake was closed by the peer or returned an incomplete response; confirm the port is an Oracle listener (not MySQL/SQL Server), that the Service Name or SID is correct, and that client/server versions and character sets are compatible; if you go through an SSH tunnel or proxy, check that it does not cut the connection during the handshake)",
+  "plugin.permission.host_ai_providers_read": "Read AI provider metadata",
+  "plugin.permission.host_ai_providers_read.description": "Read names, endpoints, models and formats of configured AI providers (no secrets)",
+  "plugin.permission.host_ai_providers_write": "Add AI providers",
+  "plugin.permission.host_ai_providers_write.description": "Write selected providers into the host AI provider list; existing credentials are never read back",
+  "plugin.permission.host_clipboard": "Read and write the clipboard",
+  "plugin.permission.host_clipboard.description": "Read or replace bounded plain text on the system clipboard",
+  "plugin.permission.host_events": "Subscribe to host events",
+  "plugin.permission.host_events.description": "Subscribe to bounded host events (preferences, lifecycle, connections) and publish plugin events",
+  "plugin.permission.host_files": "Pick files and folders",
+  "plugin.permission.host_files.description": "Show the native file picker or save dialog and return the chosen path; the I/O is done by the plugin",
+  "plugin.permission.ui_dialog": "Show a confirmation dialog",
+  "plugin.permission.ui_dialog.description": "Show one native confirmation dialog and return the user's answer",
+  "plugin.permission.ui_progress": "Report task progress",
+  "plugin.permission.ui_progress.description": "Publish bounded task progress updates as host notifications",
+  "plugin.permission.ui_sidebar": "Add a sidebar group",
+  "plugin.permission.ui_sidebar.description": "Attach an expandable group to the host connection tree; node data comes from a declared command"
 }
