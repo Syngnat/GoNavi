@@ -379,7 +379,8 @@ body[data-ui-version="v2"] .gn-v2-data-grid-statusbar {
   gap: calc(8px * var(--gn-ui-scale, 1));
   flex-wrap: nowrap;
   padding: 0 calc(10px * var(--gn-ui-scale, 1)) !important;
-  border-top: 0.5px solid var(--gn-br-1);
+  /* 上方表格卡片是圆角，卡片自己的下边框就是分割线；这里再画一条通栏直边，
+     会在卡片左下/右下圆角处露出多余的一截，所以状态栏不画上边框。 */
   background: var(--gn-bg-panel-2);
   white-space: nowrap;
   overflow-x: auto;
