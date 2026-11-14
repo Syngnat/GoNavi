@@ -22,8 +22,15 @@ const (
 	pluginAIProviderImportAPIKeyMax  = 4096
 	pluginAIProviderImportHeadersMax = 16
 	pluginAIProviderImportHeaderMax  = 256
-	pluginAIProviderImportTempMin    = 0
-	pluginAIProviderImportTempMax    = 2
+	// 单个请求头值的上限：Authorization 里的 JWT 动辄几百到上千字节，256 太小，早期版本因此
+	// 静默丢头（导入成功却鉴权头为空）。键名仍限 256，值放宽到 4096。
+	pluginAIProviderImportHeaderValueMax = 4096
+	// 回显名称的边界：入参名字只受 MaxArgsBytes 约束，原样回显会让一条超长名字撑破结果上限。
+	pluginAIProviderImportEchoNameMaxRunes = 64
+	pluginAIProviderImportEchoNameMaxBytes = 192
+	pluginAIProviderImportMaxResultBytes   = 64 << 10
+	pluginAIProviderImportTempMin          = 0
+	pluginAIProviderImportTempMax          = 2
 )
 
 const (
@@ -38,6 +45,8 @@ const (
 	pluginAIProviderImportReasonSaveFailed     = "save_failed"
 	pluginAIProviderImportReasonInvalidAPIKey  = "invalid_api_key"
 	pluginAIProviderImportReasonTooManyHeaders = "too_many_headers"
+	pluginAIProviderImportReasonInvalidHeaders = "invalid_headers"
+	pluginAIProviderImportReasonCancelled      = "cancelled"
 )
 
 // pluginAIProviderImportAPIFormats 是导入允许的协议集合。本机 CLI 协议（codex-cli、
@@ -143,16 +152,19 @@ type pluginAIProviderImportEntry struct {
 }
 
 type pluginAIProviderImportResult struct {
-	Imported int                           `json:"imported"`
-	Skipped  int                           `json:"skipped"`
-	Failed   int                           `json:"failed"`
-	Items    []pluginAIProviderImportEntry `json:"items"`
+	Imported int `json:"imported"`
+	Skipped  int `json:"skipped"`
+	Failed   int `json:"failed"`
+	// Cancelled 表示这一批在写入过程中被取消（超时、插件停用、调用方收手）：items 里是取消前
+	// 已经落地的部分结果。调用方据此知道「已经写进去几条」，而不是把整批当成没发生。
+	Cancelled bool                          `json:"cancelled,omitempty"`
+	Items     []pluginAIProviderImportEntry `json:"items"`
 }
 
 // pluginCapabilityAIProvidersImport 把结构化供应商写入宿主供应商列表。判重按「名称 + 归一化
 // 地址」：命中且未要求覆盖即跳过，要求覆盖则复用原 ID 就地更新，绝不静默替换用户已有供应商。
 // 单条失败只记该条，不中断整批——导入 93 条时不该因为其中一条地址非法而全军覆没。
-func pluginCapabilityAIProvidersImport(_ context.Context, a *App, request pluginCapabilityRequest) (any, string) {
+func pluginCapabilityAIProvidersImport(ctx context.Context, a *App, request pluginCapabilityRequest) (any, string) {
 	store := a.aiProviderStorePort()
 	if store == nil {
 		return nil, "internal"
@@ -181,7 +193,18 @@ func pluginCapabilityAIProvidersImport(_ context.Context, a *App, request plugin
 
 	result := pluginAIProviderImportResult{Items: make([]pluginAIProviderImportEntry, 0, len(payload.Providers))}
 	for position, item := range payload.Providers {
-		entry := pluginAIProviderImportEntry{Index: position, Name: strings.TrimSpace(item.Name)}
+		// 回显名必须截断（见 pluginAIProviderImportEchoName）：入参名字最长只受 MaxArgsBytes 约束。
+		entry := pluginAIProviderImportEntry{Index: position, Name: pluginAIProviderImportEchoName(item.Name)}
+		// 取消后不再写任何一条：调用方已经收手（超时、插件停用、页面关闭），继续写等于替它做决定。
+		// 剩余条目照样补一条 cancelled 结果，保持「一个请求条目一条结果」，调用方才能逐条对账。
+		if ctx.Err() != nil {
+			result.Cancelled = true
+			entry.Status = pluginAIProviderImportStatusFailed
+			entry.Reason = pluginAIProviderImportReasonCancelled
+			result.Failed++
+			result.Items = append(result.Items, entry)
+			continue
+		}
 		config, reason := pluginImportedProviderConfig(item)
 		if reason != "" {
 			entry.Status = pluginAIProviderImportStatusFailed
@@ -290,9 +313,10 @@ func pluginImportedProviderModels(models []string) []string {
 }
 
 // pluginImportedProviderHeaders 收敛自定义请求头：键规范化、按折叠名去重、键值各自限长，
-// 最多 16 组。**超过 16 组时整条失败，不做静默截断**：头常常承载鉴权（中转站的 X-Api-Key 之类），
-// 悄悄丢掉其中一个只会产出一条看起来正常、实际调不通的供应商。坏键（空/超长）仍然跳过，
-// 它们本来就不是合法 HTTP 头，跳过不影响可用性。
+// 最多 16 组。**任何一条头落不进来都按该条失败，不做静默丢弃**：头常常承载鉴权
+// （Authorization 的 JWT、中转站的 X-Api-Key），悄悄丢掉一个只会产出一条看起来正常、
+// 实际调不通的供应商。唯一不算失败的是「同名头大小写重复」——HTTP 头大小写不敏感，
+// 两个名字指同一个头，按排序保留第一条，结果确定。
 func pluginImportedProviderHeaders(headers map[string]string) (map[string]string, string) {
 	if len(headers) == 0 {
 		return nil, ""
@@ -309,11 +333,14 @@ func pluginImportedProviderHeaders(headers map[string]string) (map[string]string
 	for _, key := range keys {
 		trimmedKey := strings.TrimSpace(key)
 		if trimmedKey == "" || len(trimmedKey) > pluginAIProviderImportHeaderMax {
-			continue
+			return nil, pluginAIProviderImportReasonInvalidHeaders
+		}
+		if len(headers[key]) > pluginAIProviderImportHeaderValueMax {
+			return nil, pluginAIProviderImportReasonInvalidHeaders
 		}
 		// HTTP 头大小写不敏感：按折叠后的名字去重，避免 X-Foo 与 x-foo 同时下发；输出键保留原文。
 		foldedKey := strings.ToLower(trimmedKey)
-		if seen[foldedKey] || len(headers[key]) > pluginAIProviderImportHeaderMax {
+		if seen[foldedKey] {
 			continue
 		}
 		seen[foldedKey] = true
@@ -356,21 +383,22 @@ func pluginImportedProviderBaseURL(raw string) (string, bool) {
 	return parsed.String(), true
 }
 
-// pluginAIProviderImportIdentity 是导入判重身份：名称大小写不敏感，地址忽略尾部斜杠。
-// 返回空串表示两边都无法构成身份，调用方跳过即可，不参与判重。
+// pluginAIProviderImportIdentity 是导入判重身份：名称大小写不敏感；地址只小写协议与主机名，
+// 路径与查询保留原样。返回空串表示两边都无法构成身份，调用方跳过即可，不参与判重。
 func pluginAIProviderImportIdentity(name, baseURL string) string {
 	normalizedName := strings.ToLower(strings.TrimSpace(name))
-	normalizedURL := strings.ToLower(strings.TrimRight(normalizeImportBaseURL(baseURL), "/"))
+	normalizedURL := pluginAIProviderImportIdentityURL(baseURL)
 	if normalizedName == "" || normalizedURL == "" {
 		return ""
 	}
 	return normalizedName + "|" + normalizedURL
 }
 
-// normalizeImportBaseURL 去掉地址里的凭据与 fragment 再判重：导入的地址在落库前已经去过凭据
-// （pluginImportedProviderBaseURL），若既有供应商的地址里带着凭据，两边会因为这点差异被判成
-// 两条不同的供应商，于是重复导入。解析失败就退回原文，交给上层按原样比。
-func normalizeImportBaseURL(raw string) string {
+// pluginAIProviderImportIdentityURL 归一化判重用的地址：小写协议与主机名（大小写不敏感的那部分），
+// 去掉凭据与 fragment，再去掉路径尾部的 "/"；**路径与查询大小写原样保留**——/tenant/A 与
+// /tenant/a 是两个不同的地址，整串小写会把它们合成一条，覆盖模式还会改错条目。
+// 解析失败就退回原文，交给上层按原样比。
+func pluginAIProviderImportIdentityURL(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ""
@@ -379,10 +407,37 @@ func normalizeImportBaseURL(raw string) string {
 	if err != nil {
 		return trimmed
 	}
-	if parsed.User == nil && parsed.Fragment == "" {
-		return trimmed
-	}
 	parsed.User = nil
 	parsed.Fragment = ""
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	if parsed.Path != "" {
+		parsed.Path = strings.TrimRight(parsed.Path, "/")
+	}
 	return parsed.String()
+}
+
+// pluginAIProviderImportEchoName 回显条目名：截断到有界长度并加省略号。入参名字最长只受
+// MaxArgsBytes 约束，原样回显会让一条超长名字把整批结果撑破成 result_too_large——成功与失败的
+// 明细一起消失，用户只看到一句「结果太大」。
+func pluginAIProviderImportEchoName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	truncated := false
+	if len(runes) > pluginAIProviderImportEchoNameMaxRunes {
+		runes = runes[:pluginAIProviderImportEchoNameMaxRunes]
+		truncated = true
+	}
+	for len(string(runes)) > pluginAIProviderImportEchoNameMaxBytes {
+		runes = runes[:len(runes)-1]
+		truncated = true
+	}
+	name := string(runes)
+	if truncated {
+		name += "…"
+	}
+	return name
 }

@@ -357,9 +357,12 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Runtimes:       desktopWeb,
 		Mutating:       true,
 		MaxArgsBytes:   256 << 10,
-		MaxResultBytes: 64 << 10,
+		MaxResultBytes: pluginAIProviderImportMaxResultBytes,
 		Timeout:        120 * time.Second,
-		Handler:        pluginCapabilityAIProvidersImport,
+		// 取消（超时 / 插件停用 / 调用方收手）后仍回报已落地的部分结果：导入是逐条写入的，
+		// 「已经写进去 3 条」这个事实比一句 internal 有用得多。
+		PartialResultOnCancel: true,
+		Handler:               pluginCapabilityAIProvidersImport,
 	})
 	add(pluginCapabilitySpec{
 		Name:           "driver.status",
