@@ -13944,5 +13944,21 @@
   "plugin.market.install_permission_export_detail": "{{count}} Exporter",
   "plugin.market.install_confirm_hint": "Adresse oben einfügen zur Bestätigung",
   "db.backend.error.oracle_conn_closed": " (die Oracle-Verbindung wurde während der Validierung vom Server geschlossen oder durch einen Treiber-Timeout unterbrochen; prüfen Sie, ob der Port ein Oracle-Protokollport ist, ob Service Name bzw. SID korrekt sind und ob DBA_PRIVILEGE/AUTH_TYPE zum Konto passen)",
-  "db.backend.error.oracle_handshake_eof": " (der Oracle-Handshake wurde von der Gegenstelle geschlossen oder lieferte eine unvollständige Antwort; prüfen Sie, ob der Port ein Oracle-Listener ist (nicht MySQL/SQL Server), ob Service Name bzw. SID korrekt sind und ob Client- und Serverversion sowie Zeichensatz kompatibel sind; bei SSH-Tunnel oder Proxy prüfen Sie, ob die Verbindung während des Handshakes getrennt wird)"
+  "db.backend.error.oracle_handshake_eof": " (der Oracle-Handshake wurde von der Gegenstelle geschlossen oder lieferte eine unvollständige Antwort; prüfen Sie, ob der Port ein Oracle-Listener ist (nicht MySQL/SQL Server), ob Service Name bzw. SID korrekt sind und ob Client- und Serverversion sowie Zeichensatz kompatibel sind; bei SSH-Tunnel oder Proxy prüfen Sie, ob die Verbindung während des Handshakes getrennt wird)",
+  "plugin.permission.host_ai_providers_read": "KI-Anbieter-Metadaten lesen",
+  "plugin.permission.host_ai_providers_read.description": "Namen, Endpunkte, Modelle und Formate konfigurierter KI-Anbieter lesen (ohne Geheimnisse)",
+  "plugin.permission.host_ai_providers_write": "KI-Anbieter hinzufügen",
+  "plugin.permission.host_ai_providers_write.description": "Ausgewählte Anbieter in die KI-Anbieterliste des Hosts schreiben; vorhandene Geheimnisse werden nie zurückgelesen",
+  "plugin.permission.host_clipboard": "Zwischenablage lesen und schreiben",
+  "plugin.permission.host_clipboard.description": "Begrenzten Klartext aus der Systemzwischenablage lesen oder ersetzen",
+  "plugin.permission.host_events": "Host-Ereignisse abonnieren",
+  "plugin.permission.host_events.description": "Begrenzte Host-Ereignisse (Einstellungen, Lebenszyklus, Verbindungen) abonnieren und eigene Ereignisse senden",
+  "plugin.permission.host_files": "Dateien und Ordner auswählen",
+  "plugin.permission.host_files.description": "Nativen Datei- oder Speicherdialog anzeigen und den gewählten Pfad zurückgeben; die Ein-/Ausgabe erledigt das Plugin selbst",
+  "plugin.permission.ui_dialog": "Bestätigungsdialog anzeigen",
+  "plugin.permission.ui_dialog.description": "Einen nativen Bestätigungsdialog anzeigen und die Antwort des Nutzers zurückgeben",
+  "plugin.permission.ui_progress": "Aufgabenfortschritt melden",
+  "plugin.permission.ui_progress.description": "Begrenzte Fortschrittsmeldungen als Host-Benachrichtigung anzeigen",
+  "plugin.permission.ui_sidebar": "Seitenleisten-Gruppe hinzufügen",
+  "plugin.permission.ui_sidebar.description": "Eine aufklappbare Gruppe am Verbindungsbaum des Hosts anbringen; Knotendaten liefert ein deklarierter Befehl"
 }

@@ -95,10 +95,14 @@ type pluginCapabilitySpec struct {
 	Mutating             bool
 	Destructive          bool
 	RequiresConfirmation bool
-	MaxArgsBytes         int
-	MaxResultBytes       int
-	Timeout              time.Duration
-	Handler              pluginCapabilityHandler
+	// PartialResultOnCancel 让能力在 context 取消（超时、插件停用、调用方收手）后仍把结果回给
+	// 调用方，而不是统一变成 internal。只有「取消后不再产生副作用，并且结果里如实带了已完成项」
+	// 的能力才该打开：否则等于把半成品当成功。默认关闭，其余能力行为不变。
+	PartialResultOnCancel bool
+	MaxArgsBytes          int
+	MaxResultBytes        int
+	Timeout               time.Duration
+	Handler               pluginCapabilityHandler
 }
 
 type pluginCapabilities map[string]pluginCapabilitySpec

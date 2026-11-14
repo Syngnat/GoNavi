@@ -13944,5 +13944,21 @@
   "plugin.market.install_permission_export_detail": "{{count}} 个导出器",
   "plugin.market.install_confirm_hint": "粘贴上方地址以确认",
   "db.backend.error.oracle_conn_closed": "（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、服务名（Service Name）或 SID 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）",
-  "db.backend.error.oracle_handshake_eof": "（Oracle 握手阶段连接被对端直接关闭或响应不完整；请确认端口是 Oracle 监听端口（不是 MySQL/SQL Server 等其它协议）、Service Name 或 SID 填写正确，并确认客户端与服务端版本/字符集兼容；如经 SSH 隧道或代理，请检查代理是否在握手时中断连接）"
+  "db.backend.error.oracle_handshake_eof": "（Oracle 握手阶段连接被对端直接关闭或响应不完整；请确认端口是 Oracle 监听端口（不是 MySQL/SQL Server 等其它协议）、Service Name 或 SID 填写正确，并确认客户端与服务端版本/字符集兼容；如经 SSH 隧道或代理，请检查代理是否在握手时中断连接）",
+  "plugin.permission.host_ai_providers_read": "读取 AI 供应商元数据",
+  "plugin.permission.host_ai_providers_read.description": "读取已配置 AI 供应商的名称、地址、模型与协议（不含密钥）",
+  "plugin.permission.host_ai_providers_write": "写入 AI 供应商",
+  "plugin.permission.host_ai_providers_write.description": "把勾选的供应商写入宿主 AI 供应商列表；不回读任何既有密钥",
+  "plugin.permission.host_clipboard": "读写剪贴板",
+  "plugin.permission.host_clipboard.description": "读取或替换系统剪贴板上的有界纯文本",
+  "plugin.permission.host_events": "订阅宿主事件",
+  "plugin.permission.host_events.description": "订阅有界的宿主事件（偏好、生命周期、连接），并发布插件自己的事件",
+  "plugin.permission.host_files": "选择文件与目录",
+  "plugin.permission.host_files.description": "弹出原生文件或保存对话框并返回选中路径；文件读写由插件自己完成",
+  "plugin.permission.ui_dialog": "弹出确认对话框",
+  "plugin.permission.ui_dialog.description": "弹一次宿主原生确认框并返回用户的选择",
+  "plugin.permission.ui_progress": "上报任务进度",
+  "plugin.permission.ui_progress.description": "以宿主通知的形式上报有界的任务进度",
+  "plugin.permission.ui_sidebar": "挂载侧边栏分组",
+  "plugin.permission.ui_sidebar.description": "在宿主连接树中挂载可展开分组；节点数据由声明的命令产出"
 }

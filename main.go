@@ -179,6 +179,7 @@ func main() {
 		})
 	})
 	aiService := aiservice.NewServiceWithConfigChangeHandler(app.NewCloudBackupChangeHandler(application))
+	application.SetAIProviderStore(app.NewAIServiceProviderStore(aiService))
 	if err := configureDesktopPluginAIProvider(application, aiService); err != nil {
 		reportFatalError(err, "初始化插件 AI 供应商失败")
 		return

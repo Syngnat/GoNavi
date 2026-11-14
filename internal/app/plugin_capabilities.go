@@ -321,9 +321,23 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Timeout:        120 * time.Second,
 		Handler:        pluginCapabilitySchemaApply,
 	})
+	// ai.providers 的权限绑定是历史形态：这个只读能力当初挂在「数据库元数据」权限上，于是想读
+	// 供应商名称/地址的插件被迫申请 host.metadata.read。保留它以免打断已有插件；新插件改用下面
+	// 的 ai.providers.read（窄权限 host.ai.providers.read）。
 	add(pluginCapabilitySpec{
 		Name:           "ai.providers",
 		Permission:     plugin.MetadataReadPermission,
+		Description:    "Configured AI provider metadata without secrets, headers or CLI environment (legacy permission binding: host.metadata.read; prefer ai.providers.read).",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 64 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityAIProviders,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "ai.providers.read",
+		Permission:     plugin.AIProvidersReadPermission,
 		Description:    "Configured AI provider metadata without secrets, headers or CLI environment.",
 		Channels:       shared,
 		Runtimes:       desktopWeb,
@@ -331,6 +345,24 @@ func defaultPluginCapabilities() pluginCapabilities {
 		MaxResultBytes: 64 << 10,
 		Timeout:        5 * time.Second,
 		Handler:        pluginCapabilityAIProviders,
+	})
+	// 单批最多 100 条，每条都要整表回写 ai_config.json 与密钥文件并取共享锁：30s 在高负载或
+	// 另一实例持锁时会把已经写进去一半的导入判成超时（返回 internal，用户看不到落了几条）。
+	// 放宽到 120s，让慢机器也能跑完；真正的批量写入见后续项。
+	add(pluginCapabilitySpec{
+		Name:           "ai.providers.import",
+		Permission:     plugin.AIProvidersWritePermission,
+		Description:    "Add structured AI providers (name, endpoint, API format, model, credential) to the host provider list; duplicates are reported, never silently replaced.",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		Mutating:       true,
+		MaxArgsBytes:   256 << 10,
+		MaxResultBytes: pluginAIProviderImportMaxResultBytes,
+		Timeout:        120 * time.Second,
+		// 取消（超时 / 插件停用 / 调用方收手）后仍回报已落地的部分结果：导入是逐条写入的，
+		// 「已经写进去 3 条」这个事实比一句 internal 有用得多。
+		PartialResultOnCancel: true,
+		Handler:               pluginCapabilityAIProvidersImport,
 	})
 	add(pluginCapabilitySpec{
 		Name:           "driver.status",

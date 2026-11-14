@@ -16,6 +16,14 @@ const knownPermissions: Record<string, string> = {
   'host.schema.write': 'plugin.permission.host_schema_write',
   'host.appearance.read': 'plugin.permission.host_appearance_read',
   'host.appearance.write': 'plugin.permission.host_appearance_write',
+  'host.ai.providers.read': 'plugin.permission.host_ai_providers_read',
+  'host.ai.providers.write': 'plugin.permission.host_ai_providers_write',
+  'host.clipboard': 'plugin.permission.host_clipboard',
+  'host.events': 'plugin.permission.host_events',
+  'host.files': 'plugin.permission.host_files',
+  'ui.dialog': 'plugin.permission.ui_dialog',
+  'ui.progress': 'plugin.permission.ui_progress',
+  'ui.sidebar': 'plugin.permission.ui_sidebar',
 };
 
 export function pluginPermissionText(permission: string, t: (key: string) => string, note?: string): string {

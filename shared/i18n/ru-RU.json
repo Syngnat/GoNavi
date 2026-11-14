@@ -13944,5 +13944,21 @@
   "plugin.market.install_permission_export_detail": "Экспортёров: {{count}}",
   "plugin.market.install_confirm_hint": "Вставьте адрес выше для подтверждения",
   "db.backend.error.oracle_conn_closed": " (соединение Oracle было закрыто сервером или прервано по таймауту драйвера на этапе проверки; проверьте, что порт соответствует протоколу Oracle, что Service Name или SID указаны верно и что DBA_PRIVILEGE/AUTH_TYPE соответствуют учётной записи)",
-  "db.backend.error.oracle_handshake_eof": " (рукопожатие Oracle было закрыто удалённой стороной или вернуло неполный ответ; убедитесь, что порт является портом прослушивания Oracle (а не MySQL/SQL Server), что Service Name или SID указаны верно и что версии клиента и сервера, а также кодировки совместимы; при работе через SSH-туннель или прокси проверьте, не обрывается ли соединение во время рукопожатия)"
+  "db.backend.error.oracle_handshake_eof": " (рукопожатие Oracle было закрыто удалённой стороной или вернуло неполный ответ; убедитесь, что порт является портом прослушивания Oracle (а не MySQL/SQL Server), что Service Name или SID указаны верно и что версии клиента и сервера, а также кодировки совместимы; при работе через SSH-туннель или прокси проверьте, не обрывается ли соединение во время рукопожатия)",
+  "plugin.permission.host_ai_providers_read": "Чтение метаданных ИИ-провайдеров",
+  "plugin.permission.host_ai_providers_read.description": "Чтение названий, адресов, моделей и форматов настроенных ИИ-провайдеров (без секретов)",
+  "plugin.permission.host_ai_providers_write": "Добавление ИИ-провайдеров",
+  "plugin.permission.host_ai_providers_write.description": "Запись выбранных провайдеров в список ИИ-провайдеров хоста; существующие секреты не читаются",
+  "plugin.permission.host_clipboard": "Чтение и запись буфера обмена",
+  "plugin.permission.host_clipboard.description": "Чтение или замена ограниченного текста в системном буфере обмена",
+  "plugin.permission.host_events": "Подписка на события хоста",
+  "plugin.permission.host_events.description": "Подписка на ограниченные события хоста (настройки, жизненный цикл, подключения) и публикация событий плагина",
+  "plugin.permission.host_files": "Выбор файлов и папок",
+  "plugin.permission.host_files.description": "Показать системный диалог выбора или сохранения файла и вернуть выбранный путь; чтение и запись выполняет сам плагин",
+  "plugin.permission.ui_dialog": "Показ диалога подтверждения",
+  "plugin.permission.ui_dialog.description": "Показать системный диалог подтверждения и вернуть ответ пользователя",
+  "plugin.permission.ui_progress": "Отчёт о ходе задачи",
+  "plugin.permission.ui_progress.description": "Показывать ограниченный прогресс задачи как уведомление хоста",
+  "plugin.permission.ui_sidebar": "Группа в боковой панели",
+  "plugin.permission.ui_sidebar.description": "Добавить раскрываемую группу в дерево подключений хоста; данные узлов формирует объявленная команда"
 }
