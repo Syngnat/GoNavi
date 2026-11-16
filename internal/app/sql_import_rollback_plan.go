@@ -136,7 +136,22 @@ func addSQLImportRollbackStatement(plan *sqlImportRollbackPlan, statement, dbTyp
 func addSQLImportCreateRollbackPlan(plan *sqlImportRollbackPlan, statement string, position int, dbType string) error {
 	next, end := nextSQLKeyword(statement, position)
 	if next == "or" {
-		return errSQLImportRollbackPlanWholeDatabase
+		next, end = nextSQLKeyword(statement, end)
+		if next != "replace" {
+			return errSQLImportRollbackPlanWholeDatabase
+		}
+		next, end = nextSQLKeyword(statement, end)
+		if next == "force" {
+			next, end = nextSQLKeyword(statement, end)
+		}
+		switch next {
+		case "table", "view":
+			plan.AdditiveOnly = false
+			position = skipSQLImportIfNotExists(statement, end)
+			return addSQLImportRollbackTable(plan, statement, position, dbType)
+		default:
+			return errSQLImportRollbackPlanWholeDatabase
+		}
 	}
 	if next == "temporary" {
 		next, end = nextSQLKeyword(statement, end)

@@ -23,6 +23,7 @@ const createRunnerState = (
   percent: 0,
   bytesRead: 0,
   totalBytes: 0,
+  stageCode: '',
   bytesPerSecond: 0,
   etaSeconds: 0,
   currentSQL: '',
@@ -120,6 +121,7 @@ vi.mock('antd', async () => {
     { PRESENTED_IMAGE_SIMPLE: 'simple' },
   );
   const Progress = (props: Record<string, unknown>) => React.createElement('mock-progress', props);
+  const Spin = (props: Record<string, unknown>) => React.createElement('mock-spin', props);
   const Radio = ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
     React.createElement('mock-radio', props, children)
   );
@@ -141,6 +143,7 @@ vi.mock('antd', async () => {
     Checkbox,
     Empty,
     Progress,
+    Spin,
     Radio,
     Typography: { Paragraph, Text, Title },
   };

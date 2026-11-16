@@ -15,6 +15,7 @@ export type SQLFileExecutionProgressEvent = {
   bytesRead?: number;
   totalBytes?: number;
   stage?: string;
+  stageCode?: string;
   currentSQL?: string;
   error?: string;
 };
@@ -43,6 +44,7 @@ export type SQLFileExecutionState = {
   percent: number;
   bytesRead: number;
   totalBytes: number;
+  stageCode: string;
   bytesPerSecond: number;
   etaSeconds: number;
   currentSQL: string;
@@ -82,6 +84,7 @@ const createInitialState = (): SQLFileExecutionState => ({
   percent: 0,
   bytesRead: 0,
   totalBytes: 0,
+  stageCode: '',
   bytesPerSecond: 0,
   etaSeconds: 0,
   currentSQL: '',
@@ -181,6 +184,7 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
                 : nextStatus === 'done'
                   ? t('sidebar.sql_file_exec.status.done')
                   : t('sidebar.sql_file_exec.status.running'),
+          stageCode: typeof event.stageCode === 'string' ? event.stageCode.trim() : '',
           executed: normalizeCount(event.executed ?? prev.executed),
           failed: normalizeCount(event.failed ?? prev.failed),
           total: normalizeCount(event.total ?? prev.total),
@@ -314,6 +318,7 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
       percent: 0,
       bytesRead: 0,
       totalBytes: 0,
+      stageCode: '',
       bytesPerSecond: 0,
       etaSeconds: 0,
       currentSQL: '',

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Checkbox, Empty, Progress, Typography } from 'antd';
+import { Alert, Button, Checkbox, Empty, Progress, Spin, Typography } from 'antd';
 import {
   ClockCircleOutlined,
   FileTextOutlined,
@@ -473,6 +473,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     [nowTick, state.finishedAt, state.startedAt],
   );
   const progressPercent = Math.max(0, Math.min(100, Number(state.percent) || 0));
+  const snapshotPending = state.status === 'running' && state.stageCode === 'snapshot';
   const currentSummary = formatExecutionSummary(state.executed, state.failed);
   const historyList = useMemo(
     () => historyEntries.filter((entry) => entry.jobId !== state.jobId),
@@ -730,14 +731,23 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
             {state.jobId ? (
               <>
                 <div>
-                  <Progress
-                    data-sql-file-execution-progress="true"
-                    percent={Math.round(progressPercent)}
-                    status={completedWithErrors ? 'normal' : resolveProgressStatus(state.status)}
-                    strokeColor={state.status === 'cancelled' || completedWithErrors
-                      ? 'var(--gn-warn, #faad14)'
-                      : undefined}
-                  />
+                  {snapshotPending ? (
+                    <div
+                      data-sql-file-execution-snapshot-progress="true"
+                      style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}
+                    >
+                      <Spin size="large" />
+                    </div>
+                  ) : (
+                    <Progress
+                      data-sql-file-execution-progress="true"
+                      percent={Math.round(progressPercent)}
+                      status={completedWithErrors ? 'normal' : resolveProgressStatus(state.status)}
+                      strokeColor={state.status === 'cancelled' || completedWithErrors
+                        ? 'var(--gn-warn, #faad14)'
+                        : undefined}
+                    />
+                  )}
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 0.9fr)', gap: 18 }}>
