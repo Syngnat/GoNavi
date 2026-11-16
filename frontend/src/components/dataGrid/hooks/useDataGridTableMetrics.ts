@@ -10,13 +10,11 @@ import { pickDataGridOutputRows } from '../../dataGridOutput';
 import { ExportDataWithOptions } from '../../../../wailsjs/go/app/App';
 import { parseMongoEditedValue } from '../../../utils/mongodb';
 import {
-    shouldOmitBlankDataGridInsertValue,
     type ForeignKeyTarget,
     setGlobalDeletedRowKeys,
     buildGridFieldSelectOptions,
 } from '../../DataGridCore';
-import { isTemporalColumnType } from '../../dataGridTemporal';
-import { normalizeTemporalLiteralText } from '../../dataGridCopyInsert';
+import { normalizeDataGridCommitCellValue } from '../../dataGridCommitValues';
 import { buildDataGridCssText } from '../../dataGridStyles';
 import { measureDataGridMetrics, observeDataGridMetrics } from '../../dataGridLayout';
 import { useDataGridLayoutEffect } from '../dataGridScrollTiming';
@@ -264,29 +262,13 @@ export const useDataGridTableMetrics = ({
             }
             const normalizedName = String(columnName || '').trim();
             const meta = columnMetaMap[normalizedName] || columnMetaMapByLowerName[normalizedName.toLowerCase()];
-            if (shouldOmitBlankDataGridInsertValue(value, mode, meta)) {
-                return undefined;
-            }
-            const temporal = isTemporalColumnType(meta?.type, dbType);
-
-            if (!temporal) {
-                return value;
-            }
-
-            if (value === null) {
-                return null;
-            }
-
-            if (typeof value === 'string') {
-                const raw = value.trim();
-                if (raw === '') {
-                    // INSERT 空时间值直接忽略字段，让数据库默认值生效；UPDATE 空时间值转 NULL。
-                    return mode === 'insert' ? undefined : null;
-                }
-                return normalizeTemporalLiteralText(value, meta?.type, true);
-            }
-
-            return value;
+            return normalizeDataGridCommitCellValue({
+                columnName: normalizedName,
+                value,
+                mode,
+                dbType,
+                meta,
+            });
         },
         [columnMetaMap, columnMetaMapByLowerName, dbType, isMongoDBConnection]
     );
