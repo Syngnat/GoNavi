@@ -127,6 +127,22 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
     ],
   },
   {
+    // KingbaseES 拒绝列默认值表达式时只回一句 "invalid default value for column ... of table ..."，
+    // 不说明是类型不匹配、identity 列还是序列不可用；MySQL/MariaDB 1067 是同类语义。
+    // 不并入 type_mismatch：那条建议面向 DML 值转换，无法覆盖 ALTER COLUMN 的默认值场景。
+    key: 'invalid_default_value',
+    fallbackLabel: 'Column default value is invalid',
+    fallbackExplanation: 'The database rejected the column default in this DDL: the default expression (usually a nextval sequence) is incompatible with the column type or attributes, or the sequence is missing or unusable.',
+    fallbackSuggestion: 'Check the column data_type and current default first, then use a sequence that matches the type (CREATE SEQUENCE ... AS integer/bigint) or an explicit CAST; identity or generated columns need their own syntax.',
+    patterns: [
+      // KingbaseES：invalid default value for column "id" of table "t"
+      /invalid default value for column\s+["'`]/i,
+      // MySQL / MariaDB：1067 Invalid default value for 'col'
+      /invalid default value for ['"`]/i,
+      /error\s+1067\b/i,
+    ],
+  },
+  {
     key: 'type_mismatch',
     fallbackLabel: 'Data type or format mismatch',
     fallbackExplanation: 'The value being written, compared, or converted does not match the target column or expression format.',

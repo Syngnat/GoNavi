@@ -237,3 +237,53 @@ describe('Hive SemanticException / ParseException 错误语义', () => {
     expect(formatted).toContain('Semantic meaning: Column does not exist');
   });
 });
+
+describe('列默认值无效错误语义', () => {
+  it('把 KingbaseES 的 invalid default value 归为列默认值无效', () => {
+    const raw = '第 2 条语句执行失败: kb: invalid default value for column "mes_solder_input_id" of table "mes_solder_input" (前 1 条已执行成功)';
+
+    const formatted = formatSqlExecutionError(raw);
+
+    expect(formatted).toContain('Semantic meaning: Column default value is invalid');
+    expect(formatted).toContain('nextval sequence');
+    expect(formatted).toContain(`Raw error: ${raw}`);
+    expect(formatted).not.toContain('Semantic meaning: Database execution error');
+  });
+
+  it('把 MySQL 1067 Invalid default value 归为同一语义', () => {
+    for (const raw of [
+      "Error 1067 (42000): Invalid default value for 'created_at'",
+      'ERROR 1067: Invalid default value for `status`',
+    ]) {
+      expect(formatSqlExecutionError(raw)).toContain('Semantic meaning: Column default value is invalid');
+    }
+  });
+
+  it('通过 i18n 键输出本地化文案', () => {
+    const translate = (key: string, params?: Record<string, unknown>) => {
+      if (key === 'query_editor.sql_error.wrapper.semantic_line') {
+        return `SEM:${params?.label}|${params?.explanation}`;
+      }
+      if (key === 'query_editor.sql_error.wrapper.suggestion_line') {
+        return `SUG:${params?.suggestion}`;
+      }
+      if (key === 'query_editor.sql_error.wrapper.raw_line') {
+        return `RAW:${params?.error}`;
+      }
+      const map: Record<string, string> = {
+        'query_editor.sql_error.rule.invalid_default_value.label': 'DEFAULT_LABEL',
+        'query_editor.sql_error.rule.invalid_default_value.explanation': 'DEFAULT_EXPLANATION',
+        'query_editor.sql_error.rule.invalid_default_value.suggestion': 'DEFAULT_SUGGESTION',
+      };
+      return map[key] ?? key;
+    };
+
+    const formatted = formatSqlExecutionError(
+      'kb: invalid default value for column "id" of table "t"',
+      { translate },
+    );
+
+    expect(formatted).toContain('SEM:DEFAULT_LABEL|DEFAULT_EXPLANATION');
+    expect(formatted).toContain('SUG:DEFAULT_SUGGESTION');
+  });
+});
