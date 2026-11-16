@@ -2,6 +2,7 @@ import { useLayoutEffect, useEffect } from 'react';
 import { message } from 'antd';
 import { withAISettingsLeaveGuard } from '../../utils/aiSettingsLeaveGuard';
 import { shouldSuppressMacNativeEscapeExit } from '../../utils/macWindow';
+import { installImePointerGuard } from '../../utils/imePointerGuard';
 import { useStore } from '../../store';
 import { applyDocumentFontFamilies } from '../../utils/documentTypography';
 import { useFontGalleryFaces } from '../../fontGallery/useFontGalleryFaces';
@@ -146,6 +147,8 @@ export const useAppLayoutEffects = ({
     tokenControlHeightSM,
     uiLayoutMode,
   ]);
+
+  useEffect(() => installImePointerGuard(), []);
 
   // 低配档位 / 减少动画：单字段 selector 订阅，避免外观对象其它字段变化时连带重渲染整个根组件。
   const lowSpecModePreference = useStore((state) => state.appearance.lowSpecMode);

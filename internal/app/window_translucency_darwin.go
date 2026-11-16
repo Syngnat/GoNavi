@@ -5,7 +5,10 @@ package app
 /*
 #cgo CFLAGS: -x objective-c -fblocks
 #cgo LDFLAGS: -framework Cocoa
+#cgo LDFLAGS: -framework WebKit
 #import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
+#import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
 static void gonaviTuneWindowTranslucency(NSWindow *window) {
@@ -56,7 +59,38 @@ static void gonaviTuneWindowTranslucency(NSWindow *window) {
 	[[effectView layer] setMasksToBounds:YES];
 }
 
+// macOS 默认在窗口未激活时只让第一次点击激活窗口，不把这次点击交给页面控件。
+// Wails v3 没有覆写 WKWebView 的 acceptsFirstMouse，于是从别的应用切回来时，
+// 第一次点工具栏或插件按钮看起来完全没反应。这里只给 WebView 相关类补方法，
+// 不改 NSView 的全局行为。
+static BOOL gonaviAcceptsFirstMouse(id self, SEL _cmd, NSEvent *event) {
+	(void)self;
+	(void)_cmd;
+	(void)event;
+	return YES;
+}
+
+static void gonaviInstallAcceptsFirstMouseForClass(Class cls) {
+	if (cls == Nil) {
+		return;
+	}
+	SEL selector = @selector(acceptsFirstMouse:);
+	if (class_addMethod(cls, selector, (IMP)gonaviAcceptsFirstMouse, "c@:@")) {
+		return;
+	}
+	Method method = class_getInstanceMethod(cls, selector);
+	if (method != NULL) {
+		method_setImplementation(method, (IMP)gonaviAcceptsFirstMouse);
+	}
+}
+
+static void gonaviInstallAcceptsFirstMouse(void) {
+	gonaviInstallAcceptsFirstMouseForClass([WKWebView class]);
+	gonaviInstallAcceptsFirstMouseForClass(NSClassFromString(@"WKContentView"));
+}
+
 static void gonaviApplyWindowTranslucencyFix() {
+	gonaviInstallAcceptsFirstMouse();
 	// 启动时应用窗口透明度修复，减少重试次数以降低启动期 GPU 负载
 	for (int i = 0; i < 8; i++) {
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(i * 250 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
