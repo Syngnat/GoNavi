@@ -283,7 +283,7 @@ func tryGetViewCreateStatement(
 			continue
 		}
 		createSQL := strings.TrimSpace(extractViewCreateSQL(rows[0]))
-		if createSQL == "" {
+		if !isUsableViewDefinitionSQL(createSQL) {
 			continue
 		}
 		if looksLikeSelectOrWith(createSQL) {
@@ -436,6 +436,9 @@ func extractViewCreateSQL(row map[string]interface{}) string {
 	}
 	ddl := exportRowValueCI(row, "create view", "create_statement", "create_sql", "ddl", "sql", "view_definition", "definition")
 	if ddl != "" {
+		if !isUsableViewDefinitionSQL(ddl) {
+			return ""
+		}
 		return normalizeMySQLViewCreateSQL(ddl)
 	}
 	for _, value := range row {
@@ -447,11 +450,32 @@ func extractViewCreateSQL(row map[string]interface{}) string {
 			continue
 		}
 		lower := strings.ToLower(text)
-		if strings.HasPrefix(lower, "create ") || strings.HasPrefix(lower, "select ") || strings.HasPrefix(lower, "with ") {
+		if (strings.HasPrefix(lower, "create ") || strings.HasPrefix(lower, "select ") || strings.HasPrefix(lower, "with ")) &&
+			isUsableViewDefinitionSQL(text) {
 			return normalizeMySQLViewCreateSQL(text)
 		}
 	}
 	return ""
+}
+
+func isUsableViewDefinitionSQL(sql string) bool {
+	text := trimLeadingSQLComments(strings.TrimSpace(sql))
+	if text == "" {
+		return false
+	}
+	if looksLikeSelectOrWith(text) {
+		return true
+	}
+
+	upper := strings.ToUpper(text)
+	if !strings.HasPrefix(upper, "CREATE ") && !strings.HasPrefix(upper, "ALTER ") {
+		return false
+	}
+	head := upper
+	if asIndex := strings.Index(head, " AS "); asIndex >= 0 {
+		head = head[:asIndex]
+	}
+	return strings.Contains(head+" ", " VIEW ")
 }
 
 func normalizeMySQLViewCreateSQL(sql string) string {
