@@ -6,19 +6,23 @@ import {
 } from '../utils/exportProgress';
 import { t } from '../i18n';
 import ExportProgressBar from './ExportProgressBar';
-import { useExportProgressRunner } from './useExportProgressRunner';
+import { type ExportProgressState, useExportProgressRunner } from './useExportProgressRunner';
 import { APP_NESTED_MODAL_Z_INDEX } from '../utils/overlayZIndex';
 
 const { Text, Paragraph } = Typography;
 
-export function useExportProgressDialog() {
-  const { state, reset, cancelExport, runExportWithProgress } = useExportProgressRunner();
+export type ExportProgressDialogProps = {
+  state: ExportProgressState;
+  reset: () => void;
+  cancelExport: () => Promise<boolean>;
+};
 
+export function ExportProgressDialog({ state, reset, cancelExport }: ExportProgressDialogProps) {
   const canClose = state.status === 'done' || state.status === 'error' || state.status === 'cancelled';
   const canCancel = state.status === 'start' || state.status === 'running' || state.status === 'finalizing';
   const cancelling = state.status === 'cancelling';
 
-  const modalNode = (
+  return (
     <Modal
       title={state.status === 'error'
         ? t('data_export.progress.title.error')
@@ -84,9 +88,19 @@ export function useExportProgressDialog() {
       </div>
     </Modal>
   );
+}
+
+export function useExportProgressDialog() {
+  const { state, reset, cancelExport, runExportWithProgress } = useExportProgressRunner();
 
   return {
-    exportProgressModal: modalNode,
+    exportProgressModal: (
+      <ExportProgressDialog
+        state={state}
+        reset={reset}
+        cancelExport={cancelExport}
+      />
+    ),
     runExportWithProgress,
   };
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -265,7 +266,10 @@ func setRedisImportedTTL(client redis.RedisClient, key string, ttl int64) error 
 	return client.SetTTL(key, ttl)
 }
 
-func importRedisTransferEntry(client redis.RedisClient, entry redisTransferEntry) error {
+func importRedisTransferEntry(ctx context.Context, client redis.RedisClient, entry redisTransferEntry) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	switch entry.Type {
 	case "string":
 		return client.SetString(entry.Key, entry.Value.(string), entry.TTL)
@@ -277,6 +281,9 @@ func importRedisTransferEntry(client redis.RedisClient, entry redisTransferEntry
 		}
 		sort.Strings(fieldNames)
 		for _, field := range fieldNames {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := client.SetHashField(entry.Key, field, fields[field]); err != nil {
 				return err
 			}
@@ -315,6 +322,9 @@ func importRedisTransferEntry(client redis.RedisClient, entry redisTransferEntry
 			return fmt.Errorf("redis stream payload is empty")
 		}
 		for _, item := range items {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if _, err := client.StreamAdd(entry.Key, item.Fields, item.ID); err != nil {
 				return err
 			}
@@ -326,6 +336,16 @@ func importRedisTransferEntry(client redis.RedisClient, entry redisTransferEntry
 }
 
 func importRedisTransferPayload(client redis.RedisClient, payload redisTransferFile, options RedisImportKeysOptions) (map[string]int, error) {
+	return importRedisTransferPayloadContext(context.Background(), client, payload, options, nil)
+}
+
+func importRedisTransferPayloadContext(
+	ctx context.Context,
+	client redis.RedisClient,
+	payload redisTransferFile,
+	options RedisImportKeysOptions,
+	progress func(current, success, skipped, total int),
+) (map[string]int, error) {
 	conflictMode := normalizeRedisImportConflictMode(options.ConflictMode)
 	entries, err := selectRedisTransferEntriesForImport(payload, options)
 	if err != nil {
@@ -334,25 +354,43 @@ func importRedisTransferPayload(client redis.RedisClient, payload redisTransferF
 	result := map[string]int{
 		"total": len(entries),
 	}
+	total := len(entries)
+	notify := func(current int) {
+		if progress != nil {
+			progress(current, result["imported"], result["skipped"], total)
+		}
+	}
+	notify(0)
 
-	for _, entry := range entries {
+	for index, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		exists, err := client.KeyExists(entry.Key)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", entry.Key, err)
+			return result, fmt.Errorf("%s: %w", entry.Key, err)
 		}
 		if exists {
 			if conflictMode == "skip" {
 				result["skipped"]++
+				notify(index + 1)
 				continue
 			}
+			if err := ctx.Err(); err != nil {
+				return result, err
+			}
 			if _, err := client.DeleteKeys([]string{entry.Key}); err != nil {
-				return nil, fmt.Errorf("%s: %w", entry.Key, err)
+				return result, fmt.Errorf("%s: %w", entry.Key, err)
 			}
 		}
-		if err := importRedisTransferEntry(client, entry); err != nil {
-			return nil, fmt.Errorf("%s: %w", entry.Key, err)
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		if err := importRedisTransferEntry(ctx, client, entry); err != nil {
+			return result, fmt.Errorf("%s: %w", entry.Key, err)
 		}
 		result["imported"]++
+		notify(index + 1)
 	}
 
 	return result, nil

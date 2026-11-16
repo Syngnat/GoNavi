@@ -32,12 +32,14 @@ var errRedisExportNoKeys = errors.New("redis export scope matched no keys")
 var errRedisImportNoKeysSelected = errors.New("redis import scope selected no keys")
 
 type RedisExportKeysOptions struct {
+	JobID   string   `json:"jobId,omitempty"`
 	Scope   string   `json:"scope,omitempty"`
 	Keys    []string `json:"keys,omitempty"`
 	Pattern string   `json:"pattern,omitempty"`
 }
 
 type RedisImportKeysOptions struct {
+	JobID        string   `json:"jobId,omitempty"`
 	ConflictMode string   `json:"conflictMode,omitempty"`
 	Scope        string   `json:"scope,omitempty"`
 	Keys         []string `json:"keys,omitempty"`

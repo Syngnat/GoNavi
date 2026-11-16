@@ -90,6 +90,18 @@ func (r *exportProgressReporter) Start(stage string) {
 	r.emit("start", stage, 0, "", true)
 }
 
+func (r *exportProgressReporter) SetTotal(total int64, known bool) {
+	if r == nil {
+		return
+	}
+	if total < 0 {
+		total = 0
+		known = false
+	}
+	r.totalRows = total
+	r.totalRowsKnown = known
+}
+
 func (r *exportProgressReporter) Rows(current int64, stage string) {
 	r.emit("running", stage, current, "", false)
 }

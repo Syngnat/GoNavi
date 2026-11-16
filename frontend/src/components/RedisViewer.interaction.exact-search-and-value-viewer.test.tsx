@@ -142,7 +142,12 @@ vi.mock('antd', async () => {
     Form: FormComponent,
     InputNumber: ({ ...props }: any) => React.createElement('input', props),
     Popconfirm: passthrough('span'),
+    Progress: passthrough('span'),
     Tooltip: ({ children }: any) => React.createElement(React.Fragment, null, children),
+    Typography: {
+      Text: passthrough('span'),
+      Paragraph: passthrough('div'),
+    },
     Radio: {
       Group: passthrough('div'),
       Button,
@@ -572,7 +577,7 @@ describe('RedisViewer tree interactions', () => {
 
     expect(redisBackend.RedisExportKeys).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'redis', host: '127.0.0.1', port: 6379, redisDB: 0 }),
-      { scope: 'all', keys: [], pattern: '*' },
+      expect.objectContaining({ scope: 'all', keys: [], pattern: '*', jobId: expect.any(String) }),
     );
 
     renderer!.unmount();
@@ -607,7 +612,7 @@ describe('RedisViewer tree interactions', () => {
 
     expect(redisBackend.RedisExportKeys).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'redis', host: '127.0.0.1', port: 6379, redisDB: 0 }),
-      { scope: 'selected', keys: ['app:user:1'], pattern: '*' },
+      expect.objectContaining({ scope: 'selected', keys: ['app:user:1'], pattern: '*', jobId: expect.any(String) }),
     );
 
     renderer!.unmount();
@@ -657,12 +662,13 @@ describe('RedisViewer tree interactions', () => {
 
     expect(redisBackend.RedisImportKeys).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'redis', host: '127.0.0.1', port: 6379, redisDB: 0 }),
-      {
+      expect.objectContaining({
+        jobId: expect.any(String),
         conflictMode: 'overwrite',
         file: 'C:\\tmp\\redis-keys.json',
         scope: 'selected',
         keys: ['app:user:1'],
-      },
+      }),
     );
 
     renderer!.unmount();
