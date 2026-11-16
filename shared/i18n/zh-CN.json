@@ -11937,6 +11937,7 @@
   "sidebar.message.truncate_selected_tables_failed": "截断表失败：{{error}}",
   "sidebar.message.truncate_selected_tables_success": "已截断 {{count}} 张表。",
   "sidebar.message.truncating_selected_tables": "正在截断 {{count}} 张表…",
+  "sidebar.message.view_definition_load_failed": "读取视图 {{name}} 的定义失败，已打开可编辑模板。",
   "sidebar.message.view_deleted": "视图已删除。",
   "sidebar.message.view_name_required": "请输入视图名称。",
   "sidebar.message.view_name_unchanged": "视图名称未变化。",

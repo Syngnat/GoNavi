@@ -11937,6 +11937,7 @@
   "sidebar.message.truncate_selected_tables_failed": "テーブルの切り捨てに失敗: {{error}}",
   "sidebar.message.truncate_selected_tables_success": "{{count}} テーブルを切り捨てました。",
   "sidebar.message.truncating_selected_tables": "{{count}} テーブルを切り捨て中…",
+  "sidebar.message.view_definition_load_failed": "ビュー {{name}} の定義を読み込めませんでした。編集用テンプレートを開きました。",
   "sidebar.message.view_deleted": "ビューを削除しました。",
   "sidebar.message.view_name_required": "ビュー名を入力してください。",
   "sidebar.message.view_name_unchanged": "ビュー名は変更されていません。",

@@ -11937,6 +11937,7 @@
   "sidebar.message.truncate_selected_tables_failed": "Не удалось выполнить TRUNCATE: {{error}}",
   "sidebar.message.truncate_selected_tables_success": "TRUNCATE выполнен для {{count}} таблиц.",
   "sidebar.message.truncating_selected_tables": "TRUNCATE {{count}} таблиц…",
+  "sidebar.message.view_definition_load_failed": "Не удалось загрузить определение представления {{name}}; открыт шаблон для редактирования.",
   "sidebar.message.view_deleted": "Представление удалено.",
   "sidebar.message.view_name_required": "Введите имя представления.",
   "sidebar.message.view_name_unchanged": "Имя представления не изменилось.",

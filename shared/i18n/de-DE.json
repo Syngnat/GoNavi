@@ -11937,6 +11937,7 @@
   "sidebar.message.truncate_selected_tables_failed": "Tabellen abschneiden fehlgeschlagen: {{error}}",
   "sidebar.message.truncate_selected_tables_success": "{{count}} Tabelle(n) abgeschnitten.",
   "sidebar.message.truncating_selected_tables": "{{count}} Tabelle(n) werden abgeschnitten…",
+  "sidebar.message.view_definition_load_failed": "Die Definition der Ansicht {{name}} konnte nicht geladen werden; stattdessen wurde eine bearbeitbare Vorlage geöffnet.",
   "sidebar.message.view_deleted": "Ansicht gelöscht.",
   "sidebar.message.view_name_required": "Ansichtsname ist erforderlich.",
   "sidebar.message.view_name_unchanged": "Ansichtsname ist unverändert.",

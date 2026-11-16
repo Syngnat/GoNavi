@@ -11937,6 +11937,7 @@
   "sidebar.message.truncate_selected_tables_failed": "Failed to truncate tables: {{error}}",
   "sidebar.message.truncate_selected_tables_success": "Truncated {{count}} table(s).",
   "sidebar.message.truncating_selected_tables": "Truncating {{count}} table(s)…",
+  "sidebar.message.view_definition_load_failed": "Failed to load the definition for view {{name}}; an editable template was opened instead.",
   "sidebar.message.view_deleted": "View deleted.",
   "sidebar.message.view_name_required": "View name is required.",
   "sidebar.message.view_name_unchanged": "View name is unchanged.",

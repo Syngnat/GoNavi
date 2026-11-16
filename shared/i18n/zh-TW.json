@@ -11937,6 +11937,7 @@
   "sidebar.message.truncate_selected_tables_failed": "截斷資料表失敗：{{error}}",
   "sidebar.message.truncate_selected_tables_success": "已截斷 {{count}} 張資料表。",
   "sidebar.message.truncating_selected_tables": "正在截斷 {{count}} 張資料表…",
+  "sidebar.message.view_definition_load_failed": "讀取檢視 {{name}} 的定義失敗，已開啟可編輯範本。",
   "sidebar.message.view_deleted": "檢視已刪除。",
   "sidebar.message.view_name_required": "請輸入檢視名稱。",
   "sidebar.message.view_name_unchanged": "檢視名稱未變更。",
