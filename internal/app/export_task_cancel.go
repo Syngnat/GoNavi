@@ -39,9 +39,8 @@ func (a *App) beginCancelableExportTask(jobID string) (context.Context, func()) 
 }
 
 // registerExportTask 登记任务；同名任务尚在运行时顶替其登记
-// （上层 runner 已保证同一进度任务不会并发运行，这里只做兜底）。
-// TODO: 顶替时若旧任务仍在运行，应先取消旧任务，避免其与新任务
-// 先后写同一目标文件（当前依赖上层 jobID 唯一性）。
+// （上层 runner 已保证同一进度任务不会并发运行，这里仍做兜底：
+// 顶替旧任务时先分发取消信号，避免旧任务继续写同一目标文件）。
 func (a *App) registerExportTask(jobID string, registration *exportTaskRegistration) bool {
 	if a == nil {
 		return false
@@ -51,8 +50,15 @@ func (a *App) registerExportTask(jobID string, registration *exportTaskRegistrat
 	if a.exportTasks == nil {
 		a.exportTasks = make(map[string]*exportTaskRegistration)
 	}
-	if current := a.exportTasks[jobID]; current != nil && current.strict {
-		return false
+	if current := a.exportTasks[jobID]; current != nil {
+		if current.strict {
+			return false
+		}
+		// 同名任务顶替前先取消旧任务，避免旧任务继续向同一目标写文件。
+		if current.cancel != nil && !current.cancelDispatched {
+			current.cancelDispatched = true
+			current.cancel()
+		}
 	}
 	a.exportTasks[jobID] = registration
 	return true

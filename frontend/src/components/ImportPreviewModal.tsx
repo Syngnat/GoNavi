@@ -13,7 +13,7 @@ export interface ImportPreviewModalProps {
   tableName: string;
   targetColumnsOverride?: string[];
   targetColumnMappings?: Record<string, string>;
-  autoCreateTable?: { tableName: string; sql: string; typeRow?: number; commentRow?: number };
+  autoCreateTable?: { tableName: string; sql: string; typeRow?: number; commentRow?: number; created?: boolean };
   continueOnError?: boolean;
   importOptions?: DataImportPreferences;
   onClose: () => void;

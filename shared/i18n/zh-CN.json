@@ -14023,7 +14023,19 @@
   "data_import.create_table.header_rows.type_row": "类型行",
   "data_import.create_table.header_rows.comment_row": "注释行",
   "data_import.create_table.header_rows.action": "重新解析",
-  "data_import.create_table.header_rows.hint": "0 表示没有；类型行/注释行只用于建表，不会作为数据导入",
+  "data_import.create_table.header_rows.hint": "从 1 开始计数，0 表示没有；类型行/注释行只用于建表，不会作为数据导入",
   "data_import.create_table.header_rows.same_row_error": "类型行与注释行不能是同一行",
-  "data_import.create_table.header_rows.reinferring": "正在重新解析表头..."
+  "data_import.create_table.header_rows.reinferring": "正在重新解析表头...",
+  "file.backend.error.import_header_type_row_invalid": "类型行必须在 0（不指定）到 {{max}} 之间",
+  "file.backend.error.import_header_comment_row_invalid": "注释行必须在 0（不指定）到 {{max}} 之间",
+  "file.backend.error.import_header_rows_same": "类型行与注释行不能是同一行",
+  "file.backend.error.import_header_type_row_order": "类型行必须在表头行（第 {{headerRow}} 行）之后",
+  "file.backend.error.import_header_comment_row_order": "注释行必须在表头行（第 {{headerRow}} 行）之后",
+  "file.backend.error.import_header_json_unsupported": "JSON 导入不支持类型行/注释行，请改用 CSV 或 Excel",
+  "file.backend.error.import_header_missing": "导入文件缺少表头",
+  "file.backend.error.import_header_row_missing": "导入文件缺少第 {{row}} 行（类型行/注释行）",
+  "file.backend.error.import_auto_create_target_mismatch": "建表 SQL 的目标表「{{actual}}」与导入目标「{{expected}}」不一致",
+  "file.backend.error.import_auto_create_as_select": "自动建表不允许 CREATE TABLE ... AS SELECT",
+  "data_import.create_table.error.duplicate_names": "建表列名不能重复",
+  "data_import.create_table.error.name_required": "列名不能为空"
 }

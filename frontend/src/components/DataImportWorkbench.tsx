@@ -38,7 +38,7 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
     capabilityAllowsImport, activePreferences, continueOnError, supportedConflictPolicies,
     conflictPolicySupported, conflictKeysValid, tableImportOptionsValid, capabilityReason,
     capabilityMessageKey, capabilityDetails, syncWorkbenchTab, updateImportPreferences,
-    applyAutoCreateTable,
+    applyAutoCreateTable, markAutoCreateTableCreated,
     clearSelectedFile, handleModeChange, handleConnectionChange, handleDatabaseChange,
     handleTableChange,
   } = useDataImportWorkbenchState({ tab });
@@ -341,6 +341,7 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
           fileSizeMB={fileSizeMB} darkMode={darkMode} continueOnError={continueOnError}
           handleImportingChange={handleImportingChange} selectedTableName={selectedTableName}
           activePreferences={activePreferences} autoCreateTable={autoCreateTable}
+          onAutoCreateTableCreated={markAutoCreateTableCreated}
           clearSelectedFile={clearSelectedFile} t={t}
         />
         <div

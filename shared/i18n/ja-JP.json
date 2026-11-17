@@ -14023,7 +14023,19 @@
   "data_import.create_table.header_rows.type_row": "型の行",
   "data_import.create_table.header_rows.comment_row": "コメント行",
   "data_import.create_table.header_rows.action": "再解析",
-  "data_import.create_table.header_rows.hint": "0 はなし。型・コメント行はテーブル作成にのみ使用され、データとしてはインポートされません。",
+  "data_import.create_table.header_rows.hint": "1 始まり、0 はなし。型/コメント行はテーブル作成にのみ使用され、データとしてはインポートされません。",
   "data_import.create_table.header_rows.same_row_error": "型の行とコメント行は同じ行にできません",
-  "data_import.create_table.header_rows.reinferring": "ヘッダーを再解析しています..."
+  "data_import.create_table.header_rows.reinferring": "ヘッダーを再解析しています...",
+  "file.backend.error.import_header_type_row_invalid": "型の行は 0（なし）から {{max}} の範囲で指定してください",
+  "file.backend.error.import_header_comment_row_invalid": "コメント行は 0（なし）から {{max}} の範囲で指定してください",
+  "file.backend.error.import_header_rows_same": "型の行とコメント行は同じ行にできません",
+  "file.backend.error.import_header_type_row_order": "型の行はヘッダー行（{{headerRow}} 行目）より後にしてください",
+  "file.backend.error.import_header_comment_row_order": "コメント行はヘッダー行（{{headerRow}} 行目）より後にしてください",
+  "file.backend.error.import_header_json_unsupported": "JSON インポートは型/コメント行に対応していません。CSV または Excel を使用してください",
+  "file.backend.error.import_header_missing": "インポートファイルにヘッダー行がありません",
+  "file.backend.error.import_header_row_missing": "インポートファイルに {{row}} 行目（型/コメント行）がありません",
+  "file.backend.error.import_auto_create_target_mismatch": "CREATE TABLE の対象「{{actual}}」がインポート対象「{{expected}}」と一致しません",
+  "file.backend.error.import_auto_create_as_select": "自動テーブル作成では CREATE TABLE ... AS SELECT を使用できません",
+  "data_import.create_table.error.duplicate_names": "列名は一意である必要があります",
+  "data_import.create_table.error.name_required": "列名は空にできません"
 }

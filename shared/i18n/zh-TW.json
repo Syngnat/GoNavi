@@ -14023,7 +14023,19 @@
   "data_import.create_table.header_rows.type_row": "型別行",
   "data_import.create_table.header_rows.comment_row": "註解行",
   "data_import.create_table.header_rows.action": "重新解析",
-  "data_import.create_table.header_rows.hint": "0 表示沒有；型別行/註解行只用於建表，不會作為資料匯入",
+  "data_import.create_table.header_rows.hint": "從 1 開始計數，0 表示沒有；型別行/註解行只用於建表，不會作為資料匯入",
   "data_import.create_table.header_rows.same_row_error": "型別行與註解行不能是同一行",
-  "data_import.create_table.header_rows.reinferring": "正在重新解析表頭..."
+  "data_import.create_table.header_rows.reinferring": "正在重新解析表頭...",
+  "file.backend.error.import_header_type_row_invalid": "型別行必須在 0（不指定）到 {{max}} 之間",
+  "file.backend.error.import_header_comment_row_invalid": "註解行必須在 0（不指定）到 {{max}} 之間",
+  "file.backend.error.import_header_rows_same": "型別行與註解行不能是同一行",
+  "file.backend.error.import_header_type_row_order": "型別行必須在表頭列（第 {{headerRow}} 列）之後",
+  "file.backend.error.import_header_comment_row_order": "註解行必須在表頭列（第 {{headerRow}} 列）之後",
+  "file.backend.error.import_header_json_unsupported": "JSON 匯入不支援型別行/註解行，請改用 CSV 或 Excel",
+  "file.backend.error.import_header_missing": "匯入檔案缺少表頭",
+  "file.backend.error.import_header_row_missing": "匯入檔案缺少第 {{row}} 列（型別行/註解行）",
+  "file.backend.error.import_auto_create_target_mismatch": "建表 SQL 的目標表「{{actual}}」與匯入目標「{{expected}}」不一致",
+  "file.backend.error.import_auto_create_as_select": "自動建表不允許 CREATE TABLE ... AS SELECT",
+  "data_import.create_table.error.duplicate_names": "建表欄位名不能重複",
+  "data_import.create_table.error.name_required": "欄位名不能為空"
 }

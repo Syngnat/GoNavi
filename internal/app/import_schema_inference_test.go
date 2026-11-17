@@ -209,6 +209,48 @@ func TestEnsureImportAutoCreateTarget(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects a mismatched CREATE TABLE target", func(t *testing.T) {
+		database := &autoCreateProbeDB{}
+		mismatched := ImportFileOptions{AutoCreateTable: &ImportAutoCreateTable{
+			TableName: "orders",
+			SQL:       "CREATE TABLE `other` (`id` BIGINT)",
+		}}
+		if err := NewApp().ensureImportAutoCreateTarget(context.Background(), database, config, "app", "orders", mismatched, false); err == nil {
+			t.Fatal("expected a target mismatch error")
+		}
+		if len(database.executed) != 0 {
+			t.Fatalf("executed = %#v", database.executed)
+		}
+	})
+
+	t.Run("rejects CREATE TABLE AS SELECT", func(t *testing.T) {
+		database := &autoCreateProbeDB{}
+		ctas := ImportFileOptions{AutoCreateTable: &ImportAutoCreateTable{
+			TableName: "orders",
+			SQL:       "CREATE TABLE `orders` AS SELECT 1",
+		}}
+		if err := NewApp().ensureImportAutoCreateTarget(context.Background(), database, config, "app", "orders", ctas, false); err == nil {
+			t.Fatal("expected a CTAS rejection")
+		}
+		if len(database.executed) != 0 {
+			t.Fatalf("executed = %#v", database.executed)
+		}
+	})
+
+	t.Run("rejects a mismatched declared table name", func(t *testing.T) {
+		database := &autoCreateProbeDB{}
+		mismatched := ImportFileOptions{AutoCreateTable: &ImportAutoCreateTable{
+			TableName: "another",
+			SQL:       "CREATE TABLE `orders` (`id` BIGINT)",
+		}}
+		if err := NewApp().ensureImportAutoCreateTarget(context.Background(), database, config, "app", "orders", mismatched, false); err == nil {
+			t.Fatal("expected a declared table name mismatch")
+		}
+		if len(database.executed) != 0 {
+			t.Fatalf("executed = %#v", database.executed)
+		}
+	})
+
 	t.Run("refuses to overwrite an existing table", func(t *testing.T) {
 		database := &autoCreateProbeDB{fakeMetadataRetryDB: fakeMetadataRetryDB{tables: []string{"orders"}}}
 		err := NewApp().ensureImportAutoCreateTarget(context.Background(), database, config, "app", "orders", options, false)

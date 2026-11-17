@@ -141,7 +141,7 @@ describe('ImportTableCreateModal', () => {
     }).props.value).toBe('imported_data');
     expect(renderer.root.findByProps({
       title: 'Amount USD',
-    }).children).toEqual(['amount']);
+    }).props.value).toBe('amount');
 
     await act(async () => {
       renderer.root.findByProps({
@@ -178,7 +178,45 @@ describe('ImportTableCreateModal', () => {
       tableName: 'imported_data',
       sql: expect.stringContaining('CREATE TABLE'),
       columns: ['amount', 'created_at'],
+      columnMappings: { 'Amount USD': 'amount', created_at: 'created_at' },
     });
+  });
+
+  it('allows editing column names and blocks duplicate names', async () => {
+    const { renderer, onConfirm } = await renderModal();
+
+    await act(async () => {
+      renderer.root.findByProps({
+        'data-import-create-table-column-name': 'Amount USD',
+      }).props.onChange({ target: { value: 'total_amount' } });
+    });
+    expect(renderer.root.findByProps({
+      'data-import-create-table-sql': 'true',
+    }).children.join('')).toContain('`total_amount`');
+
+    await act(async () => {
+      renderer.root.findByProps({
+        'data-import-create-table-column-name': 'created_at',
+      }).props.onChange({ target: { value: 'TOTAL_AMOUNT' } });
+    });
+    expect(renderer.root.findByProps({
+      'data-import-create-table-confirm': 'true',
+    }).props.disabled).toBe(true);
+
+    await act(async () => {
+      renderer.root.findByProps({
+        'data-import-create-table-column-name': 'created_at',
+      }).props.onChange({ target: { value: 'created_at' } });
+    });
+    await act(async () => {
+      renderer.root.findByProps({
+        'data-import-create-table-confirm': 'true',
+      }).props.onClick();
+    });
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      columns: ['total_amount', 'created_at'],
+      columnMappings: { 'Amount USD': 'total_amount', created_at: 'created_at' },
+    }));
   });
 
   it('uses parsed header types/comments and applies separate metadata rows', async () => {

@@ -116,6 +116,20 @@ export const ImportTableCreateModal: React.FC<ImportTableCreateModalProps> = ({
             message={t('data_import.create_table.error.type_required')}
           />
         ) : null}
+        {form.hasEmptyName ? (
+          <Alert
+            type="error"
+            showIcon
+            message={t('data_import.create_table.error.name_required')}
+          />
+        ) : null}
+        {form.hasDuplicateNames ? (
+          <Alert
+            type="error"
+            showIcon
+            message={t('data_import.create_table.error.duplicate_names')}
+          />
+        ) : null}
 
         <ImportTableCreateHeaderRows
           typeRow={typeRow}
@@ -131,6 +145,7 @@ export const ImportTableCreateModal: React.FC<ImportTableCreateModalProps> = ({
           typeOptions={form.typeOptions}
           commentsSupported={form.commentsSupported}
           t={t}
+          onNameChange={form.updateName}
           onTypeChange={form.updateType}
           onNullableChange={form.updateNullable}
           onPrimaryKeyChange={form.updatePrimaryKey}

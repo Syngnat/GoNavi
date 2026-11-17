@@ -15,17 +15,47 @@ type importHeaderMetadata struct {
 	Comments []string
 }
 
-const maxImportHeaderMetadataRow = maxImportHeaderRow
+// importHeaderMetadataError 携带 i18n key，由 App 层统一本地化；Message 仅用于日志兜底。
+type importHeaderMetadataError struct {
+	Key     string
+	Params  map[string]any
+	Message string
+}
+
+func (e *importHeaderMetadataError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
+func newImportHeaderMetadataError(key, message string, params map[string]any) error {
+	return &importHeaderMetadataError{Key: key, Params: params, Message: message}
+}
+
+const maxImportHeaderMetadataRow = 100
 
 func validateImportHeaderMetadataRows(options ImportFileOptions) error {
 	if options.TypeRow < 0 || options.TypeRow > maxImportHeaderMetadataRow {
-		return fmt.Errorf("import typeRow must be between 0 and %d", maxImportHeaderMetadataRow)
+		return newImportHeaderMetadataError(
+			"file.backend.error.import_header_type_row_invalid",
+			fmt.Sprintf("import typeRow must be between 0 and %d", maxImportHeaderMetadataRow),
+			map[string]any{"max": maxImportHeaderMetadataRow},
+		)
 	}
 	if options.CommentRow < 0 || options.CommentRow > maxImportHeaderMetadataRow {
-		return fmt.Errorf("import commentRow must be between 0 and %d", maxImportHeaderMetadataRow)
+		return newImportHeaderMetadataError(
+			"file.backend.error.import_header_comment_row_invalid",
+			fmt.Sprintf("import commentRow must be between 0 and %d", maxImportHeaderMetadataRow),
+			map[string]any{"max": maxImportHeaderMetadataRow},
+		)
 	}
 	if options.TypeRow > 0 && options.TypeRow == options.CommentRow {
-		return fmt.Errorf("import typeRow and commentRow must be different")
+		return newImportHeaderMetadataError(
+			"file.backend.error.import_header_rows_same",
+			"import typeRow and commentRow must be different",
+			nil,
+		)
 	}
 	headerRow, err := resolveImportHeaderRow(options.HeaderRow)
 	if err != nil {
@@ -35,10 +65,18 @@ func validateImportHeaderMetadataRows(options ImportFileOptions) error {
 	// 此时 HeaderRow 已经推进到元数据行之后，不能再按原始表头行做比较。
 	if len(options.HeaderOverride) == 0 {
 		if options.TypeRow > 0 && options.TypeRow <= headerRow {
-			return fmt.Errorf("import typeRow must be after headerRow %d", headerRow)
+			return newImportHeaderMetadataError(
+				"file.backend.error.import_header_type_row_order",
+				fmt.Sprintf("import typeRow must be after headerRow %d", headerRow),
+				map[string]any{"headerRow": headerRow},
+			)
 		}
 		if options.CommentRow > 0 && options.CommentRow <= headerRow {
-			return fmt.Errorf("import commentRow must be after headerRow %d", headerRow)
+			return newImportHeaderMetadataError(
+				"file.backend.error.import_header_comment_row_order",
+				fmt.Sprintf("import commentRow must be after headerRow %d", headerRow),
+				map[string]any{"headerRow": headerRow},
+			)
 		}
 	}
 	return nil
@@ -82,7 +120,11 @@ func readImportHeaderMetadata(ctx context.Context, filePath string, options Impo
 		return importHeaderMetadata{}, nil
 	}
 	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(filePath)), ".json") {
-		return importHeaderMetadata{}, fmt.Errorf("JSON 导入不支持类型行/注释行，请改用 CSV 或 Excel")
+		return importHeaderMetadata{}, newImportHeaderMetadataError(
+			"file.backend.error.import_header_json_unsupported",
+			"JSON import does not support type/comment rows; use CSV or Excel",
+			nil,
+		)
 	}
 	if err := validateImportHeaderMetadataRows(options); err != nil {
 		return importHeaderMetadata{}, err
@@ -102,7 +144,11 @@ func readImportHeaderMetadata(ctx context.Context, filePath string, options Impo
 	}
 	header := cloneImportColumns(preview.Columns)
 	if len(header) == 0 {
-		return importHeaderMetadata{}, fmt.Errorf("导入文件缺少表头")
+		return importHeaderMetadata{}, newImportHeaderMetadataError(
+			"file.backend.error.import_header_missing",
+			"import file is missing a header row",
+			nil,
+		)
 	}
 	readRow := func(rowNumber int) ([]string, error) {
 		if rowNumber <= headerRow || rowNumber > maxRow {
@@ -110,7 +156,11 @@ func readImportHeaderMetadata(ctx context.Context, filePath string, options Impo
 		}
 		index := rowNumber - headerRow - 1
 		if index < 0 || index >= len(preview.PreviewRows) {
-			return nil, fmt.Errorf("导入文件缺少第 %d 行（类型行/注释行）", rowNumber)
+			return nil, newImportHeaderMetadataError(
+				"file.backend.error.import_header_row_missing",
+				fmt.Sprintf("import file is missing metadata row %d", rowNumber),
+				map[string]any{"row": rowNumber},
+			)
 		}
 		return importHeaderRowValues(preview.PreviewRows[index], header), nil
 	}
@@ -162,6 +212,7 @@ func isImportHeaderDeclaredType(raw string) bool {
 		return true
 	}
 	if strings.HasPrefix(value, "varchar(") || strings.HasPrefix(value, "char(") ||
+		strings.HasPrefix(value, "varchar2(") || strings.HasPrefix(value, "nvarchar2(") ||
 		strings.HasPrefix(value, "nvarchar(") || strings.HasPrefix(value, "nchar(") ||
 		strings.HasPrefix(value, "decimal(") || strings.HasPrefix(value, "numeric(") ||
 		strings.HasPrefix(value, "number(") || strings.HasPrefix(value, "timestamp(") ||

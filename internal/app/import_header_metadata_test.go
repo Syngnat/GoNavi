@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,7 @@ func TestParseImportHeaderCell(t *testing.T) {
 		{raw: "名称(name)", name: "名称", comment: "name"},
 		{raw: "age(int)", name: "age", declaredType: "int"},
 		{raw: "备注 varchar(255)", name: "备注", declaredType: "varchar(255)"},
+		{raw: "name varchar2(50) 姓名", name: "name", declaredType: "varchar2(50)", comment: "姓名"},
 	}
 	for _, testCase := range cases {
 		name, declaredType, comment := parseImportHeaderCell(testCase.raw)
@@ -121,6 +123,111 @@ func TestInferImportSchemaUsesTypeAndCommentRows(t *testing.T) {
 	}
 }
 
+func TestImportHeaderMetadataRowsAreBounded(t *testing.T) {
+	path := writeHeaderMetadataCSV(t, "id\nbigint\n1\n")
+	_, err := readImportHeaderMetadata(context.Background(), path, ImportFileOptions{HeaderRow: 1, TypeRow: maxImportHeaderMetadataRow + 1})
+	if err == nil {
+		t.Fatal("expected an out-of-range error")
+	}
+	var typed *importHeaderMetadataError
+	if !errors.As(err, &typed) || typed.Key != "file.backend.error.import_header_type_row_invalid" {
+		t.Fatalf("error = %#v, want typed type-row range error", err)
+	}
+}
+
+func TestImportJobTableOptionsRoundTripKeepsHeaderMetadata(t *testing.T) {
+	options := ImportFileOptions{
+		HeaderRow:  1,
+		TypeRow:    2,
+		CommentRow: 3,
+		AutoCreateTable: &ImportAutoCreateTable{
+			TableName: "orders",
+			SQL:       "CREATE TABLE `orders` (`id` BIGINT)",
+		},
+	}
+	jobOptions := importJobTableOptionsFromImportFileOptions(options)
+	if jobOptions == nil {
+		t.Fatal("job options are nil")
+	}
+	restored := importFileOptionsFromImportJobTableOptions(jobOptions)
+	if restored.HeaderRow != 1 || restored.TypeRow != 2 || restored.CommentRow != 3 {
+		t.Fatalf("restored header metadata = %#v", restored)
+	}
+	if restored.AutoCreateTable == nil || restored.AutoCreateTable.SQL != options.AutoCreateTable.SQL {
+		t.Fatalf("restored auto create = %#v", restored.AutoCreateTable)
+	}
+	if buildImportFileOptionsHash(options) != buildImportFileOptionsHash(restored) {
+		t.Fatal("round-tripped options changed the recovery hash")
+	}
+}
+
+func TestInferImportSchemaReadsXLSXTypeAndCommentRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "templated.xlsx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := newXLSXExportFileWriter(file, 0)
+	if err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := writer.SetColumns([]string{"id", "name"}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	for _, row := range [][]interface{}{
+		{"bigint", "varchar(50)"},
+		{"主键", "姓名"},
+		{"1", "张三"},
+	} {
+		if err := writer.ConsumeRowValues(row); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	inference, err := inferImportTableSchema(context.Background(), path, ImportFileOptions{HeaderRow: 1, TypeRow: 2, CommentRow: 3}, 64)
+	if err != nil {
+		t.Fatalf("inferImportTableSchema: %v", err)
+	}
+	if inference.SampledRows != 1 {
+		t.Fatalf("sampled rows = %d, want 1", inference.SampledRows)
+	}
+	if inference.Columns[0].DeclaredType != "bigint" || inference.Columns[0].Comment != "主键" {
+		t.Fatalf("id column = %#v", inference.Columns[0])
+	}
+	if inference.Columns[1].DeclaredType != "varchar(50)" || inference.Columns[1].Comment != "姓名" {
+		t.Fatalf("name column = %#v", inference.Columns[1])
+	}
+}
+
+func TestInferImportSchemaReadsHiveCSVTypeRows(t *testing.T) {
+	path := writeHeaderMetadataCSV(t, "id,name\nbigint,varchar(50)\n主键,姓名\n1,张三\n")
+	inference, err := inferImportTableSchema(context.Background(), path, ImportFileOptions{
+		HeaderRow:    1,
+		TypeRow:      2,
+		CommentRow:   3,
+		LosslessHive: true,
+	}, 64)
+	if err != nil {
+		t.Fatalf("inferImportTableSchema (hive): %v", err)
+	}
+	if inference.SampledRows != 1 || len(inference.Columns) != 2 {
+		t.Fatalf("inference = %#v", inference)
+	}
+	if inference.Columns[0].DeclaredType != "bigint" || inference.Columns[1].Comment != "姓名" {
+		t.Fatalf("columns = %#v", inference.Columns)
+	}
+}
+
 func TestInferImportSchemaIgnoresUnknownTypeRowValues(t *testing.T) {
 	path := writeHeaderMetadataCSV(t, "id,name\n整数,文本\n主键,姓名\n1,张三\n")
 	inference, err := inferImportTableSchema(context.Background(), path, ImportFileOptions{HeaderRow: 1, TypeRow: 2, CommentRow: 3}, 64)
@@ -162,7 +269,7 @@ func TestImportAndPreviewSkipTypeAndCommentRows(t *testing.T) {
 		"app",
 		"users",
 		path,
-		ImportFileOptions{HeaderRow: 1, TypeRow: 2, CommentRow: 3, ContinueOnError: &stopOnError},
+		ImportFileOptions{HeaderRow: 1, TypeRow: 2, CommentRow: 3, JobID: "metadata-rows-import", ContinueOnError: &stopOnError},
 	)
 	if !result.Success {
 		t.Fatalf("import failed: %#v", result)
@@ -172,6 +279,21 @@ func TestImportAndPreviewSkipTypeAndCommentRows(t *testing.T) {
 	}
 	if got := database.batchChanges[0].Inserts[0]["name"]; got != "张三" {
 		t.Fatalf("first imported name = %#v", got)
+	}
+	store, err := app.ensureImportJobStore()
+	if err != nil {
+		t.Fatalf("ensureImportJobStore: %v", err)
+	}
+	job, err := store.Get("metadata-rows-import")
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if job.TableImportOptions == nil {
+		t.Fatal("job did not persist table import options")
+	}
+	if job.TableImportOptions.HeaderRow != 1 || job.TableImportOptions.TypeRow != 2 || job.TableImportOptions.CommentRow != 3 {
+		t.Fatalf("persisted header options = %#v, want original headerRow=1, typeRow=2, commentRow=3",
+			job.TableImportOptions)
 	}
 }
 

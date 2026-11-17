@@ -9,6 +9,7 @@ interface ImportTableCreateColumnRowProps {
   typeOptions: Array<{ value: string }>;
   commentsSupported: boolean;
   t: Translator;
+  onNameChange: (key: string, value: string) => void;
   onTypeChange: (key: string, value: string) => void;
   onNullableChange: (key: string, value: boolean) => void;
   onPrimaryKeyChange: (key: string, checked: boolean) => void;
@@ -20,6 +21,7 @@ const ImportTableCreateColumnRow: React.FC<ImportTableCreateColumnRowProps> = ({
   typeOptions,
   commentsSupported,
   t,
+  onNameChange,
   onTypeChange,
   onNullableChange,
   onPrimaryKeyChange,
@@ -30,9 +32,14 @@ const ImportTableCreateColumnRow: React.FC<ImportTableCreateColumnRowProps> = ({
     style={{ borderTop: '1px solid var(--gn-br-1)' }}
   >
     <td style={{ padding: '6px 8px' }}>
-      <span title={column.sourceName} style={{ fontFamily: 'var(--gn-font-mono)' }}>
-        {column.name}
-      </span>
+      <Input
+        data-import-create-table-column-name={column.sourceName}
+        title={column.sourceName}
+        value={column.name}
+        maxLength={512}
+        onChange={(event) => onNameChange(column.key, event.target.value)}
+        style={{ fontFamily: 'var(--gn-font-mono)' }}
+      />
       {column.sourceName !== column.name ? (
         <div style={{ color: 'var(--gn-fg-3)', fontSize: 11 }}>
           {t('data_import.create_table.column.source_name', { name: column.sourceName })}
@@ -84,6 +91,7 @@ export interface ImportTableCreateColumnsProps {
   typeOptions: Array<{ value: string }>;
   commentsSupported: boolean;
   t: Translator;
+  onNameChange: (key: string, value: string) => void;
   onTypeChange: (key: string, value: string) => void;
   onNullableChange: (key: string, value: boolean) => void;
   onPrimaryKeyChange: (key: string, checked: boolean) => void;
@@ -95,6 +103,7 @@ export const ImportTableCreateColumns: React.FC<ImportTableCreateColumnsProps> =
   typeOptions,
   commentsSupported,
   t,
+  onNameChange,
   onTypeChange,
   onNullableChange,
   onPrimaryKeyChange,
@@ -126,6 +135,7 @@ export const ImportTableCreateColumns: React.FC<ImportTableCreateColumnsProps> =
               typeOptions={typeOptions}
               commentsSupported={commentsSupported}
               t={t}
+              onNameChange={onNameChange}
               onTypeChange={onTypeChange}
               onNullableChange={onNullableChange}
               onPrimaryKeyChange={onPrimaryKeyChange}

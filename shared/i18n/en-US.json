@@ -14023,7 +14023,19 @@
   "data_import.create_table.header_rows.type_row": "Type row",
   "data_import.create_table.header_rows.comment_row": "Comment row",
   "data_import.create_table.header_rows.action": "Re-scan",
-  "data_import.create_table.header_rows.hint": "0 means none. Type/comment rows are only used to create the table and are not imported as data.",
+  "data_import.create_table.header_rows.hint": "1-based; 0 means none. Type/comment rows are only used to create the table and are not imported as data.",
   "data_import.create_table.header_rows.same_row_error": "The type row and comment row must be different",
-  "data_import.create_table.header_rows.reinferring": "Re-scanning the header..."
+  "data_import.create_table.header_rows.reinferring": "Re-scanning the header...",
+  "file.backend.error.import_header_type_row_invalid": "Type row must be between 0 (none) and {{max}}",
+  "file.backend.error.import_header_comment_row_invalid": "Comment row must be between 0 (none) and {{max}}",
+  "file.backend.error.import_header_rows_same": "The type row and comment row must be different",
+  "file.backend.error.import_header_type_row_order": "The type row must come after the header row (row {{headerRow}})",
+  "file.backend.error.import_header_comment_row_order": "The comment row must come after the header row (row {{headerRow}})",
+  "file.backend.error.import_header_json_unsupported": "JSON imports do not support type/comment rows; use CSV or Excel",
+  "file.backend.error.import_header_missing": "The import file is missing a header row",
+  "file.backend.error.import_header_row_missing": "The import file is missing row {{row}} (type/comment row)",
+  "file.backend.error.import_auto_create_target_mismatch": "The CREATE TABLE target \"{{actual}}\" does not match the import target \"{{expected}}\"",
+  "file.backend.error.import_auto_create_as_select": "Automatic table creation does not allow CREATE TABLE ... AS SELECT",
+  "data_import.create_table.error.duplicate_names": "Column names must be unique",
+  "data_import.create_table.error.name_required": "Column name cannot be empty"
 }

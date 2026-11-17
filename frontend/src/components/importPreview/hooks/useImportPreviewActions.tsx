@@ -108,11 +108,12 @@ export const useImportPreviewActions = ({
         Object.entries(columnMappings).filter(([, targetColumn]) => Boolean(targetColumn)),
       );
       const rpcConfig = buildRpcConnectionConfig(config) as any;
+      const autoCreateActive = Boolean(autoCreateTable) && autoCreateTable?.created !== true;
       const options = {
           ...parserOptions,
           columnMappings: selectedMappings,
           jobId: importJobId,
-          ...(autoCreateTable
+          ...(autoCreateActive && autoCreateTable
             ? {
               autoCreateTable: {
                 tableName: autoCreateTable.tableName,

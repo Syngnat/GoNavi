@@ -14023,7 +14023,19 @@
   "data_import.create_table.header_rows.type_row": "Typzeile",
   "data_import.create_table.header_rows.comment_row": "Kommentarzeile",
   "data_import.create_table.header_rows.action": "Neu analysieren",
-  "data_import.create_table.header_rows.hint": "0 bedeutet keine. Typ-/Kommentarzeilen dienen nur der Tabellenerstellung und werden nicht als Daten importiert.",
+  "data_import.create_table.header_rows.hint": "1-basiert; 0 bedeutet keine. Typ-/Kommentarzeilen dienen nur der Tabellenerstellung und werden nicht als Daten importiert.",
   "data_import.create_table.header_rows.same_row_error": "Typzeile und Kommentarzeile müssen unterschiedlich sein",
-  "data_import.create_table.header_rows.reinferring": "Kopfzeile wird neu analysiert..."
+  "data_import.create_table.header_rows.reinferring": "Kopfzeile wird neu analysiert...",
+  "file.backend.error.import_header_type_row_invalid": "Die Typzeile muss zwischen 0 (keine) und {{max}} liegen",
+  "file.backend.error.import_header_comment_row_invalid": "Die Kommentarzeile muss zwischen 0 (keine) und {{max}} liegen",
+  "file.backend.error.import_header_rows_same": "Typzeile und Kommentarzeile müssen unterschiedlich sein",
+  "file.backend.error.import_header_type_row_order": "Die Typzeile muss nach der Kopfzeile (Zeile {{headerRow}}) liegen",
+  "file.backend.error.import_header_comment_row_order": "Die Kommentarzeile muss nach der Kopfzeile (Zeile {{headerRow}}) liegen",
+  "file.backend.error.import_header_json_unsupported": "JSON-Importe unterstützen keine Typ-/Kommentarzeilen; verwenden Sie CSV oder Excel",
+  "file.backend.error.import_header_missing": "Der Importdatei fehlt eine Kopfzeile",
+  "file.backend.error.import_header_row_missing": "Der Importdatei fehlt Zeile {{row}} (Typ-/Kommentarzeile)",
+  "file.backend.error.import_auto_create_target_mismatch": "Das CREATE TABLE-Ziel \"{{actual}}\" stimmt nicht mit dem Importziel \"{{expected}}\" überein",
+  "file.backend.error.import_auto_create_as_select": "Die automatische Tabellenerstellung erlaubt kein CREATE TABLE ... AS SELECT",
+  "data_import.create_table.error.duplicate_names": "Spaltennamen müssen eindeutig sein",
+  "data_import.create_table.error.name_required": "Spaltenname darf nicht leer sein"
 }

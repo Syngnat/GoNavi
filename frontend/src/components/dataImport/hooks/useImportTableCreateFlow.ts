@@ -48,17 +48,10 @@ export const useImportTableCreateFlow = ({
 
   const handleConfirm = (payload: ImportTableCreatePayload) => {
     if (!inference.pendingSelection || !inference.inference) return;
-    const columnMappings: Record<string, string> = {};
-    inference.inference.columns.forEach((column) => {
-      const source = String(column.sourceName || '').trim();
-      const target = String(column.name || '').trim();
-      if (source && target) columnMappings[source] = target;
-    });
     applyAutoCreateTable({
       ...payload,
       typeRow: inference.typeRow,
       commentRow: inference.commentRow,
-      columnMappings,
     }, inference.pendingSelection);
     inference.closeModal();
   };

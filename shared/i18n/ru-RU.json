@@ -14023,7 +14023,19 @@
   "data_import.create_table.header_rows.type_row": "Строка типов",
   "data_import.create_table.header_rows.comment_row": "Строка комментариев",
   "data_import.create_table.header_rows.action": "Пересканировать",
-  "data_import.create_table.header_rows.hint": "0 означает отсутствие. Строки типов и комментариев используются только для создания таблицы и не импортируются как данные.",
+  "data_import.create_table.header_rows.hint": "Нумерация с 1; 0 означает отсутствие. Строки типов и комментариев используются только для создания таблицы и не импортируются как данные.",
   "data_import.create_table.header_rows.same_row_error": "Строка типов и строка комментариев должны различаться",
-  "data_import.create_table.header_rows.reinferring": "Повторное сканирование заголовка..."
+  "data_import.create_table.header_rows.reinferring": "Повторное сканирование заголовка...",
+  "file.backend.error.import_header_type_row_invalid": "Строка типов должна быть от 0 (нет) до {{max}}",
+  "file.backend.error.import_header_comment_row_invalid": "Строка комментариев должна быть от 0 (нет) до {{max}}",
+  "file.backend.error.import_header_rows_same": "Строка типов и строка комментариев должны различаться",
+  "file.backend.error.import_header_type_row_order": "Строка типов должна идти после строки заголовка (строка {{headerRow}})",
+  "file.backend.error.import_header_comment_row_order": "Строка комментариев должна идти после строки заголовка (строка {{headerRow}})",
+  "file.backend.error.import_header_json_unsupported": "Импорт JSON не поддерживает строки типов/комментариев; используйте CSV или Excel",
+  "file.backend.error.import_header_missing": "В файле импорта отсутствует строка заголовка",
+  "file.backend.error.import_header_row_missing": "В файле импорта отсутствует строка {{row}} (типы/комментарии)",
+  "file.backend.error.import_auto_create_target_mismatch": "Цель CREATE TABLE «{{actual}}» не совпадает с целью импорта «{{expected}}»",
+  "file.backend.error.import_auto_create_as_select": "Автоматическое создание таблицы не допускает CREATE TABLE ... AS SELECT",
+  "data_import.create_table.error.duplicate_names": "Имена столбцов должны быть уникальными",
+  "data_import.create_table.error.name_required": "Имя столбца не может быть пустым"
 }

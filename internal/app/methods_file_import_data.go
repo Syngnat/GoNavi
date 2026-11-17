@@ -44,11 +44,11 @@ func (a *App) previewImportFileContext(ctx context.Context, filePath string, opt
 		defer func() { queryResult = sanitizeWebManagedResult(queryResult, filePath) }()
 	}
 	if err := validateImportFileOptions(options); err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(err).Error()}
 	}
 	options, err = normalizeImportFileHeaderOptions(ctx, filePath, options)
 	if err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(err).Error()}
 	}
 	sourceIdentity, err := captureImportSourceIdentity(filePath)
 	if err != nil {
@@ -247,11 +247,15 @@ func (a *App) importDataWithProgressOptionsContext(
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	if err := validateImportFileOptions(options); err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(err).Error()}
 	}
+	// 原始选项要写进导入任务并参与恢复指纹；归一化后的选项只用于本次流式读取
+	// （HeaderRow 会推进到类型/注释行之后）。否则恢复时会把已推进的 HeaderRow
+	// 与原始 TypeRow/CommentRow 再比一次，误判为「类型行必须在表头之后」。
+	originalOptions := options
 	normalizedOptions, normalizeErr := normalizeImportFileHeaderOptions(parent, filePath, options)
 	if normalizeErr != nil {
-		return connection.QueryResult{Success: false, Message: normalizeErr.Error()}
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(normalizeErr).Error()}
 	}
 	options = normalizedOptions
 	if err := validateImportConflictPolicyForDB(dbType, options); err != nil {
@@ -268,7 +272,7 @@ func (a *App) importDataWithProgressOptionsContext(
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.import_source_changed", nil)}
 	}
 	if recovery != nil {
-		if err := a.validateTableImportRecovery(recovery, config, dbName, tableName, options, sourceIdentity); err != nil {
+		if err := a.validateTableImportRecovery(recovery, config, dbName, tableName, originalOptions, sourceIdentity); err != nil {
 			return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, err)}
 		}
 	}
@@ -288,7 +292,7 @@ func (a *App) importDataWithProgressOptionsContext(
 		}
 		defer cleanupRegistration()
 		if recovery != nil {
-			if err := a.claimTableImportRecovery(recovery, sourceIdentity.Token, buildImportTargetFingerprint(config, dbName, tableName), buildImportFileOptionsHash(options)); err != nil {
+			if err := a.claimTableImportRecovery(recovery, sourceIdentity.Token, buildImportTargetFingerprint(config, dbName, tableName), buildImportFileOptionsHash(originalOptions)); err != nil {
 				return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, err)}
 			}
 		}
@@ -303,8 +307,8 @@ func (a *App) importDataWithProgressOptionsContext(
 			ConnectionID:        config.ID,
 			DatabaseName:        dbName,
 			TableName:           tableName,
-			OptionsHash:         buildImportFileOptionsHash(options),
-			TableImportOptions:  importJobTableOptionsFromImportFileOptions(options),
+			OptionsHash:         buildImportFileOptionsHash(originalOptions),
+			TableImportOptions:  importJobTableOptionsFromImportFileOptions(originalOptions),
 		}
 		if recovery != nil {
 			start.Stage = "resuming"

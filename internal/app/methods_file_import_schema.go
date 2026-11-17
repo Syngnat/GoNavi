@@ -2,10 +2,20 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
 )
+
+// localizeImportHeaderMetadataError 把带 i18n key 的表头元数据错误转换为当前语言文案。
+func (a *App) localizeImportHeaderMetadataError(err error) error {
+	var typed *importHeaderMetadataError
+	if errors.As(err, &typed) {
+		return errors.New(a.appText(typed.Key, typed.Params))
+	}
+	return err
+}
 
 // InferImportTableSchema 采样导入文件并推断目标表结构，供「按文件新建表并导入」使用。
 // 只读取文件、不连接数据库：列名清洗按目标方言的标识符长度上限处理，类型保持逻辑类型，
@@ -33,7 +43,9 @@ func (a *App) inferImportTableSchemaContext(ctx context.Context, config connecti
 	if err != nil {
 		return connection.QueryResult{
 			Success: false,
-			Message: a.appText("file.backend.error.import_schema_inference_failed", map[string]any{"detail": err.Error()}),
+			Message: a.appText("file.backend.error.import_schema_inference_failed", map[string]any{
+				"detail": a.localizeImportHeaderMetadataError(err).Error(),
+			}),
 		}
 	}
 	warnings := make([]string, 0, len(inference.Warnings))

@@ -24,6 +24,7 @@ export interface DataImportPreviewPanelProps {
   selectedTableName: DataImportWorkbenchStateApi['selectedTableName'];
   activePreferences: DataImportWorkbenchStateApi['activePreferences'];
   autoCreateTable: ImportAutoCreateTableDraft | null;
+  onAutoCreateTableCreated: () => void;
   clearSelectedFile: DataImportWorkbenchStateApi['clearSelectedFile'];
   t: DataImportWorkbenchStateApi['t'];
 }
@@ -32,7 +33,7 @@ export const DataImportPreviewPanel = ({
   panelBorder, panelBackground, filePath, capabilityAllowsImport, importMode, selectedConnectionId,
   selectedDbName, selectedConnection, selectedConnectionConfig, fileName, fileSizeMB, darkMode,
   continueOnError, handleImportingChange, selectedTableName, activePreferences, clearSelectedFile,
-  autoCreateTable, t,
+  autoCreateTable, onAutoCreateTableCreated, t,
 }: DataImportPreviewPanelProps) => (
   <section
     data-data-import-preview-panel="true"
@@ -76,6 +77,7 @@ export const DataImportPreviewPanel = ({
               sql: autoCreateTable.sql,
               typeRow: autoCreateTable.typeRow,
               commentRow: autoCreateTable.commentRow,
+              created: autoCreateTable.created,
             }
             : undefined}
           continueOnError={continueOnError}
@@ -83,6 +85,7 @@ export const DataImportPreviewPanel = ({
           onClose={clearSelectedFile}
           onImportingChange={handleImportingChange}
           onSuccess={() => {
+            onAutoCreateTableCreated();
             void message.success(t('data_import.workbench.message.import_done'));
           }}
         />

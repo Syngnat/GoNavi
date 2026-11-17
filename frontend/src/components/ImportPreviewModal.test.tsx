@@ -171,7 +171,7 @@ const createImportPreviewTree = (
   continueOnError?: boolean,
   importOptions?: DataImportPreferences,
   targetColumnsOverride?: string[],
-  autoCreateTable?: { tableName: string; sql: string; typeRow?: number; commentRow?: number },
+  autoCreateTable?: { tableName: string; sql: string; typeRow?: number; commentRow?: number; created?: boolean },
   targetColumnMappings?: Record<string, string>,
 ) => (
   <I18nProvider preference="en-US" onPreferenceChange={() => undefined}>
@@ -1119,6 +1119,52 @@ describe("ImportPreviewModal i18n", () => {
     await act(async () => { await button?.props.onClick(); });
     expect(mocks.notify).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'app' }, 'users', 'mysql');
     act(() => renderer.unmount());
+  });
+
+  it("omits autoCreateTable after the target table was created", async () => {
+    mocks.previewImportFile.mockResolvedValue({
+      success: true,
+      data: {
+        columns: ["id"],
+        totalRows: 1,
+        previewRows: [{ id: 1 }],
+      },
+    });
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: true,
+      data: { success: 1, failed: 0, total: 1, errorLogs: [] },
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createImportPreviewTree(
+        "D:/imports/orders.xlsx",
+        "embedded",
+        false,
+        undefined,
+        ["id"],
+        {
+          tableName: "orders",
+          sql: "CREATE TABLE `orders` (`id` bigint);",
+          typeRow: 0,
+          commentRow: 0,
+          created: true,
+        },
+        { id: "id" },
+      ));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    await act(async () => {
+      await startButton?.props.onClick();
+      await Promise.resolve();
+    });
+    const options = mocks.importDataWithProgressOptions.mock.calls[0][4];
+    expect(options).not.toHaveProperty("autoCreateTable");
+    expect(options).not.toHaveProperty("typeRow");
+    expect(options).not.toHaveProperty("commentRow");
   });
 
   it("maps raw headers to parsed table columns through targetColumnMappings", async () => {

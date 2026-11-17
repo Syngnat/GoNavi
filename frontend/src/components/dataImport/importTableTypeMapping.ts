@@ -41,11 +41,13 @@ export interface ImportAutoCreateTableDraft {
   columns: string[];
   typeRow: number;
   commentRow: number;
+  /** 本次导入是否已经成功建过表；成功后的再次导入走普通路径，避免“表已存在”。 */
+  created?: boolean;
   /** 原始表头 -> 建表列名。单行内嵌/多行表头解析后两者可能不同。 */
   columnMappings: Record<string, string>;
 }
 
-export type ImportTableCreatePayload = Pick<ImportAutoCreateTableDraft, 'tableName' | 'sql' | 'columns'>;
+export type ImportTableCreatePayload = Pick<ImportAutoCreateTableDraft, 'tableName' | 'sql' | 'columns' | 'columnMappings'>;
 
 export interface ImportTableColumnDraft {
   key: string;

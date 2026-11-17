@@ -314,6 +314,7 @@ describe('DataImportWorkbench auto-create table flow', () => {
         tableName: 'orders_import',
         sql,
         columns: ['id', 'amount'],
+        columnMappings: { ID: 'id', 'Amount USD': 'amount' },
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -334,6 +335,14 @@ describe('DataImportWorkbench auto-create table flow', () => {
         commentRow: 3,
       },
     });
+    await act(async () => {
+      preview.props.onSuccess();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({
+      'data-import-preview-mock': 'true',
+    }).props.autoCreateTable.created).toBe(true);
+
     const tableSelect = renderer.root.findByProps({
       'data-import-target-field': 'table',
     });

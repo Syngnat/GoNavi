@@ -75,6 +75,11 @@ export const useImportTableCreateForm = ({
   const showMysqlCharacterOptions = resolveImportTableTypeFamily(normalizedDialect) === 'mysql';
   const trimmedTableName = tableName.trim();
   const hasEmptyType = columns.some((column) => !column.type.trim());
+  const hasEmptyName = columns.some((column) => !column.name.trim());
+  const normalizedNames = columns
+    .map((column) => column.name.trim().toLowerCase())
+    .filter(Boolean);
+  const hasDuplicateNames = new Set(normalizedNames).size !== normalizedNames.length;
   const sqlColumns = useMemo(
     () => toEditableColumns(columns, commentsSupported),
     [columns, commentsSupported],
@@ -92,9 +97,14 @@ export const useImportTableCreateForm = ({
   const confirmDisabled = !trimmedTableName
     || columns.length === 0
     || hasEmptyType
+    || hasEmptyName
+    || hasDuplicateNames
     || timeIndexIssue !== null
     || !previewSql;
 
+  const updateName = (key: string, value: string) => {
+    setColumns((current) => patchColumn(current, key, { name: value }));
+  };
   const updateType = (key: string, value: string) => {
     setColumns((current) => patchColumn(current, key, { type: value }));
   };
@@ -112,10 +122,17 @@ export const useImportTableCreateForm = ({
   };
   const buildPayload = (): ImportTableCreatePayload | null => {
     if (confirmDisabled) return null;
+    const columnMappings: Record<string, string> = {};
+    columns.forEach((column) => {
+      const source = String(column.sourceName || '').trim();
+      const target = column.name.trim();
+      if (source && target) columnMappings[source] = target;
+    });
     return {
       tableName: trimmedTableName,
       sql: previewSql,
-      columns: columns.map((column) => column.name),
+      columns: columns.map((column) => column.name.trim()),
+      columnMappings,
     };
   };
 
@@ -133,8 +150,11 @@ export const useImportTableCreateForm = ({
     trimmedTableName,
     timeIndexIssue,
     hasEmptyType,
+    hasEmptyName,
+    hasDuplicateNames,
     previewSql,
     confirmDisabled,
+    updateName,
     updateType,
     updateNullable,
     updatePrimaryKey,

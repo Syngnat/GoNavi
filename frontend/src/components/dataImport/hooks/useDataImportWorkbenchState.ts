@@ -450,6 +450,10 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
     syncWorkbenchTab,
   ]);
 
+  const markAutoCreateTableCreated = useCallback(() => {
+    setAutoCreateTable((current) => (current ? { ...current, created: true } : current));
+  }, []);
+
   const clearSelectedFile = () => {
     invalidateFileSelection();
   };
@@ -529,6 +533,7 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
     conflictPolicySupported, conflictKeysValid, tableImportOptionsValid, capabilityReason,
     capabilityMessageKey, capabilityDetails, syncWorkbenchTab, updateImportPreferences,
     applyAutoCreateTable,
+    markAutoCreateTableCreated,
     clearSelectedFile, handleModeChange, handleConnectionChange, handleDatabaseChange,
     handleTableChange,
   };
