@@ -1,4 +1,5 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -11,12 +12,20 @@ vi.mock('../common/ResizableDraggableModal', () => ({
     title,
     children,
     footer,
+    className,
   }: {
     open?: boolean;
     title?: React.ReactNode;
     children?: React.ReactNode;
     footer?: React.ReactNode;
-  }) => (open ? React.createElement('section', null, title, children, footer) : null),
+    className?: string;
+  }) => (open ? React.createElement(
+    'section',
+    { 'data-modal-class-name': className },
+    title,
+    children,
+    footer,
+  ) : null),
 }));
 
 vi.mock('antd', async () => {
@@ -130,6 +139,17 @@ const textContent = (node: unknown): string => {
 };
 
 describe('ImportTableCreateModal', () => {
+  it('uses a scrollable body for long column lists', async () => {
+    const { renderer } = await renderModal();
+    expect(renderer.root.findByType('section').props['data-modal-class-name'])
+      .toBe('gn-import-table-create-modal');
+
+    const css = readFileSync(new URL('./ImportTableCreateModal.css', import.meta.url), 'utf8');
+    expect(css).toMatch(
+      /\.ant-modal\.gn-import-table-create-modal \.ant-modal-body \{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s,
+    );
+  });
+
   it('renders inferred columns, edits types, forces PK columns to NOT NULL and confirms SQL', async () => {
     const { renderer, onConfirm } = await renderModal();
 

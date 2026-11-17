@@ -1,0 +1,6 @@
+.ant-modal.gn-import-table-create-modal .ant-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}

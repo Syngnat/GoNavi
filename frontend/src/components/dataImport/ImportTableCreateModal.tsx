@@ -6,6 +6,7 @@ import { ImportTableCreateIdentityFields } from './ImportTableCreateIdentityFiel
 import { ImportTableCreateHeaderRows } from './ImportTableCreateHeaderRows';
 import { ImportTableCreateColumns } from './ImportTableCreateColumns';
 import { ImportTableCreateSqlPreview } from './ImportTableCreateSqlPreview';
+import './ImportTableCreateModal.css';
 import type {
   ImportTableCreatePayload,
   ImportTableSchemaInference,
@@ -46,6 +47,7 @@ export const ImportTableCreateModal: React.FC<ImportTableCreateModalProps> = ({
 
   return (
     <Modal
+      className="gn-import-table-create-modal"
       title={t('data_import.create_table.title')}
       open={open}
       onCancel={onCancel}
