@@ -151,6 +151,25 @@ describe('useSidebarTableClipboard DOM events', () => {
     expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode]);
   });
 
+  it('pastes immediately when the copied table rows are still selected', () => {
+    const row = container.querySelector('[data-testid="tree-row"]') as HTMLElement;
+    selectedNodesRef.current = [sourceNode, customersNode];
+
+    act(() => {
+      row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    act(() => {
+      row.dispatchEvent(new Event('copy', { bubbles: true, cancelable: true }));
+    });
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    act(() => {
+      row.dispatchEvent(pasteEvent);
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode]);
+  });
+
   it('does not hijack native copy or paste from an input inside the sidebar', () => {
     const input = container.querySelector('[data-testid="tree-input"]') as HTMLInputElement;
 

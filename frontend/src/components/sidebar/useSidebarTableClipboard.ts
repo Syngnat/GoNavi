@@ -124,6 +124,29 @@ export const resolveSidebarTableClipboardTarget = (
   };
 };
 
+export const resolveSidebarTableClipboardPasteTarget = (
+  nodes: any[],
+  connectionIds: string[],
+): SidebarTableClipboardTarget | null => {
+  const selectedNodes = Array.isArray(nodes) ? nodes : [];
+  if (selectedNodes.length === 0) return null;
+  if (selectedNodes.length === 1) {
+    return resolveSidebarTableClipboardTarget(selectedNodes[0], connectionIds);
+  }
+  const targets = selectedNodes.map((node) => (
+    resolveSidebarTableClipboardTarget(node, connectionIds)
+  ));
+  if (targets.some((target) => !target)) return null;
+  const first = targets[0]!;
+  return targets.every((target) => (
+    target!.connectionId === first.connectionId
+    && target!.database === first.database
+    && target!.schema === first.schema
+  ))
+    ? first
+    : null;
+};
+
 export const canCopySidebarTableDirectly = (
   entry: SidebarTableClipboardEntry,
 ): boolean => {
@@ -193,10 +216,7 @@ const resolveSidebarTablePasteCommand = ({
     return { kind: 'paste-mixed-sources', entries: clipboard };
   }
   const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
-  if (nodes.length !== 1) {
-    return { kind: 'paste-target-missing', entries: clipboard };
-  }
-  const target = resolveSidebarTableClipboardTarget(nodes[0], connectionIds);
+  const target = resolveSidebarTableClipboardPasteTarget(nodes, connectionIds);
   if (!target) {
     return { kind: 'paste-target-missing', entries: clipboard };
   }

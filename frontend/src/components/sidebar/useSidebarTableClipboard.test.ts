@@ -8,6 +8,7 @@ import {
   resolveSidebarTableClipboardCommand,
   resolveSidebarTableClipboardEntry,
   resolveSidebarTableClipboardEntries,
+  resolveSidebarTableClipboardPasteTarget,
   resolveSidebarTableClipboardPasteEventCommand,
   resolveSidebarTableClipboardTarget,
 } from './useSidebarTableClipboard';
@@ -203,6 +204,49 @@ describe('sidebar table clipboard resolution', () => {
     expect(isSameSidebarTableDatabase(source, sameSchema)).toBe(true);
     expect(isSameSidebarTableDatabase(source, otherSchema)).toBe(false);
   });
+
+  it('infers the shared database when multiple table rows remain selected for paste', () => {
+    const table = (tableName: string) => createTableNode({
+      key: `conn-a-shop-table-${tableName}`,
+      title: tableName,
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName,
+        config: { type: 'mysql' },
+      },
+    });
+
+    expect(resolveSidebarTableClipboardPasteTarget(
+      [table('orders'), table('customers'), table('refunds')],
+      connectionIds,
+    )).toEqual({
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
+  });
+
+  it('rejects a multi-row paste target that spans different databases', () => {
+    expect(resolveSidebarTableClipboardPasteTarget(
+      [
+        createTableNode(),
+        createTableNode({
+          key: 'conn-a-archive-table-orders',
+          title: 'orders',
+          dataRef: {
+            id: 'conn-a',
+            dbName: 'archive',
+            schemaName: '',
+            tableName: 'orders',
+            config: { type: 'mysql' },
+          },
+        }),
+      ],
+      connectionIds,
+    )).toBeNull();
+  });
 });
 
 describe('sidebar table clipboard shortcuts', () => {
@@ -304,6 +348,39 @@ describe('sidebar table clipboard shortcuts', () => {
     expect(command.kind).toBe('paste-copy-table');
     expect(command.kind === 'paste-copy-table' && command.entries.map((entry) => entry.table))
       .toEqual(['orders', 'customers']);
+  });
+
+  it('pastes immediately when the copied table rows are still the selected target', () => {
+    const ordersNode = createTableNode();
+    const customersNode = createTableNode({
+      key: 'conn-a-shop-table-customers',
+      title: 'customers',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName: 'customers',
+        config: { type: 'mysql' },
+      },
+    });
+    const entries = resolveSidebarTableClipboardEntries(
+      [ordersNode, customersNode],
+      connectionIds,
+    )!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [ordersNode, customersNode],
+      clipboard: entries,
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-table');
+    expect(command.kind === 'paste-copy-table' && command.target).toEqual({
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
   });
 
   it('opens the data sync wizard with source and target prefilled for cross-instance paste', () => {
