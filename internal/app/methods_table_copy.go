@@ -348,20 +348,28 @@ func resolvePostgresCopyTableColumnTraits(dbInst db.Database, dbType string, sch
 	}
 
 	traits := map[string]postgresCopyTableColumnTrait{}
-	query := fmt.Sprintf(`
-	SELECT a.attname AS column_name,
-	       COALESCE(pg_catalog.to_jsonb(a)->>'attgenerated', '') AS generated_kind,
-	       COALESCE(pg_catalog.to_jsonb(a)->>'attidentity', '') AS identity_kind
-	FROM pg_catalog.pg_attribute a
-	JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
-	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-	WHERE n.nspname = %s
-	  AND c.relname = %s
-	  AND a.attnum > 0
-	  AND NOT a.attisdropped`, postgresCopyTableSQLLiteral(schemaName), postgresCopyTableSQLLiteral(sourceName))
-	rows, _, err := dbInst.Query(query)
-	if err != nil {
-		return nil, err
+	// 依次覆盖 PostgreSQL 12+、10/11 与 9.x；只在错误明确指向缺失字段时降级。
+	queries := []string{
+		buildPostgresCopyTableColumnTraitsQuery(schemaName, sourceName, "COALESCE(a.attgenerated::text, '')", "COALESCE(a.attidentity::text, '')"),
+		buildPostgresCopyTableColumnTraitsQuery(schemaName, sourceName, "''", "COALESCE(a.attidentity::text, '')"),
+		buildPostgresCopyTableColumnTraitsQuery(schemaName, sourceName, "''", "''"),
+	}
+	var rows []map[string]interface{}
+	queryIndex := 0
+	for {
+		var err error
+		rows, _, err = dbInst.Query(queries[queryIndex])
+		if err == nil {
+			break
+		}
+		switch {
+		case queryIndex == 0 && postgresCopyTableTraitErrorMatches(err, "attgenerated"):
+			queryIndex = 1
+		case queryIndex < 2 && postgresCopyTableTraitErrorMatches(err, "attidentity"):
+			queryIndex = 2
+		default:
+			return nil, err
+		}
 	}
 	for _, row := range rows {
 		name := copyTableColumnNameFromRow(row)
@@ -377,6 +385,44 @@ func resolvePostgresCopyTableColumnTraits(dbInst db.Database, dbType string, sch
 		}
 	}
 	return traits, nil
+}
+
+func buildPostgresCopyTableColumnTraitsQuery(schemaName string, sourceName string, generatedExpression string, identityExpression string) string {
+	return fmt.Sprintf(`
+	SELECT a.attname AS column_name,
+	       %s AS generated_kind,
+	       %s AS identity_kind
+	FROM pg_catalog.pg_attribute a
+	JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+	WHERE n.nspname = %s
+	  AND c.relname = %s
+	  AND a.attnum > 0
+	  AND NOT a.attisdropped`, generatedExpression, identityExpression, postgresCopyTableSQLLiteral(schemaName), postgresCopyTableSQLLiteral(sourceName))
+}
+
+func postgresCopyTableTraitErrorMatches(err error, marker string) bool {
+	if err == nil || strings.TrimSpace(marker) == "" {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	if !strings.Contains(text, strings.ToLower(marker)) {
+		return false
+	}
+	for _, phrase := range []string{
+		"does not exist",
+		"undefined column",
+		"unknown column",
+		"no such column",
+		"not found",
+		"不存在",
+		"未定义",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolvePostgresCopyTableSequenceOptions(dbInst db.Database, schemaName string, sourceName string, columnName string) (postgresCopyTableSequenceOptions, error) {
