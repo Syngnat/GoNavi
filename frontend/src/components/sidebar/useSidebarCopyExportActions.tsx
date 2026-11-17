@@ -13,6 +13,7 @@ import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { confirmCopyTables } from '../tableCopyAction';
 import { confirmCopyDatabase } from '../databaseCopyAction';
 import { resolveSidebarNodeConnectionId } from '../sidebarV2Utils';
+import { dispatchSidebarTableCreated } from '../../utils/sidebarDatabaseRefresh';
 import { buildBatchTableExportWorkbenchTab, buildTableExportTab } from '../../utils/tableExportTab';
 import { useStore } from '../../store';
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
@@ -111,8 +112,13 @@ export const useSidebarCopyExportActions = ({
       dbName: String(conn.dbName || ''),
       sourceSchemaName: String(conn.schemaName || ''),
       sourceTableNames: tableNames,
-      onSuccess: async () => {
-        await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
+      onSuccess: async (targetTableNames) => {
+        dispatchSidebarTableCreated({
+          connectionId: String(conn.id || ''),
+          dbName: String(conn.dbName || ''),
+          schemaName: String(conn.schemaName || ''),
+          tableName: String(targetTableNames[0] || ''),
+        });
       },
     });
   };

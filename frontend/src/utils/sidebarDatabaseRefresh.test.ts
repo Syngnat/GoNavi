@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   normalizeSidebarDatabaseListRefreshRequest,
   normalizeSidebarDatabaseRefreshRequest,
+  dispatchSidebarTableCreated,
   dispatchSidebarTableDataRefresh,
   dispatchSidebarTableMutationRefresh,
 } from './sidebarDatabaseRefresh';
@@ -38,6 +39,29 @@ describe('sidebar database refresh requests', () => {
       reason: 'elasticsearch-write',
     });
     expect(normalizeSidebarDatabaseListRefreshRequest({ connectionId: ' ' })).toBeNull();
+  });
+
+  it('dispatches a table-created refresh with the real database and schema node', () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { dispatchEvent });
+
+    expect(dispatchSidebarTableCreated({
+      connectionId: 'conn-1',
+      dbName: 'app',
+      schemaName: 'public',
+      tableName: 'orders_copy2',
+    })).toBe(true);
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'gonavi:sidebar-table-created',
+      detail: {
+        connectionId: 'conn-1',
+        dbName: 'app',
+        schemaName: 'public',
+        tableName: 'orders_copy2',
+      },
+    }));
+
+    expect(dispatchSidebarTableCreated({ connectionId: '', dbName: 'app' })).toBe(false);
   });
 
   it('keeps live row-count targets while dropping blanks and duplicates', () => {
