@@ -81,6 +81,45 @@ func TestGBase8cLiveSmoke(t *testing.T) {
 				if strings.Join(compound, ",") != "1:code,2:qty" {
 					t.Fatalf("compound index columns %v (all %+v)", compound, indexes)
 				}
+
+				// 用共享 PostgresDB 查询同一张表，覆盖通用 PostgreSQL 兼容降级在
+				// PostgreSQL 9.2 内核上的真实 SQL，并验证连接级能力缓存。
+				legacyClient := &PostgresDB{
+					conn:               client.PostgresDB.conn,
+					metadataQueryState: &pgMetadataQueryState{},
+				}
+				legacyColumns, err := legacyClient.GetColumns(schema, "items")
+				if err != nil || len(legacyColumns) != 4 {
+					t.Fatalf("generic PostgreSQL fallback columns %+v: %v", legacyColumns, err)
+				}
+				if legacyColumns[1].Key != "" {
+					t.Fatalf("generic PostgreSQL fallback should normalize NULL column_key, got %+v", legacyColumns[1])
+				}
+				if legacyClient.metadataQueryState.columnsMode() != pgMetadataQueryLegacy {
+					t.Fatal("generic PostgreSQL fallback should cache legacy column metadata mode")
+				}
+				legacyIndexes, err := legacyClient.GetIndexes(schema, "items")
+				if err != nil {
+					t.Fatalf("generic PostgreSQL fallback indexes: %v", err)
+				}
+				if legacyClient.metadataQueryState.indexesMode() != pgMetadataQueryLegacy {
+					t.Fatal("generic PostgreSQL fallback should cache legacy index metadata mode")
+				}
+				var legacyCompound []string
+				for _, index := range legacyIndexes {
+					if index.Name == "idx_items_code_qty" {
+						legacyCompound = append(legacyCompound, fmt.Sprintf("%d:%s", index.SeqInIndex, index.ColumnName))
+					}
+				}
+				if strings.Join(legacyCompound, ",") != "1:code,2:qty" {
+					t.Fatalf("generic PostgreSQL fallback compound index columns %v (all %+v)", legacyCompound, legacyIndexes)
+				}
+				if _, err := legacyClient.GetColumns(schema, "items"); err != nil {
+					t.Fatalf("cached generic PostgreSQL fallback columns: %v", err)
+				}
+				if _, err := legacyClient.GetIndexes(schema, "items"); err != nil {
+					t.Fatalf("cached generic PostgreSQL fallback indexes: %v", err)
+				}
 				ddl, err := client.GetCreateStatement(schema, "items")
 				if err != nil || !strings.HasPrefix(ddl, "CREATE TABLE "+schema+".items (") || !strings.Contains(ddl, " ON "+schema+".items ") {
 					t.Fatalf("ddl %q %v", ddl, err)

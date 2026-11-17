@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"GoNavi-Wails/internal/connection"
 )
@@ -92,29 +93,114 @@ type pgLikeMetadataQueryer interface {
 	Query(string) ([]map[string]interface{}, []string, error)
 }
 
-func queryPGLikeColumnsMetadata(queryer pgLikeMetadataQueryer, schemaName, tableName string) ([]map[string]interface{}, error) {
-	data, _, firstErr := queryer.Query(buildPGLikeColumnsMetadataQuery(schemaName, tableName))
-	if firstErr == nil {
+type pgMetadataQueryMode uint8
+
+const (
+	pgMetadataQueryUnknown pgMetadataQueryMode = iota
+	pgMetadataQueryModern
+	pgMetadataQueryLegacy
+)
+
+// pgMetadataQueryState 缓存连接级能力探测结果，避免旧内核在每张表上重复执行
+// 必然失败的现代语法查询。
+type pgMetadataQueryState struct {
+	mu      sync.Mutex
+	columns pgMetadataQueryMode
+	indexes pgMetadataQueryMode
+}
+
+func (s *pgMetadataQueryState) columnsMode() pgMetadataQueryMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.columns
+}
+
+func (s *pgMetadataQueryState) setColumnsMode(mode pgMetadataQueryMode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.columns = mode
+}
+
+func (s *pgMetadataQueryState) indexesMode() pgMetadataQueryMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.indexes
+}
+
+func (s *pgMetadataQueryState) setIndexesMode(mode pgMetadataQueryMode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.indexes = mode
+}
+
+func isPGLikeMetadataCapabilityError(err error, marker string) bool {
+	if err == nil || strings.TrimSpace(marker) == "" {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	if !strings.Contains(text, strings.ToLower(marker)) {
+		return false
+	}
+	for _, phrase := range []string{
+		"does not exist",
+		"undefined column",
+		"unknown column",
+		"no such column",
+		"not found",
+		"不存在",
+		"未定义",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryPGLikeColumnsMetadata(queryer pgLikeMetadataQueryer, state *pgMetadataQueryState, schemaName, tableName string) ([]map[string]interface{}, error) {
+	mode := pgMetadataQueryUnknown
+	if state != nil {
+		mode = state.columnsMode()
+	}
+	if mode == pgMetadataQueryModern {
+		data, _, err := queryer.Query(buildPGLikeColumnsMetadataQuery(schemaName, tableName))
+		return data, err
+	}
+	if mode == pgMetadataQueryLegacy {
+		data, _, err := queryer.Query(buildPGLikeColumnsMetadataQueryWithoutIdentity(schemaName, tableName))
+		return data, err
+	}
+
+	data, _, primaryErr := queryer.Query(buildPGLikeColumnsMetadataQuery(schemaName, tableName))
+	if primaryErr == nil {
+		if state != nil {
+			state.setColumnsMode(pgMetadataQueryModern)
+		}
 		return data, nil
 	}
-	// PostgreSQL 9.x 与部分兼容内核可能没有 attidentity，也没有 to_jsonb。
-	// identity 只影响自增列展示，降级后仍应保留类型、注释与主键信息。
+	// 只在错误明确指向 attidentity 时降级；连接中断、超时和权限错误必须原样返回，
+	// 否则会掩盖真实故障并在现代内核上静默丢失 identity 语义。
+	if !isPGLikeMetadataCapabilityError(primaryErr, "attidentity") {
+		return nil, primaryErr
+	}
 	fallbackData, _, fallbackErr := queryer.Query(buildPGLikeColumnsMetadataQueryWithoutIdentity(schemaName, tableName))
 	if fallbackErr != nil {
-		return nil, firstErr
+		return nil, fmt.Errorf("column metadata query failed: %w; compatibility query failed: %w", primaryErr, fallbackErr)
+	}
+	if state != nil {
+		state.setColumnsMode(pgMetadataQueryLegacy)
 	}
 	return fallbackData, nil
 }
 
 // buildKingbaseColumnsMetadataQuery 是 Kingbase 专用的列定义查询。
 //
-// 与 PG 版的唯一差别是 identity_generation 一列：KingbaseES 对 jsonb 取值写法
-// 会把 'attidentity' 当成 jsonpath 解析，且不同版本对 attidentity 列的支持不一致。
-// 一旦该列报错，会连带 col_description（注释）与 format_type（类型）一起丢失，
-// 结果集表头就没有注释和类型了。
+// 与 PG 版的唯一差别是 identity_generation 一列：不同 KingbaseES 版本对
+// attidentity、jsonb 取值写法的支持不一致。一旦该列报错，会连带 col_description
+// （注释）与 format_type（类型）一起丢失，结果集表头就没有注释和类型了。
 //
-// 这里固定返回空串：identity 信息只影响「自增列」的展示，而 column_default
-// 已经能表达序列默认值。宁可少一列展示，也不能让整条语句不可用。
+// 这里固定返回空串，避免 identity 属性影响整条查询可用性；普通序列默认值
+// 仍由 column_default 表达。
 func buildKingbaseColumnsMetadataQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`
 SELECT
@@ -144,33 +230,14 @@ ORDER BY a.attnum`, buildPGLikeVisibleRelationPredicate("c", schemaName), escape
 }
 
 func buildPGLikeIndexesMetadataQuery(schemaName, tableName string) string {
-	return fmt.Sprintf(`
-SELECT
-	i.relname AS index_name,
-	a.attname AS column_name,
-	ix.indisunique AS is_unique,
-	x.ordinality AS seq_in_index,
-	am.amname AS index_type
-FROM pg_class t
-JOIN pg_namespace n ON n.oid = t.relnamespace
-JOIN pg_index ix ON t.oid = ix.indrelid
-JOIN pg_class i ON i.oid = ix.indexrelid
-JOIN pg_am am ON i.relam = am.oid
-JOIN unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality) ON TRUE
-JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
-WHERE t.relkind IN ('r', 'p')
-  AND t.relname = '%s'
-  AND %s
-  AND ix.indisvalid
-  AND ix.indpred IS NULL
-  AND x.ordinality <= ix.indnkeyatts
-  AND NOT EXISTS (
-    SELECT 1 FROM unnest(ix.indkey) AS expr_key(attnum) WHERE expr_key.attnum <= 0
-  )
-ORDER BY i.relname, x.ordinality`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("t", schemaName))
+	return buildPGLikeIndexesMetadataQueryWithKeyCount(schemaName, tableName, "indnkeyatts")
 }
 
 func buildPGLikeIndexesMetadataLegacyQuery(schemaName, tableName string) string {
+	return buildPGLikeIndexesMetadataQueryWithKeyCount(schemaName, tableName, "indnatts")
+}
+
+func buildPGLikeIndexesMetadataQueryWithKeyCount(schemaName, tableName string, keyCountColumn string) string {
 	return fmt.Sprintf(`
 SELECT
 	i.relname AS index_name,
@@ -180,7 +247,7 @@ SELECT
 	am.amname AS index_type
 FROM (
 	SELECT ix.indexrelid, ix.indrelid, ix.indisunique, ix.indkey,
-	       generate_series(0, ix.indnatts - 1) AS pos
+	       generate_series(0, ix.%s - 1) AS pos
 	FROM pg_index ix
 	JOIN pg_class t ON t.oid = ix.indrelid
 	JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -196,19 +263,41 @@ FROM (
 JOIN pg_class i ON i.oid = x.indexrelid
 JOIN pg_am am ON i.relam = am.oid
 JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = x.indkey[x.pos]
-ORDER BY i.relname, x.pos`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("t", schemaName))
+ORDER BY i.relname, x.pos`, keyCountColumn, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("t", schemaName))
 }
 
-func queryPGLikeIndexesMetadata(queryer pgLikeMetadataQueryer, schemaName, tableName string) ([]map[string]interface{}, error) {
-	data, _, firstErr := queryer.Query(buildPGLikeIndexesMetadataQuery(schemaName, tableName))
-	if firstErr == nil {
+func queryPGLikeIndexesMetadata(queryer pgLikeMetadataQueryer, state *pgMetadataQueryState, schemaName, tableName string) ([]map[string]interface{}, error) {
+	mode := pgMetadataQueryUnknown
+	if state != nil {
+		mode = state.indexesMode()
+	}
+	if mode == pgMetadataQueryModern {
+		data, _, err := queryer.Query(buildPGLikeIndexesMetadataQuery(schemaName, tableName))
+		return data, err
+	}
+	if mode == pgMetadataQueryLegacy {
+		data, _, err := queryer.Query(buildPGLikeIndexesMetadataLegacyQuery(schemaName, tableName))
+		return data, err
+	}
+
+	data, _, primaryErr := queryer.Query(buildPGLikeIndexesMetadataQuery(schemaName, tableName))
+	if primaryErr == nil {
+		if state != nil {
+			state.setIndexesMode(pgMetadataQueryModern)
+		}
 		return data, nil
 	}
-	// PostgreSQL 9.x 不支持 WITH ORDINALITY 与 indnkeyatts；旧内核没有 INCLUDE
-	// 列，按 indnatts 展开即可保留全部索引键列。
+	// indnkeyatts 从 PostgreSQL 11 开始提供。只在错误明确指向该列时降级；
+	// 旧内核没有 INCLUDE，按 indnatts 展开即可保留全部索引键列。
+	if !isPGLikeMetadataCapabilityError(primaryErr, "indnkeyatts") {
+		return nil, primaryErr
+	}
 	fallbackData, _, fallbackErr := queryer.Query(buildPGLikeIndexesMetadataLegacyQuery(schemaName, tableName))
 	if fallbackErr != nil {
-		return nil, firstErr
+		return nil, fmt.Errorf("index metadata query failed: %w; compatibility query failed: %w", primaryErr, fallbackErr)
+	}
+	if state != nil {
+		state.setIndexesMode(pgMetadataQueryLegacy)
 	}
 	return fallbackData, nil
 }
@@ -397,11 +486,15 @@ func parsePGLikeTableComment(data []map[string]interface{}) string {
 func buildPGLikeColumnDefinitions(data []map[string]interface{}) []connection.ColumnDefinition {
 	columns := make([]connection.ColumnDefinition, 0, len(data))
 	for _, row := range data {
+		key := ""
+		if v, ok := row["column_key"]; ok && v != nil {
+			key = fmt.Sprintf("%v", v)
+		}
 		col := connection.ColumnDefinition{
 			Name:     fmt.Sprintf("%v", row["column_name"]),
 			Type:     fmt.Sprintf("%v", row["data_type"]),
 			Nullable: fmt.Sprintf("%v", row["is_nullable"]),
-			Key:      fmt.Sprintf("%v", row["column_key"]),
+			Key:      key,
 			Extra:    "",
 			Comment:  "",
 		}

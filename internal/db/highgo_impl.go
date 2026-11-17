@@ -24,9 +24,10 @@ import (
 // HighGoDB implements Database interface for HighGo (瀚高) database
 // HighGo is a PostgreSQL-compatible database, so we reuse PostgreSQL driver
 type HighGoDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder
+	conn               *sql.DB
+	pingTimeout        time.Duration
+	forwarder          *ssh.LocalForwarder
+	metadataQueryState *pgMetadataQueryState
 }
 
 type highgoSessionExecer struct {
@@ -66,6 +67,7 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 			_ = h.Close()
 		}
 	}()
+	h.metadataQueryState = &pgMetadataQueryState{}
 
 	runConfig := config
 
@@ -132,6 +134,7 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 }
 
 func (h *HighGoDB) Close() error {
+	h.metadataQueryState = nil
 	if h.forwarder != nil {
 		if err := h.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 HighGo SSH 端口转发失败：%v", err)
@@ -318,7 +321,7 @@ func (h *HighGoDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, err := queryPGLikeColumnsMetadata(h, schema, table)
+	data, err := queryPGLikeColumnsMetadata(h, h.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +335,7 @@ func (h *HighGoDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, err := queryPGLikeIndexesMetadata(h, schema, table)
+	data, err := queryPGLikeIndexesMetadata(h, h.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}

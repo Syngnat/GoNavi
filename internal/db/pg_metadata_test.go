@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,6 +24,9 @@ func TestBuildPGLikeMetadataQueriesUseVisibleRelationForPureTable(t *testing.T) 
 	}
 	if strings.Contains(indexQuery, "n.nspname = 'public'") || strings.Contains(indexQuery, "current_schema()") {
 		t.Fatalf("pure table index metadata should not force public/current_schema, got %s", indexQuery)
+	}
+	if !strings.Contains(indexQuery, "ix.indnkeyatts") || strings.Contains(indexQuery, "WITH ORDINALITY") {
+		t.Fatalf("modern index metadata should use indnkeyatts without WITH ORDINALITY, got %s", indexQuery)
 	}
 	legacyIndexQuery := buildPGLikeIndexesMetadataLegacyQuery("", "users")
 	if !strings.Contains(legacyIndexQuery, "pg_catalog.pg_table_is_visible(t.oid)") {
@@ -325,6 +329,20 @@ func TestBuildPGLikeColumnDefinitionsMarksPrimaryKey(t *testing.T) {
 	}
 }
 
+func TestBuildPGLikeColumnDefinitionsTreatsNilColumnKeyAsEmpty(t *testing.T) {
+	t.Parallel()
+
+	columns := buildPGLikeColumnDefinitions([]map[string]interface{}{{
+		"column_name": "name",
+		"data_type":   "text",
+		"is_nullable": "YES",
+		"column_key":  nil,
+	}})
+	if len(columns) != 1 || columns[0].Key != "" {
+		t.Fatalf("nil column key should become empty, got %+v", columns)
+	}
+}
+
 func TestBuildPGLikeColumnDefinitionsRecognizesIdentityAndQualifiedNextval(t *testing.T) {
 	t.Parallel()
 
@@ -368,37 +386,63 @@ func TestBuildPGLikeColumnDefinitionsRecognizesIdentityAndQualifiedNextval(t *te
 	}
 }
 
-type columnsMetadataQueryStub struct {
-	queries []string
+type metadataQueryResponse struct {
+	rows []map[string]interface{}
+	err  error
 }
 
-func (s *columnsMetadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
+type metadataQueryStub struct {
+	queries   []string
+	responses []metadataQueryResponse
+}
+
+func (s *metadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
 	s.queries = append(s.queries, query)
-	if len(s.queries) == 1 {
-		return nil, nil, fmt.Errorf("pq: function pg_catalog.to_jsonb(pg_attribute) does not exist")
+	index := len(s.queries) - 1
+	if index >= len(s.responses) {
+		if len(s.responses) == 0 {
+			return nil, nil, fmt.Errorf("unexpected query %d", index+1)
+		}
+		index = len(s.responses) - 1
 	}
-	return []map[string]interface{}{{
-		"column_name":    "id",
-		"data_type":      "integer",
-		"is_nullable":    "NO",
-		"column_default": nil,
-		"column_key":     "PRI",
-	}}, nil, nil
+	response := s.responses[index]
+	return response.rows, nil, response.err
 }
 
 func TestQueryPGLikeColumnsMetadataFallsBackForLegacyPostgres(t *testing.T) {
 	t.Parallel()
 
-	stub := &columnsMetadataQueryStub{}
-	data, err := queryPGLikeColumnsMetadata(stub, "ts_overview", "basic_area_code")
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{
+		{err: errors.New(`pq: column "attidentity" does not exist`)},
+		{rows: []map[string]interface{}{{
+			"column_name":    "id",
+			"data_type":      "integer",
+			"is_nullable":    "NO",
+			"column_default": nil,
+			"column_key":     "PRI",
+		}}},
+	}}
+	state := &pgMetadataQueryState{}
+	data, err := queryPGLikeColumnsMetadata(stub, state, "ts_overview", "basic_area_code")
 	if err != nil {
 		t.Fatalf("queryPGLikeColumnsMetadata returned error: %v", err)
 	}
-	if len(stub.queries) != 2 {
-		t.Fatalf("query count = %d, want 2", len(stub.queries))
+	if _, err := queryPGLikeColumnsMetadata(stub, state, "ts_overview", "basic_area_code"); err != nil {
+		t.Fatalf("cached queryPGLikeColumnsMetadata returned error: %v", err)
 	}
-	if !strings.Contains(stub.queries[1], "'' AS identity_generation") {
-		t.Fatalf("fallback query should not require identity metadata: %s", stub.queries[1])
+	if len(stub.queries) != 3 {
+		t.Fatalf("query count = %d, want 3", len(stub.queries))
+	}
+	if state.columnsMode() != pgMetadataQueryLegacy {
+		t.Fatalf("column mode = %v, want legacy", state.columnsMode())
+	}
+	if !strings.Contains(stub.queries[0], "attidentity") {
+		t.Fatalf("first query should probe attidentity: %s", stub.queries[0])
+	}
+	for _, query := range stub.queries[1:] {
+		if !strings.Contains(query, "'' AS identity_generation") {
+			t.Fatalf("cached fallback query should not require identity metadata: %s", query)
+		}
 	}
 	columns := buildPGLikeColumnDefinitions(data)
 	if len(columns) != 1 || columns[0].Name != "id" || columns[0].Key != "PRI" {
@@ -406,41 +450,144 @@ func TestQueryPGLikeColumnsMetadataFallsBackForLegacyPostgres(t *testing.T) {
 	}
 }
 
-type indexesMetadataQueryStub struct {
-	queries []string
+func TestQueryPGLikeColumnsMetadataDoesNotFallbackForConnectionErrors(t *testing.T) {
+	t.Parallel()
+
+	connectionErr := errors.New(`connection reset by peer while executing SELECT a.attidentity`)
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{{err: connectionErr}}}
+	_, err := queryPGLikeColumnsMetadata(stub, &pgMetadataQueryState{}, "public", "users")
+	if !errors.Is(err, connectionErr) {
+		t.Fatalf("expected connection error, got %v", err)
+	}
+	if len(stub.queries) != 1 {
+		t.Fatalf("connection errors must not trigger compatibility fallback, queries=%d", len(stub.queries))
+	}
 }
 
-func (s *indexesMetadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
-	s.queries = append(s.queries, query)
-	if len(s.queries) == 1 {
-		return nil, nil, fmt.Errorf("pq: syntax error at or near ORDINALITY")
+func TestQueryPGLikeColumnsMetadataPreservesFallbackError(t *testing.T) {
+	t.Parallel()
+
+	capabilityErr := errors.New(`column "attidentity" does not exist`)
+	fallbackErr := errors.New("server has gone away")
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{
+		{err: capabilityErr},
+		{err: fallbackErr},
+	}}
+	_, err := queryPGLikeColumnsMetadata(stub, &pgMetadataQueryState{}, "public", "users")
+	if !errors.Is(err, capabilityErr) || !errors.Is(err, fallbackErr) {
+		t.Fatalf("expected both query errors, got %v", err)
 	}
-	return []map[string]interface{}{{
-		"index_name":   "idx_users_email",
-		"column_name":  "email",
-		"is_unique":    "t",
-		"seq_in_index": "1",
-		"index_type":   "btree",
-	}}, nil, nil
 }
 
 func TestQueryPGLikeIndexesMetadataFallsBackForLegacyPostgres(t *testing.T) {
 	t.Parallel()
 
-	stub := &indexesMetadataQueryStub{}
-	data, err := queryPGLikeIndexesMetadata(stub, "ts_overview", "basic_area_code")
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{
+		{err: errors.New(`pq: column "indnkeyatts" does not exist`)},
+		{rows: []map[string]interface{}{{
+			"index_name":   "idx_users_email",
+			"column_name":  "email",
+			"is_unique":    "t",
+			"seq_in_index": "1",
+			"index_type":   "btree",
+		}}},
+	}}
+	state := &pgMetadataQueryState{}
+	data, err := queryPGLikeIndexesMetadata(stub, state, "ts_overview", "basic_area_code")
 	if err != nil {
 		t.Fatalf("queryPGLikeIndexesMetadata returned error: %v", err)
 	}
-	if len(stub.queries) != 2 {
-		t.Fatalf("query count = %d, want 2", len(stub.queries))
+	if _, err := queryPGLikeIndexesMetadata(stub, state, "ts_overview", "basic_area_code"); err != nil {
+		t.Fatalf("cached queryPGLikeIndexesMetadata returned error: %v", err)
 	}
-	if !strings.Contains(stub.queries[1], "generate_series(0, ix.indnatts - 1)") {
-		t.Fatalf("legacy index query should expand indnatts: %s", stub.queries[1])
+	if len(stub.queries) != 3 {
+		t.Fatalf("query count = %d, want 3", len(stub.queries))
+	}
+	if state.indexesMode() != pgMetadataQueryLegacy {
+		t.Fatalf("index mode = %v, want legacy", state.indexesMode())
+	}
+	if !strings.Contains(stub.queries[0], "ix.indnkeyatts") {
+		t.Fatalf("first query should probe indnkeyatts: %s", stub.queries[0])
+	}
+	for _, query := range stub.queries[1:] {
+		if !strings.Contains(query, "generate_series(0, ix.indnatts - 1)") {
+			t.Fatalf("cached legacy query should expand indnatts: %s", query)
+		}
 	}
 	indexes := buildPGLikeIndexDefinitions(data)
 	if len(indexes) != 1 || indexes[0].Name != "idx_users_email" || indexes[0].NonUnique != 0 {
 		t.Fatalf("unexpected fallback indexes: %+v", indexes)
+	}
+}
+
+func TestQueryPGLikeIndexesMetadataDoesNotFallbackForConnectionErrors(t *testing.T) {
+	t.Parallel()
+
+	connectionErr := errors.New("broken pipe")
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{{err: connectionErr}}}
+	_, err := queryPGLikeIndexesMetadata(stub, &pgMetadataQueryState{}, "public", "users")
+	if !errors.Is(err, connectionErr) {
+		t.Fatalf("expected connection error, got %v", err)
+	}
+	if len(stub.queries) != 1 {
+		t.Fatalf("connection errors must not trigger compatibility fallback, queries=%d", len(stub.queries))
+	}
+}
+
+func TestQueryPGLikeIndexesMetadataPreservesFallbackError(t *testing.T) {
+	t.Parallel()
+
+	capabilityErr := errors.New(`column "indnkeyatts" does not exist`)
+	fallbackErr := errors.New("server has gone away")
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{
+		{err: capabilityErr},
+		{err: fallbackErr},
+	}}
+	_, err := queryPGLikeIndexesMetadata(stub, &pgMetadataQueryState{}, "public", "users")
+	if !errors.Is(err, capabilityErr) || !errors.Is(err, fallbackErr) {
+		t.Fatalf("expected both query errors, got %v", err)
+	}
+}
+
+func TestQueryPGLikeMetadataCachesModernMode(t *testing.T) {
+	t.Parallel()
+
+	rows := []map[string]interface{}{{"column_name": "id"}}
+	stub := &metadataQueryStub{responses: []metadataQueryResponse{{rows: rows}}}
+	state := &pgMetadataQueryState{}
+	if _, err := queryPGLikeColumnsMetadata(stub, state, "public", "users"); err != nil {
+		t.Fatalf("first column query: %v", err)
+	}
+	if _, err := queryPGLikeColumnsMetadata(stub, state, "public", "users"); err != nil {
+		t.Fatalf("cached column query: %v", err)
+	}
+	if state.columnsMode() != pgMetadataQueryModern || len(stub.queries) != 2 {
+		t.Fatalf("column mode/calls = %v/%d, want modern/2", state.columnsMode(), len(stub.queries))
+	}
+
+	indexRows := []map[string]interface{}{{"index_name": "idx_users"}}
+	stub = &metadataQueryStub{responses: []metadataQueryResponse{{rows: indexRows}}}
+	state = &pgMetadataQueryState{}
+	if _, err := queryPGLikeIndexesMetadata(stub, state, "public", "users"); err != nil {
+		t.Fatalf("first index query: %v", err)
+	}
+	if _, err := queryPGLikeIndexesMetadata(stub, state, "public", "users"); err != nil {
+		t.Fatalf("cached index query: %v", err)
+	}
+	if state.indexesMode() != pgMetadataQueryModern || len(stub.queries) != 2 {
+		t.Fatalf("index mode/calls = %v/%d, want modern/2", state.indexesMode(), len(stub.queries))
+	}
+}
+
+func TestPostgresCloseResetsMetadataQueryState(t *testing.T) {
+	t.Parallel()
+
+	client := &PostgresDB{metadataQueryState: &pgMetadataQueryState{}}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+	if client.metadataQueryState != nil {
+		t.Fatal("Close() should clear cached metadata query capability state")
 	}
 }
 

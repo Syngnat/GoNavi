@@ -23,9 +23,10 @@ import (
 // VastbaseDB implements Database interface for Vastbase (海量) database
 // Vastbase is a PostgreSQL-compatible database, so we reuse PostgreSQL driver
 type VastbaseDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder
+	conn               *sql.DB
+	pingTimeout        time.Duration
+	forwarder          *ssh.LocalForwarder
+	metadataQueryState *pgMetadataQueryState
 }
 
 func (v *VastbaseDB) getDSN(config connection.ConnectionConfig) string {
@@ -57,6 +58,7 @@ func (v *VastbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			_ = v.Close()
 		}
 	}()
+	v.metadataQueryState = &pgMetadataQueryState{}
 
 	runConfig := config
 
@@ -123,6 +125,7 @@ func (v *VastbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 }
 
 func (v *VastbaseDB) Close() error {
+	v.metadataQueryState = nil
 	if v.forwarder != nil {
 		if err := v.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 Vastbase SSH 端口转发失败：%v", err)
@@ -253,7 +256,7 @@ func (v *VastbaseDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, err := queryPGLikeColumnsMetadata(v, schema, table)
+	data, err := queryPGLikeColumnsMetadata(v, v.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +270,7 @@ func (v *VastbaseDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, err := queryPGLikeIndexesMetadata(v, schema, table)
+	data, err := queryPGLikeIndexesMetadata(v, v.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}

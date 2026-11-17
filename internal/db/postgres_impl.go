@@ -20,9 +20,10 @@ import (
 )
 
 type PostgresDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
+	conn               *sql.DB
+	pingTimeout        time.Duration
+	forwarder          *ssh.LocalForwarder // Store SSH tunnel forwarder
+	metadataQueryState *pgMetadataQueryState
 }
 
 var _ BatchApplierContext = (*PostgresDB)(nil)
@@ -90,6 +91,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 			_ = p.Close()
 		}
 	}()
+	p.metadataQueryState = &pgMetadataQueryState{}
 
 	if supported, reason := DriverRuntimeSupportStatus("postgres"); !supported {
 		if strings.TrimSpace(reason) == "" {
@@ -199,6 +201,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 }
 
 func (p *PostgresDB) Close() error {
+	p.metadataQueryState = nil
 	// Close SSH forwarder first if exists
 	if p.forwarder != nil {
 		if err := p.forwarder.Release(); err != nil {
@@ -455,7 +458,7 @@ func (p *PostgresDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, err := queryPGLikeColumnsMetadata(p, schema, table)
+	data, err := queryPGLikeColumnsMetadata(p, p.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +472,7 @@ func (p *PostgresDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, err := queryPGLikeIndexesMetadata(p, schema, table)
+	data, err := queryPGLikeIndexesMetadata(p, p.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}
