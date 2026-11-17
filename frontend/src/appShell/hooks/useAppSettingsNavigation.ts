@@ -15,9 +15,11 @@ import { withAISettingsLeaveGuard } from '../../utils/aiSettingsLeaveGuard';
 import { shouldReopenSecurityUpdateDetails } from '../../utils/securityUpdateRepairFlow';
 import {
   type DataSyncEntryModeAlias,
+  type DataSyncPastePrefill,
   normalizeDataSyncEntryMode,
 } from '../../components/dataSyncEntryMode';
 import {
+  buildDataSyncPasteWorkbenchTab,
   buildDataSyncWorkbenchTab,
   resolveExistingDataSyncWorkbenchTabId,
 } from '../../utils/dataSyncTab';
@@ -168,8 +170,20 @@ export const useAppSettingsNavigation = ({
           finalizeSecurityRepairReturnFromAISettings();
       }
   }), [activeSettingsCenterPane?.key, closeSettingsCenterWorkbenchTab, finalizeSecurityRepairReturnFromAISettings]);
-  const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryModeAlias) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
+  const handleOpenDataSyncWorkbench = useCallback((
+      entryMode: DataSyncEntryModeAlias,
+      pastePrefill?: DataSyncPastePrefill,
+  ) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       const normalized = normalizeDataSyncEntryMode(entryMode);
+      if (pastePrefill) {
+          // 侧栏粘贴跨实例表：新开一个带预填的工作台，避免复用已存在 Tab 时
+          // 旧任务状态吞掉新的 source/target。
+          addTab(buildDataSyncPasteWorkbenchTab({
+              entryMode: normalized,
+              pastePrefill,
+          }));
+          return;
+      }
       const nextTab = buildDataSyncWorkbenchTab({ entryMode: normalized });
       const existingId = resolveExistingDataSyncWorkbenchTabId(
           normalized,

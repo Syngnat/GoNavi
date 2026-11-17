@@ -1,5 +1,18 @@
 export type DataSyncEntryMode = 'sync' | 'compare';
 
+/** 侧栏 Ctrl+C/Ctrl+V 粘贴表时传给数据同步工作台的预填端点。 */
+export type DataSyncPasteEndpoint = {
+  connectionId: string;
+  database: string;
+  schema?: string;
+  table?: string;
+};
+
+export type DataSyncPastePrefill = {
+  source: DataSyncPasteEndpoint;
+  target: DataSyncPasteEndpoint;
+};
+
 /** Legacy session/menu aliases that all map onto the compare workbench. */
 export type DataSyncEntryModeAlias = DataSyncEntryMode | 'schemaCompare' | 'dataCompare';
 

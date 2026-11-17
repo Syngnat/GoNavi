@@ -5,11 +5,19 @@ import {
   resolveDataSyncEntryModePresentation,
   type DataSyncEntryMode,
   type DataSyncEntryModeAlias,
+  type DataSyncPastePrefill,
 } from '../components/dataSyncEntryMode';
 
 type BuildDataSyncWorkbenchTabInput = {
   entryMode: DataSyncEntryModeAlias;
   title?: string;
+  pastePrefill?: DataSyncPastePrefill;
+};
+
+type BuildDataSyncPasteWorkbenchTabInput = {
+  entryMode: DataSyncEntryModeAlias;
+  pastePrefill: DataSyncPastePrefill;
+  requestId?: number;
 };
 
 const DATA_SYNC_ENTRY_MODE_SLUGS: Record<DataSyncEntryMode, string> = {
@@ -56,5 +64,28 @@ export const buildDataSyncWorkbenchTab = (
     type: 'data-sync',
     connectionId: '',
     dataSyncEntryMode: entryMode,
+    ...(input.pastePrefill ? { dataSyncPastePrefill: input.pastePrefill } : {}),
+  };
+};
+
+export const buildDataSyncPasteWorkbenchTab = (
+  input: BuildDataSyncPasteWorkbenchTabInput,
+): TabData => {
+  const requestId = Number.isFinite(input.requestId)
+    ? Number(input.requestId)
+    : Date.now();
+  const requestKey = String(requestId);
+  const base = buildDataSyncWorkbenchTab({
+    entryMode: input.entryMode,
+    pastePrefill: input.pastePrefill,
+  });
+  const table = String(input.pastePrefill.source.table || '').trim();
+  return {
+    ...base,
+    id: `data-sync-workbench-paste-${requestKey}`,
+    title: table ? `${base.title} · ${table}` : base.title,
+    dataSyncFocusTaskId: `data-sync-paste-task-${requestKey}`,
+    dataSyncFocusStage: 'endpoints',
+    dataSyncFocusRequestId: requestKey,
   };
 };

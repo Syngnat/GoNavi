@@ -4,12 +4,12 @@ import { useStore } from '../store';
 import type { TabData } from '../types';
 import { useOptionalI18n } from '../i18n/provider';
 import {
-  createDataSyncTaskDraft,
   createWailsDataSyncWorkbenchGateway,
   DataSyncWorkbenchShell,
   type DataSyncConnectionTreeItem,
   type DataSyncWorkbenchFamily,
 } from './data-sync';
+import { buildDataSyncWorkbenchInitialTasks } from './data-sync/dataSyncWorkbenchInitialTasks';
 import { normalizeDataSyncEntryMode } from './dataSyncEntryMode';
 import { buildDataSyncWorkbenchTab } from '../utils/dataSyncTab';
 import {
@@ -80,20 +80,13 @@ const DataSyncWorkbench: React.FC<{ tab: TabData; embedded?: boolean }> = ({
     },
     [addTab],
   );
-  const initialTasks = useMemo(
-    () =>
-      workbenchFamily === 'compare'
-        ? []
-        : [
-            createDataSyncTaskDraft({
-              id: `data-sync-local-${tab.id}`,
-              kind: 'reconcile',
-              name: tab.title,
-              sourceConnectionId: tab.connectionId,
-            }),
-          ],
-    [tab.connectionId, tab.id, tab.title, workbenchFamily],
-  );
+  const initialTasks = useMemo(() => buildDataSyncWorkbenchInitialTasks({
+    tabId: tab.id, tabTitle: tab.title, connectionId: tab.connectionId, workbenchFamily,
+    pastePrefill: tab.dataSyncPastePrefill, focusTaskId: tab.dataSyncFocusTaskId, connections,
+  }), [
+    connections, tab.connectionId, tab.dataSyncFocusTaskId, tab.dataSyncPastePrefill,
+    tab.id, tab.title, workbenchFamily,
+  ]);
   const gateway = useMemo(() => createWailsDataSyncWorkbenchGateway(), []);
   const connectionTree = useMemo<DataSyncConnectionTreeItem[]>(() => {
     const projectItem = (

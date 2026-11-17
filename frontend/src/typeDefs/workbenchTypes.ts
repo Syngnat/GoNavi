@@ -132,6 +132,7 @@ export interface TabData {
   overviewKind?: 'views' | 'routines' | 'events'; // Object list kind for object-overview tabs (tables reuse table-overview)
   exportWorkbenchMode?: 'single' | 'batch-tables' | 'batch-databases' | 'batch-connections' | 'database' | 'schema';
   dataSyncEntryMode?: 'sync' | 'compare' | 'schemaCompare' | 'dataCompare';
+  dataSyncPastePrefill?: import('../components/dataSyncEntryMode').DataSyncPastePrefill;
   dataSyncFocusTaskId?: string;
   dataSyncFocusStage?: 'endpoints' | 'mappings' | 'delivery' | 'trigger' | 'preflight';
   dataSyncFocusRequestId?: string;

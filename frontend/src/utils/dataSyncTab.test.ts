@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setCurrentLanguage, t } from '../i18n';
 import { getTabDisplayKindLabel } from './tabDisplay';
 import {
+  buildDataSyncPasteWorkbenchTab,
   buildDataSyncWorkbenchTab,
   resolveDataSyncWorkbenchTabId,
   resolveExistingDataSyncWorkbenchTabId,
@@ -49,5 +50,45 @@ describe('dataSyncTab', () => {
         },
       ]),
     ).toBe('data-sync-workbench-schema-compare');
+  });
+
+  it('builds a unique paste workbench tab that focuses the prefilled endpoints', () => {
+    const pastePrefill = {
+      source: {
+        connectionId: 'source-conn',
+        database: 'shop',
+        schema: 'public',
+        table: 'orders',
+      },
+      target: {
+        connectionId: 'target-conn',
+        database: 'archive',
+      },
+    };
+
+    const tab = buildDataSyncPasteWorkbenchTab({
+      entryMode: 'sync',
+      pastePrefill,
+      requestId: 100,
+    });
+    const nextTab = buildDataSyncPasteWorkbenchTab({
+      entryMode: 'sync',
+      pastePrefill,
+      requestId: 101,
+    });
+
+    expect(tab).toMatchObject({
+      id: 'data-sync-workbench-paste-100',
+      type: 'data-sync',
+      connectionId: '',
+      dataSyncEntryMode: 'sync',
+      dataSyncPastePrefill: pastePrefill,
+      dataSyncFocusTaskId: 'data-sync-paste-task-100',
+      dataSyncFocusStage: 'endpoints',
+      dataSyncFocusRequestId: '100',
+    });
+    expect(tab.title).toContain('orders');
+    expect(nextTab.id).toBe('data-sync-workbench-paste-101');
+    expect(nextTab.id).not.toBe(tab.id);
   });
 });

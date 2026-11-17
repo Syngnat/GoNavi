@@ -1,4 +1,4 @@
-import type { DataSyncEntryModeAlias } from '../dataSyncEntryMode';
+import type { DataSyncEntryModeAlias, DataSyncPastePrefill } from '../dataSyncEntryMode';
 import type { SettingsCenterNavigationTarget } from '../settings/settingsCenterMenuCatalog';
 import React from 'react';
 import { SavedConnection } from '../../types';
@@ -21,7 +21,7 @@ export interface SidebarProps {
   hideTitlebarDriverAction?: boolean; // macOS 的「驱动管理」走原生菜单栏，不再渲染到工具条
   /** Whether web-only settings entries (e.g. browser auth) should appear. */
   isWebRuntime?: boolean;
-  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryModeAlias) => void;
+  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryModeAlias, pastePrefill?: DataSyncPastePrefill) => void;
   onToggleAI?: () => void;
   onToggleLogPanel?: () => void;
   v2ExplorerContext?: V2ExplorerContext;
