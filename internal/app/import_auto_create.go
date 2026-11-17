@@ -27,7 +27,7 @@ var (
 	// 只允许这些紧随 CREATE TABLE 的注释语句，其余语句一律拒绝。
 	importAutoCreateCommentPattern = regexp.MustCompile(`(?is)^\s*(?:comment\s+on\s+(?:column|table)\b|exec(?:ute)?\s+sp_addextendedproperty\b|if\s+(?:not\s+)?exists\b[\s\S]*\bsp_(?:add|update)extendedproperty\b)`)
 	// CREATE TABLE 的目标名：表设计器生成的标识符最多包含引号/反引号/方括号与点。
-	importCreateTableTargetPattern = regexp.MustCompile(`(?is)^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?([^\s(]+)`)
+	importCreateTableTargetPattern = regexp.MustCompile(`(?is)^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?([^(]+?)\s*(?:\(|$)`)
 	// 仅拦截标准 CTAS 形态（表名后直接 AS SELECT/WITH）；列定义里的注释字符串不受影响。
 	importCreateTableAsQueryPattern = regexp.MustCompile(`(?is)^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?[^\s(]+\s+as\s+(?:select|with)\b`)
 )

@@ -223,6 +223,20 @@ func TestEnsureImportAutoCreateTarget(t *testing.T) {
 		}
 	})
 
+	t.Run("accepts quoted table names with spaces", func(t *testing.T) {
+		database := &autoCreateProbeDB{}
+		quoted := ImportFileOptions{AutoCreateTable: &ImportAutoCreateTable{
+			TableName: "order items",
+			SQL:       "CREATE TABLE `order items` (`id` BIGINT)",
+		}}
+		if err := NewApp().ensureImportAutoCreateTarget(context.Background(), database, config, "app", "order items", quoted, false); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(database.executed) != 1 {
+			t.Fatalf("executed = %#v", database.executed)
+		}
+	})
+
 	t.Run("rejects CREATE TABLE AS SELECT", func(t *testing.T) {
 		database := &autoCreateProbeDB{}
 		ctas := ImportFileOptions{AutoCreateTable: &ImportAutoCreateTable{
