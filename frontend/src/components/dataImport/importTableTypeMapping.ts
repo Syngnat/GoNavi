@@ -19,6 +19,8 @@ export interface ImportInferredColumn {
   name: string;
   sourceName: string;
   logicalType: ImportLogicalType;
+  declaredType?: string;
+  comment?: string;
   nullable: boolean;
   maxLength?: number;
   precision?: number;
@@ -37,7 +39,13 @@ export interface ImportAutoCreateTableDraft {
   tableName: string;
   sql: string;
   columns: string[];
+  typeRow: number;
+  commentRow: number;
+  /** 原始表头 -> 建表列名。单行内嵌/多行表头解析后两者可能不同。 */
+  columnMappings: Record<string, string>;
 }
+
+export type ImportTableCreatePayload = Pick<ImportAutoCreateTableDraft, 'tableName' | 'sql' | 'columns'>;
 
 export interface ImportTableColumnDraft {
   key: string;
@@ -524,10 +532,11 @@ export const prepareImportTableColumns = (
     name: column.name,
     sourceName: column.sourceName,
     logicalType: column.logicalType,
-    type: mapImportLogicalTypeToSqlType(column, dbType, driver, options),
+    type: String(column.declaredType || '').trim()
+      || mapImportLogicalTypeToSqlType(column, dbType, driver, options),
     nullable: column.nullable !== false,
     primaryKey: false,
-    comment: '',
+    comment: String(column.comment || ''),
     maxLength: column.maxLength,
     precision: column.precision,
     scale: column.scale,

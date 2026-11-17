@@ -19,6 +19,9 @@ type ImportParserOptions = Omit<DataImportPreferences, "nullToken" | "sheetName"
   nullToken?: string;
   sheetName?: string;
   losslessHive?: boolean;
+  /** 表头之外的类型行/注释行（1 起，0 表示没有）；仅自动建表流程使用。 */
+  typeRow?: number;
+  commentRow?: number;
 };
 
 export const previewImportFileWithOptions = (

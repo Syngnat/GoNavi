@@ -61,6 +61,8 @@ const normalizeInference = (raw: unknown): ImportTableSchemaInference | null => 
       name,
       sourceName: String(column.sourceName || name),
       logicalType: String(column.logicalType || 'text'),
+      declaredType: String(column.declaredType || '').trim() || undefined,
+      comment: String(column.comment || '').trim() || undefined,
       nullable: column.nullable !== false,
       maxLength: readOptionalInteger(column.maxLength),
       precision: readOptionalInteger(column.precision),
@@ -86,6 +88,8 @@ const requestImportSchemaInference = (
   selectedConnectionConfig: NonNullable<DataImportWorkbenchStateApi['selectedConnectionConfig']>,
   activePreferences: DataImportWorkbenchStateApi['activePreferences'],
   continueOnError: boolean,
+  typeRow: number,
+  commentRow: number,
   signal: AbortSignal,
   t: DataImportWorkbenchStateApi['t'],
 ) => {
@@ -103,11 +107,15 @@ const requestImportSchemaInference = (
       keyPath: '',
     },
   };
-  const parserOptions = buildImportParserOptions(
-    activePreferences,
-    continueOnError,
-    selectedConnectionConfig,
-  );
+  const parserOptions = {
+    ...buildImportParserOptions(
+      activePreferences,
+      continueOnError,
+      selectedConnectionConfig,
+    ),
+    ...(typeRow > 0 ? { typeRow } : {}),
+    ...(commentRow > 0 ? { commentRow } : {}),
+  };
   const rpcConfig = buildRpcConnectionConfig(config) as unknown;
   return invokeAppWithSignal<QueryResultLike>(
     'InferImportTableSchema',
@@ -142,6 +150,8 @@ export const useImportTableCreateInference = ({
   const [inference, setInference] = useState<ImportTableSchemaInference | null>(null);
   const [pendingSelection, setPendingSelection] = useState<ImportTableSelection | null>(null);
   const [inferring, setInferring] = useState(false);
+  const [typeRow, setTypeRow] = useState(0);
+  const [commentRow, setCommentRow] = useState(0);
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -153,10 +163,17 @@ export const useImportTableCreateInference = ({
     setModalOpen(false);
     setInference(null);
     setPendingSelection(null);
+    setTypeRow(0);
+    setCommentRow(0);
   }, []);
 
-  const inferFile = useCallback(async (selection: ImportTableSelection) => {
+  const inferFile = useCallback(async (
+    selection: ImportTableSelection,
+    overrides?: { typeRow?: number; commentRow?: number },
+  ) => {
     if (!selectedConnectionConfig) return;
+    const nextTypeRow = Math.max(0, Math.trunc(Number(overrides?.typeRow ?? 0)));
+    const nextCommentRow = Math.max(0, Math.trunc(Number(overrides?.commentRow ?? 0)));
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     abortRef.current?.abort();
@@ -170,6 +187,8 @@ export const useImportTableCreateInference = ({
         selectedConnectionConfig,
         activePreferences,
         continueOnError,
+        nextTypeRow,
+        nextCommentRow,
         controller.signal,
         t,
       );
@@ -187,6 +206,8 @@ export const useImportTableCreateInference = ({
       }
       setPendingSelection(selection);
       setInference(parsed);
+      setTypeRow(nextTypeRow);
+      setCommentRow(nextCommentRow);
       setModalOpen(true);
     } catch (error: unknown) {
       if (requestRef.current !== requestId) return;
@@ -208,12 +229,20 @@ export const useImportTableCreateInference = ({
     t,
   ]);
 
+  const applyRows = useCallback((nextTypeRow: number, nextCommentRow: number) => {
+    if (!pendingSelection) return;
+    void inferFile(pendingSelection, { typeRow: nextTypeRow, commentRow: nextCommentRow });
+  }, [inferFile, pendingSelection]);
+
   return {
     modalOpen,
     inference,
     pendingSelection,
     inferring,
+    typeRow,
+    commentRow,
     inferFile,
+    applyRows,
     resetInference,
     closeModal: resetInference,
   };

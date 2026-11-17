@@ -46,6 +46,10 @@ func (a *App) previewImportFileContext(ctx context.Context, filePath string, opt
 	if err := validateImportFileOptions(options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	options, err = normalizeImportFileHeaderOptions(ctx, filePath, options)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	sourceIdentity, err := captureImportSourceIdentity(filePath)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -245,6 +249,11 @@ func (a *App) importDataWithProgressOptionsContext(
 	if err := validateImportFileOptions(options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	normalizedOptions, normalizeErr := normalizeImportFileHeaderOptions(parent, filePath, options)
+	if normalizeErr != nil {
+		return connection.QueryResult{Success: false, Message: normalizeErr.Error()}
+	}
+	options = normalizedOptions
 	if err := validateImportConflictPolicyForDB(dbType, options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

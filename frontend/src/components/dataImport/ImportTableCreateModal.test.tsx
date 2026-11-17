@@ -61,8 +61,14 @@ vi.mock('antd', async () => {
     message,
     description,
   );
+  const InputNumber = ({ value, onChange, ...props }: any) => React.createElement('input', {
+    ...props,
+    type: 'number',
+    value,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange?.(Number(event.target.value)),
+  });
   const Space = ({ children }: { children?: React.ReactNode }) => React.createElement('div', null, children);
-  return { Alert, AutoComplete, Button, Checkbox, Input, Space, Switch };
+  return { Alert, AutoComplete, Button, Checkbox, Input, InputNumber, Space, Switch };
 });
 
 const t = (key: string, params?: Record<string, unknown>) => (
@@ -173,6 +179,49 @@ describe('ImportTableCreateModal', () => {
       sql: expect.stringContaining('CREATE TABLE'),
       columns: ['amount', 'created_at'],
     });
+  });
+
+  it('uses parsed header types/comments and applies separate metadata rows', async () => {
+    const onApplyRows = vi.fn();
+    const { renderer } = await renderModal({
+      onApplyRows,
+      inference: {
+        ...inference,
+        columns: [
+          {
+            name: 'name',
+            sourceName: '姓名 varchar(50) 客户姓名',
+            logicalType: 'text',
+            declaredType: 'varchar(50)',
+            comment: '客户姓名',
+            nullable: true,
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    expect(renderer.root.findByProps({
+      'data-import-create-table-column-type': 'name',
+    }).props.value).toBe('varchar(50)');
+    expect(renderer.root.findByProps({
+      'data-import-create-table-column-comment': 'name',
+    }).props.value).toBe('客户姓名');
+
+    await act(async () => {
+      renderer.root.findByProps({
+        'data-import-create-table-type-row': 'true',
+      }).props.onChange(2);
+      renderer.root.findByProps({
+        'data-import-create-table-comment-row': 'true',
+      }).props.onChange(3);
+    });
+    await act(async () => {
+      renderer.root.findByProps({
+        'data-import-create-table-apply-rows': 'true',
+      }).props.onClick();
+    });
+    expect(onApplyRows).toHaveBeenCalledWith(2, 3);
   });
 
   it('disables confirmation when TDengine has no date or datetime column', async () => {

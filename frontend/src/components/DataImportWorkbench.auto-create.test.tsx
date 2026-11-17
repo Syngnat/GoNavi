@@ -290,6 +290,24 @@ describe('DataImportWorkbench auto-create table flow', () => {
     expect(createModal.props.dialect).toBe('mysql');
     expect(createModal.props.fileName).toBe('orders.xlsx');
 
+    expect(createModal.props.typeRow).toBe(0);
+    expect(createModal.props.commentRow).toBe(0);
+
+    await act(async () => {
+      createModal.props.onApplyRows(2, 3);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.inferImportTableSchema).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'mysql' }),
+      'app',
+      '/tmp/orders.xlsx',
+      expect.objectContaining({ typeRow: 2, commentRow: 3 }),
+    );
+    expect(renderer.root.findByProps({
+      'data-import-create-table-modal-mock': 'true',
+    }).props.typeRow).toBe(2);
+
     const sql = 'CREATE TABLE `orders_import` (\n  `id` bigint NULL,\n  `amount` decimal(12,2) NULL\n);';
     await act(async () => {
       createModal.props.onConfirm({
@@ -308,9 +326,12 @@ describe('DataImportWorkbench auto-create table flow', () => {
       filePath: '/tmp/orders.xlsx',
       tableName: 'orders_import',
       targetColumnsOverride: ['id', 'amount'],
+      targetColumnMappings: { ID: 'id', 'Amount USD': 'amount' },
       autoCreateTable: {
         tableName: 'orders_import',
         sql,
+        typeRow: 2,
+        commentRow: 3,
       },
     });
     const tableSelect = renderer.root.findByProps({

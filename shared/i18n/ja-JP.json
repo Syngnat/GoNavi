@@ -14017,5 +14017,13 @@
   "plugin.permission.ui_progress": "タスクの進捗を報告する",
   "plugin.permission.ui_progress.description": "上限付きのタスク進捗をホスト通知として表示します",
   "plugin.permission.ui_sidebar": "サイドバーのグループを追加する",
-  "plugin.permission.ui_sidebar.description": "ホストの接続ツリーに展開可能なグループを追加します（ノードは宣言したコマンドが生成します）"
+  "plugin.permission.ui_sidebar.description": "ホストの接続ツリーに展開可能なグループを追加します（ノードは宣言したコマンドが生成します）",
+  "file.backend.warning.import_header_parsed": "ヘッダー「{{source}}」を列名「{{name}}」として解析しました",
+  "data_import.create_table.header_rows.title": "ヘッダー構成",
+  "data_import.create_table.header_rows.type_row": "型の行",
+  "data_import.create_table.header_rows.comment_row": "コメント行",
+  "data_import.create_table.header_rows.action": "再解析",
+  "data_import.create_table.header_rows.hint": "0 はなし。型・コメント行はテーブル作成にのみ使用され、データとしてはインポートされません。",
+  "data_import.create_table.header_rows.same_row_error": "型の行とコメント行は同じ行にできません",
+  "data_import.create_table.header_rows.reinferring": "ヘッダーを再解析しています..."
 }

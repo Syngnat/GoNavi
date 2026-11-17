@@ -78,7 +78,7 @@ func streamXLSXSheetRowsWithOptionsAndStyles(
 			return err
 		}
 		if columns == nil {
-			columns = cloneImportColumns(values)
+			columns = resolveImportHeaderColumns(values, options)
 			if !hasImportUsableColumns(columns) {
 				return fmt.Errorf("Excel empty or missing header")
 			}

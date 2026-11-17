@@ -14017,5 +14017,13 @@
   "plugin.permission.ui_progress": "上报任务进度",
   "plugin.permission.ui_progress.description": "以宿主通知的形式上报有界的任务进度",
   "plugin.permission.ui_sidebar": "挂载侧边栏分组",
-  "plugin.permission.ui_sidebar.description": "在宿主连接树中挂载可展开分组；节点数据由声明的命令产出"
+  "plugin.permission.ui_sidebar.description": "在宿主连接树中挂载可展开分组；节点数据由声明的命令产出",
+  "file.backend.warning.import_header_parsed": "表头「{{source}}」已解析为列名「{{name}}」",
+  "data_import.create_table.header_rows.title": "表头结构",
+  "data_import.create_table.header_rows.type_row": "类型行",
+  "data_import.create_table.header_rows.comment_row": "注释行",
+  "data_import.create_table.header_rows.action": "重新解析",
+  "data_import.create_table.header_rows.hint": "0 表示没有；类型行/注释行只用于建表，不会作为数据导入",
+  "data_import.create_table.header_rows.same_row_error": "类型行与注释行不能是同一行",
+  "data_import.create_table.header_rows.reinferring": "正在重新解析表头..."
 }

@@ -53,6 +53,7 @@ var desktopOnlyAppMethods = map[string]struct{}{
 	"OpenDriverDownloadDirectory":    {},
 	"OpenExportedTextFile":           {},
 	"SelectBackupDirectory":          {},
+	"SelectDataImportFile":           {},
 	"SetWindowTranslucency":          {},
 	"SetMacNativeWindowControls":     {},
 	"SetApplicationBrandIcon":        {},

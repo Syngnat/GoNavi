@@ -195,6 +195,26 @@ describe('importTableTypeMapping', () => {
     });
   });
 
+  it('prefers declared header types and comments over inferred types', () => {
+    const prepared = prepareImportTableColumns(inference([
+      column('text', {
+        name: 'name',
+        sourceName: '姓名 varchar(50) 客户姓名',
+        declaredType: 'varchar(50)',
+        comment: '客户姓名',
+      }),
+      column('integer', {
+        name: 'age',
+        sourceName: 'age int 年龄',
+        declaredType: 'int',
+        comment: '年龄',
+      }),
+    ]), 'mysql');
+
+    expect(prepared.columns[0]).toMatchObject({ type: 'varchar(50)', comment: '客户姓名' });
+    expect(prepared.columns[1]).toMatchObject({ type: 'int', comment: '年龄' });
+  });
+
   it('marks the GreptimeDB time index column and reports when it is missing', () => {
     const prepared = prepareImportTableColumns(inference([
       column('text', { name: 'host', sourceName: 'host' }),

@@ -14017,5 +14017,13 @@
   "plugin.permission.ui_progress": "Aufgabenfortschritt melden",
   "plugin.permission.ui_progress.description": "Begrenzte Fortschrittsmeldungen als Host-Benachrichtigung anzeigen",
   "plugin.permission.ui_sidebar": "Seitenleisten-Gruppe hinzufügen",
-  "plugin.permission.ui_sidebar.description": "Eine aufklappbare Gruppe am Verbindungsbaum des Hosts anbringen; Knotendaten liefert ein deklarierter Befehl"
+  "plugin.permission.ui_sidebar.description": "Eine aufklappbare Gruppe am Verbindungsbaum des Hosts anbringen; Knotendaten liefert ein deklarierter Befehl",
+  "file.backend.warning.import_header_parsed": "Kopfzeile \"{{source}}\" wurde als Spalte \"{{name}}\" interpretiert",
+  "data_import.create_table.header_rows.title": "Kopfzeilenaufbau",
+  "data_import.create_table.header_rows.type_row": "Typzeile",
+  "data_import.create_table.header_rows.comment_row": "Kommentarzeile",
+  "data_import.create_table.header_rows.action": "Neu analysieren",
+  "data_import.create_table.header_rows.hint": "0 bedeutet keine. Typ-/Kommentarzeilen dienen nur der Tabellenerstellung und werden nicht als Daten importiert.",
+  "data_import.create_table.header_rows.same_row_error": "Typzeile und Kommentarzeile müssen unterschiedlich sein",
+  "data_import.create_table.header_rows.reinferring": "Kopfzeile wird neu analysiert..."
 }

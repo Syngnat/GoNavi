@@ -17,13 +17,15 @@ import (
 // ImportInferredColumn 是「按文件新建表」向导里的一列。LogicalType 是与方言无关的
 // 逻辑类型，由前端按目标方言映射为具体类型；这样推断只做一次，新增方言不需要改后端。
 type ImportInferredColumn struct {
-	Name        string `json:"name"`
-	SourceName  string `json:"sourceName"`
-	LogicalType string `json:"logicalType"`
-	Nullable    bool   `json:"nullable"`
-	MaxLength   int    `json:"maxLength,omitempty"`
-	Precision   int    `json:"precision,omitempty"`
-	Scale       int    `json:"scale,omitempty"`
+	Name         string `json:"name"`
+	SourceName   string `json:"sourceName"`
+	LogicalType  string `json:"logicalType"`
+	DeclaredType string `json:"declaredType,omitempty"`
+	Comment      string `json:"comment,omitempty"`
+	Nullable     bool   `json:"nullable"`
+	MaxLength    int    `json:"maxLength,omitempty"`
+	Precision    int    `json:"precision,omitempty"`
+	Scale        int    `json:"scale,omitempty"`
 }
 
 type ImportTableSchemaInference struct {
@@ -270,23 +272,71 @@ type importTableSchemaInference struct {
 }
 
 func inferImportTableSchema(ctx context.Context, filePath string, options ImportFileOptions, identifierLimit int) (importTableSchemaInference, error) {
+	if err := validateImportFileOptions(options); err != nil {
+		return importTableSchemaInference{}, err
+	}
+	metadata, err := readImportHeaderMetadata(ctx, filePath, options)
+	if err != nil {
+		return importTableSchemaInference{}, err
+	}
+	sampleOptions := options
+	if len(metadata.Header) > 0 {
+		sampleOptions.HeaderRow = importHeaderMetadataMaxRow(options)
+		sampleOptions.HeaderOverride = cloneImportColumns(metadata.Header)
+	}
 	consumer := newImportSchemaSampleConsumer(importSchemaSampleLimit)
-	err := streamImportFileWithOptionsContext(ctx, filePath, consumer, options)
+	err = streamImportFileWithOptionsContext(ctx, filePath, consumer, sampleOptions)
 	if err != nil && err != errImportSchemaSampleReached {
 		return importTableSchemaInference{}, err
 	}
-	names, warnings := normalizeImportSchemaColumnNames(consumer.columns, identifierLimit)
+	rawColumns := consumer.columns
+	if len(metadata.Header) > 0 {
+		rawColumns = metadata.Header
+	}
+
+	type parsedHeaderCell struct {
+		name         string
+		declaredType string
+		comment      string
+	}
+	parsed := make([]parsedHeaderCell, len(rawColumns))
+	parsedNames := make([]string, len(rawColumns))
+	for index, raw := range rawColumns {
+		name, declaredType, comment := parseImportHeaderCell(raw)
+		if index < len(metadata.Types) {
+			if value := strings.TrimSpace(metadata.Types[index]); isImportHeaderDeclaredType(value) {
+				declaredType = value
+			}
+		}
+		if index < len(metadata.Comments) {
+			if value := strings.TrimSpace(metadata.Comments[index]); value != "" {
+				comment = value
+			}
+		}
+		parsed[index] = parsedHeaderCell{name: name, declaredType: declaredType, comment: comment}
+		parsedNames[index] = name
+	}
+	names, warnings := normalizeImportSchemaColumnNames(parsedNames, identifierLimit)
 	columns := make([]ImportInferredColumn, 0, len(names))
 	for index, name := range names {
 		sample := consumer.samples[index]
-		column := ImportInferredColumn{
-			Name:        name,
-			SourceName:  consumer.columns[index],
-			LogicalType: sample.logicalType(),
-			Nullable:    true,
-			MaxLength:   sample.maxLength,
+		cell := parsed[index]
+		if cell.name != strings.TrimSpace(rawColumns[index]) && name == cell.name {
+			warnings = append(warnings, importInferenceWarning{
+				Key:    "file.backend.warning.import_header_parsed",
+				Params: map[string]any{"source": strings.TrimSpace(rawColumns[index]), "name": name},
+			})
 		}
-		if sample.logicalType() == "decimal" {
+		column := ImportInferredColumn{
+			Name:         name,
+			SourceName:   rawColumns[index],
+			LogicalType:  sample.logicalType(),
+			DeclaredType: cell.declaredType,
+			Comment:      cell.comment,
+			Nullable:     true,
+			MaxLength:    sample.maxLength,
+		}
+		if column.LogicalType == "decimal" {
 			column.Precision = sample.maxIntegerDigits + sample.maxScale
 			column.Scale = sample.maxScale
 		}

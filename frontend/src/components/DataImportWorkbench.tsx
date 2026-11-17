@@ -355,7 +355,11 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
         inference={importTableCreateFlow.inference}
         dialect={importTableCreateFlow.dialect}
         fileName={importTableCreateFlow.pendingSelection?.fileName}
+        typeRow={importTableCreateFlow.typeRow}
+        commentRow={importTableCreateFlow.commentRow}
+        reinferring={importTableCreateFlow.reinferring}
         t={t}
+        onApplyRows={importTableCreateFlow.applyRows}
         onCancel={importTableCreateFlow.handleCancel}
         onConfirm={importTableCreateFlow.handleConfirm}
       />

@@ -14017,5 +14017,13 @@
   "plugin.permission.ui_progress": "Report task progress",
   "plugin.permission.ui_progress.description": "Publish bounded task progress updates as host notifications",
   "plugin.permission.ui_sidebar": "Add a sidebar group",
-  "plugin.permission.ui_sidebar.description": "Attach an expandable group to the host connection tree; node data comes from a declared command"
+  "plugin.permission.ui_sidebar.description": "Attach an expandable group to the host connection tree; node data comes from a declared command",
+  "file.backend.warning.import_header_parsed": "Header \"{{source}}\" was parsed as column \"{{name}}\"",
+  "data_import.create_table.header_rows.title": "Header layout",
+  "data_import.create_table.header_rows.type_row": "Type row",
+  "data_import.create_table.header_rows.comment_row": "Comment row",
+  "data_import.create_table.header_rows.action": "Re-scan",
+  "data_import.create_table.header_rows.hint": "0 means none. Type/comment rows are only used to create the table and are not imported as data.",
+  "data_import.create_table.header_rows.same_row_error": "The type row and comment row must be different",
+  "data_import.create_table.header_rows.reinferring": "Re-scanning the header..."
 }

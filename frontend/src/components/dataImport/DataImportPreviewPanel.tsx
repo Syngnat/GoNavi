@@ -69,8 +69,14 @@ export const DataImportPreviewPanel = ({
           dbName={selectedDbName}
           tableName={selectedTableName}
           targetColumnsOverride={autoCreateTable?.columns}
+          targetColumnMappings={autoCreateTable?.columnMappings}
           autoCreateTable={autoCreateTable
-            ? { tableName: autoCreateTable.tableName, sql: autoCreateTable.sql }
+            ? {
+              tableName: autoCreateTable.tableName,
+              sql: autoCreateTable.sql,
+              typeRow: autoCreateTable.typeRow,
+              commentRow: autoCreateTable.commentRow,
+            }
             : undefined}
           continueOnError={continueOnError}
           importOptions={activePreferences}

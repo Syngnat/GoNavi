@@ -14017,5 +14017,13 @@
   "plugin.permission.ui_progress": "Отчёт о ходе задачи",
   "plugin.permission.ui_progress.description": "Показывать ограниченный прогресс задачи как уведомление хоста",
   "plugin.permission.ui_sidebar": "Группа в боковой панели",
-  "plugin.permission.ui_sidebar.description": "Добавить раскрываемую группу в дерево подключений хоста; данные узлов формирует объявленная команда"
+  "plugin.permission.ui_sidebar.description": "Добавить раскрываемую группу в дерево подключений хоста; данные узлов формирует объявленная команда",
+  "file.backend.warning.import_header_parsed": "Заголовок «{{source}}» распознан как столбец «{{name}}»",
+  "data_import.create_table.header_rows.title": "Структура заголовка",
+  "data_import.create_table.header_rows.type_row": "Строка типов",
+  "data_import.create_table.header_rows.comment_row": "Строка комментариев",
+  "data_import.create_table.header_rows.action": "Пересканировать",
+  "data_import.create_table.header_rows.hint": "0 означает отсутствие. Строки типов и комментариев используются только для создания таблицы и не импортируются как данные.",
+  "data_import.create_table.header_rows.same_row_error": "Строка типов и строка комментариев должны различаться",
+  "data_import.create_table.header_rows.reinferring": "Повторное сканирование заголовка..."
 }

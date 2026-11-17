@@ -134,6 +134,9 @@ func validateImportFileOptions(options ImportFileOptions) error {
 	if _, err := resolveImportHeaderRow(options.HeaderRow); err != nil {
 		return err
 	}
+	if err := validateImportHeaderMetadataRows(options); err != nil {
+		return err
+	}
 	switch normalizeImportConflictPolicy(options.ConflictPolicy) {
 	case importConflictPolicyStop, importConflictPolicySkipDuplicates, importConflictPolicyUpsert:
 	default:
@@ -288,7 +291,7 @@ func streamCSVImportFileWithOptions(filePath string, consumer importFileConsumer
 	if len(header) > 0 {
 		header[0] = strings.TrimPrefix(header[0], "\uFEFF")
 	}
-	columns := cloneImportColumns(header)
+	columns := resolveImportHeaderColumns(header, options)
 	if !hasImportUsableColumns(columns) {
 		return fmt.Errorf("CSV empty or missing header")
 	}
@@ -319,6 +322,19 @@ func streamCSVImportFileWithOptions(filePath string, consumer importFileConsumer
 			return err
 		}
 	}
+}
+
+// resolveImportHeaderColumns 在跳过类型/注释元数据行时保留原始表头列名。
+// 仅后端会设置 HeaderOverride；普通导入仍使用文件里的表头行。
+func resolveImportHeaderColumns(fallback []string, options ImportFileOptions) []string {
+	if len(options.HeaderOverride) > 0 {
+		columns := cloneImportColumns(options.HeaderOverride)
+		if len(columns) > 0 {
+			columns[0] = strings.TrimPrefix(columns[0], "\uFEFF")
+		}
+		return columns
+	}
+	return cloneImportColumns(fallback)
 }
 
 const maxImportHeaderRow = 1_000_000

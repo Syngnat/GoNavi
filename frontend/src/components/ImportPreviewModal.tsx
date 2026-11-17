@@ -12,7 +12,8 @@ export interface ImportPreviewModalProps {
   dbName: string;
   tableName: string;
   targetColumnsOverride?: string[];
-  autoCreateTable?: { tableName: string; sql: string };
+  targetColumnMappings?: Record<string, string>;
+  autoCreateTable?: { tableName: string; sql: string; typeRow?: number; commentRow?: number };
   continueOnError?: boolean;
   importOptions?: DataImportPreferences;
   onClose: () => void;
@@ -28,6 +29,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   dbName,
   tableName,
   targetColumnsOverride,
+  targetColumnMappings,
   autoCreateTable,
   continueOnError = false,
   importOptions,
@@ -46,7 +48,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     mappingValidationError,
   } = useImportPreviewState({
     connectionId, importOptions, continueOnError, visible, filePath, dbName, tableName,
-    targetColumnsOverride,
+    targetColumnsOverride, targetColumnMappings, autoCreateTable,
     onImportingChange,
   });
 

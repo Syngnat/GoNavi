@@ -7,8 +7,8 @@ import {
   prepareImportTableColumns,
   resolveImportTableTypeFamily,
   supportsImportTableColumnComment,
-  type ImportAutoCreateTableDraft,
   type ImportTableColumnDraft,
+  type ImportTableCreatePayload,
   type ImportTableSchemaInference,
 } from './importTableTypeMapping';
 
@@ -110,7 +110,7 @@ export const useImportTableCreateForm = ({
   const updateComment = (key: string, value: string) => {
     setColumns((current) => patchColumn(current, key, { comment: value }));
   };
-  const buildPayload = (): ImportAutoCreateTableDraft | null => {
+  const buildPayload = (): ImportTableCreatePayload | null => {
     if (confirmDisabled) return null;
     return {
       tableName: trimmedTableName,

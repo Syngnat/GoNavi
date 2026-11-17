@@ -14017,5 +14017,13 @@
   "plugin.permission.ui_progress": "回報工作進度",
   "plugin.permission.ui_progress.description": "以宿主通知形式回報有限的工作進度",
   "plugin.permission.ui_sidebar": "掛載側邊欄群組",
-  "plugin.permission.ui_sidebar.description": "在宿主連線樹中掛載可展開群組；節點資料由宣告的指令產生"
+  "plugin.permission.ui_sidebar.description": "在宿主連線樹中掛載可展開群組；節點資料由宣告的指令產生",
+  "file.backend.warning.import_header_parsed": "表頭「{{source}}」已解析為欄位名「{{name}}」",
+  "data_import.create_table.header_rows.title": "表頭結構",
+  "data_import.create_table.header_rows.type_row": "型別行",
+  "data_import.create_table.header_rows.comment_row": "註解行",
+  "data_import.create_table.header_rows.action": "重新解析",
+  "data_import.create_table.header_rows.hint": "0 表示沒有；型別行/註解行只用於建表，不會作為資料匯入",
+  "data_import.create_table.header_rows.same_row_error": "型別行與註解行不能是同一行",
+  "data_import.create_table.header_rows.reinferring": "正在重新解析表頭..."
 }

@@ -112,7 +112,16 @@ export const useImportPreviewActions = ({
           ...parserOptions,
           columnMappings: selectedMappings,
           jobId: importJobId,
-          ...(autoCreateTable ? { autoCreateTable } : {}),
+          ...(autoCreateTable
+            ? {
+              autoCreateTable: {
+                tableName: autoCreateTable.tableName,
+                sql: autoCreateTable.sql,
+              },
+              ...(Number(autoCreateTable.typeRow) > 0 ? { typeRow: Number(autoCreateTable.typeRow) } : {}),
+              ...(Number(autoCreateTable.commentRow) > 0 ? { commentRow: Number(autoCreateTable.commentRow) } : {}),
+            }
+            : {}),
           ...(previewData.sourceIdentityToken
             ? { sourceIdentityToken: previewData.sourceIdentityToken }
             : {}),

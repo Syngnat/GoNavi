@@ -2,7 +2,7 @@ import { resolveSqlDialect } from '../../../utils/sqlDialect';
 import type { DataImportWorkbenchStateApi } from './useDataImportWorkbenchState';
 import { useImportTableCreateInference } from './useImportTableCreateInference';
 import { useImportTableFileSelection } from './useImportTableFileSelection';
-import type { ImportAutoCreateTableDraft } from '../importTableTypeMapping';
+import type { ImportTableCreatePayload } from '../importTableTypeMapping';
 
 export interface UseImportTableCreateFlowInput {
   t: DataImportWorkbenchStateApi['t'];
@@ -46,9 +46,20 @@ export const useImportTableCreateFlow = ({
   });
   const cancelFlow = selection.resetSelection;
 
-  const handleConfirm = (payload: ImportAutoCreateTableDraft) => {
-    if (!inference.pendingSelection) return;
-    applyAutoCreateTable(payload, inference.pendingSelection);
+  const handleConfirm = (payload: ImportTableCreatePayload) => {
+    if (!inference.pendingSelection || !inference.inference) return;
+    const columnMappings: Record<string, string> = {};
+    inference.inference.columns.forEach((column) => {
+      const source = String(column.sourceName || '').trim();
+      const target = String(column.name || '').trim();
+      if (source && target) columnMappings[source] = target;
+    });
+    applyAutoCreateTable({
+      ...payload,
+      typeRow: inference.typeRow,
+      commentRow: inference.commentRow,
+      columnMappings,
+    }, inference.pendingSelection);
     inference.closeModal();
   };
   const dialect = selectedConnectionConfig
@@ -69,6 +80,10 @@ export const useImportTableCreateFlow = ({
     handleBrowserFileChange: selection.handleBrowserFileChange,
     handleConfirm,
     handleCancel: cancelFlow,
+    typeRow: inference.typeRow,
+    commentRow: inference.commentRow,
+    reinferring: inference.inferring && inference.modalOpen,
+    applyRows: inference.applyRows,
   };
 };
 

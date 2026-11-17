@@ -3,10 +3,11 @@ import { Alert, Button, Space } from 'antd';
 import Modal from '../common/ResizableDraggableModal';
 import { useImportTableCreateForm } from './ImportTableCreateForm';
 import { ImportTableCreateIdentityFields } from './ImportTableCreateIdentityFields';
+import { ImportTableCreateHeaderRows } from './ImportTableCreateHeaderRows';
 import { ImportTableCreateColumns } from './ImportTableCreateColumns';
 import { ImportTableCreateSqlPreview } from './ImportTableCreateSqlPreview';
 import type {
-  ImportAutoCreateTableDraft,
+  ImportTableCreatePayload,
   ImportTableSchemaInference,
 } from './importTableTypeMapping';
 
@@ -15,9 +16,13 @@ export interface ImportTableCreateModalProps {
   inference: ImportTableSchemaInference | null;
   dialect: string;
   fileName?: string;
+  typeRow?: number;
+  commentRow?: number;
+  reinferring?: boolean;
   t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
+  onApplyRows?: (typeRow: number, commentRow: number) => void;
   onCancel: () => void;
-  onConfirm: (payload: ImportAutoCreateTableDraft) => void;
+  onConfirm: (payload: ImportTableCreatePayload) => void;
 }
 
 export const ImportTableCreateModal: React.FC<ImportTableCreateModalProps> = ({
@@ -25,7 +30,11 @@ export const ImportTableCreateModal: React.FC<ImportTableCreateModalProps> = ({
   inference,
   dialect,
   fileName,
+  typeRow = 0,
+  commentRow = 0,
+  reinferring = false,
   t,
+  onApplyRows = () => undefined,
   onCancel,
   onConfirm,
 }) => {
@@ -107,6 +116,14 @@ export const ImportTableCreateModal: React.FC<ImportTableCreateModalProps> = ({
             message={t('data_import.create_table.error.type_required')}
           />
         ) : null}
+
+        <ImportTableCreateHeaderRows
+          typeRow={typeRow}
+          commentRow={commentRow}
+          reinferring={reinferring}
+          t={t}
+          onApply={onApplyRows}
+        />
 
         <ImportTableCreateIdentityFields form={form} t={t} />
         <ImportTableCreateColumns
