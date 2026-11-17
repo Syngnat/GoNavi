@@ -1,147 +1,42 @@
-import { isMysqlFamilyDialect, isOracleLikeDialect, isPgLikeDialect, isSqlServerDialect, resolveSqlDialect } from '../../utils/sqlDialect';
+import {
+  isMysqlFamilyDialect,
+  isOracleLikeDialect,
+  isPgLikeDialect,
+  isSqlServerDialect,
+  resolveSqlDialect,
+} from '../../utils/sqlDialect';
 import { resolveColumnTypeOptions } from '../../utils/sqlDialectColumnTypes';
+import {
+  IMPORT_LOGICAL_TYPES,
+  type ImportInferredColumn,
+  type ImportLogicalType,
+  type ImportTableColumnDraft,
+  type ImportTableSchemaInference,
+  type ImportTableTypeFamily,
+  type SqlDialectOptions,
+} from './importTableTypeMapping.types';
+import { mapMysqlType } from './dialects/importTableTypesMysql';
+import { mapPostgresType } from './dialects/importTableTypesPostgres';
+import { mapOracleType } from './dialects/importTableTypesOracle';
+import { mapSqlServerType } from './dialects/importTableTypesSqlServer';
+import { mapSqliteType } from './dialects/importTableTypesSqlite';
+import { mapFirebirdType } from './dialects/importTableTypesFirebird';
+import { mapGbase8sType } from './dialects/importTableTypesGbase8s';
+import { mapHiveType } from './dialects/importTableTypesHive';
+import { mapClickHouseType } from './dialects/importTableTypesClickHouse';
+import { mapQuestDbType } from './dialects/importTableTypesQuestDb';
+import { mapGreptimeDbType } from './dialects/importTableTypesGreptimeDb';
+import { mapTdengineType } from './dialects/importTableTypesTdengine';
 
-export type ImportLogicalType =
-  | 'integer'
-  | 'decimal'
-  | 'boolean'
-  | 'date'
-  | 'datetime'
-  | 'time'
-  | 'uuid'
-  | 'json'
-  | 'text'
-  | 'longtext'
-  | 'binary'
-  | (string & {});
-
-export interface ImportInferredColumn {
-  name: string;
-  sourceName: string;
-  logicalType: ImportLogicalType;
-  declaredType?: string;
-  comment?: string;
-  nullable: boolean;
-  maxLength?: number;
-  precision?: number;
-  scale?: number;
-}
-
-export interface ImportTableSchemaInference {
-  tableName: string;
-  columns: ImportInferredColumn[];
-  warnings: string[];
-  sampledRows: number;
-  sampleLimit: number;
-}
-
-export interface ImportAutoCreateTableDraft {
-  tableName: string;
-  sql: string;
-  columns: string[];
-  typeRow: number;
-  commentRow: number;
-  /** 本次导入是否已经成功建过表；成功后的再次导入走普通路径，避免“表已存在”。 */
-  created?: boolean;
-  /** 原始表头 -> 建表列名。单行内嵌/多行表头解析后两者可能不同。 */
-  columnMappings: Record<string, string>;
-}
-
-export type ImportTableCreatePayload = Pick<ImportAutoCreateTableDraft, 'tableName' | 'sql' | 'columns' | 'columnMappings'>;
-
-export interface ImportTableColumnDraft {
-  key: string;
-  name: string;
-  sourceName: string;
-  logicalType: ImportLogicalType;
-  type: string;
-  nullable: boolean;
-  primaryKey: boolean;
-  comment: string;
-  maxLength?: number;
-  precision?: number;
-  scale?: number;
-  timestampRequired?: boolean;
-}
-
-export type ImportTableTypeFamily =
-  | 'mysql'
-  | 'postgres'
-  | 'oracle'
-  | 'sqlserver'
-  | 'sqlite'
-  | 'firebird'
-  | 'gbase8s'
-  | 'hive'
-  | 'clickhouse'
-  | 'questdb'
-  | 'greptimedb'
-  | 'tdengine'
-  | 'duckdb'
-  | 'standard';
-
-type SqlDialectOptions = {
-  oceanBaseProtocol?: unknown;
-};
-
-const IMPORT_LOGICAL_TYPES: ImportLogicalType[] = [
-  'integer',
-  'decimal',
-  'boolean',
-  'date',
-  'datetime',
-  'time',
-  'uuid',
-  'json',
-  'text',
-  'longtext',
-  'binary',
-];
-
-const asPositiveInteger = (value: unknown, fallback: number): number => {
-  const numberValue = Math.trunc(Number(value));
-  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
-};
-
-const asNonNegativeInteger = (value: unknown, fallback: number): number => {
-  const numberValue = Math.trunc(Number(value));
-  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : fallback;
-};
-
-const decimalParts = (
-  column: Pick<ImportInferredColumn, 'precision' | 'scale'>,
-  defaultPrecision: number,
-  defaultScale: number,
-  maxPrecision: number,
-  maxScale: number,
-): { precision: number; scale: number } => {
-  let precision = Math.min(maxPrecision, asPositiveInteger(column.precision, defaultPrecision));
-  let scale = Math.min(maxScale, asNonNegativeInteger(column.scale, defaultScale));
-  if (scale > precision) {
-    if (precision < maxPrecision) {
-      precision = Math.min(maxPrecision, scale);
-    } else {
-      scale = precision;
-    }
-  }
-  return { precision, scale };
-};
-
-const decimalType = (
-  name: string,
-  column: Pick<ImportInferredColumn, 'precision' | 'scale'>,
-  defaultPrecision: number,
-  defaultScale: number,
-  maxPrecision: number,
-  maxScale: number,
-): string => {
-  const parts = decimalParts(column, defaultPrecision, defaultScale, maxPrecision, maxScale);
-  return `${name}(${parts.precision},${parts.scale})`;
-};
-
-const isLongText = (column: Pick<ImportInferredColumn, 'logicalType' | 'maxLength'>): boolean => (
-  column.logicalType === 'longtext' || asNonNegativeInteger(column.maxLength, 0) > 255
-);
+export type {
+  ImportLogicalType,
+  ImportInferredColumn,
+  ImportTableSchemaInference,
+  ImportAutoCreateTableDraft,
+  ImportTableCreatePayload,
+  ImportTableColumnDraft,
+  ImportTableTypeFamily,
+} from './importTableTypeMapping.types';
 
 export const resolveImportTableTypeFamily = (
   dbType: string,
@@ -162,291 +57,7 @@ export const resolveImportTableTypeFamily = (
   if (isPgLikeDialect(dialect)) return 'postgres';
   if (isOracleLikeDialect(dialect)) return 'oracle';
   if (isSqlServerDialect(dialect)) return 'sqlserver';
-  switch (dialect) {
-    default:
-      return 'standard';
-  }
-};
-
-const mapMysqlType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'bigint';
-    case 'decimal':
-      return decimalType('decimal', column, 30, 10, 65, 30);
-    case 'boolean':
-      return 'tinyint(1)';
-    case 'date':
-      return 'date';
-    case 'datetime':
-      return 'datetime(6)';
-    case 'time':
-      return 'time(6)';
-    case 'uuid':
-      return 'char(36)';
-    case 'json':
-      return 'json';
-    case 'longtext':
-      return 'longtext';
-    case 'text':
-      return isLongText(column) ? 'longtext' : 'varchar(255)';
-    case 'binary':
-      return 'varbinary(255)';
-    default:
-      return isLongText(column) ? 'longtext' : 'varchar(255)';
-  }
-};
-
-const mapPostgresType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'bigint';
-    case 'decimal':
-      return decimalType('numeric', column, 30, 10, 65, 30);
-    case 'boolean':
-      return 'boolean';
-    case 'date':
-      return 'date';
-    case 'datetime':
-      return 'timestamp(6)';
-    case 'time':
-      return 'time(6)';
-    case 'uuid':
-      return 'uuid';
-    case 'json':
-      return 'jsonb';
-    case 'longtext':
-      return 'text';
-    case 'text':
-      return isLongText(column) ? 'text' : 'varchar(255)';
-    case 'binary':
-      return 'bytea';
-    default:
-      return isLongText(column) ? 'text' : 'varchar(255)';
-  }
-};
-
-const mapOracleType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'NUMBER(19)';
-    case 'decimal':
-      return decimalType('NUMBER', column, 30, 10, 38, 30);
-    case 'boolean':
-      return 'NUMBER(1)';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'TIMESTAMP(6)';
-    case 'time':
-      return 'VARCHAR2(255)';
-    case 'uuid':
-      return 'VARCHAR2(36)';
-    case 'json':
-      return 'CLOB';
-    case 'longtext':
-      return 'CLOB';
-    case 'text':
-      return isLongText(column) ? 'CLOB' : 'VARCHAR2(255)';
-    case 'binary':
-      return 'BLOB';
-    default:
-      return isLongText(column) ? 'CLOB' : 'VARCHAR2(255)';
-  }
-};
-
-const mapSqlServerType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'BIGINT';
-    case 'decimal':
-      return decimalType('DECIMAL', column, 30, 10, 38, 30);
-    case 'boolean':
-      return 'BIT';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'DATETIME2(6)';
-    case 'time':
-      return 'TIME(6)';
-    case 'uuid':
-      return 'NVARCHAR(36)';
-    case 'json':
-      return 'NVARCHAR(MAX)';
-    case 'longtext':
-      return 'NVARCHAR(MAX)';
-    case 'text':
-      return isLongText(column) ? 'NVARCHAR(MAX)' : 'NVARCHAR(255)';
-    case 'binary':
-      return 'VARBINARY(MAX)';
-    default:
-      return isLongText(column) ? 'NVARCHAR(MAX)' : 'NVARCHAR(255)';
-  }
-};
-
-const mapSqliteType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'INTEGER';
-    case 'decimal':
-      return 'NUMERIC';
-    case 'boolean':
-      return 'INTEGER';
-    case 'longtext':
-      return 'TEXT';
-    case 'binary':
-      return 'BLOB';
-    default:
-      return 'TEXT';
-  }
-};
-
-const mapFirebirdType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'BIGINT';
-    case 'decimal':
-      return decimalType('DECIMAL', column, 18, 4, 18, 4);
-    case 'boolean':
-      return 'SMALLINT';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'TIMESTAMP';
-    case 'time':
-      return 'TIME';
-    case 'uuid':
-      return 'VARCHAR(36)';
-    case 'json':
-    case 'longtext':
-      return 'BLOB SUB_TYPE TEXT';
-    case 'text':
-      return isLongText(column) ? 'BLOB SUB_TYPE TEXT' : 'VARCHAR(255)';
-    case 'binary':
-      return 'BLOB';
-    default:
-      return isLongText(column) ? 'BLOB SUB_TYPE TEXT' : 'VARCHAR(255)';
-  }
-};
-
-const mapGbase8sType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'BIGINT';
-    case 'decimal':
-      return decimalType('DECIMAL', column, 18, 4, 32, 32);
-    case 'boolean':
-      return 'SMALLINT';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'DATETIME YEAR TO FRACTION(5)';
-    case 'time':
-      return 'DATETIME HOUR TO SECOND';
-    case 'uuid':
-      return 'VARCHAR(36)';
-    case 'json':
-    case 'longtext':
-    case 'text':
-      return 'TEXT';
-    case 'binary':
-      return 'BLOB';
-    default:
-      return isLongText(column) ? 'TEXT' : 'VARCHAR(255)';
-  }
-};
-
-const mapHiveType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'BIGINT';
-    case 'decimal':
-      return decimalType('DECIMAL', column, 38, 18, 38, 18);
-    case 'boolean':
-      return 'BOOLEAN';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'TIMESTAMP';
-    case 'binary':
-      return 'BINARY';
-    default:
-      return 'STRING';
-  }
-};
-
-const mapClickHouseType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'Int64';
-    case 'decimal':
-      return decimalType('Decimal', column, 30, 10, 76, 30);
-    case 'boolean':
-      return 'UInt8';
-    case 'date':
-      return 'Date';
-    case 'datetime':
-      return 'DateTime64(6)';
-    default:
-      return 'String';
-  }
-};
-
-const mapQuestDbType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'LONG';
-    case 'decimal':
-      return 'DOUBLE';
-    case 'boolean':
-      return 'BOOLEAN';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'TIMESTAMP';
-    case 'uuid':
-      return 'UUID';
-    default:
-      return 'STRING';
-  }
-};
-
-const mapGreptimeDbType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'BIGINT';
-    case 'decimal':
-      return decimalType('DECIMAL', column, 38, 18, 38, 18);
-    case 'boolean':
-      return 'BOOLEAN';
-    case 'date':
-      return 'DATE';
-    case 'datetime':
-      return 'TIMESTAMP';
-    case 'binary':
-      return 'BINARY';
-    default:
-      return 'STRING';
-  }
-};
-
-const mapTdengineType = (column: ImportInferredColumn): string => {
-  switch (column.logicalType) {
-    case 'integer':
-      return 'BIGINT';
-    case 'decimal':
-      return 'DOUBLE';
-    case 'boolean':
-      return 'BOOL';
-    case 'date':
-    case 'datetime':
-    case 'time':
-      return 'TIMESTAMP';
-    case 'text':
-      return 'VARCHAR(255)';
-    default:
-      return 'NCHAR(255)';
-  }
+  return 'standard';
 };
 
 export const mapImportLogicalTypeToSqlType = (
