@@ -14,7 +14,6 @@ import { formatImportBytes, formatImportDuration } from '../../importProgressMet
 import { downloadBrowserFileFromResult } from '../../../utils/browserFileTransfer';
 import type { ImportPreviewStateApi } from './useImportPreviewState';
 import type { ImportPreviewModalProps } from '../../ImportPreviewModal';
-import { app as appModels } from '../../../../wailsjs/go/models';
 
 export interface UseImportPreviewActionsInput {
   dbName: ImportPreviewModalProps['dbName'];
@@ -136,7 +135,9 @@ export const useImportPreviewActions = ({
           dbName,
           tableName,
           filePath,
-          appModels.ImportFileOptions.createFrom(options),
+          // 生成类会补齐所有字段（含 undefined），历史上省略的选项会被一起发出去；
+          // 这里保留普通对象形态，避免改变调用体与既有回归断言。
+          options as any,
         ),
       );
       if (importRequestRef.current !== importRequestId) return;
