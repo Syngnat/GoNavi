@@ -1429,6 +1429,20 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class ImportAutoCreateTable {
+	    tableName?: string;
+	    sql: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportAutoCreateTable(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tableName = source["tableName"];
+	        this.sql = source["sql"];
+	    }
+	}
 	export class ImportFileOptions {
 	    losslessHive?: boolean;
 	    columnMappings?: Record<string, string>;
@@ -1444,6 +1458,9 @@ export namespace app {
 	    conflictPolicy?: string;
 	    conflictKeyColumns?: string[];
 	    resumeJobId?: string;
+	    typeRow?: number;
+	    commentRow?: number;
+	    autoCreateTable?: ImportAutoCreateTable;
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportFileOptions(source);
@@ -1465,7 +1482,28 @@ export namespace app {
 	        this.conflictPolicy = source["conflictPolicy"];
 	        this.conflictKeyColumns = source["conflictKeyColumns"];
 	        this.resumeJobId = source["resumeJobId"];
+	        this.typeRow = source["typeRow"];
+	        this.commentRow = source["commentRow"];
+	        this.autoCreateTable = this.convertValues(source["autoCreateTable"], ImportAutoCreateTable);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class MockDataRunOptions {
 	    jobId: string;
@@ -1867,6 +1905,7 @@ export namespace app {
 	    }
 	}
 	export class RedisExportKeysOptions {
+	    jobId?: string;
 	    scope?: string;
 	    keys?: string[];
 	    pattern?: string;
@@ -1877,12 +1916,14 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jobId = source["jobId"];
 	        this.scope = source["scope"];
 	        this.keys = source["keys"];
 	        this.pattern = source["pattern"];
 	    }
 	}
 	export class RedisImportKeysOptions {
+	    jobId?: string;
 	    conflictMode?: string;
 	    scope?: string;
 	    keys?: string[];
@@ -1894,6 +1935,7 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jobId = source["jobId"];
 	        this.conflictMode = source["conflictMode"];
 	        this.scope = source["scope"];
 	        this.keys = source["keys"];
@@ -3271,6 +3313,7 @@ export namespace connection {
 	    clearJVMAgentAPIKey?: boolean;
 	    clearJVMDiagnosticAPIKey?: boolean;
 	    clearSensitiveConnectionParams?: boolean;
+	    revision?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SavedConnectionInput(source);
@@ -3304,6 +3347,7 @@ export namespace connection {
 	        this.clearJVMAgentAPIKey = source["clearJVMAgentAPIKey"];
 	        this.clearJVMDiagnosticAPIKey = source["clearJVMDiagnosticAPIKey"];
 	        this.clearSensitiveConnectionParams = source["clearSensitiveConnectionParams"];
+	        this.revision = source["revision"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3352,6 +3396,7 @@ export namespace connection {
 	    hasJVMAgentAPIKey?: boolean;
 	    hasJVMDiagnosticAPIKey?: boolean;
 	    hasSensitiveConnectionParams?: boolean;
+	    revision?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SavedConnectionView(source);
@@ -3386,6 +3431,7 @@ export namespace connection {
 	        this.hasJVMAgentAPIKey = source["hasJVMAgentAPIKey"];
 	        this.hasJVMDiagnosticAPIKey = source["hasJVMDiagnosticAPIKey"];
 	        this.hasSensitiveConnectionParams = source["hasSensitiveConnectionParams"];
+	        this.revision = source["revision"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -4089,6 +4135,7 @@ export namespace nativewindow {
 	    y: number;
 	    width: number;
 	    height: number;
+	    ownerWindowId?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new OpenRequest(source);
@@ -4104,6 +4151,7 @@ export namespace nativewindow {
 	        this.y = source["y"];
 	        this.width = source["width"];
 	        this.height = source["height"];
+	        this.ownerWindowId = source["ownerWindowId"];
 	    }
 	}
 	export class WindowBounds {

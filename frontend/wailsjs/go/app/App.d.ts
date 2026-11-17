@@ -489,6 +489,8 @@ export function ImportLegacyGlobalProxy(arg1:connection.SaveGlobalProxyInput):Pr
 
 export function ImportSavedQueries(arg1:connection.SavedQueryImportPayload):Promise<Array<connection.SavedQuery>>;
 
+export function InferImportTableSchema(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:app.ImportFileOptions):Promise<connection.QueryResult>;
+
 export function InspectDriverPackage(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function InspectElasticsearchConsole(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<app.ElasticsearchConsoleInspection>;
@@ -905,6 +907,8 @@ export function SelectBackupDirectory(arg1:string):Promise<connection.QueryResul
 
 export function SelectCertificateFile(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
+export function SelectDataImportFile():Promise<connection.QueryResult>;
+
 export function SelectDataRootDirectory(arg1:string):Promise<connection.QueryResult>;
 
 export function SelectDatabaseFile(arg1:string,arg2:string):Promise<connection.QueryResult>;
@@ -965,6 +969,8 @@ export function SessionAgentTimeGroups(arg1:string,arg2:string):Promise<connecti
 
 export function SessionAgentUpdate(arg1:string,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function SetAIProviderStore(arg1:app.AIProviderStore):Promise<void>;
+
 export function SetApplicationBrandIcon(arg1:string):Promise<connection.QueryResult>;
 
 export function SetLanguage(arg1:string):Promise<void>;
@@ -972,6 +978,8 @@ export function SetLanguage(arg1:string):Promise<void>;
 export function SetMacNativeWindowControls(arg1:boolean):Promise<void>;
 
 export function SetUpdateChannel(arg1:string):Promise<connection.QueryResult>;
+
+export function SetWindowHiddenForMemoryTrim(arg1:boolean):Promise<void>;
 
 export function SetWindowTranslucency(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 

@@ -14,6 +14,7 @@ import { formatImportBytes, formatImportDuration } from '../../importProgressMet
 import { downloadBrowserFileFromResult } from '../../../utils/browserFileTransfer';
 import type { ImportPreviewStateApi } from './useImportPreviewState';
 import type { ImportPreviewModalProps } from '../../ImportPreviewModal';
+import { app as appModels } from '../../../../wailsjs/go/models';
 
 export interface UseImportPreviewActionsInput {
   dbName: ImportPreviewModalProps['dbName'];
@@ -135,7 +136,7 @@ export const useImportPreviewActions = ({
           dbName,
           tableName,
           filePath,
-          options,
+          appModels.ImportFileOptions.createFrom(options),
         ),
       );
       if (importRequestRef.current !== importRequestId) return;
