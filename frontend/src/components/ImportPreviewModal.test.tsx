@@ -170,6 +170,8 @@ const createImportPreviewTree = (
   presentation: "modal" | "embedded" = "modal",
   continueOnError?: boolean,
   importOptions?: DataImportPreferences,
+  targetColumnsOverride?: string[],
+  autoCreateTable?: { tableName: string; sql: string },
 ) => (
   <I18nProvider preference="en-US" onPreferenceChange={() => undefined}>
     <ImportPreviewModal
@@ -179,6 +181,8 @@ const createImportPreviewTree = (
       connectionId="conn-1"
       dbName="app"
       tableName="users"
+      targetColumnsOverride={targetColumnsOverride}
+      autoCreateTable={autoCreateTable}
       continueOnError={continueOnError}
       importOptions={importOptions}
       onClose={vi.fn()}
@@ -1113,6 +1117,60 @@ describe("ImportPreviewModal i18n", () => {
     await act(async () => { await button?.props.onClick(); });
     expect(mocks.notify).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'app' }, 'users', 'mysql');
     act(() => renderer.unmount());
+  });
+
+  it("uses override target columns without DB metadata and forwards autoCreateTable", async () => {
+    mocks.previewImportFile.mockResolvedValue({
+      success: true,
+      data: {
+        columns: ["id", "amount"],
+        totalRows: 2,
+        previewRows: [{ id: 1, amount: 12.5 }],
+      },
+    });
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: true,
+      data: { success: 2, failed: 0, total: 2, errorLogs: [] },
+    });
+    const autoCreateTable = {
+      tableName: "orders_import",
+      sql: "CREATE TABLE `orders_import` (`id` bigint NULL, `amount` decimal(12,2) NULL);",
+    };
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createImportPreviewTree(
+        "D:/imports/orders.xlsx",
+        "embedded",
+        false,
+        undefined,
+        ["id", "amount"],
+        autoCreateTable,
+      ));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.dbGetColumns).not.toHaveBeenCalled();
+    const selects = renderer.root.findAllByType("select");
+    expect(selects.map((select) => select.props.value)).toEqual(["id", "amount"]);
+
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    await act(async () => {
+      await startButton?.props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(mocks.importDataWithProgressOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "mysql" }),
+      "app",
+      "users",
+      "D:/imports/orders.xlsx",
+      expect.objectContaining({
+        columnMappings: { id: "id", amount: "amount" },
+        autoCreateTable,
+      }),
+    );
   });
 
 });

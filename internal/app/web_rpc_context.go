@@ -21,7 +21,7 @@ var requiredIssue1098WebRPCContextMethods = []string{
 	"DataSyncDatabaseList", "DataSyncObjectList", "DataSyncFieldList", "DataSyncCapabilityResolve", "DataSyncCDCProbe", "DataSyncJobPreflight",
 	"DataSyncJobList", "DataSyncJobGet", "DataSyncRunGet", "DataSyncRunList", "DataSyncRunPage", "DataSyncRunEventList",
 	"DataSyncErrorRowList", "DataSyncErrorRowGet", "DataSyncCheckpointGet", "DataSync", "DataSyncAnalyze", "DataSyncPreview",
-	"PreviewImportFile", "PreviewImportFileWithOptions", "ImportDataWithProgress", "ImportDataWithProgressOptions",
+	"PreviewImportFile", "PreviewImportFileWithOptions", "InferImportTableSchema", "ImportDataWithProgress", "ImportDataWithProgressOptions",
 	"ImportDatabaseSQL", "ImportDatabaseSQLWithOptions", "ExecuteSQLFile", "ResumeImportJob", "RetryImportJobFailedRows", "VerifySQLAuditIntegrity",
 	"MockDataInspect", "MockDataPreview", "MockDataGenerate",
 	"TestConnectionWithProgress", "NacosTestConnectionWithProgress",
@@ -215,6 +215,9 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		},
 		"ImportDataWithProgressOptions": func(ctx context.Context, config connection.ConnectionConfig, dbName, tableName, filePath string, options ImportFileOptions) connection.QueryResult {
 			return a.importDataWithProgressContext(ctx, config, dbName, tableName, filePath, options)
+		},
+		"InferImportTableSchema": func(ctx context.Context, config connection.ConnectionConfig, dbName, filePath string, options ImportFileOptions) connection.QueryResult {
+			return a.inferImportTableSchemaContext(ctx, config, dbName, filePath, options)
 		},
 		"ImportDatabaseSQL": func(ctx context.Context, config connection.ConnectionConfig, dbName, filePath, jobID string, continueOnError bool) connection.QueryResult {
 			return a.importDatabaseSQLContext(ctx, config, dbName, filePath, jobID, continueOnError, "")

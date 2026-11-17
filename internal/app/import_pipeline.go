@@ -117,6 +117,9 @@ type ImportFileOptions struct {
 	ConflictPolicy      string            `json:"conflictPolicy,omitempty"`
 	ConflictKeyColumns  []string          `json:"conflictKeyColumns,omitempty"`
 	ResumeJobID         string            `json:"resumeJobId,omitempty"`
+	// AutoCreateTable 仅在「按文件新建表」流程出现：目标表不存在时先执行建表 SQL，
+	// 再走原有列映射与写入。为空时行为与历史版本完全一致。
+	AutoCreateTable *ImportAutoCreateTable `json:"autoCreateTable,omitempty"`
 }
 
 func resolveImportContinueOnError(options ImportFileOptions) bool {

@@ -42,6 +42,7 @@ export interface UseImportPreviewActionsInput {
   progress: ImportPreviewStateApi['progress'];
   i18n: ImportPreviewStateApi['i18n'];
   importResult: ImportPreviewStateApi['importResult'];
+  autoCreateTable?: ImportPreviewModalProps['autoCreateTable'];
   onClose: ImportPreviewModalProps['onClose'];
   importing: ImportPreviewStateApi['importing'];
   stopping: ImportPreviewStateApi['stopping'];
@@ -53,7 +54,7 @@ export const useImportPreviewActions = ({
   connection, t, importRequestRef, stoppingRef, activeImportJobIdRef, importStartedAtRef,
   setImporting, setStopping, setError, latestProgressRef, setProgress, setImportResult,
   importRPCAbortRef, previewConnectionConfigRef, columnMappings, parserOptions, progress, i18n,
-  importResult, onClose, importing, stopping, loading,
+  importResult, onClose, importing, stopping, loading, autoCreateTable,
 }: UseImportPreviewActionsInput) => {
   const handleImport = async () => {
     if (!previewData || mappingValidationError || importingRef.current) return;
@@ -111,6 +112,7 @@ export const useImportPreviewActions = ({
           ...parserOptions,
           columnMappings: selectedMappings,
           jobId: importJobId,
+          ...(autoCreateTable ? { autoCreateTable } : {}),
           ...(previewData.sourceIdentityToken
             ? { sourceIdentityToken: previewData.sourceIdentityToken }
             : {}),

@@ -4,6 +4,7 @@ import ImportPreviewModal from '../ImportPreviewModal';
 import { Text } from './dataImportWorkbenchModel';
 import type { DataImportWorkbenchFileSourceApi } from './hooks/useDataImportWorkbenchFileSource';
 import type { DataImportWorkbenchStateApi } from './hooks/useDataImportWorkbenchState';
+import type { ImportAutoCreateTableDraft } from './importTableTypeMapping';
 
 export interface DataImportPreviewPanelProps {
   panelBorder: DataImportWorkbenchFileSourceApi['panelBorder'];
@@ -22,6 +23,7 @@ export interface DataImportPreviewPanelProps {
   handleImportingChange: DataImportWorkbenchFileSourceApi['handleImportingChange'];
   selectedTableName: DataImportWorkbenchStateApi['selectedTableName'];
   activePreferences: DataImportWorkbenchStateApi['activePreferences'];
+  autoCreateTable: ImportAutoCreateTableDraft | null;
   clearSelectedFile: DataImportWorkbenchStateApi['clearSelectedFile'];
   t: DataImportWorkbenchStateApi['t'];
 }
@@ -30,7 +32,7 @@ export const DataImportPreviewPanel = ({
   panelBorder, panelBackground, filePath, capabilityAllowsImport, importMode, selectedConnectionId,
   selectedDbName, selectedConnection, selectedConnectionConfig, fileName, fileSizeMB, darkMode,
   continueOnError, handleImportingChange, selectedTableName, activePreferences, clearSelectedFile,
-  t,
+  autoCreateTable, t,
 }: DataImportPreviewPanelProps) => (
   <section
     data-data-import-preview-panel="true"
@@ -66,6 +68,10 @@ export const DataImportPreviewPanel = ({
           connectionId={selectedConnectionId}
           dbName={selectedDbName}
           tableName={selectedTableName}
+          targetColumnsOverride={autoCreateTable?.columns}
+          autoCreateTable={autoCreateTable
+            ? { tableName: autoCreateTable.tableName, sql: autoCreateTable.sql }
+            : undefined}
           continueOnError={continueOnError}
           importOptions={activePreferences}
           onClose={clearSelectedFile}

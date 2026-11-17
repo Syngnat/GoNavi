@@ -98,6 +98,27 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 	return connection.QueryResult{Success: true, Data: map[string]interface{}{"filePath": selection}}
 }
 
+// SelectDataImportFile 仅选择要导入的数据文件，不要求目标表已存在；供「按文件新建表」向导
+// 先选文件、再推断列结构。桌面端弹系统文件对话框，Web 端由前端文件输入处理。
+func (a *App) SelectDataImportFile() connection.QueryResult {
+	selection, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: a.appText("file.backend.dialog.import_data_file", nil),
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: a.appText("file.backend.filter.data_files", nil),
+				Pattern:     "*.csv;*.json;*.xlsx",
+			},
+		},
+	})
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if strings.TrimSpace(selection) == "" {
+		return connection.QueryResult{Success: false, Message: "已取消"}
+	}
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{"filePath": selection}}
+}
+
 // ImportDataWithProgress 执行导入并发送进度事件
 func (a *App) ImportDataWithProgress(config connection.ConnectionConfig, dbName, tableName, filePath string) (result connection.QueryResult) {
 	return a.ImportDataWithProgressOptions(config, dbName, tableName, filePath, ImportFileOptions{})
@@ -352,6 +373,9 @@ func (a *App) importDataWithProgressOptionsContext(
 		if err := a.captureTableImportRollbackPoint(importCtx, managedJob, config, dbName, tableName, jobID); err != nil {
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
+	}
+	if err := a.ensureImportAutoCreateTarget(importCtx, dbInst, config, dbName, tableName, options, recovery != nil); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	targetColumns, colErr := a.importTargetColumnsContext(importCtx, dbInst, config, dbName, tableName)

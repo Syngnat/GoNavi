@@ -17,6 +17,7 @@ export interface UseDataImportWorkbenchFileSourceInput {
   selectedDbName: DataImportWorkbenchStateApi['selectedDbName'];
   importMode: DataImportWorkbenchStateApi['importMode'];
   selectedTableName: DataImportWorkbenchStateApi['selectedTableName'];
+  autoCreateTable: DataImportWorkbenchStateApi['autoCreateTable'];
   capabilityAllowsImport: DataImportWorkbenchStateApi['capabilityAllowsImport'];
   selectedConnectionConfig: DataImportWorkbenchStateApi['selectedConnectionConfig'];
   selectedConnection: DataImportWorkbenchStateApi['selectedConnection'];
@@ -37,7 +38,8 @@ export const useDataImportWorkbenchFileSource = ({
   wasImportingRef, setHistoryRefreshToken, setImporting, syncWorkbenchTab, selectedConnectionId,
   selectedDbName, importMode, selectedTableName, capabilityAllowsImport, selectedConnectionConfig,
   selectedConnection, loadingDatabases, loadingTables, tableImportOptionsValid, browserFileInputRef,
-  fileSelectionRequestRef, setSelectingFile, setFilePath, setFileName, setFileSizeMB, t, darkMode,
+  autoCreateTable, fileSelectionRequestRef, setSelectingFile, setFilePath, setFileName, setFileSizeMB,
+  t, darkMode,
 }: UseDataImportWorkbenchFileSourceInput) => {
   const handleImportingChange = useCallback((nextImporting: boolean) => {
     if (wasImportingRef.current !== nextImporting) {
@@ -56,6 +58,7 @@ export const useDataImportWorkbenchFileSource = ({
 
   const handleSelectFile = async () => {
     if (!capabilityAllowsImport || !selectedConnectionConfig || !selectedConnection || loadingDatabases || loadingTables) return;
+    if (importMode === 'table' && autoCreateTable) return;
     if (importMode === 'table' && !tableImportOptionsValid) return;
     if (importMode === 'table' && (!selectedDbName || !selectedTableName)) return;
     if (selectedDbName && !isDatabaseVisible(selectedConnection, selectedDbName)) return;
@@ -106,6 +109,7 @@ export const useDataImportWorkbenchFileSource = ({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (importMode === 'table' && autoCreateTable) return;
     const requestId = fileSelectionRequestRef.current + 1;
     fileSelectionRequestRef.current = requestId;
     setSelectingFile(true);

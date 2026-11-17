@@ -29,11 +29,19 @@ export interface UseImportPreviewStateInput {
   filePath: ImportPreviewModalProps['filePath'];
   dbName: ImportPreviewModalProps['dbName'];
   tableName: ImportPreviewModalProps['tableName'];
+  targetColumnsOverride?: ImportPreviewModalProps['targetColumnsOverride'];
   onImportingChange: ImportPreviewModalProps['onImportingChange'];
 }
 
+type PreviewColumnsResult = {
+  success: boolean;
+  message?: string;
+  data?: unknown;
+};
+
 export const useImportPreviewState = ({
   connectionId, importOptions, continueOnError, visible, filePath, dbName, tableName,
+  targetColumnsOverride,
   onImportingChange,
 }: UseImportPreviewStateInput) => {
   const i18n = useOptionalI18n();
@@ -51,6 +59,10 @@ export const useImportPreviewState = ({
     emptyStringAsNull: parserOptions.emptyStringAsNull,
     sheetName: parserOptions.sheetName,
   });
+  const normalizedTargetColumnsOverride = Array.isArray(targetColumnsOverride)
+    ? targetColumnsOverride.map((column) => String(column || '').trim()).filter(Boolean)
+    : [];
+  const targetColumnsOverrideKey = JSON.stringify(normalizedTargetColumnsOverride);
   const [loading, setLoading] = useState(true);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [targetColumns, setTargetColumns] = useState<string[]>([]);
@@ -102,7 +114,16 @@ export const useImportPreviewState = ({
         previewRequestRef.current += 1;
       }
     };
-  }, [visible, filePath, connectionId, dbName, tableName, connection, parserOptionsKey]);
+  }, [
+    visible,
+    filePath,
+    connectionId,
+    dbName,
+    tableName,
+    connection,
+    parserOptionsKey,
+    targetColumnsOverrideKey,
+  ]);
 
   useEffect(() => () => {
     importRequestRef.current += 1;
@@ -210,19 +231,29 @@ export const useImportPreviewState = ({
         setError(t("data_import.capability.reason.capability_unavailable"));
         return;
       }
+      const previewPromise = invokeAppWithSignal(
+        "PreviewImportFileWithOptions",
+        [filePath, parserOptions],
+        signal,
+        () => previewFile(filePath, parserOptions),
+      );
+      const targetColumnsPromise: Promise<PreviewColumnsResult> = normalizedTargetColumnsOverride.length > 0
+        ? Promise.resolve({
+            success: true,
+            data: normalizedTargetColumnsOverride.map((name) => ({
+              name,
+              nullable: "YES",
+            })),
+          })
+        : invokeAppWithSignal<PreviewColumnsResult>(
+            "DBGetColumns",
+            [rpcConfig, dbName, tableName],
+            signal,
+            () => DBGetColumns(rpcConfig, dbName, tableName),
+          );
       const [previewRes, columnsRes] = await Promise.all([
-        invokeAppWithSignal(
-          "PreviewImportFileWithOptions",
-          [filePath, parserOptions],
-          signal,
-          () => previewFile(filePath, parserOptions),
-        ),
-        invokeAppWithSignal(
-          "DBGetColumns",
-          [rpcConfig, dbName, tableName],
-          signal,
-          () => DBGetColumns(rpcConfig, dbName, tableName),
-        ),
+        previewPromise,
+        targetColumnsPromise,
       ]);
       if (previewRequestRef.current !== requestId) return;
       if (!previewRes.success || !previewRes.data) {
