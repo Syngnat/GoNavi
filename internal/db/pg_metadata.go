@@ -53,13 +53,21 @@ func buildPGLikeVisibleRelationPredicateWithNamespace(alias string, namespaceAli
 }
 
 func buildPGLikeColumnsMetadataQuery(schemaName, tableName string) string {
+	return buildPGLikeColumnsMetadataQueryWithIdentity(schemaName, tableName, "COALESCE(a.attidentity::text, '')")
+}
+
+func buildPGLikeColumnsMetadataQueryWithoutIdentity(schemaName, tableName string) string {
+	return buildPGLikeColumnsMetadataQueryWithIdentity(schemaName, tableName, "''")
+}
+
+func buildPGLikeColumnsMetadataQueryWithIdentity(schemaName, tableName string, identityExpression string) string {
 	return fmt.Sprintf(`
 SELECT
 	a.attname AS column_name,
 	pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
 	CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
 	pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
-	COALESCE(pg_catalog.to_jsonb(a)->>'attidentity', '') AS identity_generation,
+	%s AS identity_generation,
 	col_description(a.attrelid, a.attnum) AS comment,
 	CASE WHEN pk.attname IS NOT NULL THEN 'PRI' ELSE '' END AS column_key
 FROM pg_class c
@@ -77,17 +85,33 @@ WHERE c.relkind IN ('r', 'p')
   AND c.relname = '%s'
   AND a.attnum > 0
   AND NOT a.attisdropped
-ORDER BY a.attnum`, buildPGLikeVisibleRelationPredicate("c", schemaName), escapePGLikeMetadataLiteral(tableName))
+ORDER BY a.attnum`, identityExpression, buildPGLikeVisibleRelationPredicate("c", schemaName), escapePGLikeMetadataLiteral(tableName))
+}
+
+type pgLikeMetadataQueryer interface {
+	Query(string) ([]map[string]interface{}, []string, error)
+}
+
+func queryPGLikeColumnsMetadata(queryer pgLikeMetadataQueryer, schemaName, tableName string) ([]map[string]interface{}, error) {
+	data, _, firstErr := queryer.Query(buildPGLikeColumnsMetadataQuery(schemaName, tableName))
+	if firstErr == nil {
+		return data, nil
+	}
+	// PostgreSQL 9.x 与部分兼容内核可能没有 attidentity，也没有 to_jsonb。
+	// identity 只影响自增列展示，降级后仍应保留类型、注释与主键信息。
+	fallbackData, _, fallbackErr := queryer.Query(buildPGLikeColumnsMetadataQueryWithoutIdentity(schemaName, tableName))
+	if fallbackErr != nil {
+		return nil, firstErr
+	}
+	return fallbackData, nil
 }
 
 // buildKingbaseColumnsMetadataQuery 是 Kingbase 专用的列定义查询。
 //
-// 与 PG 版的唯一差别是 identity_generation 一列：PG 版用
-// `pg_catalog.to_jsonb(a)->>'attidentity'`，KingbaseES 会把右侧的
-// 'attidentity' 当成 jsonpath 解析并报
-// `syntax error, unexpected IDENT_P at end of jsonpath input`，
-// 导致整个查询失败——连带 col_description（注释）与 format_type（类型）
-// 一起丢失，结果集表头就没有注释和类型了。
+// 与 PG 版的唯一差别是 identity_generation 一列：KingbaseES 对 jsonb 取值写法
+// 会把 'attidentity' 当成 jsonpath 解析，且不同版本对 attidentity 列的支持不一致。
+// 一旦该列报错，会连带 col_description（注释）与 format_type（类型）一起丢失，
+// 结果集表头就没有注释和类型了。
 //
 // 这里固定返回空串：identity 信息只影响「自增列」的展示，而 column_default
 // 已经能表达序列默认值。宁可少一列展示，也不能让整条语句不可用。
@@ -144,6 +168,49 @@ WHERE t.relkind IN ('r', 'p')
     SELECT 1 FROM unnest(ix.indkey) AS expr_key(attnum) WHERE expr_key.attnum <= 0
   )
 ORDER BY i.relname, x.ordinality`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("t", schemaName))
+}
+
+func buildPGLikeIndexesMetadataLegacyQuery(schemaName, tableName string) string {
+	return fmt.Sprintf(`
+SELECT
+	i.relname AS index_name,
+	a.attname AS column_name,
+	x.indisunique AS is_unique,
+	x.pos + 1 AS seq_in_index,
+	am.amname AS index_type
+FROM (
+	SELECT ix.indexrelid, ix.indrelid, ix.indisunique, ix.indkey,
+	       generate_series(0, ix.indnatts - 1) AS pos
+	FROM pg_index ix
+	JOIN pg_class t ON t.oid = ix.indrelid
+	JOIN pg_namespace n ON n.oid = t.relnamespace
+	WHERE t.relkind IN ('r', 'p')
+	  AND t.relname = '%s'
+	  AND %s
+	  AND ix.indisvalid
+	  AND ix.indpred IS NULL
+	  AND NOT EXISTS (
+	    SELECT 1 FROM generate_series(0, ix.indnatts - 1) AS expr_key(pos) WHERE ix.indkey[expr_key.pos] <= 0
+	  )
+) x
+JOIN pg_class i ON i.oid = x.indexrelid
+JOIN pg_am am ON i.relam = am.oid
+JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = x.indkey[x.pos]
+ORDER BY i.relname, x.pos`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("t", schemaName))
+}
+
+func queryPGLikeIndexesMetadata(queryer pgLikeMetadataQueryer, schemaName, tableName string) ([]map[string]interface{}, error) {
+	data, _, firstErr := queryer.Query(buildPGLikeIndexesMetadataQuery(schemaName, tableName))
+	if firstErr == nil {
+		return data, nil
+	}
+	// PostgreSQL 9.x 不支持 WITH ORDINALITY 与 indnkeyatts；旧内核没有 INCLUDE
+	// 列，按 indnatts 展开即可保留全部索引键列。
+	fallbackData, _, fallbackErr := queryer.Query(buildPGLikeIndexesMetadataLegacyQuery(schemaName, tableName))
+	if fallbackErr != nil {
+		return nil, firstErr
+	}
+	return fallbackData, nil
 }
 
 func buildPGLikeForeignKeysMetadataQuery(schemaName, tableName string) string {

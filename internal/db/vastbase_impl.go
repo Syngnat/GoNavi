@@ -253,7 +253,7 @@ func (v *VastbaseDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := v.Query(buildPGLikeColumnsMetadataQuery(schema, table))
+	data, err := queryPGLikeColumnsMetadata(v, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func (v *VastbaseDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := v.Query(buildPGLikeIndexesMetadataQuery(schema, table))
+	data, err := queryPGLikeIndexesMetadata(v, schema, table)
 	if err != nil {
 		return nil, err
 	}

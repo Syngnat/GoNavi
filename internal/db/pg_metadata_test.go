@@ -24,6 +24,13 @@ func TestBuildPGLikeMetadataQueriesUseVisibleRelationForPureTable(t *testing.T) 
 	if strings.Contains(indexQuery, "n.nspname = 'public'") || strings.Contains(indexQuery, "current_schema()") {
 		t.Fatalf("pure table index metadata should not force public/current_schema, got %s", indexQuery)
 	}
+	legacyIndexQuery := buildPGLikeIndexesMetadataLegacyQuery("", "users")
+	if !strings.Contains(legacyIndexQuery, "pg_catalog.pg_table_is_visible(t.oid)") {
+		t.Fatalf("expected visible relation predicate for legacy index metadata, got %s", legacyIndexQuery)
+	}
+	if strings.Contains(legacyIndexQuery, "WITH ORDINALITY") || strings.Contains(legacyIndexQuery, "indnkeyatts") {
+		t.Fatalf("legacy index metadata must remain PostgreSQL 9.x compatible, got %s", legacyIndexQuery)
+	}
 
 	foreignKeyQuery := buildPGLikeForeignKeysMetadataQuery("", "users")
 	if !strings.Contains(foreignKeyQuery, "pg_catalog.pg_table_is_visible(c.oid)") {
@@ -322,8 +329,18 @@ func TestBuildPGLikeColumnDefinitionsRecognizesIdentityAndQualifiedNextval(t *te
 	t.Parallel()
 
 	query := buildPGLikeColumnsMetadataQuery("public", "users")
-	if !strings.Contains(query, "to_jsonb(a)->>'attidentity'") {
-		t.Fatalf("expected PostgreSQL-version-safe identity metadata, got %s", query)
+	if strings.Contains(query, "to_jsonb") {
+		t.Fatalf("column metadata must not depend on to_jsonb: %s", query)
+	}
+	if !strings.Contains(query, "COALESCE(a.attidentity::text, '') AS identity_generation") {
+		t.Fatalf("expected direct identity metadata query, got %s", query)
+	}
+	fallbackQuery := buildPGLikeColumnsMetadataQueryWithoutIdentity("public", "users")
+	if strings.Contains(fallbackQuery, "attidentity") || strings.Contains(fallbackQuery, "to_jsonb") {
+		t.Fatalf("legacy fallback must not reference identity columns or to_jsonb: %s", fallbackQuery)
+	}
+	if !strings.Contains(fallbackQuery, "'' AS identity_generation") {
+		t.Fatalf("legacy fallback should return an empty identity value: %s", fallbackQuery)
 	}
 
 	columns := buildPGLikeColumnDefinitions([]map[string]interface{}{
@@ -348,6 +365,82 @@ func TestBuildPGLikeColumnDefinitionsRecognizesIdentityAndQualifiedNextval(t *te
 		if column.Extra != "auto_increment" {
 			t.Fatalf("expected generated column %q to be auto_increment: %+v", column.Name, column)
 		}
+	}
+}
+
+type columnsMetadataQueryStub struct {
+	queries []string
+}
+
+func (s *columnsMetadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
+	s.queries = append(s.queries, query)
+	if len(s.queries) == 1 {
+		return nil, nil, fmt.Errorf("pq: function pg_catalog.to_jsonb(pg_attribute) does not exist")
+	}
+	return []map[string]interface{}{{
+		"column_name":    "id",
+		"data_type":      "integer",
+		"is_nullable":    "NO",
+		"column_default": nil,
+		"column_key":     "PRI",
+	}}, nil, nil
+}
+
+func TestQueryPGLikeColumnsMetadataFallsBackForLegacyPostgres(t *testing.T) {
+	t.Parallel()
+
+	stub := &columnsMetadataQueryStub{}
+	data, err := queryPGLikeColumnsMetadata(stub, "ts_overview", "basic_area_code")
+	if err != nil {
+		t.Fatalf("queryPGLikeColumnsMetadata returned error: %v", err)
+	}
+	if len(stub.queries) != 2 {
+		t.Fatalf("query count = %d, want 2", len(stub.queries))
+	}
+	if !strings.Contains(stub.queries[1], "'' AS identity_generation") {
+		t.Fatalf("fallback query should not require identity metadata: %s", stub.queries[1])
+	}
+	columns := buildPGLikeColumnDefinitions(data)
+	if len(columns) != 1 || columns[0].Name != "id" || columns[0].Key != "PRI" {
+		t.Fatalf("unexpected fallback columns: %+v", columns)
+	}
+}
+
+type indexesMetadataQueryStub struct {
+	queries []string
+}
+
+func (s *indexesMetadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
+	s.queries = append(s.queries, query)
+	if len(s.queries) == 1 {
+		return nil, nil, fmt.Errorf("pq: syntax error at or near ORDINALITY")
+	}
+	return []map[string]interface{}{{
+		"index_name":   "idx_users_email",
+		"column_name":  "email",
+		"is_unique":    "t",
+		"seq_in_index": "1",
+		"index_type":   "btree",
+	}}, nil, nil
+}
+
+func TestQueryPGLikeIndexesMetadataFallsBackForLegacyPostgres(t *testing.T) {
+	t.Parallel()
+
+	stub := &indexesMetadataQueryStub{}
+	data, err := queryPGLikeIndexesMetadata(stub, "ts_overview", "basic_area_code")
+	if err != nil {
+		t.Fatalf("queryPGLikeIndexesMetadata returned error: %v", err)
+	}
+	if len(stub.queries) != 2 {
+		t.Fatalf("query count = %d, want 2", len(stub.queries))
+	}
+	if !strings.Contains(stub.queries[1], "generate_series(0, ix.indnatts - 1)") {
+		t.Fatalf("legacy index query should expand indnatts: %s", stub.queries[1])
+	}
+	indexes := buildPGLikeIndexDefinitions(data)
+	if len(indexes) != 1 || indexes[0].Name != "idx_users_email" || indexes[0].NonUnique != 0 {
+		t.Fatalf("unexpected fallback indexes: %+v", indexes)
 	}
 }
 

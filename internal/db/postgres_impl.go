@@ -455,7 +455,7 @@ func (p *PostgresDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := p.Query(buildPGLikeColumnsMetadataQuery(schema, table))
+	data, err := queryPGLikeColumnsMetadata(p, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +469,7 @@ func (p *PostgresDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := p.Query(buildPGLikeIndexesMetadataQuery(schema, table))
+	data, err := queryPGLikeIndexesMetadata(p, schema, table)
 	if err != nil {
 		return nil, err
 	}

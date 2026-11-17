@@ -318,7 +318,7 @@ func (h *HighGoDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := h.Query(buildPGLikeColumnsMetadataQuery(schema, table))
+	data, err := queryPGLikeColumnsMetadata(h, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (h *HighGoDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := h.Query(buildPGLikeIndexesMetadataQuery(schema, table))
+	data, err := queryPGLikeIndexesMetadata(h, schema, table)
 	if err != nil {
 		return nil, err
 	}
