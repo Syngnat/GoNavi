@@ -9,6 +9,7 @@ import (
 	stdRuntime "runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -695,7 +696,11 @@ func TestClassifyGitHubUpdateHTTPErrorRateLimit(t *testing.T) {
 }
 
 func TestFetchReleaseByURLFallsBackToCacheOn403(t *testing.T) {
+	disableGlobalProxyForTest(t)
+
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
 		w.Header().Set("X-RateLimit-Remaining", "0")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message":"API rate limit exceeded"}`))
@@ -712,6 +717,9 @@ func TestFetchReleaseByURLFallsBackToCacheOn403(t *testing.T) {
 	release, err := fetchReleaseByURL(server.URL)
 	if err != nil {
 		t.Fatalf("expected cache fallback, got err=%v", err)
+	}
+	if got := requestCount.Load(); got != 1 {
+		t.Fatalf("expected release endpoint to be requested once, got %d", got)
 	}
 	if release.TagName != "v9.9.9" {
 		t.Fatalf("unexpected release: %#v", release)
