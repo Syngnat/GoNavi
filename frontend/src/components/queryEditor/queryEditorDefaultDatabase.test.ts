@@ -18,6 +18,43 @@ describe('resolveDefaultQueryEditorDatabase', () => {
     })).toBe('app');
   });
 
+  it('prefers the active sidebar database over the first visible database', () => {
+    expect(resolveDefaultQueryEditorDatabase({
+      config: { type: 'mysql' },
+      currentDb: '',
+      databaseNames: ['information_schema', 'first_db', 'business_db'],
+      preferredDbName: 'business_db',
+    })).toBe('business_db');
+  });
+
+  it('keeps an iot business database active instead of the first visible database', () => {
+    expect(resolveDefaultQueryEditorDatabase({
+      config: { type: 'mysql' },
+      currentDb: '',
+      databaseNames: ['information_schema', 'app', 'iot'],
+      preferredDbName: 'iot',
+    })).toBe('iot');
+  });
+
+  it('falls back to the most recent database target when no active database exists', () => {
+    expect(resolveDefaultQueryEditorDatabase({
+      config: { type: 'mysql' },
+      currentDb: '',
+      databaseNames: ['information_schema', 'first_db', 'recent_db'],
+      recentDbNames: ['recent_db', 'older_db'],
+    })).toBe('recent_db');
+  });
+
+  it('ignores preferred and recent databases that are not visible', () => {
+    expect(resolveDefaultQueryEditorDatabase({
+      config: { type: 'mysql' },
+      currentDb: '',
+      databaseNames: ['information_schema', 'first_db'],
+      preferredDbName: 'hidden_db',
+      recentDbNames: ['hidden_db'],
+    })).toBe('first_db');
+  });
+
   it('keeps an already selected database', () => {
     expect(resolveDefaultQueryEditorDatabase({
       config: { type: 'mysql' },

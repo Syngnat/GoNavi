@@ -198,11 +198,23 @@ export const useQueryEditorMetadataLoading = ({
                 }
 
                 setDbList(dbs);
-                // 新建查询落在连接上时 dbName 会是空的，这里按列表首个库补上默认选中。
+                // 新建查询落在连接上时 dbName 会是空的。优先沿用侧栏当前库和
+                // 最近实际使用过的库；只有都没有时才退回列表首个非系统库。
+                const storeState = useStore.getState();
+                const activeContext = storeState.activeContext;
+                const recentDbNames = (storeState.recentConnectionTargets || [])
+                    .filter((target) => target.connectionId === currentConnectionId && target.dbName)
+                    .map((target) => String(target.dbName || '').trim())
+                    .filter(Boolean);
+                const preferredDbName = activeContext?.connectionId === currentConnectionId
+                    ? String(activeContext.dbName || '').trim()
+                    : '';
                 const defaultDb = resolveDefaultQueryEditorDatabase({
                     config: conn.config,
                     currentDb: currentDbRef.current,
                     databaseNames: dbs,
+                    preferredDbName,
+                    recentDbNames,
                 });
                 if (defaultDb) {
                     switchQueryContextRef.current(currentConnectionId, defaultDb, { silentPending: true });
