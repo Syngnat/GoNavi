@@ -91,4 +91,26 @@ describe('dataSyncTab', () => {
     expect(nextTab.id).toBe('data-sync-workbench-paste-101');
     expect(nextTab.id).not.toBe(tab.id);
   });
+
+  it('labels a multi-table paste tab with the selected table count', () => {
+    const pastePrefill = {
+      source: {
+        connectionId: 'source-conn',
+        database: 'shop',
+        tables: ['orders', 'customers'],
+      },
+      target: {
+        connectionId: 'target-conn',
+        database: 'archive',
+      },
+    };
+
+    const tab = buildDataSyncPasteWorkbenchTab({
+      entryMode: 'sync',
+      pastePrefill,
+      requestId: 102,
+    });
+
+    expect(tab.title).toContain(t('sidebar.table_clipboard.multi_tab_title', { count: 2 }));
+  });
 });

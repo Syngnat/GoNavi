@@ -27,21 +27,22 @@ export type SidebarTableClipboardTarget = {
 
 export type SidebarTableClipboardCommand =
   | { kind: 'none' }
-  | { kind: 'copy'; entry: SidebarTableClipboardEntry }
-  | { kind: 'paste-copy-table'; entry: SidebarTableClipboardEntry; target: SidebarTableClipboardTarget }
+  | { kind: 'copy'; entries: SidebarTableClipboardEntry[] }
+  | { kind: 'paste-copy-table'; entries: SidebarTableClipboardEntry[]; target: SidebarTableClipboardTarget }
   | {
       kind: 'paste-via-data-sync';
-      entry: SidebarTableClipboardEntry;
+      entries: SidebarTableClipboardEntry[];
       target: SidebarTableClipboardTarget;
       prefill: DataSyncPastePrefill;
     }
-  | { kind: 'paste-target-missing'; entry: SidebarTableClipboardEntry };
+  | { kind: 'paste-target-missing'; entries: SidebarTableClipboardEntry[] }
+  | { kind: 'paste-mixed-sources'; entries: SidebarTableClipboardEntry[] };
 
 export type SidebarTableClipboardCommandInput = {
   event: KeyboardEvent;
   shortcutPlatform: ShortcutPlatform;
   selectedNodes: any[];
-  clipboard: SidebarTableClipboardEntry | null;
+  clipboard: SidebarTableClipboardEntry[] | null;
   connectionIds: string[];
   supportsDirectCopy?: (entry: SidebarTableClipboardEntry) => boolean;
 };
@@ -55,7 +56,7 @@ export type SidebarTableClipboardCopyEventInput = {
 export type SidebarTableClipboardPasteEventInput = {
   event: ClipboardEvent;
   selectedNodes: any[];
-  clipboard: SidebarTableClipboardEntry | null;
+  clipboard: SidebarTableClipboardEntry[] | null;
   connectionIds: string[];
   supportsDirectCopy?: (entry: SidebarTableClipboardEntry) => boolean;
 };
@@ -81,6 +82,21 @@ export const resolveSidebarTableClipboardEntry = (
     schema: normalizePart(dataRef?.schemaName),
     table,
   };
+};
+
+export const resolveSidebarTableClipboardEntries = (
+  nodes: any[],
+  connectionIds: string[],
+): SidebarTableClipboardEntry[] | null => {
+  const selectedNodes = Array.isArray(nodes) ? nodes : [];
+  if (selectedNodes.length === 0) return null;
+  const entries: SidebarTableClipboardEntry[] = [];
+  for (const node of selectedNodes) {
+    const entry = resolveSidebarTableClipboardEntry(node, connectionIds);
+    if (!entry) return null;
+    entries.push(entry);
+  }
+  return entries;
 };
 
 export const resolveSidebarTableClipboardTarget = (
@@ -115,6 +131,18 @@ export const canCopySidebarTableDirectly = (
   return Boolean(config) && getDataSourceCapabilities(config).supportsCopyTable;
 };
 
+export const areSidebarTableClipboardEntriesFromSameSource = (
+  entries: SidebarTableClipboardEntry[],
+): boolean => {
+  if (!Array.isArray(entries) || entries.length === 0) return false;
+  const first = entries[0];
+  return entries.every((entry) => (
+    entry.connectionId === first.connectionId
+    && entry.database === first.database
+    && entry.schema === first.schema
+  ));
+};
+
 export const isSameSidebarTableDatabase = (
   source: SidebarTableClipboardEntry,
   target: SidebarTableClipboardTarget,
@@ -128,21 +156,26 @@ export const isSameSidebarTableDatabase = (
 };
 
 export const buildSidebarTablePastePrefill = (
-  source: SidebarTableClipboardEntry,
+  sources: SidebarTableClipboardEntry[],
   target: SidebarTableClipboardTarget,
-): DataSyncPastePrefill => ({
-  source: {
-    connectionId: source.connectionId,
-    database: source.database,
-    ...(source.schema ? { schema: source.schema } : {}),
-    table: source.table,
-  },
-  target: {
-    connectionId: target.connectionId,
-    database: target.database,
-    ...(target.schema ? { schema: target.schema } : {}),
-  },
-});
+): DataSyncPastePrefill => {
+  const first = sources[0];
+  const tables = sources.map((source) => source.table);
+  return {
+    source: {
+      connectionId: first.connectionId,
+      database: first.database,
+      ...(first.schema ? { schema: first.schema } : {}),
+      ...(tables.length === 1 ? { table: tables[0] } : {}),
+      tables,
+    },
+    target: {
+      connectionId: target.connectionId,
+      database: target.database,
+      ...(target.schema ? { schema: target.schema } : {}),
+    },
+  };
+};
 
 const resolveSidebarTablePasteCommand = ({
   selectedNodes,
@@ -153,23 +186,27 @@ const resolveSidebarTablePasteCommand = ({
   SidebarTableClipboardCommandInput,
   'selectedNodes' | 'clipboard' | 'connectionIds' | 'supportsDirectCopy'
 >): SidebarTableClipboardCommand => {
-  if (!clipboard) {
+  if (!clipboard || clipboard.length === 0) {
     return { kind: 'none' };
+  }
+  if (!areSidebarTableClipboardEntriesFromSameSource(clipboard)) {
+    return { kind: 'paste-mixed-sources', entries: clipboard };
   }
   const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
   if (nodes.length !== 1) {
-    return { kind: 'paste-target-missing', entry: clipboard };
+    return { kind: 'paste-target-missing', entries: clipboard };
   }
   const target = resolveSidebarTableClipboardTarget(nodes[0], connectionIds);
   if (!target) {
-    return { kind: 'paste-target-missing', entry: clipboard };
+    return { kind: 'paste-target-missing', entries: clipboard };
   }
-  if (isSameSidebarTableDatabase(clipboard, target) && supportsDirectCopy(clipboard)) {
-    return { kind: 'paste-copy-table', entry: clipboard, target };
+  const sameDatabase = clipboard.every((entry) => isSameSidebarTableDatabase(entry, target));
+  if (sameDatabase && clipboard.every((entry) => supportsDirectCopy(entry))) {
+    return { kind: 'paste-copy-table', entries: clipboard, target };
   }
   return {
     kind: 'paste-via-data-sync',
-    entry: clipboard,
+    entries: clipboard,
     target,
     prefill: buildSidebarTablePastePrefill(clipboard, target),
   };
@@ -190,9 +227,8 @@ export const resolveSidebarTableClipboardCommand = ({
   const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
   const copyShortcut = shortcutPlatform === 'mac' ? 'Meta+C' : 'Ctrl+C';
   if (isShortcutMatch(event, copyShortcut)) {
-    if (nodes.length !== 1) return { kind: 'none' };
-    const entry = resolveSidebarTableClipboardEntry(nodes[0], connectionIds);
-    return entry ? { kind: 'copy', entry } : { kind: 'none' };
+    const entries = resolveSidebarTableClipboardEntries(nodes, connectionIds);
+    return entries ? { kind: 'copy', entries } : { kind: 'none' };
   }
 
   const pasteShortcut = shortcutPlatform === 'mac' ? 'Meta+V' : 'Ctrl+V';
@@ -216,9 +252,8 @@ export const resolveSidebarTableClipboardCopyEventCommand = ({
     return { kind: 'none' };
   }
   const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
-  if (nodes.length !== 1) return { kind: 'none' };
-  const entry = resolveSidebarTableClipboardEntry(nodes[0], connectionIds);
-  return entry ? { kind: 'copy', entry } : { kind: 'none' };
+  const entries = resolveSidebarTableClipboardEntries(nodes, connectionIds);
+  return entries ? { kind: 'copy', entries } : { kind: 'none' };
 };
 
 export const resolveSidebarTableClipboardPasteEventCommand = ({
@@ -244,7 +279,7 @@ export type UseSidebarTableClipboardInput = {
   selectedNodesRef: MutableRefObject<any[]>;
   connectionIds: string[];
   activeShortcutPlatform: ShortcutPlatform;
-  onCopyTable: (node: any) => void;
+  onCopyTables: (nodes: any[]) => void;
   onOpenDataSyncWorkbench?: (entryMode: 'sync', prefill: DataSyncPastePrefill) => void;
   blocked?: boolean;
 };
@@ -254,18 +289,18 @@ export const useSidebarTableClipboard = ({
   selectedNodesRef,
   connectionIds,
   activeShortcutPlatform,
-  onCopyTable,
+  onCopyTables,
   onOpenDataSyncWorkbench,
   blocked = false,
 }: UseSidebarTableClipboardInput): void => {
-  const clipboardRef = useRef<SidebarTableClipboardEntry | null>(null);
+  const clipboardRef = useRef<SidebarTableClipboardEntry[] | null>(null);
   const sidebarActiveRef = useRef(false);
   const lastHandledRef = useRef<{ action: 'copy' | 'paste'; at: number } | null>(null);
   const stateRef = useRef({
     selectedNodesRef,
     connectionIds,
     activeShortcutPlatform,
-    onCopyTable,
+    onCopyTables,
     onOpenDataSyncWorkbench,
     blocked,
   });
@@ -273,7 +308,7 @@ export const useSidebarTableClipboard = ({
     selectedNodesRef,
     connectionIds,
     activeShortcutPlatform,
-    onCopyTable,
+    onCopyTables,
     onOpenDataSyncWorkbench,
     blocked,
   };
@@ -319,14 +354,21 @@ export const useSidebarTableClipboard = ({
 
       switch (command.kind) {
         case 'copy':
-          clipboardRef.current = command.entry;
-          message.success(t('sidebar.table_clipboard.copy_success', {
-            table: command.entry.table,
-            shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
-          }));
+          clipboardRef.current = command.entries;
+          if (command.entries.length === 1) {
+            message.success(t('sidebar.table_clipboard.copy_success', {
+              table: command.entries[0].table,
+              shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
+            }));
+          } else {
+            message.success(t('sidebar.table_clipboard.copy_success_multiple', {
+              count: command.entries.length,
+              shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
+            }));
+          }
           return;
         case 'paste-copy-table':
-          state.onCopyTable(command.entry.node);
+          state.onCopyTables(command.entries.map((entry) => entry.node));
           return;
         case 'paste-via-data-sync':
           if (state.onOpenDataSyncWorkbench) {
@@ -337,6 +379,9 @@ export const useSidebarTableClipboard = ({
           return;
         case 'paste-target-missing':
           message.warning(t('sidebar.table_clipboard.target_required'));
+          return;
+        case 'paste-mixed-sources':
+          message.warning(t('sidebar.table_clipboard.mixed_sources'));
           return;
         default:
           return;

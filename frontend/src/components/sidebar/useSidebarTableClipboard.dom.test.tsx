@@ -42,11 +42,24 @@ const targetNode = {
   },
 };
 
+const customersNode = {
+  key: 'conn-a-shop-table-customers',
+  title: 'customers',
+  type: 'table',
+  dataRef: {
+    id: 'conn-a',
+    dbName: 'shop',
+    schemaName: '',
+    tableName: 'customers',
+    config: { type: 'mysql' },
+  },
+};
+
 describe('useSidebarTableClipboard DOM events', () => {
   let container: HTMLDivElement;
   let root: Root;
   let selectedNodesRef: { current: any[] };
-  const onCopyTable = vi.fn();
+  const onCopyTables = vi.fn();
   const onOpenDataSyncWorkbench = vi.fn();
 
   const mount = () => {
@@ -57,7 +70,7 @@ describe('useSidebarTableClipboard DOM events', () => {
         selectedNodesRef,
         connectionIds: ['conn-a', 'conn-b'],
         activeShortcutPlatform: 'mac',
-        onCopyTable,
+        onCopyTables,
         onOpenDataSyncWorkbench,
       });
       return (
@@ -110,7 +123,32 @@ describe('useSidebarTableClipboard DOM events', () => {
     });
 
     expect(pasteEvent.defaultPrevented).toBe(true);
-    expect(onCopyTable).toHaveBeenCalledWith(sourceNode);
+    expect(onCopyTables).toHaveBeenCalledWith([sourceNode]);
+  });
+
+  it('copies and pastes multiple selected tables as one batch', () => {
+    const row = container.querySelector('[data-testid="tree-row"]') as HTMLElement;
+    selectedNodesRef.current = [sourceNode, customersNode];
+
+    act(() => {
+      row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    const copyEvent = new Event('copy', { bubbles: true, cancelable: true });
+    act(() => {
+      row.dispatchEvent(copyEvent);
+    });
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(mocks.success).toHaveBeenCalledWith(expect.stringContaining('2'));
+
+    selectedNodesRef.current = [targetNode];
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    act(() => {
+      row.dispatchEvent(pasteEvent);
+    });
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode]);
   });
 
   it('does not hijack native copy or paste from an input inside the sidebar', () => {
@@ -131,6 +169,6 @@ describe('useSidebarTableClipboard DOM events', () => {
     expect(copyEvent.defaultPrevented).toBe(false);
     expect(pasteEvent.defaultPrevented).toBe(false);
     expect(mocks.success).not.toHaveBeenCalled();
-    expect(onCopyTable).not.toHaveBeenCalled();
+    expect(onCopyTables).not.toHaveBeenCalled();
   });
 });

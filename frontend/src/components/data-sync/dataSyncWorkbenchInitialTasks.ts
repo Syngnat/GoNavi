@@ -62,15 +62,22 @@ export const buildDataSyncWorkbenchInitialTasks = ({
   };
   draft.source = endpoint(pastePrefill.source);
   draft.target = endpoint(pastePrefill.target);
-  if (pastePrefill.source.table) {
-    const mapping = createDataSyncTableMapping(
-      `${taskId}:mapping:1`,
-      pastePrefill.source.table,
-      pastePrefill.source.table,
-    );
-    mapping.targetMode = 'create_or_reuse';
-    mapping.targetModeExplicit = true;
-    draft.mappings = [mapping];
+  const sourceTables = Array.isArray(pastePrefill.source.tables)
+    ? pastePrefill.source.tables.map((table) => String(table || '').trim()).filter(Boolean)
+    : pastePrefill.source.table
+      ? [pastePrefill.source.table]
+      : [];
+  if (sourceTables.length > 0) {
+    draft.mappings = sourceTables.map((table, index) => {
+      const mapping = createDataSyncTableMapping(
+        `${taskId}:mapping:${index + 1}`,
+        table,
+        table,
+      );
+      mapping.targetMode = 'create_or_reuse';
+      mapping.targetModeExplicit = true;
+      return mapping;
+    });
   }
   return [draft];
 };

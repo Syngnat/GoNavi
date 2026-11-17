@@ -356,7 +356,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
   });
 
   const {
-    handleCopyStructure, handleCopyTable, handleCopyTableName, handleExport, openExportDialog,
+    handleCopyStructure, handleCopyTable, handleCopyTables, handleCopyTableName, handleExport, openExportDialog,
     handleCreateDatabase, handleCreateSchema, openRenameSchemaModal, handleRenameSchema,
     handleDeleteSchema, handleRenameDatabase, handleRenameTable, handleDeleteTable,
     handleTableDataDangerAction, openViewDefinition, openEditView, openCreateView,
@@ -462,7 +462,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
     selectedNodesRef,
     connectionIds,
     activeShortcutPlatform,
-    onCopyTable: handleCopyTable,
+    onCopyTables: handleCopyTables,
     onOpenDataSyncWorkbench,
     blocked: Boolean(contextMenu?.kind),
   });

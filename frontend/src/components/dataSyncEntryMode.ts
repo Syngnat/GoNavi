@@ -6,6 +6,7 @@ export type DataSyncPasteEndpoint = {
   database: string;
   schema?: string;
   table?: string;
+  tables?: string[];
 };
 
 export type DataSyncPastePrefill = {

@@ -199,6 +199,61 @@ describe('DataSyncWorkbench', () => {
     ]);
   });
 
+  it('creates one migration mapping for every pasted table', () => {
+    storeState.connections = [
+      {
+        id: 'source-conn',
+        name: 'Source MySQL',
+        type: 'mysql',
+        config: { type: 'mysql' },
+      },
+      {
+        id: 'target-conn',
+        name: 'Target PostgreSQL',
+        type: 'postgres',
+        config: { type: 'postgres' },
+      },
+    ];
+    const pasteTab: TabData = {
+      ...tab,
+      id: 'data-sync-workbench-paste-101',
+      title: '数据同步 · 2 张表',
+      dataSyncEntryMode: 'sync',
+      dataSyncFocusTaskId: 'data-sync-paste-task-101',
+      dataSyncPastePrefill: {
+        source: {
+          connectionId: 'source-conn',
+          database: 'shop',
+          tables: ['orders', 'customers'],
+        },
+        target: {
+          connectionId: 'target-conn',
+          database: 'archive',
+        },
+      },
+    };
+
+    const renderer = TestRenderer.create(<DataSyncWorkbench tab={pasteTab} />);
+    const shell = renderer.root.findByProps({ 'data-data-sync-shell': 'true' });
+    const mappings = JSON.parse(shell.props['data-mappings']);
+
+    expect(mappings).toHaveLength(2);
+    expect(mappings).toEqual([
+      expect.objectContaining({
+        sourceObject: 'orders',
+        targetObject: 'orders',
+        targetMode: 'create_or_reuse',
+        targetModeExplicit: true,
+      }),
+      expect.objectContaining({
+        sourceObject: 'customers',
+        targetObject: 'customers',
+        targetMode: 'create_or_reuse',
+        targetModeExplicit: true,
+      }),
+    ]);
+  });
+
   it('projects sidebar groups without exposing saved connection config', () => {
     storeState.connections = [
       {

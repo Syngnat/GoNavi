@@ -79,11 +79,16 @@ export const buildDataSyncPasteWorkbenchTab = (
     entryMode: input.entryMode,
     pastePrefill: input.pastePrefill,
   });
-  const table = String(input.pastePrefill.source.table || '').trim();
+  const tables = Array.isArray(input.pastePrefill.source.tables)
+    ? input.pastePrefill.source.tables.map((table) => String(table || '').trim()).filter(Boolean)
+    : [String(input.pastePrefill.source.table || '').trim()].filter(Boolean);
+  const titleSuffix = tables.length > 1
+    ? t('sidebar.table_clipboard.multi_tab_title', { count: tables.length })
+    : tables[0] || '';
   return {
     ...base,
     id: `data-sync-workbench-paste-${requestKey}`,
-    title: table ? `${base.title} · ${table}` : base.title,
+    title: titleSuffix ? `${base.title} · ${titleSuffix}` : base.title,
     dataSyncFocusTaskId: `data-sync-paste-task-${requestKey}`,
     dataSyncFocusStage: 'endpoints',
     dataSyncFocusRequestId: requestKey,

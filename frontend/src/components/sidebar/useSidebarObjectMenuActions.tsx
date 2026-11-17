@@ -191,6 +191,7 @@ export const useSidebarObjectMenuActions = ({
   const {
       handleCopyStructure,
       handleCopyTable,
+      handleCopyTables,
       handleCopyTableName,
       handleCopyDatabaseName,
       handleCopyDatabase,
@@ -507,7 +508,7 @@ export const useSidebarObjectMenuActions = ({
       (connection) => getDataSourceCapabilities(connection.config).supportsRelationalObjectKindFilter,
   );
   return {
-    handleCopyStructure, handleCopyTable, handleCopyTableName, handleExport, openExportDialog,
+    handleCopyStructure, handleCopyTable, handleCopyTables, handleCopyTableName, handleExport, openExportDialog,
     handleCreateDatabase, handleCreateSchema, openRenameSchemaModal, handleRenameSchema,
     handleDeleteSchema, handleRenameDatabase, handleRenameTable, handleDeleteTable,
     handleTableDataDangerAction, openViewDefinition, openEditView, openCreateView,
