@@ -46,6 +46,20 @@ export type SidebarTableClipboardCommandInput = {
   supportsDirectCopy?: (entry: SidebarTableClipboardEntry) => boolean;
 };
 
+export type SidebarTableClipboardCopyEventInput = {
+  event: ClipboardEvent;
+  selectedNodes: any[];
+  connectionIds: string[];
+};
+
+export type SidebarTableClipboardPasteEventInput = {
+  event: ClipboardEvent;
+  selectedNodes: any[];
+  clipboard: SidebarTableClipboardEntry | null;
+  connectionIds: string[];
+  supportsDirectCopy?: (entry: SidebarTableClipboardEntry) => boolean;
+};
+
 const normalizePart = (value: unknown): string => String(value ?? '').trim();
 
 export const resolveSidebarTableClipboardEntry = (
@@ -130,6 +144,37 @@ export const buildSidebarTablePastePrefill = (
   },
 });
 
+const resolveSidebarTablePasteCommand = ({
+  selectedNodes,
+  clipboard,
+  connectionIds,
+  supportsDirectCopy = canCopySidebarTableDirectly,
+}: Pick<
+  SidebarTableClipboardCommandInput,
+  'selectedNodes' | 'clipboard' | 'connectionIds' | 'supportsDirectCopy'
+>): SidebarTableClipboardCommand => {
+  if (!clipboard) {
+    return { kind: 'none' };
+  }
+  const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
+  if (nodes.length !== 1) {
+    return { kind: 'paste-target-missing', entry: clipboard };
+  }
+  const target = resolveSidebarTableClipboardTarget(nodes[0], connectionIds);
+  if (!target) {
+    return { kind: 'paste-target-missing', entry: clipboard };
+  }
+  if (isSameSidebarTableDatabase(clipboard, target) && supportsDirectCopy(clipboard)) {
+    return { kind: 'paste-copy-table', entry: clipboard, target };
+  }
+  return {
+    kind: 'paste-via-data-sync',
+    entry: clipboard,
+    target,
+    prefill: buildSidebarTablePastePrefill(clipboard, target),
+  };
+};
+
 export const resolveSidebarTableClipboardCommand = ({
   event,
   shortcutPlatform,
@@ -154,22 +199,44 @@ export const resolveSidebarTableClipboardCommand = ({
   if (!isShortcutMatch(event, pasteShortcut) || !clipboard) {
     return { kind: 'none' };
   }
-  if (nodes.length !== 1) {
-    return { kind: 'paste-target-missing', entry: clipboard };
+  return resolveSidebarTablePasteCommand({
+    selectedNodes: nodes,
+    clipboard,
+    connectionIds,
+    supportsDirectCopy,
+  });
+};
+
+export const resolveSidebarTableClipboardCopyEventCommand = ({
+  event,
+  selectedNodes,
+  connectionIds,
+}: SidebarTableClipboardCopyEventInput): SidebarTableClipboardCommand => {
+  if (event.defaultPrevented || isEditableElement(event.target)) {
+    return { kind: 'none' };
   }
-  const target = resolveSidebarTableClipboardTarget(nodes[0], connectionIds);
-  if (!target) {
-    return { kind: 'paste-target-missing', entry: clipboard };
+  const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
+  if (nodes.length !== 1) return { kind: 'none' };
+  const entry = resolveSidebarTableClipboardEntry(nodes[0], connectionIds);
+  return entry ? { kind: 'copy', entry } : { kind: 'none' };
+};
+
+export const resolveSidebarTableClipboardPasteEventCommand = ({
+  event,
+  selectedNodes,
+  clipboard,
+  connectionIds,
+  supportsDirectCopy,
+}: SidebarTableClipboardPasteEventInput): SidebarTableClipboardCommand => {
+  if (event.defaultPrevented || isEditableElement(event.target)) {
+    return { kind: 'none' };
   }
-  if (isSameSidebarTableDatabase(clipboard, target) && supportsDirectCopy(clipboard)) {
-    return { kind: 'paste-copy-table', entry: clipboard, target };
-  }
-  return {
-    kind: 'paste-via-data-sync',
-    entry: clipboard,
-    target,
-    prefill: buildSidebarTablePastePrefill(clipboard, target),
-  };
+  return resolveSidebarTablePasteCommand({
+    selectedNodes,
+    clipboard,
+    connectionIds,
+    supportsDirectCopy,
+  });
 };
 
 export type UseSidebarTableClipboardInput = {
@@ -193,6 +260,7 @@ export const useSidebarTableClipboard = ({
 }: UseSidebarTableClipboardInput): void => {
   const clipboardRef = useRef<SidebarTableClipboardEntry | null>(null);
   const sidebarActiveRef = useRef(false);
+  const lastHandledRef = useRef<{ action: 'copy' | 'paste'; at: number } | null>(null);
   const stateRef = useRef({
     selectedNodesRef,
     connectionIds,
@@ -226,24 +294,29 @@ export const useSidebarTableClipboard = ({
     const handlePointerDown = (event: PointerEvent) => {
       sidebarActiveRef.current = isInsideActiveRegion(event.target);
     };
+    const handleMouseDown = (event: MouseEvent) => {
+      sidebarActiveRef.current = isInsideActiveRegion(event.target);
+    };
     const handleFocusIn = (event: FocusEvent) => {
       sidebarActiveRef.current = isInsideActiveRegion(event.target);
     };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
-      const state = stateRef.current;
-      if (state.blocked) return;
-
-      const command = resolveSidebarTableClipboardCommand({
-        event,
-        shortcutPlatform: state.activeShortcutPlatform,
-        selectedNodes: state.selectedNodesRef.current,
-        clipboard: clipboardRef.current,
-        connectionIds: state.connectionIds,
-      });
+    const applyCommand = (
+      command: SidebarTableClipboardCommand,
+      state: typeof stateRef.current,
+      event: Event,
+      action: 'copy' | 'paste',
+    ) => {
       if (command.kind === 'none') return;
-
       event.preventDefault();
+
+      // macOS 原生编辑菜单和 keydown 可能先后触发同一操作，去重避免重复弹窗。
+      const now = Date.now();
+      const previous = lastHandledRef.current;
+      if (previous && previous.action === action && now - previous.at < 150) {
+        return;
+      }
+      lastHandledRef.current = { action, at: now };
+
       switch (command.kind) {
         case 'copy':
           clipboardRef.current = command.entry;
@@ -269,14 +342,57 @@ export const useSidebarTableClipboard = ({
           return;
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
+      const state = stateRef.current;
+      if (state.blocked) return;
+
+      const command = resolveSidebarTableClipboardCommand({
+        event,
+        shortcutPlatform: state.activeShortcutPlatform,
+        selectedNodes: state.selectedNodesRef.current,
+        clipboard: clipboardRef.current,
+        connectionIds: state.connectionIds,
+      });
+      applyCommand(command, state, event, command.kind === 'copy' ? 'copy' : 'paste');
+    };
+    const handleCopy = (event: ClipboardEvent) => {
+      if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
+      const state = stateRef.current;
+      if (state.blocked) return;
+      const command = resolveSidebarTableClipboardCopyEventCommand({
+        event,
+        selectedNodes: state.selectedNodesRef.current,
+        connectionIds: state.connectionIds,
+      });
+      applyCommand(command, state, event, 'copy');
+    };
+    const handlePaste = (event: ClipboardEvent) => {
+      if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
+      const state = stateRef.current;
+      if (state.blocked) return;
+      const command = resolveSidebarTableClipboardPasteEventCommand({
+        event,
+        selectedNodes: state.selectedNodesRef.current,
+        clipboard: clipboardRef.current,
+        connectionIds: state.connectionIds,
+      });
+      applyCommand(command, state, event, 'paste');
+    };
 
     document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('mousedown', handleMouseDown, true);
     document.addEventListener('focusin', handleFocusIn, true);
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('copy', handleCopy);
+    document.addEventListener('paste', handlePaste);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('focusin', handleFocusIn, true);
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('copy', handleCopy);
+      document.removeEventListener('paste', handlePaste);
     };
   }, [rootRef]);
 };

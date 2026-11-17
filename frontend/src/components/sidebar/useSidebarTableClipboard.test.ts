@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   canCopySidebarTableDirectly,
   isSameSidebarTableDatabase,
+  resolveSidebarTableClipboardCopyEventCommand,
   resolveSidebarTableClipboardCommand,
   resolveSidebarTableClipboardEntry,
+  resolveSidebarTableClipboardPasteEventCommand,
   resolveSidebarTableClipboardTarget,
 } from './useSidebarTableClipboard';
 
@@ -27,6 +29,15 @@ const createKeyEvent = (
   preventDefault: vi.fn(),
   ...overrides,
 } as unknown as KeyboardEvent);
+
+const createClipboardEvent = (
+  overrides: Partial<ClipboardEvent> = {},
+): ClipboardEvent => ({
+  defaultPrevented: false,
+  target: null,
+  preventDefault: vi.fn(),
+  ...overrides,
+} as unknown as ClipboardEvent);
 
 const createTableNode = (overrides: Record<string, unknown> = {}) => ({
   key: 'conn-a-shop-table-orders',
@@ -285,5 +296,80 @@ describe('sidebar table clipboard shortcuts', () => {
 
     expect(noClipboard.kind).toBe('none');
     expect(handled.kind).toBe('none');
+  });
+});
+
+describe('sidebar table clipboard DOM events', () => {
+  it('copies the selected table from the native copy event used by the macOS edit menu', () => {
+    const command = resolveSidebarTableClipboardCopyEventCommand({
+      event: createClipboardEvent({ type: 'copy' }),
+      selectedNodes: [createTableNode()],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('copy');
+    expect(command.kind === 'copy' && command.entry.table).toBe('orders');
+  });
+
+  it('leaves native text copy alone when the copy event comes from an editable target', () => {
+    const target = {
+      tagName: 'TEXTAREA',
+      isContentEditable: false,
+      closest: () => null,
+    };
+    const command = resolveSidebarTableClipboardCopyEventCommand({
+      event: createClipboardEvent({ type: 'copy', target: target as unknown as EventTarget }),
+      selectedNodes: [createTableNode()],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('none');
+  });
+
+  it('routes the native paste event to the same-database table copy action', () => {
+    const command = resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste' }),
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: resolveSidebarTableClipboardEntry(createTableNode(), connectionIds),
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-table');
+  });
+
+  it('opens the migration workbench from a native paste event across instances', () => {
+    const command = resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste' }),
+      selectedNodes: [createDatabaseNode('conn-b', 'archive')],
+      clipboard: resolveSidebarTableClipboardEntry(createTableNode(), connectionIds),
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-via-data-sync');
+    if (command.kind !== 'paste-via-data-sync') return;
+    expect(command.prefill.target.connectionId).toBe('conn-b');
+  });
+
+  it('does not intercept a native paste event inside an input or without a queued table', () => {
+    const inputTarget = {
+      tagName: 'INPUT',
+      isContentEditable: false,
+      closest: () => null,
+    };
+    const clipboard = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds);
+
+    expect(resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste', target: inputTarget as unknown as EventTarget }),
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard,
+      connectionIds,
+    }).kind).toBe('none');
+
+    expect(resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste' }),
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: null,
+      connectionIds,
+    }).kind).toBe('none');
   });
 });
