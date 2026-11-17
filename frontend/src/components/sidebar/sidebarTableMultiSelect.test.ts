@@ -5,6 +5,7 @@ import {
   collectVisibleTableRangeKeys,
   resolveMultiTableSelection,
   resolvePlainClickSelectedKeys,
+  resolvePlainClickSelectedNodes,
   resolveTableRowKeyFromElement,
 } from './sidebarTableMultiSelect';
 
@@ -116,5 +117,23 @@ describe('resolvePlainClickSelectedKeys', () => {
 
   it('没有节点 key 时不改写选中集', () => {
     expect(resolvePlainClickSelectedKeys(['a'], undefined, false)).toBeNull();
+  });
+});
+
+describe('resolvePlainClickSelectedNodes', () => {
+  const node = (key: string, type = 'table') => ({ key, type, dataRef: {} });
+
+  it('普通单击后按归一 key 过滤 rc-tree 的原始多选节点', () => {
+    const connection = node('conn', 'connection');
+    const database = node('db', 'database');
+
+    expect(resolvePlainClickSelectedNodes([connection, database], ['db'])).toEqual([database]);
+  });
+
+  it('取消选中时同步清空，带修饰键时保留原始多选集', () => {
+    const nodes = [node('a'), node('b')];
+
+    expect(resolvePlainClickSelectedNodes(nodes, [])).toEqual([]);
+    expect(resolvePlainClickSelectedNodes(nodes, null)).toEqual(nodes);
   });
 });
