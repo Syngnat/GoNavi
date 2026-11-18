@@ -60,6 +60,7 @@ export const useConnectionModalSshAndMongo = ({
         nacosNamespaceIdTouched:
           form.isFieldTouched?.("nacosNamespaceId") === true,
         oracleModeTouched: oracleModeTouchedRef.current,
+        uriTouched: form.isFieldTouched?.("uri") === true,
         translate: t,
       });
       if (initialValues?.id) {
@@ -119,6 +120,7 @@ export const useConnectionModalSshAndMongo = ({
         forPersist: false,
         initialValues,
         oracleModeTouched: oracleModeTouchedRef.current,
+        uriTouched: form.isFieldTouched?.("uri") === true,
         translate: t,
       });
       if (initialValues?.id) {

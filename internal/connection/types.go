@@ -48,6 +48,7 @@ type SSHConfig struct {
 	KeyPath            string `json:"keyPath"`
 	KnownHostsPath     string `json:"knownHostsPath,omitempty"`
 	HostKeyFingerprint string `json:"hostKeyFingerprint,omitempty"`
+	ConnectTimeout     int    `json:"connectTimeout,omitempty"`
 	runtime            *sshRuntime
 }
 
@@ -277,11 +278,12 @@ type ConnectionConfig struct {
 	ReadOnly                 bool                       `json:"readOnly,omitempty"`       // Legacy production guard compatibility flag. Prefer Protection for new logic.
 	PluginWritable           bool                       `json:"pluginWritable,omitempty"` // Host-verified hint that the selected plugin source declared readOnly false.
 	Protection               ConnectionProtectionConfig `json:"protection,omitempty"`
-	UseSSL                   bool                       `json:"useSSL,omitempty"`      // MySQL-like SSL/TLS switch
-	SSLMode                  string                     `json:"sslMode,omitempty"`     // preferred | required | skip-verify | disable
-	SSLCAPath                string                     `json:"sslCAPath,omitempty"`   // TLS root CA / server certificate path
-	SSLCertPath              string                     `json:"sslCertPath,omitempty"` // TLS client certificate path (e.g., Dameng)
-	SSLKeyPath               string                     `json:"sslKeyPath,omitempty"`  // TLS client private key path (e.g., Dameng)
+	UseSSL                   bool                       `json:"useSSL,omitempty"`        // MySQL-like SSL/TLS switch
+	SSLMode                  string                     `json:"sslMode,omitempty"`       // preferred | required | skip-verify | disable
+	SSLCAPath                string                     `json:"sslCAPath,omitempty"`     // TLS root CA / server certificate path
+	SSLCertPath              string                     `json:"sslCertPath,omitempty"`   // TLS client certificate path (e.g., Dameng)
+	SSLKeyPath               string                     `json:"sslKeyPath,omitempty"`    // TLS client private key path (e.g., Dameng)
+	TLSServerName            string                     `json:"tlsServerName,omitempty"` // Original host for TLS SNI/certificate verification behind a dial proxy.
 	UseSSH                   bool                       `json:"useSSH"`
 	SSH                      SSHConfig                  `json:"ssh"`
 	UseProxy                 bool                       `json:"useProxy,omitempty"`

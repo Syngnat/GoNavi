@@ -335,6 +335,56 @@ func TestMySQLDSN_MapsAdditionalJDBCAliases(t *testing.T) {
 	}
 }
 
+func TestMySQLDSN_ExplicitTLSFilesWinOverURIAndConnectionParams(t *testing.T) {
+	t.Parallel()
+
+	m := &MySQLDB{}
+	dsn, err := m.getDSN(connection.ConnectionConfig{
+		Host:             "db.local",
+		Port:             3306,
+		User:             "root",
+		Database:         "app",
+		UseSSL:           true,
+		SSLMode:          "required",
+		SSLCAPath:        "../../third_party/highgo-pq/certs/root.crt",
+		URI:              "mysql://root@db.local:3306/app?tls=false",
+		ConnectionParams: "useSSL=false",
+	})
+	if err != nil {
+		t.Fatalf("getDSN failed: %v", err)
+	}
+
+	query := parseMySQLDSNQueryForTest(t, dsn)
+	if got := query.Get("tls"); !strings.HasPrefix(got, "gonavi-") {
+		t.Fatalf("explicit TLS certificate config was overridden, tls=%q query=%v", got, query)
+	}
+}
+
+func TestMySQLDSN_TLSServerNameWinsBehindProxy(t *testing.T) {
+	t.Parallel()
+
+	m := &MySQLDB{}
+	dsn, err := m.getDSN(connection.ConnectionConfig{
+		Host:             "127.0.0.1",
+		Port:             49152,
+		User:             "root",
+		Database:         "app",
+		UseSSL:           true,
+		SSLMode:          "required",
+		TLSServerName:    "mysql.real.internal",
+		URI:              "mysql://root@mysql.real.internal:3306/app?tls=false",
+		ConnectionParams: "useSSL=false",
+	})
+	if err != nil {
+		t.Fatalf("getDSN failed: %v", err)
+	}
+
+	query := parseMySQLDSNQueryForTest(t, dsn)
+	if got := query.Get("tls"); !strings.HasPrefix(got, "gonavi-") {
+		t.Fatalf("TLS server name was overridden, tls=%q query=%v", got, query)
+	}
+}
+
 func TestMySQLDSN_MapsAllowMultiQueriesTrueWithoutLeakingKey(t *testing.T) {
 	t.Parallel()
 

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 	proxytunnel "GoNavi-Wails/internal/proxy"
@@ -88,7 +89,7 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		// The proxy needs a local, ephemeral dial endpoint, but host-key trust
 		// must remain bound to the real bastion address the user configured.
 		config.SSH = config.SSH.WithHostKeyIdentity(sshHost, sshPort)
-		forwardedSSH, err := buildProxyForwardAddress(normalizedProxy, sshHost, sshPort)
+		forwardedSSH, err := buildProxyForwardAddress(normalizedProxy, sshHost, sshPort, appConnectTimeout(config))
 		if err != nil {
 			return connection.ConnectionConfig{}, fmt.Errorf("%s", defaultAppText("db.backend.error.proxy_ssh_gateway_connect_failed", map[string]any{
 				"detail": err.Error(),
@@ -125,11 +126,14 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		return config, nil
 	}
 
-	targetPort := config.Port
-	if targetPort <= 0 {
-		targetPort = defaultPortByType(normalizedType)
+	target, err := resolveProxyTarget(config, normalizedType)
+	if err != nil {
+		return connection.ConnectionConfig{}, err
 	}
-	forwardedPrimary, err := buildProxyForwardAddress(normalizedProxy, strings.TrimSpace(config.Host), targetPort)
+	if config.UseSSL {
+		config.TLSServerName = target.host
+	}
+	forwardedPrimary, err := buildProxyForwardAddress(normalizedProxy, target.host, target.port, appConnectTimeout(config))
 	if err != nil {
 		return connection.ConnectionConfig{}, err
 	}
@@ -144,7 +148,7 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 			if !ok {
 				continue
 			}
-			forwarded, forwardErr := buildProxyForwardAddress(normalizedProxy, targetHost, targetPort)
+			forwarded, forwardErr := buildProxyForwardAddress(normalizedProxy, targetHost, targetPort, appConnectTimeout(config))
 			if forwardErr != nil {
 				return connection.ConnectionConfig{}, forwardErr
 			}
@@ -185,7 +189,7 @@ type hostPort struct {
 	port int
 }
 
-func buildProxyForwardAddress(proxyConfig connection.ProxyConfig, targetHost string, targetPort int) (hostPort, error) {
+func buildProxyForwardAddress(proxyConfig connection.ProxyConfig, targetHost string, targetPort int, timeouts ...time.Duration) (hostPort, error) {
 	host := strings.TrimSpace(targetHost)
 	if host == "" {
 		host = "localhost"
@@ -197,7 +201,11 @@ func buildProxyForwardAddress(proxyConfig connection.ProxyConfig, targetHost str
 		}))
 	}
 
-	forwarder, err := proxytunnel.GetOrCreateLocalForwarder(proxyConfig, host, port)
+	timeout := time.Duration(0)
+	if len(timeouts) > 0 {
+		timeout = timeouts[0]
+	}
+	forwarder, err := proxytunnel.GetOrCreateLocalForwarderWithTimeout(proxyConfig, host, port, timeout)
 	if err != nil {
 		return hostPort{}, err
 	}
@@ -208,6 +216,79 @@ func buildProxyForwardAddress(proxyConfig connection.ProxyConfig, targetHost str
 		}))
 	}
 	return hostPort{host: localHost, port: localPort}, nil
+}
+
+func appConnectTimeout(config connection.ConnectionConfig) time.Duration {
+	seconds := config.Timeout
+	if seconds <= 0 {
+		seconds = 30
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func resolveProxyTarget(config connection.ConnectionConfig, normalizedType string) (hostPort, error) {
+	defaultPort := defaultPortByType(normalizedType)
+	host := strings.TrimSpace(config.Host)
+	port := config.Port
+	if host != "" && port <= 0 {
+		if parsedHost, parsedPort, ok := parseAddressWithDefaultPort(host, defaultPort); ok {
+			host, port = parsedHost, parsedPort
+		}
+	}
+	if host == "" && len(config.Hosts) > 0 {
+		if parsedHost, parsedPort, ok := parseAddressWithDefaultPort(config.Hosts[0], defaultPort); ok {
+			host, port = parsedHost, parsedPort
+		}
+	}
+	if host == "" && strings.TrimSpace(config.URI) != "" {
+		if parsed, ok := parseProxyURIAddress(config.URI, defaultPort); ok {
+			host, port = parsed.host, parsed.port
+		}
+	}
+	if host == "" {
+		return hostPort{}, fmt.Errorf("%s", defaultAppText("proxy.backend.error.remote_addr_invalid", map[string]any{"address": "(empty)"}))
+	}
+	if port <= 0 {
+		port = defaultPort
+	}
+	if port <= 0 || port > 65535 {
+		return hostPort{}, fmt.Errorf("%s", defaultAppText("db.backend.error.proxy_target_port_invalid", map[string]any{"port": port}))
+	}
+	return hostPort{host: host, port: port}, nil
+}
+
+func parseProxyURIAddress(raw string, defaultPort int) (hostPort, bool) {
+	text := strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(text), "jdbc:") {
+		text = strings.TrimSpace(text[len("jdbc:"):])
+	}
+	parsed, err := url.Parse(text)
+	if err != nil || strings.TrimSpace(parsed.Host) == "" {
+		return hostPort{}, false
+	}
+	hostText := parsed.Host
+	if comma := strings.Index(hostText, ","); comma >= 0 {
+		hostText = hostText[:comma]
+	}
+	host := parsed.Hostname()
+	port := defaultPort
+	if portText := parsed.Port(); portText != "" {
+		parsedPort, err := strconv.Atoi(portText)
+		if err != nil || parsedPort <= 0 || parsedPort > 65535 {
+			return hostPort{}, false
+		}
+		port = parsedPort
+	}
+	if host == "" {
+		host, _, err = net.SplitHostPort(hostText)
+		if err != nil {
+			return hostPort{}, false
+		}
+	}
+	if host == "" {
+		return hostPort{}, false
+	}
+	return hostPort{host: host, port: port}, true
 }
 
 func parseAddressWithDefaultPort(raw string, defaultPort int) (string, int, bool) {

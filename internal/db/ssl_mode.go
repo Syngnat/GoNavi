@@ -74,6 +74,7 @@ func hasTLSCertificatePaths(config connection.ConnectionConfig) bool {
 func mysqlTLSConfigName(config connection.ConnectionConfig) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		normalizedSSLMode(config),
+		strings.TrimSpace(config.TLSServerName),
 		strings.TrimSpace(config.SSLCAPath),
 		strings.TrimSpace(config.SSLCertPath),
 		strings.TrimSpace(config.SSLKeyPath),

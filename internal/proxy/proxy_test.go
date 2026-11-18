@@ -249,3 +249,14 @@ func TestDialContextKeepsSuccessfulHTTPConnectTunnelOpen(t *testing.T) {
 		t.Fatalf("proxy server: %v", err)
 	}
 }
+
+func TestDialTimeoutFromContext(t *testing.T) {
+	if got := dialTimeoutFromContext(context.Background()); got != defaultDialTimeout {
+		t.Fatalf("background timeout = %s, want %s", got, defaultDialTimeout)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if got := dialTimeoutFromContext(ctx); got <= 0 || got > 3*time.Second {
+		t.Fatalf("context timeout = %s, want >0 and <=3s", got)
+	}
+}

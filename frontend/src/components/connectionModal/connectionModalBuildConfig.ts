@@ -60,6 +60,7 @@ export const buildConnectionConfig = async ({
   initialValues,
   nacosNamespaceIdTouched = false,
   oracleModeTouched = false,
+  uriTouched = false,
   translate: t,
 }: BuildConnectionConfigParams): Promise<ConnectionConfig> => {
   if (isPluginDataSourceNamespace(values.type)) return buildPluginDataSourceConfig(values, forPersist, initialValues);
@@ -250,7 +251,9 @@ export const buildConnectionConfig = async ({
         (mergedValues as any)[key] = value;
         return;
       }
-      if (isEmptyField((mergedValues as any)[key])) {
+      // 本次明确编辑过 URI 时以 URI 为准；否则只填充空字段，
+      // 防止编辑 Host 时被已保存的旧 URI 反向覆盖。
+      if (uriTouched || isEmptyField((mergedValues as any)[key])) {
         (mergedValues as any)[key] = value;
       }
     });

@@ -260,7 +260,11 @@ func (a *App) resolveEffectiveConnectionConfig(config connection.ConnectionConfi
 	if err != nil {
 		return config, wrapConnectError(resolvedConfig, err)
 	}
-	return a.withManagedSSHHostKeyTrustStore(runtimeConfig), nil
+	runtimeConfig = a.withManagedSSHHostKeyTrustStore(runtimeConfig)
+	if runtimeConfig.UseSSH && runtimeConfig.SSH.ConnectTimeout <= 0 {
+		runtimeConfig.SSH.ConnectTimeout = int(appConnectTimeout(runtimeConfig).Seconds())
+	}
+	return runtimeConfig, nil
 }
 
 func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing bool) (db.Database, error) {

@@ -1,11 +1,11 @@
 package app
 
 import (
-	"strings"
-	"testing"
 	"GoNavi-Wails/internal/connection"
 	proxytunnel "GoNavi-Wails/internal/proxy"
 	"GoNavi-Wails/shared/i18n"
+	"strings"
+	"testing"
 )
 
 func TestDBProxyResolveDialConfigWithProxyUsesCurrentLanguageForHTTPTunnelValidationErrors(t *testing.T) {
@@ -104,7 +104,6 @@ func TestDBProxyHTTPTunnelValidationCatalogKeysExist(t *testing.T) {
 	}
 }
 
-
 func TestDBProxyBuildProxyForwardAddressUsesCurrentLanguageForTargetPortValidationError(t *testing.T) {
 	app := NewApp()
 	app.SetLanguage(string(i18n.LanguageEnUS))
@@ -144,13 +143,7 @@ func TestDBProxyResolveDialConfigWithProxyUsesCurrentLanguageForSSHGatewayWrappe
 		Host: "proxy.local",
 		Port: 7890,
 	}
-	forwarder, err := proxytunnel.GetOrCreateLocalForwarder(proxyConfig, "ssh.gateway.local", 22)
-	if err != nil {
-		t.Fatalf("GetOrCreateLocalForwarder() error = %v", err)
-	}
-	forwarder.LocalAddr = "broken-local-forward"
-
-	_, err = resolveDialConfigWithProxy(connection.ConnectionConfig{
+	config := connection.ConnectionConfig{
 		Type:     "mysql",
 		UseProxy: true,
 		Proxy:    proxyConfig,
@@ -159,7 +152,14 @@ func TestDBProxyResolveDialConfigWithProxyUsesCurrentLanguageForSSHGatewayWrappe
 			Host: "ssh.gateway.local",
 			Port: 22,
 		},
-	})
+	}
+	forwarder, err := proxytunnel.GetOrCreateLocalForwarderWithTimeout(proxyConfig, "ssh.gateway.local", 22, appConnectTimeout(config))
+	if err != nil {
+		t.Fatalf("GetOrCreateLocalForwarder() error = %v", err)
+	}
+	forwarder.LocalAddr = "broken-local-forward"
+
+	_, err = resolveDialConfigWithProxy(config)
 	if err == nil {
 		t.Fatal("expected SSH gateway wrapper error")
 	}

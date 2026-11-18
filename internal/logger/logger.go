@@ -213,6 +213,11 @@ func Infof(format string, args ...any) {
 	printf("INFO", format, args...)
 }
 
+// Debugf 记录内部准备步骤和诊断细节，不代表用户操作失败。
+func Debugf(format string, args ...any) {
+	printf("DEBUG", format, args...)
+}
+
 func Warnf(format string, args ...any) {
 	printf("WARN", format, args...)
 }

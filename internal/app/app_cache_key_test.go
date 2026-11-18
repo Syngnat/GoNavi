@@ -168,6 +168,23 @@ func TestGetCacheKey_KeepOracleCurrentSchemaIsolation(t *testing.T) {
 	}
 }
 
+func TestConnectionReleaseMatchKeyIgnoresSecretsAndEquivalentURI(t *testing.T) {
+	base := connection.ConnectionConfig{
+		Type:     "mysql",
+		Host:     "new-nginx.local",
+		Port:     13306,
+		User:     "root",
+		Password: "old-password",
+		Database: "app",
+	}
+	updated := base
+	updated.Password = "new-password"
+	updated.URI = "mysql://root:new-password@new-nginx.local:13306/app"
+	if getConnectionReleaseMatchKey(base) != getConnectionReleaseMatchKey(updated) {
+		t.Fatal("credential and equivalent URI changes must still release the same cached instance")
+	}
+}
+
 func TestGetCacheKey_KeepClickHouseProtocolIsolation(t *testing.T) {
 	base := connection.ConnectionConfig{
 		Type:               "clickhouse",

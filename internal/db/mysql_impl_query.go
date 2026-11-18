@@ -29,7 +29,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 	var lastErr error
 	for index, address := range addresses {
 		candidateConfig := runConfig
-		host, port, ok := parseHostPortWithDefault(address, defaultPort)
+		host, port, ok := parseMySQLHostPort(address, defaultPort)
 		if !ok {
 			continue
 		}
@@ -92,7 +92,8 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 			}
 			configureSQLConnectionPool(db, candidateConfig.Type, candidateConfig)
 
-			timeout := getConnectTimeout(candidateConfig)
+			timeout := effectiveMySQLPlanTimeout(plan.dsn, getConnectTimeout(candidateConfig))
+			logger.Debugf("MySQL连接尝试：地址=%s | 方案=%s | 有效连接超时=%s", address, plan.label, timeout)
 			ctx, cancel := utils.ContextWithTimeout(timeout)
 			pingErr := db.PingContext(ctx)
 			cancel()
@@ -104,6 +105,9 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 				} else {
 					lastErr = pingErr
 					errorDetails = append(errorDetails, fmt.Sprintf("%s 验证失败: %v", address, pingErr))
+				}
+				if plan.label == mySQLCompatPlanDefaultLabel && len(plans) > 1 && !shouldRetryMySQLCompatibilityPlan(pingErr) {
+					break
 				}
 				continue
 			}
