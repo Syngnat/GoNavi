@@ -848,6 +848,7 @@ export namespace app {
 	    partial?: boolean;
 	    executedCount?: number;
 	    failedIndex?: number;
+	    statementResults?: connection.StatementExecutionResult[];
 	    boundaryMode?: string;
 	    commitMode?: string;
 	    warnings?: string[];
@@ -881,6 +882,7 @@ export namespace app {
 	        this.partial = source["partial"];
 	        this.executedCount = source["executedCount"];
 	        this.failedIndex = source["failedIndex"];
+	        this.statementResults = this.convertValues(source["statementResults"], connection.StatementExecutionResult);
 	        this.boundaryMode = source["boundaryMode"];
 	        this.commitMode = source["commitMode"];
 	        this.warnings = source["warnings"];
@@ -900,6 +902,24 @@ export namespace app {
 	        this.dataEncoding = source["dataEncoding"];
 	        this.encodedData = source["encodedData"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ConnectionExcelGroupAssignment {
 	    connectionName: string;
@@ -3139,6 +3159,28 @@ export namespace connection {
 	        this.value = source["value"];
 	    }
 	}
+	export class StatementExecutionResult {
+	    statementIndex: number;
+	    status: string;
+	    affectedRows?: number;
+	    rowsReturned?: number;
+	    durationMs?: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StatementExecutionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statementIndex = source["statementIndex"];
+	        this.status = source["status"];
+	        this.affectedRows = source["affectedRows"];
+	        this.rowsReturned = source["rowsReturned"];
+	        this.durationMs = source["durationMs"];
+	        this.error = source["error"];
+	    }
+	}
 	export class QueryResult {
 	    success: boolean;
 	    message: string;
@@ -3148,6 +3190,7 @@ export namespace connection {
 	    partial?: boolean;
 	    executedCount?: number;
 	    failedIndex?: number;
+	    statementResults?: StatementExecutionResult[];
 	    boundaryMode?: string;
 	    commitMode?: string;
 	    warnings?: string[];
@@ -3179,6 +3222,7 @@ export namespace connection {
 	        this.partial = source["partial"];
 	        this.executedCount = source["executedCount"];
 	        this.failedIndex = source["failedIndex"];
+	        this.statementResults = this.convertValues(source["statementResults"], StatementExecutionResult);
 	        this.boundaryMode = source["boundaryMode"];
 	        this.commitMode = source["commitMode"];
 	        this.warnings = source["warnings"];
@@ -3196,6 +3240,24 @@ export namespace connection {
 	        this.transactionId = source["transactionId"];
 	        this.transactionPending = source["transactionPending"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	
 	export class SaveConnectionSidebarLayoutInput {
@@ -3596,6 +3658,7 @@ export namespace connection {
 	        this.serialNumber = source["serialNumber"];
 	    }
 	}
+	
 	export class TestGlobalProxyInput {
 	    proxy: SaveGlobalProxyInput;
 	    url: string;

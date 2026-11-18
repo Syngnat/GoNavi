@@ -25,6 +25,7 @@ import {
     getLocatorMetaCached,
     setLocatorMetaCached,
 } from '../../utils/queryLocatorMetaCache';
+import type { QueryResultLike } from '../../typeDefs/queryResultTypes';
 import {
     type QueryStatementPlan,
     isSystemMetadataQueryResult,
@@ -158,11 +159,11 @@ export const resolveQueryLocatorPlan = async ({
         } else {
             const [freshCols, freshIndexes] = await Promise.all([
                 withSoftTimeout(
-                    DBGetColumns(buildRpcConnectionConfig(config) as any, tableRef.metadataDbName, tableRef.metadataTableName),
+                    DBGetColumns(buildRpcConnectionConfig(config) as any, tableRef.metadataDbName, tableRef.metadataTableName) as Promise<QueryResultLike>,
                     () => ({ success: false, message: 'Timed out while loading columns', data: [] }),
                 ),
                 withSoftTimeout(
-                    DBGetIndexes(buildRpcConnectionConfig(config) as any, tableRef.metadataDbName, tableRef.metadataTableName)
+                    (DBGetIndexes(buildRpcConnectionConfig(config) as any, tableRef.metadataDbName, tableRef.metadataTableName) as Promise<QueryResultLike>)
                         .catch((error: any) => ({ success: false, message: String(error?.message || error || 'Failed to load indexes'), data: [] })),
                     () => ({ success: false, message: 'Timed out while loading indexes', data: [] }),
                 ),

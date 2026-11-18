@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ListInstalledFontFamilies } from '../../../wailsjs/go/app/App';
 import { useInstalledFontFamilies } from './useInstalledFontFamilies';
 vi.mock('../../../wailsjs/go/app/App', () => ({ ListInstalledFontFamilies: vi.fn() }));
-const list = vi.mocked(ListInstalledFontFamilies);
+const list = vi.mocked(ListInstalledFontFamilies) as any;
 type Props = Parameters<typeof useInstalledFontFamilies>[0];
 const Probe = (props: Props) => { useInstalledFontFamilies(props); return null; };
 const input = (): Props => ({
@@ -40,7 +40,7 @@ describe('installed font loading lifecycle', () => {
     expect(list).toHaveBeenCalledTimes(2);
   });
   it('resubscribes when leaving and reentering while a scan is pending', async () => {
-    let resolve!: (value: Awaited<ReturnType<typeof ListInstalledFontFamilies>>) => void;
+    let resolve!: (value: any) => void;
     list.mockReturnValue(new Promise(done => { resolve = done; }));
     const props = input();
     let view!: ReturnType<typeof create>;

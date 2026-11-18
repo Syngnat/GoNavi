@@ -17,6 +17,7 @@ import { resolveSqlEditorOperationKeyword } from '../../utils/sqlEditorTransacti
 import { resolveOracleLikeExecutionSchemaName } from './queryEditorIdentifierPaths';
 import { withSoftTimeout } from './queryEditorResultMessages';
 import { isKingbaseColumnMetaDialect as isKingbaseDialect, projectQueryResultColumnMeta } from './queryEditorColumnMetaProjection';
+import type { QueryResultLike } from '../../typeDefs/queryResultTypes';
 export { mergeColumnMetaMapsByPriority, resolveQueryResultSelectAliasEntries } from './queryEditorColumnMetaProjection';
 export type { QueryResultSelectAliasEntry } from './queryEditorColumnMetaProjection';
 
@@ -140,7 +141,7 @@ const fetchCandidateColumns = async (
     ref.metadataTableName,
   );
   const res = await withSoftTimeout(
-    request,
+    request as Promise<QueryResultLike>,
     () => ({ success: false, message: 'Timed out while loading columns', data: [] }),
     COLUMN_META_BACKFILL_TIMEOUT_MS,
   );

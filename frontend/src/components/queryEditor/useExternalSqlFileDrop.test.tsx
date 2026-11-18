@@ -139,7 +139,7 @@ describe('useExternalSqlFileDrop', () => {
       success: true,
       message: '',
       data: `content of ${filePath}`,
-    }));
+    } as any));
     storeApi.tabs = [{
       id: 'tab-active',
       title: '查询',
@@ -169,7 +169,7 @@ describe('useExternalSqlFileDrop', () => {
 
   it('混合拖入时拒绝提示与打开流程同时生效', async () => {
     const { ReadSQLFile } = await import('../../../wailsjs/go/app/App');
-    vi.mocked(ReadSQLFile).mockResolvedValue({ success: true, message: '', data: 'SELECT 1' });
+    vi.mocked(ReadSQLFile).mockResolvedValue({ success: true, message: '', data: 'SELECT 1' } as any);
     await mount();
     await triggerDrop(['D:/keep.sql', 'D:/skip.txt']);
     expect(messageApi.warning).toHaveBeenCalledTimes(1);

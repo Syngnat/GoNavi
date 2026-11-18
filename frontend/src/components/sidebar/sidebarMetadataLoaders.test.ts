@@ -27,7 +27,7 @@ import {
   supportsDatabaseSequences,
 } from "./sidebarMetadataLoaders";
 
-const mockedDBQuery = vi.mocked(DBQuery);
+const mockedDBQuery = vi.mocked(DBQuery) as any;
 
 beforeEach(() => {
   mockedDBQuery.mockReset();
@@ -53,7 +53,7 @@ describe("sidebar table metadata", () => {
     await loadFunctions(conn, 'app');
     await loadDatabaseTriggers(conn, 'app');
     await loadSequences(conn, 'app');
-    const sqls = mockedDBQuery.mock.calls.map((call) => call[2]);
+    const sqls = mockedDBQuery.mock.calls.map((call: any[]) => call[2]);
     sqls.push(buildSidebarTableStatusSQL(conn, 'app'));
     expect(sqls.length).toBeGreaterThanOrEqual(5);
     for (const sql of sqls) {

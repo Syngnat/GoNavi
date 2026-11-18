@@ -57,7 +57,7 @@ import type { SavedConnection } from '../../../typeDefs/connectionTypes';
 import type { QueryOptions, SqlLog } from '../../../store/storeStateTypes';
 import type { useQueryEditorSqlErrorLocator } from '../useQueryEditorSqlErrorLocator';
 import type { QueryEditorParamsState } from '../params/useQueryEditorParams';
-import type { connection } from '../../../../wailsjs/go/models';
+import type { QueryResultLike } from '../../../typeDefs/queryResultTypes';
 
 export interface RunQueryEditorSqlStatementsInput {
     splitSQLStatements: (sql: string, dbType?: string) => string[];
@@ -97,7 +97,7 @@ export interface RunQueryEditorSqlStatementsInput {
     runState: { queryId: string; sqlDurationMs?: number; };
     setQueryId: (id: string) => void;
     setExecutionTimingActive: React.Dispatch<React.SetStateAction<boolean>>;
-    executeSqlEditorMultiQuery: (config: Record<string, any>, dbName: string, sql: string, queryId: string, sourceStatements: string[], dbType?: string, connectionParamsOverride?: string, executionConnectionId?: string, paramBindings?: QueryParamBindingInput[], quotedPlaceholders?: boolean, resultBudgetOverride?: QueryEditorResultBudgetOptions) => Promise<connection.QueryResult>;
+    executeSqlEditorMultiQuery: (config: Record<string, any>, dbName: string, sql: string, queryId: string, sourceStatements: string[], dbType?: string, connectionParamsOverride?: string, executionConnectionId?: string, paramBindings?: QueryParamBindingInput[], quotedPlaceholders?: boolean, resultBudgetOverride?: QueryEditorResultBudgetOptions) => Promise<QueryResultLike>;
     executionConnectionParams: string | undefined;
     executionSchemaName?: string;
     finishQueryEditorSqlClock: (result: { durationMs?: unknown; } | null | undefined, startedAt: number) => number;
