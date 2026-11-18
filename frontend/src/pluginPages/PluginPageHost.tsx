@@ -10,7 +10,12 @@ import { usePluginPageTarget } from './usePluginPageTarget';
  * Workbench content for one declared plugin page. It never throws into the tab shell: a
  * stopped, removed or redeclared plugin renders the unavailable state instead of a blank tab.
  */
-export function PluginPageHost({ pluginID, pageID, launch }: { pluginID: string; pageID: string; launch?: unknown }) {
+export function PluginPageHost({ pluginID, pageID, launch, autoHeight = false }: {
+  pluginID: string;
+  pageID: string;
+  launch?: unknown;
+  autoHeight?: boolean;
+}) {
   const { t } = useI18n();
   const target = usePluginPageTarget(pluginID, pageID);
   if (target.loading) {
@@ -35,6 +40,8 @@ export function PluginPageHost({ pluginID, pageID, launch }: { pluginID: string;
       title={page.title}
       source={page.html.source}
       launch={launch}
+      autoHeight={autoHeight}
+      permissions={target.status.manifest.permissions}
     />;
   }
   return <DeclarativePluginPage

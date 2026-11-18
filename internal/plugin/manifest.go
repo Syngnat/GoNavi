@@ -182,6 +182,9 @@ func validateManifestLegacy(m Manifest) error {
 	if err := validateSidebar(m, permissions, publicCommands); err != nil {
 		return err
 	}
+	if err := validateSettingsSections(m, permissions); err != nil {
+		return err
+	}
 	if m.Window != nil {
 		// A window runs package HTML/JS in a native WebView with the window bridge; like a
 		// custom HTML page it needs the explicit sandboxed-HTML permission.

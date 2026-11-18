@@ -23,9 +23,10 @@ import (
 )
 
 type KingbaseDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
+	conn               *sql.DB
+	pingTimeout        time.Duration
+	forwarder          *ssh.LocalForwarder // Store SSH tunnel forwarder
+	metadataQueryState *pgMetadataQueryState
 }
 
 type kingbaseSessionExecer struct {
@@ -157,6 +158,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			_ = k.Close()
 		}
 	}()
+	k.metadataQueryState = &pgMetadataQueryState{}
 
 	runConfig := config
 
@@ -198,6 +200,8 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for sslIndex, sslConfig := range attempts {
 		sslLabel := "SSL"
 		if sslIndex > 0 {
@@ -210,6 +214,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			dsn := k.getDSN(attempt)
 			db, err := openKingbaseDB("kingbase", dsn)
 			if err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
 			}
@@ -219,6 +224,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			if err := k.Ping(); err != nil {
 				_ = db.Close()
 				k.conn = nil
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 验证失败: %v", sslLabel, dbName, err))
 				continue
 			}
@@ -230,6 +236,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			}
 
 			if err := k.ensureSearchPath(attempt, dsn, kingbaseConfigHasExplicitSearchPath(attempt)); err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
 				if k.conn != nil {
 					_ = k.conn.Close()
@@ -241,7 +248,7 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 			return nil
 		}
 	}
-	return kingbaseConnectFailureError(failures, usingMaintenanceFallback)
+	return kingbaseConnectFailureError(failures, usingMaintenanceFallback, lastErr)
 }
 
 func (k *KingbaseDB) ensureSearchPath(config connection.ConnectionConfig, baseDSN string, hasExplicitSearchPath bool) error {
@@ -317,6 +324,7 @@ func (k *KingbaseDB) getSearchPathStr() (string, error) {
 }
 
 func (k *KingbaseDB) Close() error {
+	k.metadataQueryState = nil
 	// Close SSH forwarder first if exists
 	if k.forwarder != nil {
 		if err := k.forwarder.Release(); err != nil {
@@ -537,7 +545,7 @@ func (k *KingbaseDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := k.Query(buildPGLikeIndexesMetadataQuery(schema, table))
+	data, err := queryPGLikeIndexesMetadata(k, k.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}

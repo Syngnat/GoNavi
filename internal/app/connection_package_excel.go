@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 	"github.com/xuri/excelize/v2"
 
 	"GoNavi-Wails/internal/connection"

@@ -464,7 +464,9 @@ describe('DataSyncWorkbenchShell', () => {
     ).toBe(true);
   });
 
-  it('saves a draft as ready immediately after its production approval', async () => {
+  it('saves a draft as ready after the production approval countdown', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
     const task = buildTask();
     const baseGateway = createStaticDataSyncWorkbenchGateway({
       tasks: [task],
@@ -481,8 +483,8 @@ describe('DataSyncWorkbenchShell', () => {
       beginApproval: vi.fn(async () => ({
         taskId: task.id,
         definitionHash: 'production-definition',
-        notBefore: '2020-01-01T00:00:00.000Z',
-        expiresAt: '2030-01-01T00:00:00.000Z',
+        notBefore: new Date(Date.now() + 10_000).toISOString(),
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
       })),
       approveTask: vi.fn(async () => ({
         definitionHash: 'production-definition',
@@ -522,11 +524,11 @@ describe('DataSyncWorkbenchShell', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    expect(
+      renderer.root.findAllByType('button').map((button) => button.children.join('')),
+    ).toContain('Wait 10 seconds');
     await act(async () => {
-      renderer.root
-        .findAllByType('button')
-        .find((button) => button.children.includes('Confirm production write and grant token'))!
-        .props.onClick();
+      await vi.advanceTimersByTimeAsync(10_000);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();

@@ -563,21 +563,19 @@ describe('store appearance persistence', () => {
     expect(reloaded.useStore.getState().queryOptions.showSqlExecutionLog).toBe(false);
   });
 
-  it('persists zero as the unlimited SQL query row limit', async () => {
-    const { useStore } = await importStore();
-
-    useStore.getState().setQueryOptions({ maxRows: 0 });
-    expect(useStore.getState().queryOptions.maxRows).toBe(0);
-
-    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.state.queryOptions.maxRows).toBe(0);
+  it('drops the legacy maxRows key when loading persisted settings', async () => {
+    // 「最大返回行数」已从工具栏移除，行数不再由应用限制。旧版本存下来的
+    // maxRows 不能让 sanitizer 报错或把它带进新状态。
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: { queryOptions: { maxRows: 2000, wordWrap: true } },
+      version: 0,
+    }));
 
     vi.resetModules();
     const reloaded = await importStore();
-    expect(reloaded.useStore.getState().queryOptions.maxRows).toBe(0);
-
-    reloaded.useStore.getState().setQueryOptions({ maxRows: -1 });
-    expect(reloaded.useStore.getState().queryOptions.maxRows).toBe(5000);
+    const options = reloaded.useStore.getState().queryOptions;
+    expect(options).not.toHaveProperty('maxRows');
+    expect(options.wordWrap).toBe(true);
   });
 
   it('persists the table overview view mode across store reloads', async () => {

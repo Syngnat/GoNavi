@@ -6,6 +6,9 @@ import { showPluginPageNotification } from './pageNotify';
 import { createPageToken } from './pageToken';
 import { usePageBridge } from './usePageBridge';
 import { useStore } from '../store';
+import {
+  APPEARANCE_MAX_ARGUMENT_BYTES, APPEARANCE_WRITE_PERMISSION, createAppearanceResolver,
+} from '../pluginSettings/appearanceBridge';
 import { pluginHostPreferences, type PluginHostPreferences } from './hostPreferences';
 import { useHostThemePalette } from './useHostThemePalette';
 
@@ -17,16 +20,23 @@ export function HTMLPluginPage({
   title,
   source,
   launch,
+  autoHeight = false,
+  permissions = [],
 }: {
   pluginID: string;
   pageID: string;
   title: string;
   source: string;
   launch?: unknown;
+  /** Embedded surfaces let the page report its own height; tabs keep filling the view. */
+  autoHeight?: boolean;
+  /** Manifest permissions gate the host-window appearance capabilities. */
+  permissions?: string[];
 }) {
   const { t, language } = useI18n();
   const theme = useStore(state => state.theme);
   const [blocked, setBlocked] = useState(false);
+  const [frameHeight, setFrameHeight] = useState(0);
   const { palette, appearance, ready } = useHostThemePalette(!blocked);
   const preferences = pluginHostPreferences(language, theme, palette, appearance);
   const initialPreferences = useRef<PluginHostPreferences>();
@@ -43,6 +53,11 @@ export function HTMLPluginPage({
     enabled: !blocked,
     preferences,
     onNotify: showPluginPageNotification,
+    onResize: autoHeight ? setFrameHeight : undefined,
+    resolveLocalCall: createAppearanceResolver(permissions),
+    maxArgumentBytes: permissions.includes(APPEARANCE_WRITE_PERMISSION)
+      ? APPEARANCE_MAX_ARGUMENT_BYTES
+      : undefined,
   });
   // The bridge now starts over a per-document MessagePort, so a second load can only mean
   // the page navigated itself away; tear the frame down instead of trusting the new document.
@@ -67,6 +82,9 @@ export function HTMLPluginPage({
       allow={FRAME_ALLOW}
       srcDoc={document}
       onLoad={handleLoad}
+      style={autoHeight
+        ? { height: frameHeight || 240, minHeight: 0, flex: '0 0 auto' }
+        : undefined}
     />
   );
 }

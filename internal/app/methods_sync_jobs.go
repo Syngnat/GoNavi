@@ -54,15 +54,19 @@ func (a *App) DataSyncJobPreflight(definition syncjob.JobDefinition) connection.
 // DataSyncJobApprovalBegin creates a server-held countdown challenge after a
 // successful preflight. The challenge contains no approval evidence.
 func (a *App) DataSyncJobApprovalBegin(definition syncjob.JobDefinition) connection.QueryResult {
-	now := time.Now()
-	preflight := a.preflightDataSyncJob(definition, now)
+	preflightAt := time.Now()
+	preflight := a.preflightDataSyncJob(definition, preflightAt)
 	if !preflight.Success {
 		return connection.QueryResult{Success: false, Message: "data sync job preflight is blocked", Data: publicDataSyncJobPreflight(preflight)}
 	}
 	if !preflight.ApprovalRequired {
 		return connection.QueryResult{Success: true, Message: "production approval is not required", Data: DataSyncJobApprovalChallengeResult{}}
 	}
-	challenge, notBefore, expiresAt, err := a.beginDataSyncJobApproval(preflight.Definition, preflight.TargetFingerprint, now)
+	// A slow metadata preflight may consume several minutes. The confirmation
+	// window must start after the preflight returns, otherwise the challenge
+	// can be born expired or already past its countdown.
+	approvalAt := time.Now()
+	challenge, notBefore, expiresAt, err := a.beginDataSyncJobApproval(preflight.Definition, preflight.TargetFingerprint, approvalAt)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -76,15 +80,16 @@ func (a *App) DataSyncJobApprovalBegin(definition syncjob.JobDefinition) connect
 // DataSyncJobApprove consumes a completed backend countdown challenge and
 // issues a short-lived one-time token bound to the exact approval scope.
 func (a *App) DataSyncJobApprove(definition syncjob.JobDefinition, challenge string) connection.QueryResult {
-	now := time.Now()
-	preflight := a.preflightDataSyncJob(definition, now)
+	preflightAt := time.Now()
+	preflight := a.preflightDataSyncJob(definition, preflightAt)
 	if !preflight.Success {
 		return connection.QueryResult{Success: false, Message: "data sync job preflight is blocked", Data: publicDataSyncJobPreflight(preflight)}
 	}
 	if !preflight.ApprovalRequired {
 		return connection.QueryResult{Success: true, Message: "production approval is not required", Data: DataSyncJobApprovalResult{}}
 	}
-	token, _, err := a.confirmDataSyncJobApproval(challenge, preflight.Definition, preflight.TargetFingerprint, now)
+	approvalAt := time.Now()
+	token, approval, err := a.confirmDataSyncJobApproval(challenge, preflight.Definition, preflight.TargetFingerprint, approvalAt)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -92,12 +97,13 @@ func (a *App) DataSyncJobApprove(definition syncjob.JobDefinition, challenge str
 	if ttl <= 0 {
 		ttl = defaultDataSyncJobApprovalTokenTTL
 	}
+	expiresAt := time.UnixMilli(approval.ApprovedAt).Add(ttl)
 	return connection.QueryResult{
 		Success: true,
 		Message: "production approval token issued",
 		Data: DataSyncJobApprovalResult{
 			Token:     token,
-			ExpiresAt: now.Add(ttl).UnixMilli(),
+			ExpiresAt: expiresAt.UnixMilli(),
 		},
 	}
 }

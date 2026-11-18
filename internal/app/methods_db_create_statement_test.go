@@ -475,6 +475,37 @@ func TestResolveCreateStatementWithFallback_KingbaseIncludesSecondaryIndexes(t *
 	}
 }
 
+func TestResolveCreateStatementWithFallbackWarnsWhenIndexesUnavailable(t *testing.T) {
+	t.Parallel()
+
+	dbInst := &fakeCreateStatementDB{
+		createSQL: "SHOW CREATE TABLE not directly supported in PostgreSQL via SQL",
+		columns: []connection.ColumnDefinition{
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "email", Type: "text", Nullable: "YES"},
+		},
+		indexesErr: errors.New("permission denied\nfrom catalog query"),
+	}
+
+	ddl, err := resolveCreateStatementWithFallback(dbInst, connection.ConnectionConfig{
+		Type: "postgres",
+	}, "app", "public.users")
+	if err != nil {
+		t.Fatalf("resolveCreateStatementWithFallback() unexpected error: %v", err)
+	}
+	if dbInst.indexCalls != 1 {
+		t.Fatalf("expected one GetIndexes call, got %d", dbInst.indexCalls)
+	}
+	for _, want := range []string{
+		"-- WARNING: index metadata unavailable, indexes were not exported:",
+		"permission denied from catalog query",
+	} {
+		if !strings.Contains(ddl, want) {
+			t.Fatalf("expected fallback DDL warning %q, got: %s", want, ddl)
+		}
+	}
+}
+
 func TestResolveCreateStatementWithFallback_KeepQualifiedSchema(t *testing.T) {
 	t.Parallel()
 

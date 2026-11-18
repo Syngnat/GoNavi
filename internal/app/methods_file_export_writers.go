@@ -193,6 +193,11 @@ func newJSONExportFileWriter(f io.Writer) (*jsonExportFileWriter, error) {
 	}
 	encoder := json.NewEncoder(f)
 	encoder.SetIndent("  ", "  ")
+	// encoding/json 默认把 < > & 转成 < > &（为防把 JSON 直接嵌进
+	// HTML 时的 XSS）。导出的是数据文件而不是网页片段，这种转义只会让用户在
+	// 字符串里看到一堆 \u00xx，和数据库里的值对不上。关闭后仍会正确转义
+	// 引号、反斜杠与控制字符，JSON 依然合法。
+	encoder.SetEscapeHTML(false)
 	return &jsonExportFileWriter{file: f, encoder: encoder, first: true}, nil
 }
 

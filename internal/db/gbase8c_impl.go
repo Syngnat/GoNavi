@@ -97,6 +97,8 @@ func (g *GBase8cDB) openPool(config connection.ConnectionConfig) (string, error)
 		attempts = append(attempts, withSSLDisabled(config))
 	}
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for _, attempt := range attempts {
 		for _, database := range resolvePostgresConnectDatabases(attempt) {
 			candidate := attempt
@@ -104,12 +106,14 @@ func (g *GBase8cDB) openPool(config connection.ConnectionConfig) (string, error)
 			dsn := gbase8cDSN(candidate)
 			pool, err := openGBase8cPool("gaussdb", dsn)
 			if err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s: %v", database, err))
 				continue
 			}
 			configureSQLConnectionPool(pool, "gbase8c", candidate)
 			g.conn = pool
 			if err := g.Ping(); err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s [sslmode=%s]: %v", database, resolvePostgresSSLMode(candidate), err))
 				_ = pool.Close()
 				g.conn = nil
@@ -118,7 +122,7 @@ func (g *GBase8cDB) openPool(config connection.ConnectionConfig) (string, error)
 			return dsn, nil
 		}
 	}
-	return "", localizedDatabaseRuntimeError("db.backend.error.gbase8c_connect_failed", map[string]any{"detail": strings.Join(failures, "; ")})
+	return "", wrapDatabaseConnectCause(localizedDatabaseRuntimeError("db.backend.error.gbase8c_connect_failed", map[string]any{"detail": strings.Join(failures, "; ")}), lastErr)
 }
 
 // gbase8cDSN 生成 gaussdb-go 的连接串；连接参数沿用 PostgreSQL 的白名单（search_path、application_name 等）。

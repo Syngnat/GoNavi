@@ -102,6 +102,9 @@ export const createQueryEditorAiInlineGhostState = ({
             )) || ''),
             currentLineBeforeCursor: lineContent.slice(0, lineColumnIndex),
             currentLineAfterCursor: lineContent.slice(lineColumnIndex),
+            modelId: String(model?.id ?? model?.uri?.toString?.() ?? '') || undefined,
+            versionId: Number.isFinite(Number(model?.getVersionId?.())) ? Number(model.getVersionId()) : undefined,
+            snapshotPosition: { lineNumber: position.lineNumber, column: position.column },
         };
     };
 
@@ -185,6 +188,23 @@ export const createQueryEditorAiInlineGhostState = ({
         position: { lineNumber: number; column: number },
         snapshot: QueryEditorAiEditorSnapshot,
     ): boolean => {
+        // 快速路径：model 未换、版本号未变、光标未动 —— 文档与快照必然一致，
+        // 无需再整篇重读比对（10MB 文档下一次 Alt+\ 原本要复制两遍全文）。
+        const currentModelId = String(model?.id ?? model?.uri?.toString?.() ?? '') || undefined;
+        const currentVersionId = Number(model?.getVersionId?.());
+        const stampedPosition = snapshot.snapshotPosition;
+        if (
+            snapshot.modelId !== undefined
+            && snapshot.versionId !== undefined
+            && Number.isFinite(currentVersionId)
+            && snapshot.modelId === currentModelId
+            && snapshot.versionId === currentVersionId
+            && stampedPosition
+            && stampedPosition.lineNumber === position.lineNumber
+            && stampedPosition.column === position.column
+        ) {
+            return true;
+        }
         const currentSnapshot = buildInlineGhostEditorSnapshot(model, position);
         return currentSnapshot.prefix === snapshot.prefix
             && currentSnapshot.suffix === snapshot.suffix

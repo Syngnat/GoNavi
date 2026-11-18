@@ -10,9 +10,10 @@ import {
 } from './sidebarHelpers';
 import { resolveCopyObjectNameLabel } from './sidebarCopyObjectName';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
-import { confirmCopyTable } from '../tableCopyAction';
+import { confirmCopyTables } from '../tableCopyAction';
 import { confirmCopyDatabase } from '../databaseCopyAction';
 import { resolveSidebarNodeConnectionId } from '../sidebarV2Utils';
+import { dispatchSidebarTableCreated } from '../../utils/sidebarDatabaseRefresh';
 import { buildBatchTableExportWorkbenchTab, buildTableExportTab } from '../../utils/tableExportTab';
 import { useStore } from '../../store';
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
@@ -77,30 +78,52 @@ export const useSidebarCopyExportActions = ({
     }
   };
 
-  const handleCopyTable = async (node: any) => {
-    const conn = node?.dataRef;
-    const tableName = String(conn?.tableName || node?.title || '').trim();
-    if (!conn || !tableName) return;
+  const handleCopyTables = async (nodes: any[]) => {
+    const tableNodes = (Array.isArray(nodes) ? nodes : []).filter((node) => {
+      const tableName = String(node?.dataRef?.tableName || node?.title || '').trim();
+      return Boolean(node?.dataRef && tableName);
+    });
+    if (tableNodes.length === 0) return;
+    const conn = tableNodes[0]?.dataRef;
+    const tableNames = tableNodes
+      .map((node) => String(node?.dataRef?.tableName || node?.title || '').trim())
+      .filter(Boolean);
+    if (!conn || tableNames.length === 0) return;
+    if (!tableNodes.every((node) => (
+      String(node?.dataRef?.id || '') === String(conn?.id || '')
+      && String(node?.dataRef?.dbName || '') === String(conn?.dbName || '')
+      && String(node?.dataRef?.schemaName || '') === String(conn?.schemaName || '')
+    ))) {
+      message.warning(t('table_copy.message.mixed_sources'));
+      return;
+    }
     if (!getDataSourceCapabilities(conn.config).supportsCopyTable) {
       message.warning(t('table_copy.message.unsupported'));
       return;
     }
 
-    if (!await confirmSidebarMutation(
-      conn,
-      [conn.dbName, tableName].filter(Boolean).join(' / '),
-    )) return;
+    const targetLabel = tableNames.length === 1
+      ? tableNames[0]
+      : t('table_copy.message.selection_count', { count: tableNames.length });
+    if (!await confirmSidebarMutation(conn, [conn.dbName, targetLabel].filter(Boolean).join(' / '))) return;
     const config = buildRuntimeConfig(conn, conn.dbName);
-    confirmCopyTable({
+    confirmCopyTables({
       config: buildRpcConnectionConfig(config) as any,
       dbName: String(conn.dbName || ''),
       sourceSchemaName: String(conn.schemaName || ''),
-      sourceTableName: tableName,
-      onSuccess: async () => {
-        await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
+      sourceTableNames: tableNames,
+      onSuccess: async (targetTableNames) => {
+        dispatchSidebarTableCreated({
+          connectionId: String(conn.id || ''),
+          dbName: String(conn.dbName || ''),
+          schemaName: String(conn.schemaName || ''),
+          tableName: String(targetTableNames[0] || ''),
+        });
       },
     });
   };
+
+  const handleCopyTable = async (node: any) => handleCopyTables([node]);
 
   // 整库复制：与复制表同一套交互（确认 → 执行 → 刷新树）。
   const handleCopyDatabase = async (node: any) => {
@@ -267,7 +290,7 @@ export const useSidebarCopyExportActions = ({
     }, wasClosed ? 350 : 0);
   };
   return {
-    confirmSidebarMutation, handleCopyStructure, handleCopyTableName, handleCopyTable,
+    confirmSidebarMutation, handleCopyStructure, handleCopyTableName, handleCopyTable, handleCopyTables,
     handleCopyDatabase, handleCopyDatabaseName, handleExport, openExportDialog, handleCopyTableAsInsert,
     openTableDdlInDesigner, openTableInERView, injectTablePromptToAI,
   };

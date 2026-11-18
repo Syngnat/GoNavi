@@ -23,7 +23,7 @@
 
 <p align="center">
   <a href="https://go.dev"><img src="https://img.shields.io/github/go-mod/go-version/Syngnat/GoNavi?style=flat-square&logo=go&logoColor=white&label=Go" alt="Go" /></a>
-  <a href="https://wails.io"><img src="https://img.shields.io/badge/Wails-v2-red?style=flat-square" alt="Wails" /></a>
+  <a href="https://wails.io"><img src="https://img.shields.io/badge/Wails-v3-blue?style=flat-square" alt="Wails" /></a>
   <a href="https://reactjs.org"><img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React" /></a>
   <a href="https://github.com/Syngnat/GoNavi/actions"><img src="https://img.shields.io/github/actions/workflow/status/Syngnat/GoNavi/release.yml?style=flat-square&label=Build" alt="Build" /></a>
 </p>
@@ -240,7 +240,7 @@ To connect a custom OpenAI-compatible model service, add a provider in GoNavi's 
 
 ### 🧩 Stack
 
-`Go 1.24` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Ant Design 5` · `Zustand` · `Monaco`
+`Go 1.26` · `Wails v3` · `React 18` · `TypeScript` · `Vite` · `Ant Design 5` · `Zustand` · `Monaco`
 
 ---
 
@@ -335,13 +335,14 @@ Elasticsearch connections reuse the query workspace as a version-aware REST cons
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.25+
+- [Go](https://go.dev/dl/) 1.26.10+
 - [Node.js](https://nodejs.org/) 18+
-- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- Wails v2 CLI (fallback / packaging) and Wails v3 CLI
 - Linux only: a C compiler, pkg-config, and the GTK3 / WebKitGTK development packages
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 ```
 
 ### Develop
@@ -354,6 +355,24 @@ wails dev                          # full hot reload
 node tools/wails-fast-dev.mjs      # faster when Go exports unchanged
 node tools/wails-fast-dev.mjs --refresh-bindings  # after Go export signature changes
 ```
+
+### Develop (Wails v3)
+
+The v3 desktop entry point lives in `cmd/wails3app` and runs through the native
+Wails v3 CLI. `wails3 dev` starts Vite and restarts Go on changes; the asset
+handler proxies the Vite server, so HMR works for the main window and detached
+windows.
+
+```bash
+wails3 task dev                 # Vite (port 9245) + Go hot restart
+wails3 task build DEV=true      # fast development build into bin/
+wails3 task build               # platform artifact in build/bin (release layout)
+wails3 task package             # the same artifact the release workflow packages
+node scripts/build-wails3.mjs   # frontend build + platform artifact
+```
+
+The v2 commands below remain available as the fallback path
+(`GONAVI_WAILS3=0` in CI); see `WAILS3_MIGRATION.md` for the migration status.
 
 ### Build
 

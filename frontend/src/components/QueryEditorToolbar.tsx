@@ -1,5 +1,7 @@
 import React from "react";
-import { Button, Dropdown, Select, Tooltip, type MenuProps } from "antd";
+import { Select, Tooltip, type MenuProps } from "antd";
+import { V2Dropdown } from "./common/V2Dropdown";
+import { QueryToolbarButton } from "./queryEditor/QueryToolbarButton";
 import {
   BulbOutlined,
   CheckOutlined,
@@ -36,7 +38,6 @@ import QueryEditorTransactionSettings, {
 } from "./QueryEditorTransactionSettings";
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorToolbarRunAction } from './queryEditor/QueryEditorToolbarRunAction';
-import QueryEditorToolbarMaxRowsSelect from './queryEditor/QueryEditorToolbarMaxRowsSelect';
 import { QueryEditorToolbarAnalysisAction } from './queryEditor/QueryEditorToolbarAnalysisAction';
 import { QueryEditorToolbarLogAction } from './queryEditor/QueryEditorToolbarLogAction';
 
@@ -61,7 +62,6 @@ export type QueryEditorToolbarProps = {
   rootConnectionSortMode?: ConnectionDisplaySortMode;
   dbList: string[];
   schemaSelect?: QueryEditorSchemaSelectProps;
-  maxRows: number;
   sqlEditorCommitMode: SqlEditorCommitMode;
   sqlEditorAutoCommitDelayMs: number;
   pendingTransactionToolbar: React.ReactNode;
@@ -85,7 +85,6 @@ export type QueryEditorToolbarProps = {
   templateMenuItems?: MenuProps["items"];
   onConnectionChange: (connectionId: string) => void;
   onDatabaseChange: (dbName: string) => void;
-  onMaxRowsChange: (maxRows: number) => void;
   onCommitModeChange: (mode: SqlEditorCommitMode) => void;
   onAutoCommitDelayMsChange: (delayMs: number) => void;
   onCaptureEditorCursorPosition: () => void;
@@ -184,7 +183,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   rootConnectionSortMode = 'createdAt',
   dbList,
   schemaSelect,
-  maxRows,
   sqlEditorCommitMode,
   sqlEditorAutoCommitDelayMs,
   pendingTransactionToolbar,
@@ -207,7 +205,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   templateMenuItems,
   onConnectionChange,
   onDatabaseChange,
-  onMaxRowsChange,
   onCommitModeChange,
   onAutoCommitDelayMsChange,
   onCaptureEditorCursorPosition,
@@ -317,7 +314,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   const aiMoreTitle = isElasticsearchMode
     ? t("query_editor.elasticsearch.action.ai")
     : `AI · ${t("query_editor.action.more")}`;
-  const formatSettingsTitle = `${t("query_editor.action.format_sql")} · ${t("settings.title")}`;
+  const formatSettingsTitle = t("settings.title");
   const aiMenuItems: MenuProps["items"] = isElasticsearchMode
     ? [
         {
@@ -456,7 +453,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           open={openToolbarMenu === "templates" ? false : undefined}
         >
           <span className="gn-v2-query-toolbar-menu-trigger">
-            <Dropdown
+            <V2Dropdown
                 menu={{ items: templateActionMenuItems }}
                 placement="bottomLeft"
                 trigger={["click"]}
@@ -468,23 +465,19 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "templates"}
               onOpenChange={(open) => updateToolbarMenuOpen("templates", open)}
             >
-              <Button
+              <QueryToolbarButton
                 aria-label={t("query_editor.elasticsearch.action.templates")}
                 className="gn-v2-query-toolbar-icon-action"
                 icon={<GnChevronDownIcon />}
                 aria-haspopup="menu"
                 aria-expanded={openToolbarMenu === "templates"}
               />
-            </Dropdown>
+            </V2Dropdown>
           </span>
         </Tooltip>
       )}
       {!isElasticsearchMode && (
         <>
-          <QueryEditorToolbarMaxRowsSelect
-            maxRows={maxRows}
-            onMaxRowsChange={onMaxRowsChange}
-          />
           <QueryEditorTransactionSettings
             commitMode={sqlEditorCommitMode}
             autoCommitDelayMs={sqlEditorAutoCommitDelayMs}
@@ -536,7 +529,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         <QueryEditorToolbarLogAction enabled={showSqlExecutionLog} onToggle={onToggleSqlExecutionLog} />
         {isElasticsearchMode && onRunAll && (
           <Tooltip title={t("query_editor.elasticsearch.action.run_all")}>
-            <Button
+            <QueryToolbarButton
               aria-label={t("query_editor.elasticsearch.action.run_all")}
               className="gn-v2-query-toolbar-icon-action"
               icon={<PlayCircleOutlined />}
@@ -548,7 +541,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         )}
         {!isElasticsearchMode && showViewDataVerify && onViewDataVerify && (
           <Tooltip title={t("result_diff.view_verify.toolbar.tooltip")}>
-            <Button
+            <QueryToolbarButton
               aria-label={t("result_diff.view_verify.toolbar")}
               className="gn-v2-query-toolbar-icon-action"
               icon={<DiffOutlined />}
@@ -577,7 +570,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               : t("query_editor.action.save")
           }
         >
-          <Button
+          <QueryToolbarButton
             aria-label={t("query_editor.action.save")}
             className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-save-action"
             type="default"
@@ -591,7 +584,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             open={openToolbarMenu === "ai" ? false : undefined}
           >
             <span className="gn-v2-query-toolbar-menu-trigger">
-              <Dropdown
+              <V2Dropdown
                 menu={{ items: aiActionMenuItems }}
                 placement="bottomRight"
                 trigger={["click"]}
@@ -603,7 +596,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "ai"}
                 onOpenChange={(open) => updateToolbarMenuOpen("ai", open)}
               >
-                <Button
+                <QueryToolbarButton
                   className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action"
                   icon={<AiSparkOutlined />}
                   aria-label={aiMoreTitle}
@@ -611,14 +604,14 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   aria-expanded={openToolbarMenu === "ai"}
                   onMouseDown={onCaptureEditorCursorPosition}
                 />
-              </Dropdown>
+              </V2Dropdown>
             </span>
           </Tooltip>
         ) : (
           <>
             <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
               <Tooltip title={triggerSqlAiCompletionLabel}>
-                <Button
+                <QueryToolbarButton
                   aria-label={triggerSqlAiCompletionLabel}
                   className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action"
                   icon={<AiSparkOutlined />}
@@ -631,7 +624,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "ai" ? false : undefined}
               >
                 <span className="gn-v2-query-toolbar-menu-trigger">
-                  <Dropdown
+                  <V2Dropdown
                     menu={{ items: aiActionMenuItems }}
                     placement="bottomRight"
                     trigger={["click"]}
@@ -643,7 +636,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                     open={openToolbarMenu === "ai"}
                     onOpenChange={(open) => updateToolbarMenuOpen("ai", open)}
                   >
-                    <Button
+                    <QueryToolbarButton
                       className="gn-v2-query-toolbar-icon-action"
                       icon={<GnChevronDownIcon />}
                       aria-label={aiMoreTitle}
@@ -651,7 +644,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                       aria-expanded={openToolbarMenu === "ai"}
                       onMouseDown={onCaptureEditorCursorPosition}
                     />
-                  </Dropdown>
+                  </V2Dropdown>
                 </span>
               </Tooltip>
             </div>
@@ -669,7 +662,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               open={openToolbarMenu === "more" ? false : undefined}
             >
               <span className="gn-v2-query-toolbar-menu-trigger">
-                <Dropdown
+                <V2Dropdown
                   menu={{ items: moreActionMenuItems }}
                   placement="bottomRight"
                   trigger={["click"]}
@@ -681,14 +674,14 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   open={openToolbarMenu === "more"}
                   onOpenChange={(open) => updateToolbarMenuOpen("more", open)}
                 >
-                  <Button
+                  <QueryToolbarButton
                     aria-label={t("query_editor.action.more")}
                     className="gn-v2-query-toolbar-icon-action"
                     icon={<GnMoreIcon />}
                     aria-haspopup="menu"
                     aria-expanded={openToolbarMenu === "more"}
                   />
-                </Dropdown>
+                </V2Dropdown>
               </span>
             </Tooltip>
           </>
@@ -702,7 +695,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         {!isElasticsearchMode && (
           <>
             <Tooltip title={findInEditorTitle}>
-              <Button
+              <QueryToolbarButton
                 aria-label={t("query_editor.action.find_in_editor")}
                 className="gn-v2-query-toolbar-icon-action"
                 icon={<SearchOutlined />}
@@ -716,7 +709,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   : "query_editor.action.enable_word_wrap",
               )}
             >
-              <Button
+              <QueryToolbarButton
                 className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-word-wrap-action"
                 type={wordWrapEnabled ? "primary" : "default"}
                 icon={<GnWrapIcon />}
@@ -732,7 +725,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           </>
         )}
         <Tooltip title={formatSqlTitle}>
-          <Button
+          <QueryToolbarButton
             aria-label={t(isElasticsearchMode
               ? "query_editor.elasticsearch.action.format"
               : "query_editor.action.format_sql")}
@@ -747,7 +740,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             open={openToolbarMenu === "format" ? false : undefined}
           >
             <span className="gn-v2-query-toolbar-menu-trigger">
-            <Dropdown
+            <V2Dropdown
                 menu={{
                   items: formatActionMenuItems,
                   selectable: true,
@@ -763,14 +756,14 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 open={openToolbarMenu === "format"}
                 onOpenChange={(open) => updateToolbarMenuOpen("format", open)}
               >
-                <Button
+                <QueryToolbarButton
                   aria-label={formatSettingsTitle}
                   className="gn-v2-query-toolbar-icon-action"
                   icon={<GnSettingsIcon />}
                   aria-haspopup="menu"
                   aria-expanded={openToolbarMenu === "format"}
                 />
-              </Dropdown>
+              </V2Dropdown>
             </span>
           </Tooltip>
         )}
@@ -779,8 +772,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
 
     </div>
   );
-
-
 
   return (
     <div

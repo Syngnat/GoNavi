@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { prepareBackgroundImage } from './utils/backgroundImage';
+import { BackgroundImageError, isBackgroundImageDataUrl, prepareBackgroundImage } from './utils/backgroundImage';
 import { normalizeBackgroundPosition, type BackgroundImagePosition } from './utils/backgroundImagePosition';
 import type { GalleryInstalled, GalleryProgress } from './backgroundGallery/types';
 import { createGallerySelectionActions, createSelectionGate } from './backgroundImageStoreGallery';
@@ -15,6 +15,8 @@ export interface BackgroundImageState extends BackgroundImageSnapshot {
   cancelPositionPreview: () => void;
   setPosition: (x: number, y: number) => void;
   importImage: (file: File) => Promise<void>;
+  /** Applies an already-prepared image (plugin capability path, JPEG data URL). */
+  setImage: (image: { dataUrl: string; name: string }) => void;
   selectBuiltin: (id: string, version?: string, onProgress?: (progress: GalleryProgress) => void) => Promise<void>;
   resolveSelected: () => Promise<void>;
   cancelGallerySelection: () => void;
@@ -50,6 +52,23 @@ export const useBackgroundImageStore = create<BackgroundImageState>((set, get) =
       const image = await prepareBackgroundImage(file);
       if (revision !== gate.current()) return;
       const next = { image, opacity: get().opacity, positionX: 0, positionY: 0, enabled: true, builtinId: null, builtinVersion: '' };
+      persistSnapshot(next);
+      set({ ...next, resolvedGallery: null, galleryError: null, previewPosition: null });
+    },
+    setImage: (image) => {
+      if (!isBackgroundImageDataUrl(image.dataUrl) || typeof image.name !== 'string' || !image.name.trim()) {
+        throw new BackgroundImageError('invalid-image');
+      }
+      gate.invalidate();
+      const next = {
+        image: { dataUrl: image.dataUrl, name: image.name.trim().slice(0, 256) },
+        opacity: get().opacity,
+        positionX: 0,
+        positionY: 0,
+        enabled: true,
+        builtinId: null,
+        builtinVersion: '',
+      };
       persistSnapshot(next);
       set({ ...next, resolvedGallery: null, galleryError: null, previewPosition: null });
     },

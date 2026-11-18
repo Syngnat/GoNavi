@@ -1,3 +1,5 @@
+//go:build !wails3
+
 package nativewindow
 
 import (
@@ -25,17 +27,6 @@ func (m *Manager) processSpecLocked(request OpenRequest) processSpec {
 		env = setEnvironmentValue(env, name, value)
 	}
 	return processSpec{Executable: m.executable, Env: env}
-}
-
-func setEnvironmentValue(environment []string, name string, value string) []string {
-	prefix := name + "="
-	filtered := environment[:0]
-	for _, item := range environment {
-		if !strings.HasPrefix(item, prefix) {
-			filtered = append(filtered, item)
-		}
-	}
-	return append(filtered, prefix+value)
 }
 
 func (m *Manager) watchProcess(id string, process childProcess) {

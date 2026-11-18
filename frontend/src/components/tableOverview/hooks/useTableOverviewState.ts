@@ -13,6 +13,9 @@ import {
   isSchemaScopedTableOverviewDialect,
   parseTableStats,
   buildTableStatusSQL,
+  buildMySQLTableUpdateTimesSQL,
+  mergeMySQLTableUpdateTimes,
+  parseMySQLTableUpdateTimes,
   usesTableListOverview,
   getTableOverviewDisplayName,
   isOverviewTablePinned,
@@ -46,6 +49,11 @@ import { resolveTableSelectQuery } from '../../../utils/objectQueryTemplates';
 import { confirmProductionMutation } from '../../../utils/productionRiskConfirm';
 import { confirmCopyTable } from '../../tableCopyAction';
 import type { TableOverviewProps } from '../../TableOverview';
+import {
+  sanitizeTableOverviewCompactColumns,
+  type TableOverviewCompactColumn,
+} from '../../../utils/tableOverviewCompactColumns';
+import { resolveConnectionHostSummary } from '../../../utils/tabDisplay';
 
 export interface UseTableOverviewStateInput {
   tab: TableOverviewProps['tab'];
@@ -78,6 +86,15 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
       setQueryOptions({ tableOverviewViewMode: nextViewMode });
   }, [setQueryOptions]);
   const [v2ContextMenu, setV2ContextMenu] = useState<OverviewContextMenuState | null>(null);
+  const compactColumns = useMemo(
+      () => sanitizeTableOverviewCompactColumns(queryOptions.tableOverviewCompactColumns),
+      [queryOptions.tableOverviewCompactColumns],
+  );
+  const setCompactColumns = useCallback((columns: TableOverviewCompactColumn[]) => {
+      setQueryOptions({
+          tableOverviewCompactColumns: sanitizeTableOverviewCompactColumns(columns),
+      });
+  }, [setQueryOptions]);
   const v2ContextMenuPortalRef = useRef<HTMLDivElement | null>(null);
   const [visibleTableLimit, setVisibleTableLimit] = useState(TABLE_OVERVIEW_RENDER_BATCH_SIZE);
   const deferredSearchText = useDeferredValue(searchText);
@@ -87,6 +104,10 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
   const metadataDialect = useMemo(
       () => getMetadataDialect(connection?.config?.type || '', connection?.config?.driver, connection?.config?.oceanBaseProtocol),
       [connection?.config?.driver, connection?.config?.oceanBaseProtocol, connection?.config?.type]
+  );
+  const connectionHostSummary = useMemo(
+      () => resolveConnectionHostSummary(connection?.config),
+      [connection?.config],
   );
   const schemaName = String((tab as any).schemaName || '').trim();
   const overviewSchemaName = isSchemaScopedTableOverviewDialect(metadataDialect)
@@ -120,6 +141,28 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
               useSSH: connection.config.useSSH || false,
               ssh: connection.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
           };
+          const enrichMySQLUpdateTimes = (rows: TableStatRow[]) => {
+              if (
+                  metadataDialect !== 'mysql'
+                  || connection.config.type !== 'mysql'
+                  || !tab.dbName
+                  || !rows.some((row) => !row.updateTime)
+              ) {
+                  return;
+              }
+              void DBQuery(
+                  buildRpcConnectionConfig(config) as any,
+                  tab.dbName,
+                  buildMySQLTableUpdateTimesSQL(tab.dbName),
+              ).then((res) => {
+                  if (!isLatestRequest() || !res.success || !Array.isArray(res.data)) return;
+                  const updates = parseMySQLTableUpdateTimes(res.data);
+                  if (Object.keys(updates).length === 0) return;
+                  setTables((current) => mergeMySQLTableUpdateTimes(current, updates));
+              }).catch(() => {
+                  // innodb_table_stats may be unavailable or require mysql schema access.
+              });
+          };
           if (usesTableListOverview(metadataDialect, connection?.config?.type)) {
               const res = await DBGetTables(buildRpcConnectionConfig(config) as any, tab.dbName || '');
               if (!isLatestRequest()) return;
@@ -151,7 +194,9 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
           const res = await DBQuery(buildRpcConnectionConfig(config) as any, tab.dbName || '', sql);
           if (!isLatestRequest()) return;
           if (res.success && Array.isArray(res.data)) {
-              setTables(parseTableStats(metadataDialect, res.data));
+              const rows = parseTableStats(metadataDialect, res.data);
+              setTables(rows);
+              enrichMySQLUpdateTimes(rows);
           } else {
               message.error(t('table_overview.message.load_tables_failed', {
                   detail: res.message || t('table_overview.message.unknown_error'),
@@ -461,9 +506,10 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
   return {
     addTab, setAIPanelVisible, addAIContext, pinnedSidebarTables, setSidebarTablePinned, darkMode,
     activeShortcutPlatform, tables, loading, searchText, setSearchText, sortField, setSortField,
-    sortOrder, setSortOrder, viewMode, setViewMode, v2ContextMenu, setV2ContextMenu,
+    sortOrder, setSortOrder, viewMode, setViewMode, compactColumns, setCompactColumns,
+    v2ContextMenu, setV2ContextMenu,
     v2ContextMenuPortalRef, setVisibleTableLimit, deferredSearchText, isSearchPending, connection,
-    metadataDialect, schemaName, overviewSchemaName, supportsCopyTable, allowClear, loadData,
+    metadataDialect, connectionHostSummary, schemaName, overviewSchemaName, supportsCopyTable, allowClear, loadData,
     sortedFiltered, pinnedOverview, visibleOverview, visibleTables, visibleTableSections,
     v2ContextMenuTable, openV2OverviewContextMenu, openTable, openDesign, openTableByDefaultAction,
     openTableDdl, openQueryForTable, openTableInER, buildConfig, handleCopyStructure,

@@ -336,32 +336,38 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('requeries the first page with outer ordering when a pageable result is sorted', async () => {
-    storeState.queryOptions.maxRows = 2;
+    // 初始页大小固定 100：只有首屏取满一页才会生成分页状态。
+    const DEFAULT_PAGE = 100;
+    const buildRows = (startId: number, count: number) => Array.from(
+      { length: count },
+      (_item, index) => ({ id: startId + index, name: `Row${startId + index}` }),
+    );
     const query = 'select id, name from (select id, name from users) q;';
     backendApp.DBQueryMulti
       .mockResolvedValueOnce({
         success: true,
         data: [{
           columns: ['id', 'name'],
-          rows: [{ id: 2, name: 'Beta' }, { id: 1, name: 'Alpha' }],
+          rows: [{ id: 2, name: 'Beta' }, { id: 1, name: 'Alpha' }, ...buildRows(10, DEFAULT_PAGE - 2)],
+        }],
+      })
+      // 首屏之后后台自动补一次 COUNT(*)，这里返回总数以便断言不再依赖估算值。
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ columns: ['__gonavi_total__'], rows: [{ __gonavi_total__: 300 }] }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{
+          columns: ['id', 'name'],
+          rows: buildRows(101, DEFAULT_PAGE),
         }],
       })
       .mockResolvedValueOnce({
         success: true,
         data: [{
           columns: ['id', 'name'],
-          rows: [{ id: 4, name: 'Delta' }, { id: 3, name: 'Charlie' }],
-        }],
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        data: [{
-          columns: ['id', 'name'],
-          rows: [
-            { id: 1, name: 'Alpha' },
-            { id: 2, name: 'Beta' },
-            { id: 3, name: 'Charlie' },
-          ],
+          rows: [{ id: 1, name: 'Alpha' }, { id: 2, name: 'Beta' }, ...buildRows(3, DEFAULT_PAGE - 2)],
         }],
       });
     let renderer!: ReactTestRenderer;
@@ -375,12 +381,12 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 1, pageSize: 2 });
+    expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 1, pageSize: DEFAULT_PAGE });
 
     await act(async () => {
-      await dataGridState.latestProps.onPageChange(2, 2);
+      await dataGridState.latestProps.onPageChange(2, DEFAULT_PAGE);
     });
-    expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 2, pageSize: 2 });
+    expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 2, pageSize: DEFAULT_PAGE });
 
     await act(async () => {
       await dataGridState.latestProps.onSort(JSON.stringify([
@@ -388,27 +394,33 @@ describe('QueryEditor external SQL save', () => {
       ]), '');
     });
 
-    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(3);
-    const sortedPageSql = String(backendApp.DBQueryMulti.mock.calls[2][2]);
-    expect(sortedPageSql).toContain('AS __gonavi_query_page__ ORDER BY `name` ASC LIMIT 3 OFFSET 0');
-    expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 1, pageSize: 2 });
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(4);
+    const sortedPageSql = String(backendApp.DBQueryMulti.mock.calls[3][2]);
+    expect(sortedPageSql).toContain(`AS __gonavi_query_page__ ORDER BY \`name\` ASC LIMIT ${DEFAULT_PAGE + 1} OFFSET 0`);
+    expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 1, pageSize: DEFAULT_PAGE });
     expect(dataGridState.latestProps?.sortInfoExternal).toEqual([
       { columnKey: 'name', order: 'ascend', enabled: true },
     ]);
-    expect(dataGridState.latestProps?.data.map((row: any) => row.name)).toEqual(['Alpha', 'Beta']);
+    expect(dataGridState.latestProps?.data.slice(0, 2).map((row: any) => row.name)).toEqual(['Alpha', 'Beta']);
     renderer.unmount();
   });
 
   it('loads all SQL result rows without a page LIMIT when the page size is unlimited', async () => {
-    storeState.queryOptions.maxRows = 2;
+    // 初始页大小固定 100：造满一页才会生成分页状态，进而能切到「不限」。
+    const DEFAULT_PAGE = 100;
     const query = 'select id from users;';
     backendApp.DBQueryMulti
       .mockResolvedValueOnce({
         success: true,
         data: [{
           columns: ['id'],
-          rows: [{ id: 1 }, { id: 2 }],
+          rows: Array.from({ length: DEFAULT_PAGE }, (_item, index) => ({ id: index + 1 })),
         }],
+      })
+      // 首屏之后后台自动补一次 COUNT(*)，占掉第二个 mock。
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ columns: ['__gonavi_total__'], rows: [{ __gonavi_total__: 3 }] }],
       })
       .mockResolvedValueOnce({
         success: true,
@@ -432,7 +444,7 @@ describe('QueryEditor external SQL save', () => {
       await dataGridState.latestProps.onPageChange(2, 0);
     });
 
-    const unlimitedPageSql = String(backendApp.DBQueryMulti.mock.calls[1][2]);
+    const unlimitedPageSql = String(backendApp.DBQueryMulti.mock.calls[2][2]);
     expect(unlimitedPageSql).not.toContain('LIMIT');
     expect(unlimitedPageSql).not.toContain('OFFSET');
     expect(dataGridState.latestProps?.pagination).toMatchObject({ current: 1, pageSize: 0, total: 3, totalKnown: true });

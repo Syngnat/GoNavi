@@ -62,17 +62,20 @@ func buildImportFileOptionsHash(options ImportFileOptions) string {
 		conflictPolicy = importConflictPolicyStop
 	}
 	return hashImportJobContract(struct {
-		LosslessHive       bool              `json:"losslessHive,omitempty"`
-		ColumnMappings     map[string]string `json:"columnMappings,omitempty"`
-		ContinueOnError    bool              `json:"continueOnError"`
-		Encoding           string            `json:"encoding,omitempty"`
-		Delimiter          string            `json:"delimiter,omitempty"`
-		HeaderRow          int               `json:"headerRow,omitempty"`
-		NullToken          *string           `json:"nullToken,omitempty"`
-		EmptyStringAsNull  bool              `json:"emptyStringAsNull,omitempty"`
-		SheetName          string            `json:"sheetName,omitempty"`
-		ConflictPolicy     string            `json:"conflictPolicy,omitempty"`
-		ConflictKeyColumns []string          `json:"conflictKeyColumns,omitempty"`
+		LosslessHive       bool                   `json:"losslessHive,omitempty"`
+		ColumnMappings     map[string]string      `json:"columnMappings,omitempty"`
+		ContinueOnError    bool                   `json:"continueOnError"`
+		Encoding           string                 `json:"encoding,omitempty"`
+		Delimiter          string                 `json:"delimiter,omitempty"`
+		HeaderRow          int                    `json:"headerRow,omitempty"`
+		NullToken          *string                `json:"nullToken,omitempty"`
+		EmptyStringAsNull  bool                   `json:"emptyStringAsNull,omitempty"`
+		SheetName          string                 `json:"sheetName,omitempty"`
+		ConflictPolicy     string                 `json:"conflictPolicy,omitempty"`
+		ConflictKeyColumns []string               `json:"conflictKeyColumns,omitempty"`
+		TypeRow            int                    `json:"typeRow,omitempty"`
+		CommentRow         int                    `json:"commentRow,omitempty"`
+		AutoCreateTable    *ImportAutoCreateTable `json:"autoCreateTable,omitempty"`
 	}{
 		LosslessHive:       options.LosslessHive,
 		ColumnMappings:     options.ColumnMappings,
@@ -85,6 +88,9 @@ func buildImportFileOptionsHash(options ImportFileOptions) string {
 		SheetName:          options.SheetName,
 		ConflictPolicy:     conflictPolicy,
 		ConflictKeyColumns: append([]string(nil), options.ConflictKeyColumns...),
+		TypeRow:            options.TypeRow,
+		CommentRow:         options.CommentRow,
+		AutoCreateTable:    options.AutoCreateTable,
 	})
 }
 

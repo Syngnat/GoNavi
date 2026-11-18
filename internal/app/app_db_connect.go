@@ -131,7 +131,8 @@ func (a *App) connectAndCacheDatabase(effectiveConfig connection.ConnectionConfi
 	}
 	a.mu.Unlock()
 
-	logger.Infof("数据库连接成功并写入缓存：%s 缓存Key=%s", formatConnSummary(effectiveConfig), shortKey)
+	logger.Infof("数据库连接成功并写入缓存：场景=建立新连接 | 操作=验证连接并写入缓存 | 结果=成功 | %s | 缓存Key=%s",
+		formatConnSummary(effectiveConfig), shortKey)
 	return databaseConnectResult{inst: dbInst, cacheKey: key}, nil
 }
 
@@ -147,8 +148,10 @@ func (a *App) cachedConnectFailureError(effectiveConfig connection.ConnectionCon
 		"remaining": formatConnectFailureCooldown(remaining),
 		"detail":    normalizeErrorMessage(unwrapLogHintError(failure.err)),
 	})
-	logger.Warnf("命中数据库连接失败冷却：%s 缓存Key=%s 剩余=%s 原因=%s",
-		formatConnSummary(effectiveConfig), shortenCacheKey(key), formatConnectFailureCooldown(remaining), normalizeErrorMessage(failure.err))
+	failureInfo := classifyConnectFailureForLog(failure.err)
+	logger.Warnf("命中数据库连接失败冷却：场景=重复建连保护 | 操作=跳过本次连接 | 结果=冷却中 | 剩余=%s | 上次失败阶段=%s | 上次判断=%s | %s | 缓存Key=%s | 上次错误=%s",
+		formatConnectFailureCooldown(remaining), failureInfo.stage, failureInfo.judgment,
+		formatConnSummary(effectiveConfig), shortenCacheKey(key), normalizeErrorMessage(failure.err))
 	return withLogHint{err: fmt.Errorf("%s", message), logPath: logger.Path()}
 }
 
@@ -162,7 +165,8 @@ func (a *App) retryConnectAfterMySQLMaxUserConnections(rawConfig connection.Conn
 		excludedFlightID = flight.id
 	}
 	released := a.releaseCachedDatabaseConnectionsForConfigExcludingFlight(failedConfig, excludedFlightID)
-	logger.Warnf("检测到 MySQL 用户连接数超限，已释放同实例缓存连接：%s 数量=%d", formatConnSummary(failedConfig), released)
+	logger.Warnf("检测到 MySQL 用户连接数超限：场景=连接数恢复 | 操作=释放同实例缓存连接 | 结果=已执行 | %s | 释放数量=%d",
+		formatConnSummary(failedConfig), released)
 	if released <= 0 {
 		return nil, failedConfig, withMySQLMaxUserConnectionsHint(err, released)
 	}
@@ -174,7 +178,8 @@ func (a *App) retryConnectAfterMySQLMaxUserConnections(rawConfig connection.Conn
 		}
 		return nil, connectedConfig, retryErr
 	}
-	logger.Infof("MySQL 用户连接数超限释放缓存后重连成功：%s 释放数量=%d", formatConnSummary(connectedConfig), released)
+	logger.Infof("MySQL 用户连接数超限恢复成功：场景=连接数恢复 | 操作=释放缓存并重连 | 结果=成功 | %s | 释放数量=%d",
+		formatConnSummary(connectedConfig), released)
 	return dbInst, connectedConfig, nil
 }
 
@@ -336,12 +341,15 @@ func (a *App) connectEffectiveDatabaseWithStartupRetry(rawConfig connection.Conn
 		lastEffectiveConfig = effectiveConfig
 		cacheKey := shortenCacheKey(getCacheKey(effectiveConfig))
 
-		logger.Infof("获取数据库连接：%s 缓存Key=%s 启动阶段=%s", formatConnSummary(effectiveConfig), cacheKey, a.startupPhaseLabel())
-		logger.Infof("创建数据库驱动实例：类型=%s 缓存Key=%s 尝试=%d/%d", effectiveConfig.Type, cacheKey, attempt, startupConnectRetryAttempts)
+		logger.Infof("获取数据库连接：场景=建立新连接 | 操作=准备建连 | 结果=开始 | 尝试=%d/%d | 运行阶段=%s | %s | 缓存Key=%s",
+			attempt, startupConnectRetryAttempts, a.startupPhaseLabel(), formatConnSummary(effectiveConfig), cacheKey)
+		logger.Debugf("数据库驱动初始化：场景=建立新连接 | 操作=创建驱动实例 | 结果=开始 | 类型=%s | 尝试=%d/%d | 缓存Key=%s",
+			effectiveConfig.Type, attempt, startupConnectRetryAttempts, cacheKey)
 
 		dbInst, err := newDatabaseFunc(effectiveConfig.Type)
 		if err != nil {
-			logger.Error(err, "创建数据库驱动实例失败：类型=%s 缓存Key=%s", effectiveConfig.Type, cacheKey)
+			logger.Error(err, "数据库驱动初始化失败：场景=建立新连接 | 操作=创建驱动实例 | 结果=失败 | 类型=%s | 尝试=%d/%d | 缓存Key=%s",
+				effectiveConfig.Type, attempt, startupConnectRetryAttempts, cacheKey)
 			return nil, effectiveConfig, err
 		}
 
@@ -349,25 +357,30 @@ func (a *App) connectEffectiveDatabaseWithStartupRetry(rawConfig connection.Conn
 		if proxyErr != nil {
 			_ = dbInst.Close()
 			wrapped := wrapConnectError(effectiveConfig, proxyErr)
-			logger.Error(wrapped, "连接代理准备失败：%s 缓存Key=%s", formatConnSummary(effectiveConfig), cacheKey)
+			failureInfo := classifyConnectFailureForLog(wrapped)
+			logger.Error(wrapped, "连接网络转发准备失败：场景=建立新连接 | 操作=准备代理或隧道 | 结果=失败 | %s | 尝试=%d/%d | %s | 缓存Key=%s",
+				formatConnectFailureLogFields(failureInfo), attempt, startupConnectRetryAttempts, formatConnSummary(effectiveConfig), cacheKey)
 			return nil, effectiveConfig, wrapped
 		}
 
 		if err := dbInst.Connect(connectConfig); err == nil {
 			if attempt > 1 {
-				logger.Warnf("数据库连接在重试后成功：%s 缓存Key=%s 尝试=%d/%d", formatConnSummary(effectiveConfig), cacheKey, attempt, startupConnectRetryAttempts)
+				logger.Warnf("数据库连接在重试后成功：场景=启动期自动重试 | 操作=重新建立连接 | 结果=成功 | 尝试=%d/%d | %s | 缓存Key=%s",
+					attempt, startupConnectRetryAttempts, formatConnSummary(effectiveConfig), cacheKey)
 			}
 			return dbInst, effectiveConfig, nil
 		} else {
 			_ = dbInst.Close()
 			wrapped := wrapConnectError(effectiveConfig, err)
 			lastErr = wrapped
-			logger.Error(wrapped, "建立数据库连接失败：%s 缓存Key=%s", formatConnSummary(effectiveConfig), cacheKey)
+			failureInfo := classifyConnectFailureForLog(wrapped)
+			logger.Error(wrapped, "建立数据库连接失败：场景=建立新连接 | 操作=连接数据库 | 结果=失败 | %s | 尝试=%d/%d | 运行阶段=%s | %s | 缓存Key=%s",
+				formatConnectFailureLogFields(failureInfo), attempt, startupConnectRetryAttempts, a.startupPhaseLabel(), formatConnSummary(effectiveConfig), cacheKey)
 			if !a.shouldRetryConnect(err, attempt) {
 				return nil, effectiveConfig, wrapped
 			}
-			logger.Warnf("检测到瞬时网络失败，准备重试连接：%s 缓存Key=%s 尝试=%d/%d 延迟=%s 原因=%s",
-				formatConnSummary(effectiveConfig), cacheKey, attempt, startupConnectRetryAttempts, startupConnectRetryDelay, normalizeErrorMessage(err))
+			logger.Warnf("检测到瞬时网络失败，准备重试连接：场景=启动期自动重试 | 操作=重新建立连接 | 结果=等待重试 | 失败阶段=%s | 尝试=%d/%d | 等待=%s | %s | 缓存Key=%s",
+				failureInfo.stage, attempt, startupConnectRetryAttempts, startupConnectRetryDelay, formatConnSummary(effectiveConfig), cacheKey)
 			time.Sleep(startupConnectRetryDelay)
 		}
 	}
@@ -422,6 +435,10 @@ func isTransientStartupConnectError(err error) bool {
 		"connection timed out",
 		"i/o timeout",
 		"context deadline exceeded",
+		"invalid connection",
+		"unexpected eof",
+		"connection reset by peer",
+		"broken pipe",
 	}
 	for _, hint := range transientHints {
 		if strings.Contains(message, hint) {

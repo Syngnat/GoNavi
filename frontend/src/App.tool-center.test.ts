@@ -229,8 +229,9 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain("handleOpenToolCenterPane('config', 'data-root-saved-queries')");
     expect(appSource).toContain('onProvidersViewChange={setAiSettingsProviderView}');
     expect(appSource).toContain('onCloseHost={handleCancelSettingsCenterPane}');
-    expect(appSource).toContain("handleOpenToolCenterPane('workspace', 'drivers')");
-    expect(appSource).toContain("activeSettingsCenterPane.key === 'drivers'");
+    expect(appSource).not.toContain("handleOpenToolCenterPane('workspace', 'drivers')");
+    expect(appSource).toContain('handleOpenDriverManagerWorkbench();');
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*addTab\(buildWorkbenchTab\(\)\);/);
     expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenDriverManagerWorkbench\(\);/);
     expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenConnectionHealth\(\);/);
     expect(appSource).toContain("handleOpenDataSyncWorkbench('compare')");

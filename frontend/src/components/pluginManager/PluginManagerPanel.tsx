@@ -7,6 +7,7 @@ import { notifyPluginLifecycle } from '../../plugins/events';
 import { PluginMarketPanel } from '../../pluginMarket/PluginMarketPanel';
 import { MarketDetailDrawer } from '../../pluginMarket/MarketDetailDrawer';
 import { useInstalledPluginUpdates } from '../../pluginMarket/useInstalledPluginUpdates';
+import { useInstalledPluginIconSources } from '../../pluginMarket/useInstalledPluginIconSources';
 import type { InstalledPluginUpdate } from '../../pluginMarket/installedPluginUpdates';
 import { LocalInstallPanel } from './LocalInstallPanel';
 import { PluginCard } from './PluginCard';
@@ -20,6 +21,8 @@ export function PluginManagerPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedUpdate, setSelectedUpdate] = useState<InstalledPluginUpdate | null>(null);
   const updates = useInstalledPluginUpdates(manager.plugins, activeTab === 'installed');
+  // 包内没有 Logo 时回退到市场来源声明的图标，而不是名称首字母。
+  const marketLogos = useInstalledPluginIconSources(manager.plugins, updates.sources, activeTab === 'installed');
   const refresh = () => { void manager.refresh(); void updates.reload(); };
   const installedChanged = () => { void manager.refresh(); void updates.reload(); notifyPluginLifecycle(); };
   useEffect(() => {
@@ -42,8 +45,6 @@ export function PluginManagerPanel() {
       {updates.failed && <Alert showIcon type="warning" message={t('plugin.update.check_failed')} />}
       {updates.checked && !updates.failed && updates.sources.length === 0 && manager.plugins.length > 0
         && <Alert type="info" showIcon message={t('plugin.market.sources_none_enabled')} />}
-      {updates.checked && !updates.loading && !updates.failed && updates.updates.size === 0 && updates.sources.length > 0 && manager.plugins.length > 0
-        && <Typography.Text type="secondary">{t('plugin.update.up_to_date')}</Typography.Text>}
       {manager.loading ? <div className="plugin-library-state" aria-busy="true"><Spin /></div>
         : !manager.error && manager.plugins.length === 0 ? <div className="plugin-library-state">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('plugin.manager.empty')}>
@@ -52,6 +53,7 @@ export function PluginManagerPanel() {
         </div> : null}
       <div className="plugin-installed-grid">
         {manager.plugins.slice((currentPage - 1) * 10, currentPage * 10).map((plugin) => <PluginCard key={plugin.manifest.id} plugin={plugin} manager={manager}
+          logoSources={marketLogos.get(plugin.manifest.id)}
           update={updates.updates.has(plugin.manifest.id) ? { version: updates.updates.get(plugin.manifest.id)!.plugin.version, sourceLabel: updates.updates.get(plugin.manifest.id)!.source.baseUrl } : undefined}
           updateDisabled={!manager.runtime.managementAllowed || Boolean(manager.busy[plugin.manifest.id]) || updates.loading}
           onUpdate={() => { const update = updates.updates.get(plugin.manifest.id); if (update && manager.runtime.managementAllowed && !updates.loading && !manager.busy[plugin.manifest.id] && update.installedVersion === plugin.manifest.version) { setExpandedId(null); setSelectedUpdate(update); } }}

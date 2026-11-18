@@ -321,9 +321,23 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Timeout:        120 * time.Second,
 		Handler:        pluginCapabilitySchemaApply,
 	})
+	// ai.providers 的权限绑定是历史形态：这个只读能力当初挂在「数据库元数据」权限上，于是想读
+	// 供应商名称/地址的插件被迫申请 host.metadata.read。保留它以免打断已有插件；新插件改用下面
+	// 的 ai.providers.read（窄权限 host.ai.providers.read）。
 	add(pluginCapabilitySpec{
 		Name:           "ai.providers",
 		Permission:     plugin.MetadataReadPermission,
+		Description:    "Configured AI provider metadata without secrets, headers or CLI environment (legacy permission binding: host.metadata.read; prefer ai.providers.read).",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 64 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        pluginCapabilityAIProviders,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "ai.providers.read",
+		Permission:     plugin.AIProvidersReadPermission,
 		Description:    "Configured AI provider metadata without secrets, headers or CLI environment.",
 		Channels:       shared,
 		Runtimes:       desktopWeb,
@@ -331,6 +345,24 @@ func defaultPluginCapabilities() pluginCapabilities {
 		MaxResultBytes: 64 << 10,
 		Timeout:        5 * time.Second,
 		Handler:        pluginCapabilityAIProviders,
+	})
+	// 单批最多 100 条，每条都要整表回写 ai_config.json 与密钥文件并取共享锁：30s 在高负载或
+	// 另一实例持锁时会把已经写进去一半的导入判成超时（返回 internal，用户看不到落了几条）。
+	// 放宽到 120s，让慢机器也能跑完；真正的批量写入见后续项。
+	add(pluginCapabilitySpec{
+		Name:           "ai.providers.import",
+		Permission:     plugin.AIProvidersWritePermission,
+		Description:    "Add structured AI providers (name, endpoint, API format, model, credential) to the host provider list; duplicates are reported, never silently replaced.",
+		Channels:       shared,
+		Runtimes:       desktopWeb,
+		Mutating:       true,
+		MaxArgsBytes:   256 << 10,
+		MaxResultBytes: pluginAIProviderImportMaxResultBytes,
+		Timeout:        120 * time.Second,
+		// 取消（超时 / 插件停用 / 调用方收手）后仍回报已落地的部分结果：导入是逐条写入的，
+		// 「已经写进去 3 条」这个事实比一句 internal 有用得多。
+		PartialResultOnCancel: true,
+		Handler:               pluginCapabilityAIProvidersImport,
 	})
 	add(pluginCapabilitySpec{
 		Name:           "driver.status",
@@ -661,6 +693,105 @@ func defaultPluginCapabilities() pluginCapabilities {
 		Timeout:        5 * time.Minute,
 		Handler:        pluginCapabilityFilesSave,
 	})
+	// Appearance capabilities are executed by the frontend page bridge because the
+	// background store and gallery adapters live in the host window. The catalog
+	// still lists them so pages can discover the contract and see whether their
+	// manifest holds the matching permission.
+	frontendHosted := func(_ context.Context, _ *App, _ pluginCapabilityRequest) (any, string) {
+		return nil, "unsupported"
+	}
+	add(pluginCapabilitySpec{
+		Name:           "appearance.background.state",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Read the current background state (source, opacity, position, enabled).",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 16 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        frontendHosted,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "appearance.background.image",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Read the custom background image as a JPEG data URL.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 2 << 20,
+		Timeout:        5 * time.Second,
+		Handler:        frontendHosted,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "appearance.background.set-custom",
+		Permission:     plugin.AppearanceWritePermission,
+		Description:    "Replace the background with a prepared JPEG data URL.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		Mutating:       true,
+		MaxArgsBytes:   2 << 20,
+		MaxResultBytes: 1 << 10,
+		Timeout:        5 * time.Second,
+		Handler:        frontendHosted,
+	})
+	for _, name := range []string{
+		"appearance.background.clear", "appearance.background.reset",
+		"appearance.background.set-enabled", "appearance.background.set-opacity",
+		"appearance.background.set-position", "appearance.background.select-builtin",
+		"appearance.background.cancel-builtin", "appearance.background.resolve",
+	} {
+		add(pluginCapabilitySpec{
+			Name:           name,
+			Permission:     plugin.AppearanceWritePermission,
+			Description:    "Change one background setting; executed in the host window.",
+			Channels:       page,
+			Runtimes:       desktopWeb,
+			Mutating:       true,
+			MaxArgsBytes:   8 << 10,
+			MaxResultBytes: 1 << 10,
+			Timeout:        5 * time.Second,
+			Handler:        frontendHosted,
+		})
+	}
+	add(pluginCapabilitySpec{
+		Name:           "appearance.gallery.state",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Read the built-in background gallery catalog, installed entries and selection progress.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 256 << 10,
+		Timeout:        10 * time.Second,
+		Handler:        frontendHosted,
+	})
+	add(pluginCapabilitySpec{
+		Name:           "appearance.gallery.thumbnail",
+		Permission:     plugin.AppearanceReadPermission,
+		Description:    "Fetch one validated gallery thumbnail as a data URL.",
+		Channels:       page,
+		Runtimes:       desktopWeb,
+		MaxArgsBytes:   4 << 10,
+		MaxResultBytes: 512 << 10,
+		Timeout:        30 * time.Second,
+		Handler:        frontendHosted,
+	})
+	for _, name := range []string{
+		"appearance.gallery.refresh", "appearance.gallery.download",
+		"appearance.gallery.cancel", "appearance.gallery.remove",
+	} {
+		add(pluginCapabilitySpec{
+			Name:           name,
+			Permission:     plugin.AppearanceWritePermission,
+			Description:    "Manage background gallery downloads and installed entries.",
+			Channels:       page,
+			Runtimes:       desktopWeb,
+			Mutating:       true,
+			MaxArgsBytes:   8 << 10,
+			MaxResultBytes: 256 << 10,
+			Timeout:        10 * time.Second,
+			Handler:        frontendHosted,
+		})
+	}
 	add(pluginCapabilitySpec{
 		Name:           "events.subscribe",
 		Permission:     pluginEventsPermission,

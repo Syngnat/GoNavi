@@ -48,6 +48,7 @@ type SSHConfig struct {
 	KeyPath            string `json:"keyPath"`
 	KnownHostsPath     string `json:"knownHostsPath,omitempty"`
 	HostKeyFingerprint string `json:"hostKeyFingerprint,omitempty"`
+	ConnectTimeout     int    `json:"connectTimeout,omitempty"`
 	runtime            *sshRuntime
 }
 
@@ -277,11 +278,12 @@ type ConnectionConfig struct {
 	ReadOnly                 bool                       `json:"readOnly,omitempty"`       // Legacy production guard compatibility flag. Prefer Protection for new logic.
 	PluginWritable           bool                       `json:"pluginWritable,omitempty"` // Host-verified hint that the selected plugin source declared readOnly false.
 	Protection               ConnectionProtectionConfig `json:"protection,omitempty"`
-	UseSSL                   bool                       `json:"useSSL,omitempty"`      // MySQL-like SSL/TLS switch
-	SSLMode                  string                     `json:"sslMode,omitempty"`     // preferred | required | skip-verify | disable
-	SSLCAPath                string                     `json:"sslCAPath,omitempty"`   // TLS root CA / server certificate path
-	SSLCertPath              string                     `json:"sslCertPath,omitempty"` // TLS client certificate path (e.g., Dameng)
-	SSLKeyPath               string                     `json:"sslKeyPath,omitempty"`  // TLS client private key path (e.g., Dameng)
+	UseSSL                   bool                       `json:"useSSL,omitempty"`        // MySQL-like SSL/TLS switch
+	SSLMode                  string                     `json:"sslMode,omitempty"`       // preferred | required | skip-verify | disable
+	SSLCAPath                string                     `json:"sslCAPath,omitempty"`     // TLS root CA / server certificate path
+	SSLCertPath              string                     `json:"sslCertPath,omitempty"`   // TLS client certificate path (e.g., Dameng)
+	SSLKeyPath               string                     `json:"sslKeyPath,omitempty"`    // TLS client private key path (e.g., Dameng)
+	TLSServerName            string                     `json:"tlsServerName,omitempty"` // Original host for TLS SNI/certificate verification behind a dial proxy.
 	UseSSH                   bool                       `json:"useSSH"`
 	SSH                      SSHConfig                  `json:"ssh"`
 	UseProxy                 bool                       `json:"useProxy,omitempty"`
@@ -391,27 +393,47 @@ type ResultSetData struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
+const (
+	StatementResultSuccess    = "success"
+	StatementResultFailed     = "failed"
+	StatementResultSkipped    = "skipped"
+	StatementResultUnknown    = "unknown"
+	StatementResultRolledBack = "rolled_back"
+)
+
+// StatementExecutionResult 是多语句批次的逐条执行状态。
+// StatementIndex 与非空语句顺序一致；AffectedRows 用指针区分“未返回”和真实的 0。
+type StatementExecutionResult struct {
+	StatementIndex int    `json:"statementIndex"`
+	Status         string `json:"status"`
+	AffectedRows   *int64 `json:"affectedRows,omitempty"`
+	RowsReturned   int64  `json:"rowsReturned,omitempty"`
+	DurationMs     int64  `json:"durationMs,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
 const QueryCancellationStateUnsupported = "unsupported"
 
 // QueryResult 是 Wails 绑定方法的统一响应格式，前端通过此结构体接收后端结果。
 type QueryResult struct {
-	Success           bool        `json:"success"`
-	Message           string      `json:"message"`
-	Data              interface{} `json:"data"`
-	Fields            []string    `json:"fields,omitempty"`
-	Messages          []string    `json:"messages,omitempty"`
-	Partial           bool        `json:"partial,omitempty"`
-	ExecutedCount     int         `json:"executedCount,omitempty"`
-	FailedIndex       int         `json:"failedIndex,omitempty"`
-	BoundaryMode      string      `json:"boundaryMode,omitempty"`
-	CommitMode        string      `json:"commitMode,omitempty"`
-	Warnings          []string    `json:"warnings,omitempty"`
-	OutcomeUnknown    bool        `json:"outcomeUnknown,omitempty"`
-	FailedObjectTypes []string    `json:"failedObjectTypes,omitempty"`
-	Retryable         bool        `json:"retryable,omitempty"`
-	Truncated         bool        `json:"truncated,omitempty"`
-	ScannedCount      int         `json:"scannedCount,omitempty"`
-	DurationMs        int64       `json:"durationMs,omitempty"` // 驱动侧 SQL 执行耗时（毫秒），不含建连与结果回传
+	Success           bool                       `json:"success"`
+	Message           string                     `json:"message"`
+	Data              interface{}                `json:"data"`
+	Fields            []string                   `json:"fields,omitempty"`
+	Messages          []string                   `json:"messages,omitempty"`
+	Partial           bool                       `json:"partial,omitempty"`
+	ExecutedCount     int                        `json:"executedCount,omitempty"`
+	FailedIndex       int                        `json:"failedIndex,omitempty"`
+	StatementResults  []StatementExecutionResult `json:"statementResults,omitempty"`
+	BoundaryMode      string                     `json:"boundaryMode,omitempty"`
+	CommitMode        string                     `json:"commitMode,omitempty"`
+	Warnings          []string                   `json:"warnings,omitempty"`
+	OutcomeUnknown    bool                       `json:"outcomeUnknown,omitempty"`
+	FailedObjectTypes []string                   `json:"failedObjectTypes,omitempty"`
+	Retryable         bool                       `json:"retryable,omitempty"`
+	Truncated         bool                       `json:"truncated,omitempty"`
+	ScannedCount      int                        `json:"scannedCount,omitempty"`
+	DurationMs        int64                      `json:"durationMs,omitempty"` // 驱动侧 SQL 执行耗时（毫秒），不含建连与结果回传
 	// MainQueryMs 主查询纯耗时（毫秒）。与 DurationMs 同源取值，单独给一个字段是为了让
 	// 前端「链路分解」列不必复用 durationMs 的语义（那个字段还兼着慢查询历史/审计的分母）。
 	// 注意：GoNavi 只有在 internal/app 层累加的驱动调用耗时，没有驱动层 QueryTrace，

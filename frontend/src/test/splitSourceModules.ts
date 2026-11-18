@@ -24,6 +24,7 @@ export const DATA_GRID_COMPONENT_MODULES = [
 // QueryEditor.tsx 已拆成 hook / 子组件 / 辅助模块，源码扫描按原顺序聚合。
 export const QUERY_EDITOR_COMPONENT_MODULES = [
   "QueryEditor.tsx",
+  "queryEditor/QueryEditorStatementSummaryTable.tsx",
   "queryEditor/queryEditorRunHelpers.ts",
   "queryEditor/queryEditorObjectEditSql.ts",
   "queryEditor/queryEditorObjectDefinitionQueries.ts",

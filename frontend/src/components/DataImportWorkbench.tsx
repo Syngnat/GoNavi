@@ -20,6 +20,8 @@ import {
 import { DataImportSourceFileField } from './dataImport/DataImportSourceFileField';
 import { DataImportAdvancedOptions } from './dataImport/DataImportAdvancedOptions';
 import { DataImportPreviewPanel } from './dataImport/DataImportPreviewPanel';
+import { ImportTableCreateModal } from './dataImport/ImportTableCreateModal';
+import { useImportTableCreateFlow } from './dataImport/hooks/useImportTableCreateFlow';
 
 export interface DataImportWorkbenchProps { tab: TabData }
 
@@ -27,6 +29,7 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
   const {
     t, darkMode, importMode, connectionOptions, selectedConnectionId, selectedDbName,
     selectedTableName, databaseOptions, tableOptions, filePath, setFilePath, fileName, setFileName,
+    autoCreateTable,
     fileSizeMB, setFileSizeMB, loadingDatabases, loadingTables, selectingFile, setSelectingFile,
     importing, setImporting, conflictKeyColumnsInput, setConflictKeyColumnsInput,
     historyRefreshToken, setHistoryRefreshToken, databaseError, tableError,
@@ -35,9 +38,27 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
     capabilityAllowsImport, activePreferences, continueOnError, supportedConflictPolicies,
     conflictPolicySupported, conflictKeysValid, tableImportOptionsValid, capabilityReason,
     capabilityMessageKey, capabilityDetails, syncWorkbenchTab, updateImportPreferences,
+    applyAutoCreateTable, markAutoCreateTableCreated,
     clearSelectedFile, handleModeChange, handleConnectionChange, handleDatabaseChange,
     handleTableChange,
   } = useDataImportWorkbenchState({ tab });
+
+  const canStartImportTableCreate = importMode === 'table'
+    && Boolean(selectedConnectionId && selectedDbName)
+    && capabilityAllowsImport
+    && !importing
+    && modeCapability.supported;
+  const importTableCreateFlow = useImportTableCreateFlow({
+    t,
+    enabled: canStartImportTableCreate,
+    selectedConnectionId,
+    selectedDbName,
+    selectedConnectionConfig,
+    importMode,
+    activePreferences,
+    continueOnError,
+    applyAutoCreateTable,
+  });
 
   const {
     handleImportingChange, handleSelectFile, handleBrowserFileChange, shellBackground,
@@ -45,7 +66,7 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
   } = useDataImportWorkbenchFileSource({
     wasImportingRef, setHistoryRefreshToken, setImporting, syncWorkbenchTab, selectedConnectionId,
     selectedDbName, importMode, selectedTableName, capabilityAllowsImport, selectedConnectionConfig,
-    selectedConnection, loadingDatabases, loadingTables, tableImportOptionsValid,
+    selectedConnection, loadingDatabases, loadingTables, tableImportOptionsValid, autoCreateTable,
     browserFileInputRef, fileSelectionRequestRef, setSelectingFile, setFilePath, setFileName,
     setFileSizeMB, t, darkMode,
   });
@@ -64,14 +85,24 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
       }}
     >
       {isWebRuntime() ? (
-        <input
-          ref={browserFileInputRef}
-          data-import-browser-file-input="true"
-          type="file"
-          accept={importMode === 'database' ? '.sql,.sql.gz' : '.csv,.json,.xlsx'}
-          style={{ display: 'none' }}
-          onChange={(event) => { void handleBrowserFileChange(event); }}
-        />
+        <>
+          <input
+            ref={browserFileInputRef}
+            data-import-browser-file-input="true"
+            type="file"
+            accept={importMode === 'database' ? '.sql,.sql.gz' : '.csv,.json,.xlsx'}
+            style={{ display: 'none' }}
+            onChange={(event) => { void handleBrowserFileChange(event); }}
+          />
+          <input
+            ref={importTableCreateFlow.webFileInputRef}
+            data-import-create-table-browser-input="true"
+            type="file"
+            accept=".csv,.json,.xlsx"
+            style={{ display: 'none' }}
+            onChange={(event) => { void importTableCreateFlow.handleBrowserFileChange(event); }}
+          />
+        </>
       ) : null}
       <header
         style={{
@@ -180,25 +211,36 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
             </label>
 
             {importMode === 'table' ? (
-              <label style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'grid', gap: 6 }}>
                 <Text type="secondary">{t('data_import.workbench.label.table')}</Text>
-                <Select
-                  data-import-target-field="table"
-                  style={targetSelectStyle}
-                  value={selectedTableName || undefined}
-                  options={tableOptions}
-                  placeholder={!selectedDbName
-                    ? t('data_import.workbench.placeholder.select_database_first')
-                    : loadingTables
-                      ? t('data_import.workbench.placeholder.loading_tables')
-                      : t('data_import.workbench.placeholder.select_table')}
-                  loading={loadingTables}
-                  showSearch
-                  optionFilterProp="title"
-                  disabled={targetLocked || !selectedDbName || loadingTables}
-                  onChange={handleTableChange}
-                />
-              </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8 }}>
+                  <Select
+                    data-import-target-field="table"
+                    style={targetSelectStyle}
+                    value={selectedTableName || undefined}
+                    options={tableOptions}
+                    placeholder={!selectedDbName
+                      ? t('data_import.workbench.placeholder.select_database_first')
+                      : loadingTables
+                        ? t('data_import.workbench.placeholder.loading_tables')
+                        : t('data_import.workbench.placeholder.select_table')}
+                    loading={loadingTables}
+                    showSearch
+                    optionFilterProp="title"
+                    disabled={targetLocked || !selectedDbName || loadingTables}
+                    onChange={handleTableChange}
+                  />
+                  <Button
+                    data-import-create-table-action="true"
+                    size="middle"
+                    loading={importTableCreateFlow.busy}
+                    disabled={!canStartImportTableCreate || importTableCreateFlow.busy}
+                    onClick={() => { void importTableCreateFlow.handleStart(); }}
+                  >
+                    {t('data_import.create_table.entry')}
+                  </Button>
+                </div>
+              </div>
             ) : null}
 
             {databaseError && <Alert type="error" showIcon message={databaseError} />}
@@ -230,7 +272,8 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
               selectedConnectionConfig={selectedConnectionConfig}
               loadingDatabases={loadingDatabases} loadingTables={loadingTables}
               tableImportOptionsValid={tableImportOptionsValid} selectedDbName={selectedDbName}
-              selectedTableName={selectedTableName} handleSelectFile={handleSelectFile}
+              selectedTableName={selectedTableName} autoCreateTable={autoCreateTable}
+              handleSelectFile={handleSelectFile}
               capabilityDetails={capabilityDetails}
             />
 
@@ -297,7 +340,9 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
           selectedConnectionConfig={selectedConnectionConfig} fileName={fileName}
           fileSizeMB={fileSizeMB} darkMode={darkMode} continueOnError={continueOnError}
           handleImportingChange={handleImportingChange} selectedTableName={selectedTableName}
-          activePreferences={activePreferences} clearSelectedFile={clearSelectedFile} t={t}
+          activePreferences={activePreferences} autoCreateTable={autoCreateTable}
+          onAutoCreateTableCreated={markAutoCreateTableCreated}
+          clearSelectedFile={clearSelectedFile} t={t}
         />
         <div
           data-data-import-history-panel="true"
@@ -306,6 +351,19 @@ const DataImportWorkbench: React.FC<DataImportWorkbenchProps> = ({ tab }) => {
           <ImportJobHistoryPanel refreshToken={historyRefreshToken} />
         </div>
       </div>
+      <ImportTableCreateModal
+        open={importTableCreateFlow.modalOpen}
+        inference={importTableCreateFlow.inference}
+        dialect={importTableCreateFlow.dialect}
+        fileName={importTableCreateFlow.pendingSelection?.fileName}
+        typeRow={importTableCreateFlow.typeRow}
+        commentRow={importTableCreateFlow.commentRow}
+        reinferring={importTableCreateFlow.reinferring}
+        t={t}
+        onApplyRows={importTableCreateFlow.applyRows}
+        onCancel={importTableCreateFlow.handleCancel}
+        onConfirm={importTableCreateFlow.handleConfirm}
+      />
     </div>
   );
 };

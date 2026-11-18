@@ -26,6 +26,8 @@ export interface PageBridgeDeps {
   notifyRateLimit?: number;
   rateWindowMs?: number;
   now?: () => number;
+  /** Plugins holding the appearance-write permission may send a larger image payload. */
+  maxArgumentBytes?: number;
 }
 
 export interface PageBridge {
@@ -129,7 +131,7 @@ export function createPageBridge(deps: PageBridgeDeps): PageBridge {
   return {
     handle(data: unknown) {
       if (disposed) return;
-      const read = readPageCallMessage(data, deps.token);
+      const read = readPageCallMessage(data, deps.token, deps.maxArgumentBytes);
       if (!read) return;
       if (read.kind === 'invalid') {
         fail(read.id, 'plugin.pages.error.bridge');

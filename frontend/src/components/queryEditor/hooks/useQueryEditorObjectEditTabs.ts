@@ -37,6 +37,10 @@ import type { QueryEditorConnectionContextApi } from './useQueryEditorConnection
 import type { QueryEditorProps } from '../../QueryEditor';
 import { buildPgRoutineDefinitionQuery } from '../../../utils/pgRoutineDefinition';
 import { usesDriverObjectDefinition } from '../../definitionViewerDialect';
+import {
+    buildOracleRoutineDefinitionQuery,
+    isDamengRoutineDialect,
+} from '../../../utils/oracleRoutineDefinition';
 
 export interface UseQueryEditorObjectEditTabsInput {
     tab: QueryEditorProps['tab'];
@@ -107,11 +111,17 @@ export const useQueryEditorObjectEditTabs = ({ tab, connectionsRef, addTab }: Us
                     case 'oracle':
                     case 'dm':
                     case 'dameng': {
-                        const owner = safeSchema || safeDbName;
+                        const routineDefinitionDialect = (
+                            isDamengRoutineDialect(dialect)
+                            || isDamengRoutineDialect(conn.config?.type)
+                        ) ? 'dm' : 'oracle';
                         return [
-                            owner
-                                ? `SELECT TEXT FROM ALL_SOURCE WHERE OWNER = '${owner.toUpperCase()}' AND NAME = '${safeName.toUpperCase()}' AND TYPE = '${normalizedRoutineType}' ORDER BY LINE`
-                                : `SELECT TEXT FROM USER_SOURCE WHERE NAME = '${safeName.toUpperCase()}' AND TYPE = '${normalizedRoutineType}' ORDER BY LINE`,
+                            buildOracleRoutineDefinitionQuery(
+                                routineDefinitionDialect,
+                                routineSchemaName || targetDbName,
+                                routineObjectName,
+                                normalizedRoutineType,
+                            ),
                         ];
                     }
                     case 'duckdb': {

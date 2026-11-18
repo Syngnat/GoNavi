@@ -14,6 +14,14 @@ const (
 	MetadataReadPermission           = "host.metadata.read"
 	QueryReadPermission              = "host.query.read"
 	SchemaWritePermission            = "host.schema.write"
+	// AIProvidersWritePermission 允许插件向宿主 AI 供应商列表写入条目。能力收的是已经
+	// 解析好的凭据，宿主经活动 Service 落盘，插件始终读不回既有密钥。
+	AIProvidersWritePermission = "host.ai.providers.write"
+	// AIProvidersReadPermission 只授予「读 AI 供应商的元数据（名称、地址、协议）」，用于
+	// 判重这类场景。存在的理由：承载该读能力的 ai.providers 能力绑在 MetadataReadPermission
+	// 上，那是「读数据库库/表/列元数据」的语义，让一个 AI 配置插件为此申请数据库元数据权限
+	// 属于过度授权，公开词表也解释不通。新能力 ai.providers.read 用这条窄权限。
+	AIProvidersReadPermission = "host.ai.providers.read"
 )
 
 // OpenExternalPermission lets a page or a plugin window hand one http(s) link

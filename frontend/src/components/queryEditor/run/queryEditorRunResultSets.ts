@@ -2,6 +2,7 @@ import { normalizeQueryResultMessages, type QueryStatementPlan } from '../QueryE
 import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 import { GONAVI_ROW_KEY } from '../../DataGrid';
 import { createInitialQueryResultPagination } from '../../../utils/queryResultPagination';
+import { QUERY_EDITOR_DEFAULT_PAGE_SIZE } from '../queryEditorResultBudget';
 import { isSqlEditorNonDataStatement } from '../../../utils/sqlEditorTransaction';
 import type { QueryParamBindingInput } from '../params/queryEditorParamsModel';
 import type { QueryOptions } from '../../../store/storeStateTypes';
@@ -33,7 +34,6 @@ export const collectQueryEditorRunResultSets = ({
     const resultSetDataArray = Array.isArray(res.data) ? (res.data as any[]) : [];
     const topLevelMessages = normalizeQueryResultMessages(res.messages);
     const nextResultSets: QueryEditorResultSet[] = [];
-    const maxRows = Number(queryOptions?.maxRows) || 0;
     let anyTruncated = false;
     const statementResultCounts = new Map<number, number>();
     const resolveSourceStatementIndex = (rsData: any, idx: number): number => {
@@ -118,16 +118,9 @@ export const collectQueryEditorRunResultSets = ({
                 readOnly: true,
             });
         } else {
-            let rows = Array.isArray(rsData.rows) ? rsData.rows : [];
-            // The backend scanner reports its own truncation; the client-side
-            // slice below only covers the injected-LIMIT fallback.
-            let truncated = rsData?.truncated === true;
-            // 仅当前端自动注入了 LIMIT 时才做兜底截断；用户手写 LIMIT 时尊重原始结果
-            if (anyLimitApplied && Number.isFinite(maxRows) && maxRows > 0 && rows.length > maxRows) {
-                truncated = true;
-                anyTruncated = true;
-                rows = rows.slice(0, maxRows);
-            }
+            const rows = Array.isArray(rsData.rows) ? rsData.rows : [];
+            // 前端已不再注入 LIMIT，截断只可能来自后端扫描层（字段预览预算）。
+            const truncated = rsData?.truncated === true;
             const cols = (rsData.columns && rsData.columns.length > 0)
                 ? rsData.columns
                 : (rows.length > 0 ? Object.keys(rows[0]) : []);
@@ -144,7 +137,7 @@ export const collectQueryEditorRunResultSets = ({
                 dbType: normalizedDbType,
                 driver,
                 returnedRowCount: rows.length,
-                fallbackPageSize: maxRows,
+                fallbackPageSize: QUERY_EDITOR_DEFAULT_PAGE_SIZE,
             });
             nextResultSets.push({
                 key: `result-${nextResultSets.length + 1}`,

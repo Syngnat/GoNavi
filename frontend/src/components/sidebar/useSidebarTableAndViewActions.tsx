@@ -11,16 +11,13 @@ import { resolveNodeSchemaName } from './sidebarObjectActionHelpers';
 import {
   getMetadataDialect,
   splitQualifiedName,
-  escapeSQLLiteral,
-  extractSqlServerDefinitionRows,
 } from './sidebarMetadataLoaders';
 import type { SavedConnection } from '../../types';
-import { buildSqlServerObjectDefinitionQueries } from '../../utils/sqlServerObjectDefinition';
-import { DBQuery, DropView, RenameView } from '../../../wailsjs/go/app/App';
-import { normalizeMySQLViewDDLForEditing } from '../sidebarCoreUtils';
+import { DropView, RenameView } from '../../../wailsjs/go/app/App';
 import { buildStarRocksMaterializedViewPreviewSql } from '../tableDesignerSchemaSql';
 import type { SidebarCopyExportActionsApi } from './useSidebarCopyExportActions';
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
+import { loadSidebarViewDefinitionForEditing } from './sidebarViewEditDefinition';
 
 export interface UseSidebarTableAndViewActionsInput {
   buildRuntimeConfig: UseSidebarObjectActionsArgs['buildRuntimeConfig'];
@@ -156,55 +153,22 @@ export const useSidebarTableAndViewActions = ({
 
     try {
       const config = buildRuntimeConfig(conn, dbName);
-      let queries: string[] = [];
-      switch (dialect) {
-        case 'mysql':
-        case 'starrocks':
-          queries = [`SHOW CREATE VIEW \`${viewName.replace(/`/g, '``')}\``];
-          break;
-        case 'postgres': case 'kingbase': case 'highgo': case 'vastbase': case 'opengauss': case 'gaussdb': {
-          const parts = splitQualifiedName(viewName);
-          const schema = parts.schemaName || 'public';
-          const name = parts.objectName || viewName;
-          queries = [`SELECT pg_get_viewdef('${escapeSQLLiteral(schema)}.${escapeSQLLiteral(name)}'::regclass, true) AS view_definition`];
-          break;
-        }
-        case 'sqlserver':
-          queries = buildSqlServerObjectDefinitionQueries('view', viewName, dbName, 'view_definition');
-          break;
-        case 'sqlite':
-          queries = [`SELECT sql AS view_definition FROM sqlite_master WHERE type='view' AND name='${escapeSQLLiteral(viewName)}'`];
-          break;
-        case 'duckdb': {
-          const parts = splitQualifiedName(viewName);
-          const viewSchema = escapeSQLLiteral(parts.schemaName || 'main');
-          const viewObject = escapeSQLLiteral(parts.objectName || viewName);
-          queries = [`SELECT view_definition FROM information_schema.views WHERE table_schema='${viewSchema}' AND table_name='${viewObject}' LIMIT 1`];
-          break;
-        }
+      const loaded = await loadSidebarViewDefinitionForEditing({
+        connectionConfig: config,
+        dbName,
+        viewName,
+        schemaName,
+        dialect,
+        viewKind: 'view',
+      });
+      if (loaded.definition) {
+        template = `${sqlTemplateHeader}\n${loaded.definition}`;
+      } else {
+        message.warning(t('sidebar.message.view_definition_load_failed', { name: viewName }));
       }
-      for (const query of queries) {
-        const result = await DBQuery(buildRpcConnectionConfig(config) as any, dbName, query);
-        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
-          const row = result.data[0] as Record<string, any>;
-          const def = dialect === 'sqlserver'
-            ? extractSqlServerDefinitionRows(result.data, ['view_definition', 'definition'])
-            : row.view_definition || row.VIEW_DEFINITION || Object.values(row).find(v => typeof v === 'string' && String(v).length > 10) || '';
-          if (def) {
-            if (dialect === 'mysql') {
-              template = `${sqlTemplateHeader}\n${normalizeMySQLViewDDLForEditing(viewName, def)}`;
-            } else if (dialect === 'sqlserver') {
-              template = /^\s*create\s+view\b/i.test(String(def))
-                ? `${sqlTemplateHeader}\n${def}`
-                : `${sqlTemplateHeader}\nCREATE VIEW ${viewName} AS\n${def}`;
-            } else {
-              template = `${sqlTemplateHeader}\nCREATE OR REPLACE VIEW ${viewName} AS\n${def}`;
-            }
-            break;
-          }
-        }
-      }
-    } catch { /* 降级使用模板 */ }
+    } catch {
+      // 读取失败时保留可编辑模板。
+    }
 
     addTab({
       id: `query-edit-view-${Date.now()}`,

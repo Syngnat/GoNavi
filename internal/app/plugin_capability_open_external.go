@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // openPluginExternalURL is the only way a plugin can hand a URL to the system

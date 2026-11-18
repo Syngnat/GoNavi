@@ -230,6 +230,39 @@ ORDER BY s.name, t.name`;
     }
 };
 
+export const buildMySQLTableUpdateTimesSQL = (dbName: string): string => `
+SELECT table_name AS table_name, last_update AS update_time
+FROM mysql.innodb_table_stats
+WHERE database_name = '${String(dbName || '').replace(/'/g, "''")}'`;
+
+export const parseMySQLTableUpdateTimes = (
+    rows: Record<string, any>[],
+): Record<string, string> => {
+    const updates: Record<string, string> = {};
+    rows.forEach((row) => {
+        const name = String(row?.table_name ?? row?.TABLE_NAME ?? '').trim();
+        const updateTime = String(row?.update_time ?? row?.UPDATE_TIME ?? row?.last_update ?? '').trim();
+        if (name && updateTime && !updateTime.startsWith('0000-00-00')) updates[name] = updateTime;
+    });
+    return updates;
+};
+
+export const mergeMySQLTableUpdateTimes = (
+    rows: TableStatRow[],
+    updates: Record<string, string>,
+): TableStatRow[] => {
+    const updateEntries = Object.entries(updates);
+    if (updateEntries.length === 0) return rows;
+    const lowerCaseUpdates = new Map(
+        updateEntries.map(([name, updateTime]) => [name.toLowerCase(), updateTime]),
+    );
+    return rows.map((row) => {
+        const nextUpdateTime = updates[row.name] ?? lowerCaseUpdates.get(row.name.toLowerCase());
+        if (!nextUpdateTime || row.updateTime) return row;
+        return { ...row, updateTime: nextUpdateTime };
+    });
+};
+
 /**
  * 从排序规则名反推字符集。
  *
@@ -273,6 +306,7 @@ export const parseTableStats = (dialect: string, rows: Record<string, any>[]): T
             return isNaN(n) ? missingValue : Math.max(0, Math.round(n));
         };
 
+        const updateTime = strVal(['Update_time', 'update_time']);
         return {
             name: extractTableNameFromMetadataRow(row) || strVal(['Device', 'device']),
             comment: strVal(['Comment', 'table_comment', 'TABLE_COMMENT', 'comments']),
@@ -285,7 +319,7 @@ export const parseTableStats = (dialect: string, rows: Record<string, any>[]): T
             charset: collationToCharset(strVal(['Table_collation', 'table_collation', 'TABLE_COLLATION'])),
             collation: strVal(['Table_collation', 'table_collation', 'TABLE_COLLATION']),
             createTime: strVal(['Create_time', 'create_time']),
-            updateTime: strVal(['Update_time', 'update_time']),
+            updateTime,
         };
     }).filter(t => t.name);
 };

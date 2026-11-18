@@ -24,9 +24,18 @@ import (
 // 这个测试会失败，提示前端解码侧需要同步调整。
 func TestCompactQueryResultWireForm(t *testing.T) {
 	payload := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef}
+	affectedRows := int64(0)
 
 	raw, err := json.Marshal(CompactQueryResult{
-		QueryResult: connection.QueryResult{Success: true, Message: "ok"},
+		QueryResult: connection.QueryResult{
+			Success: true,
+			Message: "ok",
+			StatementResults: []connection.StatementExecutionResult{{
+				StatementIndex: 1,
+				Status:         connection.StatementResultSuccess,
+				AffectedRows:   &affectedRows,
+			}},
+		},
 		DataEncoding: compactQueryResultEncoding,
 		EncodedData:  payload,
 	})
@@ -51,6 +60,14 @@ func TestCompactQueryResultWireForm(t *testing.T) {
 	// 2) 编码标识必须与前端常量一致，否则前端不会进入解码分支。
 	if got, want := decoded["dataEncoding"], compactQueryResultEncoding; got != want {
 		t.Fatalf("dataEncoding = %v，期望 %v", got, want)
+	}
+	statementResults, ok := decoded["statementResults"].([]interface{})
+	if !ok || len(statementResults) != 1 {
+		t.Fatalf("statementResults 未保留在 JSON 线格式中：%#v", decoded["statementResults"])
+	}
+	statementResult, ok := statementResults[0].(map[string]interface{})
+	if !ok || statementResult["status"] != connection.StatementResultSuccess || statementResult["affectedRows"] != float64(0) {
+		t.Fatalf("statementResult 字段不完整：%#v", statementResults[0])
 	}
 	if !strings.Contains(compactQueryResultEncoding, "base64") {
 		t.Fatalf("dataEncoding(%q) 未声明 base64，前端 decodeBase64 会解错", compactQueryResultEncoding)

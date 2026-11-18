@@ -5,12 +5,13 @@ import {
   CopyOutlined, TableOutlined, FolderAddOutlined, FolderOpenOutlined, ThunderboltOutlined,
   CloudOutlined, FileAddOutlined, EditOutlined, WarningOutlined, DeleteOutlined, ReloadOutlined,
   ExportOutlined, SaveOutlined, AppstoreOutlined, DatabaseOutlined, DisconnectOutlined, KeyOutlined,
-  ConsoleSqlOutlined, DashboardOutlined,
+  ConsoleSqlOutlined, DashboardOutlined, CodeOutlined,
 } from '@ant-design/icons';
 import { GnNewQueryIcon } from '../icons/gnIcons';
 import { type SidebarNodeMenuContext, openRedisDbAliasModal } from './sidebarNodeMenuHelpers';
 import type { MenuProps } from 'antd';
 import { registryAllowsImport } from '../../utils/dataSourceRegistry';
+import { supportsDatabaseDefinition } from '../../utils/databaseDefinition';
 import { buildPluginConnectionActionMenuItems } from './pluginConnectionActionMenu';
 
 export interface BuildDatabaseNodeMenuItemsInput {
@@ -50,6 +51,12 @@ export const buildDatabaseNodeMenuItems = ({ node, context }: BuildDatabaseNodeM
            label: t('sidebar.menu.copy_database'),
            onClick: () => handleV2DatabaseContextMenuAction(node, 'copy-database')
        },
+       ...(supportsDatabaseDefinition(dialect) ? [{
+           key: 'view-create-database',
+           label: t('sidebar.v2_database_menu.view_create_database_sql'),
+           icon: <CodeOutlined />,
+           onClick: () => handleV2DatabaseContextMenuAction(node, 'view-create-database')
+       }] : []),
       ...(canCreateTable ? [{
            key: 'new-table',
            label: t('sidebar.menu.create_table'),

@@ -9,7 +9,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func normalizeDirectoryDialogPath(currentDir string) string {

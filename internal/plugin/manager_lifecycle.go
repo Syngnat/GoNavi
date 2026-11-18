@@ -231,6 +231,12 @@ func (m *Manager) activate(inst *instance) error {
 	m.notify()
 	return m.monitor(inst)
 }
+// heartbeatConfirmFactor widens the probe that runs after the miss budget is spent.
+// A short stall from system load, antivirus scanning or suspend/resume must not
+// persist a quarantine on a plugin that is still alive, while a wedged process
+// still fails the confirmation and keeps the fault bounded to a few seconds.
+const heartbeatConfirmFactor = 5
+
 func (m *Manager) monitor(inst *instance) error {
 	if inst.process == nil {
 		<-inst.ctx.Done()
@@ -247,9 +253,7 @@ func (m *Manager) monitor(inst *instance) error {
 		case <-inst.process.failed:
 			return inst.process.failure()
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(inst.ctx, m.opts.HeartbeatTimeout)
-			_, err := inst.process.call(ctx, "plugin.ping", struct{}{})
-			cancel()
+			err := probeHeartbeat(inst, m.opts.HeartbeatTimeout)
 			if err == nil {
 				misses = 0
 				lastErr = nil
@@ -258,15 +262,38 @@ func (m *Manager) monitor(inst *instance) error {
 			misses++
 			lastErr = err
 			logger.Warnf("plugin %s: heartbeat miss %d/%d: %v", inst.record.Manifest.ID, misses, m.opts.MissedHeartbeats, err)
-			if misses >= m.opts.MissedHeartbeats {
-				// The last ping error is the only evidence of why the budget ran out: a
-				// timeout, a saturated transport and a dying process all look identical
-				// once only the counter survives. Keep it in the chain and in the log.
-				logger.Warnf("plugin %s: heartbeat budget exhausted after %d misses: %v", inst.record.Manifest.ID, misses, lastErr)
-				return fmt.Errorf("plugin heartbeat budget exhausted: %w", lastErr)
+			if misses < m.opts.MissedHeartbeats {
+				continue
 			}
+			// The miss budget alone cannot tell a transient stall from a wedged
+			// process. Confirm with one probe that allows the plugin much longer to
+			// answer before the fault is persisted; recovery resets the budget so a
+			// plugin that is merely slow under load is not quarantined.
+			confirmErr := probeHeartbeat(inst, m.opts.HeartbeatTimeout*heartbeatConfirmFactor)
+			if ctxErr := inst.ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if confirmErr == nil {
+				logger.Warnf("plugin %s: heartbeat recovered after %d misses: %v", inst.record.Manifest.ID, misses, lastErr)
+				misses = 0
+				lastErr = nil
+				continue
+			}
+			lastErr = confirmErr
+			// The last ping error is the only evidence of why the budget ran out: a
+			// timeout, a saturated transport and a dying process all look identical
+			// once only the counter survives. Keep it in the chain and in the log.
+			logger.Warnf("plugin %s: heartbeat budget exhausted after %d misses: %v", inst.record.Manifest.ID, misses, lastErr)
+			return fmt.Errorf("plugin heartbeat budget exhausted: %w", lastErr)
 		}
 	}
+}
+
+func probeHeartbeat(inst *instance, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(inst.ctx, timeout)
+	defer cancel()
+	_, err := inst.process.call(ctx, "plugin.ping", struct{}{})
+	return err
 }
 func (m *Manager) quarantine(inst *instance, cause error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

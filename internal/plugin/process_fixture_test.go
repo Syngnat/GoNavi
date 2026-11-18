@@ -84,9 +84,15 @@ func TestFixtureProcess(t *testing.T) {
 				fmt.Fprint(os.Stderr, strings.Repeat("x", (1<<20)+4096))
 			}
 		case "plugin.ping":
-			if mode != "hang-heartbeat" {
-				emit(request.ID, struct{}{})
+			if mode == "hang-heartbeat" {
+				continue
 			}
+			if mode == "slow-heartbeat" {
+				// Longer than the fixture heartbeat timeout, shorter than the
+				// confirmation window: the plugin stays live but misses the budget.
+				time.Sleep(300 * time.Millisecond)
+			}
+			emit(request.ID, struct{}{})
 		case "plugin.invoke":
 			if mode == "crash-invoke" {
 				os.Exit(24)

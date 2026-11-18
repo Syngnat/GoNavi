@@ -3,6 +3,7 @@ import { message } from 'antd';
 import { t } from '../i18n';
 import { CancelExportFile } from '../../wailsjs/go/app/App';
 import { downloadBrowserFileFromResult } from '../utils/browserFileTransfer';
+import { isWebRequestTooLargeError } from './exportErrorMessage';
 import {
   cancelExportProgressTask,
   createEphemeralExportProgressTaskKey,
@@ -227,7 +228,12 @@ export function useExportProgressRunner(options?: UseExportProgressRunnerOptions
       }
       return result;
     } catch (error: any) {
-      const errorMessage = error?.message || String(error);
+      const rawMessage = error?.message || String(error);
+      // The browser build rejects oversized invoke bodies before the export
+      // service runs; point the user at the re-query path instead of the bare 413.
+      const errorMessage = isWebRequestTooLargeError(error, rawMessage)
+        ? t('data_export.message.request_too_large')
+        : rawMessage;
       const publish = !runOptions.shouldPublishResult || (getExportProgressTaskSnapshot(taskKey).state.jobId === jobId && runOptions.shouldPublishResult());
       finishExportProgressTask(taskKey, jobId, (prev): ExportProgressState => ({
         ...prev,

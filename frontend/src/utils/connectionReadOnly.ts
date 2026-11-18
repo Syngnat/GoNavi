@@ -101,7 +101,14 @@ const SQL_READ_ONLY_KEYWORDS = new Set([
   "consume",
 ]);
 
-const SQL_MUTATING_WITH_KEYWORDS = /\b(insert|update|delete|merge|upsert)\b/i;
+// `INSERT()` / `REPLACE()` 是 MySQL 的字符串函数，常出现在 SELECT 列表里
+// （如 INSERT(str, pos, len, newstr)）。只按关键字匹配会把它们误判成写语句，
+// 使只读连接和安全策略直接拒绝执行一条纯读 SQL。
+//
+// 只对这两个确实存在同名函数的动词排除「紧跟左括号」的形态；UPDATE / DELETE /
+// MERGE / UPSERT 在 SQL 里没有同名函数，保持原样以免漏判真实写入。
+const SQL_MUTATING_WITH_KEYWORDS = /\b(update|delete|merge|upsert)\b/i;
+const SQL_INSERT_STATEMENT_PATTERN = /\binsert\b(?!\s*\()/i;
 const SQL_REPLACE_INTO_PATTERN = /\breplace\s+into\b/i;
 
 /**
@@ -161,7 +168,9 @@ const hasMutatingWithKeyword = (statement: string, dbType: string): boolean => {
   const code = stripSqlLiteralsAndComments(statement, dbType)
     // `WITH ... SELECT ... FOR UPDATE` 是只读行锁查询，其中的 update 不是 DML。
     .replace(SQL_ROW_LOCK_CLAUSE, " ");
-  return SQL_MUTATING_WITH_KEYWORDS.test(code) || SQL_REPLACE_INTO_PATTERN.test(code);
+  return SQL_MUTATING_WITH_KEYWORDS.test(code)
+    || SQL_INSERT_STATEMENT_PATTERN.test(code)
+    || SQL_REPLACE_INTO_PATTERN.test(code);
 };
 
 const MONGO_READ_ONLY_COMMANDS = new Set([

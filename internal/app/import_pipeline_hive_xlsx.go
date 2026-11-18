@@ -49,12 +49,13 @@ func streamHiveXLSXSheetRows(entry *zip.File, shared *xlsxSharedStringResolver, 
 			return err
 		}
 		if columns == nil {
-			columns = make([]string, len(values))
+			fallbackColumns := make([]string, len(values))
 			for i, value := range values {
 				if value != nil {
-					columns[i] = value.(string)
+					fallbackColumns[i] = value.(string)
 				}
 			}
+			columns = resolveImportHeaderColumns(fallbackColumns, options)
 			if !hasImportUsableColumns(columns) {
 				return fmt.Errorf("Excel empty or missing header")
 			}

@@ -39,7 +39,7 @@ describe('appShell plugin settings entry', () => {
     plugins?.onClick?.();
     expect(onOpenSettingsNavigation).toHaveBeenCalledWith({ group: 'workspace', action: 'plugins' });
 
-    // 处理器按 action 分发到工作台 Tab 构建器，先关设置中心再开独立 Tab。
+    // 处理器按 action 分发到工作台 Tab 构建器；独立 Tab 与设置中心并存。
     expect(SETTINGS_WORKBENCH_TAB_BUILDERS.plugins).toBeDefined();
     expect(SETTINGS_WORKBENCH_TAB_BUILDERS.plugins!()).toEqual({
       id: PLUGIN_MANAGER_WORKBENCH_TAB_ID,

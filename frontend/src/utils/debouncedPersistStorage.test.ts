@@ -109,4 +109,73 @@ describe("debounced persist storage", () => {
     expect(JSON.parse(persisted || "{}").state.value).toBe(2);
     await Promise.all([Promise.resolve(firstWrite), Promise.resolve(latestWrite)]);
   });
+
+  it("skips the queued write when the persisted state object is unchanged", async () => {
+    let writes = 0;
+    const baseStorage: StateStorage = {
+      getItem: () => null,
+      setItem: () => { writes += 1; },
+      removeItem: () => undefined,
+    };
+    const storage = createFlushableStorage(baseStorage);
+    const state = { value: 1 };
+
+    void storage.setItem("store-key", { state, version: 1 });
+    await storage.flush();
+    expect(writes).toBe(1);
+
+    // partialize 状态没变时给的是同一个对象引用：再排一次写盘只是重复序列化。
+    void storage.setItem("store-key", { state, version: 1 });
+    await storage.flush();
+    expect(writes).toBe(1);
+
+    void storage.setItem("store-key", { state: { value: 2 }, version: 1 });
+    await storage.flush();
+    expect(writes).toBe(2);
+  });
+
+  it("writes again after removeItem even for a previously persisted state", async () => {
+    let writes = 0;
+    let removals = 0;
+    const baseStorage: StateStorage = {
+      getItem: () => null,
+      setItem: () => { writes += 1; },
+      removeItem: () => { removals += 1; },
+    };
+    const storage = createFlushableStorage(baseStorage);
+    const state = { value: 1 };
+
+    void storage.setItem("store-key", { state, version: 1 });
+    await storage.flush();
+    await storage.removeItem("store-key");
+    expect(removals).toBe(1);
+
+    void storage.setItem("store-key", { state, version: 1 });
+    await storage.flush();
+    expect(writes).toBe(2);
+  });
+
+  it("retries a failed write instead of treating it as persisted", async () => {
+    let attempts = 0;
+    const baseStorage: StateStorage = {
+      getItem: () => null,
+      setItem: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("quota exceeded");
+        }
+      },
+      removeItem: () => undefined,
+    };
+    const storage = createFlushableStorage(baseStorage);
+    const state = { value: 1 };
+
+    const failed = storage.setItem("store-key", { state, version: 1 });
+    await expect(storage.flush()).rejects.toThrow("quota exceeded");
+    await expect(Promise.resolve(failed)).rejects.toThrow("quota exceeded");
+
+    void storage.setItem("store-key", { state, version: 1 });
+    await storage.flush();
+    expect(attempts).toBe(2);
+  });
 });

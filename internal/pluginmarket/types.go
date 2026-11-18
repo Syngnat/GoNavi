@@ -67,6 +67,7 @@ type CatalogPage struct {
 // Rating is the service-owned, mutable rating for one user and plugin.
 type Rating struct {
 	UserID    string    `json:"userId"`
+	UserName  string    `json:"userName,omitempty"`
 	PluginID  string    `json:"pluginId"`
 	Stars     int       `json:"stars"`
 	Body      string    `json:"body"`

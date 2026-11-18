@@ -1,0 +1,53 @@
+name: Wails3 Build
+
+# Compiles the Wails v3 migration entry point on Windows. Packaging and
+# installers still live in the shipping v2 workflows until the migration
+# phases in WAILS3_MIGRATION.md are complete.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'cmd/wails3app/**'
+      - 'internal/desktop/**'
+      - 'internal/nativewindow/manager_v3.go'
+      - 'frontend/src/platform/**'
+      - 'frontend/bundle.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'scripts/build-wails3.mjs'
+      - '.github/workflows/wails3-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build frontend bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Wails3 binary
+        run: go build -tags wails3 -trimpath -buildvcs=false -ldflags "-w -s -H windowsgui" -o bin/GoNavi-wails3.exe ./cmd/wails3app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gonavi-wails3-windows-amd64
+          path: bin/GoNavi-wails3.exe
+          if-no-files-found: error

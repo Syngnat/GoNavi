@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -74,5 +76,66 @@ describe('NativeDetachedQueryResult', () => {
       [{ quickWhereCondition: 'id > 1' }],
     ]);
     renderer.unmount();
+  });
+
+  it('renders a structured statement summary instead of a plain textarea', async () => {
+    vi.stubGlobal('ShadowRoot', class ShadowRoot {});
+    const onStateChange = vi.fn();
+    const windowState: DetachedQueryResultWindow = {
+      id: 'query-result:query-1:result-1',
+      sourceQueryTabId: 'query-1',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      title: 'Execution summary',
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+      zIndex: 1201,
+      result: {
+        key: 'result-1',
+        sql: 'update users set active = 1',
+        rows: [],
+        columns: [],
+        resultType: 'message',
+        summaryKind: 'statements',
+        summaryStatementCount: 2,
+        summaryEntries: [
+          {
+            statementIndex: 1,
+            statement: 'update users set active = 1',
+            status: 'success',
+            affectedRows: 2,
+            rowCountMeaningless: false,
+          },
+          {
+            statementIndex: 2,
+            statement: 'update users set active = 2',
+            status: 'failed',
+            rowCountMeaningless: false,
+            error: 'permission denied',
+          },
+        ],
+        pkColumns: [],
+        readOnly: true,
+      },
+    };
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <React.Suspense fallback={null}>
+          <NativeDetachedQueryResult windowState={windowState} onStateChange={onStateChange} />
+        </React.Suspense>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(renderer.root.findAll((node) =>
+      String(node.props?.['data-query-result-statement-summary']) === 'true',
+    )).toHaveLength(1);
+    expect(renderer.root.findAll((node) => node.type === 'textarea')).toHaveLength(0);
+    renderer.unmount();
+    vi.unstubAllGlobals();
   });
 });

@@ -469,14 +469,33 @@ func isQuotedParamName(name string) bool {
 }
 
 // extractTemplateNames 提取字符串内容中的全部 {标识符} 参数名，按出现顺序去重。
+//
+// 旧实现每遇到一个 '{' 就 IndexByte(content[i:], '}') 重新向后扫描：当字符串
+// 里有大量 '{' 而后面没有闭合的 '}' 时是平方级（例如 1MB 的 '{{{{…'）。这里
+// 用一个只前进的游标记住「位置 i 之后第一个 '}'」，每个字节至多被扫描一次；
+// 语义与逐次 IndexByte 完全一致（游标只会在 i 超过它时重新定位，而从旧起点
+// 到该位置之间不存在 '}'，所以对新的 i 它仍是「第一个」）。
 func extractTemplateNames(content string) []string {
 	seen := make(map[string]struct{})
 	var names []string
+	nextClose := -1
+	noMoreCloses := false
 	for i := 0; i < len(content); i++ {
 		if content[i] != '{' {
 			continue
 		}
-		end := strings.IndexByte(content[i:], '}')
+		if noMoreCloses {
+			continue
+		}
+		if nextClose < i {
+			offset := strings.IndexByte(content[i:], '}')
+			if offset < 0 {
+				noMoreCloses = true
+				continue
+			}
+			nextClose = i + offset
+		}
+		end := nextClose - i
 		if end <= 1 {
 			continue
 		}

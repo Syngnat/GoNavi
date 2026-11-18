@@ -18,6 +18,9 @@ vi.mock('../../DataGrid', () => ({ GONAVI_ROW_KEY: '__gonavi_row_key__' }));
 vi.mock('antd', () => ({
   message: { info: vi.fn(), success: vi.fn(), warning: vi.fn(), error: vi.fn() },
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  Modal: Object.assign(vi.fn(), {
+    info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn(), confirm: vi.fn(), destroyAll: vi.fn(),
+  }),
 }));
 
 function createInput(sql: string, saved: boolean, readOnly = false) {
@@ -32,7 +35,7 @@ function createInput(sql: string, saved: boolean, readOnly = false) {
     conn: { id: 'kingbase', name: 'Kingbase', config }, metadataGenerationRef: { current: 0 }, currentConnectionId: 'kingbase',
     isQueryEditorMetadataRequestCurrent: () => true, tablesRef: { current: [] }, isActive: true, executionDbName: 'lab',
     isCurrentRun: () => true, executionConfig: applyQueryEditorSchemaSearchPath(config, 'dbms_job'),
-    queryOptions: { maxRows: 0, showColumnComment: true } as RunQueryEditorSqlStatementsInput['queryOptions'], driver: 'kingbase',
+    queryOptions: { showColumnComment: true } as unknown as RunQueryEditorSqlStatementsInput['queryOptions'], driver: 'kingbase',
     containsOraclePlsqlDefinition: () => false, normalizeOracleSqlPlusSlashTerminators: text => text,
     recordExecutionOrigin: vi.fn(), executableSQL: sql, runOptions: undefined, paramsDialogState: { open: false, analysis: null },
     paramsState: { analyzeNow: vi.fn(async () => null), quotedPlaceholders: true } as unknown as RunQueryEditorSqlStatementsInput['paramsState'],
@@ -41,7 +44,7 @@ function createInput(sql: string, saved: boolean, readOnly = false) {
     executeSqlEditorMultiQuery: vi.fn(async () => ({ success: true, message: '', data: [{ columns: ['Customer'], rows: [{ Customer: 'Alice' }] }] })),
     executionConnectionParams: applyQueryEditorSchemaSearchPath(config, 'dbms_job').connectionParams, executionSchemaName: 'dbms_job',
     finishQueryEditorSqlClock: () => 1, queryEditorUnmountedRef: { current: false }, addSqlLog: vi.fn(), currentQueryIdRef: { current: '' },
-    clearQueryId: vi.fn(), updateResultPanelVisibility: vi.fn(), setExecutionError: vi.fn(), mutatingStatements: [],
+    clearQueryId: vi.fn(), updateResultPanelVisibility: vi.fn(), setExecutionError: vi.fn(),
     activatePendingSqlTransaction: vi.fn(), sqlEditorCommitMode: 'manual', sqlEditorAutoCommitDelayMs: 0,
     appendPendingSqlTransactionExecution: vi.fn(), hasConcreteQueryResultSetData: () => true, isAffectedRowsResultSetData: () => false,
     mergeResultSets: (_previous, next) => next, setResultSets: vi.fn(), activateExecutedResult: vi.fn(), runSeq: 1,

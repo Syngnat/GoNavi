@@ -1,3 +1,5 @@
+//go:build !wails3
+
 package nativewindow
 
 import (
@@ -618,7 +620,10 @@ func TestManagerDoesNotReuseChildAfterTerminalActionIsAccepted(t *testing.T) {
 
 func TestManagerShutdownAllowsGracefulChildExitBeforeKilling(t *testing.T) {
 	manager := newHTTPTestManager(t)
-	manager.shutdownGracePeriod = 250 * time.Millisecond
+	// 宽限期只用来兜底强制结束，进程正常退出后 waitForChildren 会立刻返回；
+	// 宽限值放得比 watchProcess 的调度延迟大一个量级，避免 CI 上 watcher
+	// 迟迟没被调度时把“已协作退出”误判成需要 Kill。低于后面 1s 的 done 超时。
+	manager.shutdownGracePeriod = 2 * time.Second
 	process := &fakeChildProcess{pid: 45, done: make(chan error, 1), killed: make(chan struct{})}
 	manager.windows["ai-chat"] = &windowEntry{
 		info:         WindowInfo{ID: "ai-chat", Kind: "ai-chat"},

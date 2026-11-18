@@ -1,0 +1,42 @@
+.gn-query-statement-error-details {
+  min-width: 0;
+  color: var(--gn-fg-2, #333);
+  user-select: text;
+}
+
+.gn-query-statement-error-details section + section {
+  margin-top: 16px;
+}
+
+.gn-query-statement-error-details h3 {
+  margin: 0 0 8px;
+  color: var(--gn-fg-4, #777);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gn-query-statement-error-details pre {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.025);
+  font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.gn-query-statement-error-details[data-dark="true"] pre {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.gn-query-statement-error-details .gn-query-statement-error-message {
+  color: #cf3f3f;
+}
+
+.gn-query-statement-error-details[data-dark="true"] .gn-query-statement-error-message {
+  color: #ff7875;
+}

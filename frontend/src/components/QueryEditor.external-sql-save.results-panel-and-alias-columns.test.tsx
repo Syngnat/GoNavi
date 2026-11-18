@@ -915,7 +915,7 @@ describe('QueryEditor external SQL save', () => {
       expect.objectContaining({
         label: 'PERSON',
         insertText: 'PERSON',
-        detail: '同义词 (A.PERSON)',
+        detail: 'A.PERSON - 同义词',
       }),
     ]));
     expect(synonymItems.suggestions.filter((item: any) => item.label === 'PERSON')).toHaveLength(1);
@@ -940,11 +940,11 @@ describe('QueryEditor external SQL save', () => {
     expect(ownerItems.suggestions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         label: 'PERSON',
-        detail: '同义词 (IMP_DATA.PERSON)',
+        detail: 'IMP_DATA.PERSON - 同义词',
       }),
       expect.objectContaining({
         label: 'AC02',
-        detail: '同义词 (IMP_DATA.AC02)',
+        detail: 'IMP_DATA.AC02 - 同义词',
       }),
     ]));
 

@@ -1,4 +1,4 @@
-//go:build darwin && cgo
+//go:build darwin && cgo && !wails3
 
 package nativewindow
 
@@ -48,10 +48,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
-
-func pluginPlatformEnvironment(string) []string {
-	return []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
-}
 
 func configurePluginWebview(app *options.App, _ string) error {
 	if C.installPluginConfigurationGuard() == 0 {

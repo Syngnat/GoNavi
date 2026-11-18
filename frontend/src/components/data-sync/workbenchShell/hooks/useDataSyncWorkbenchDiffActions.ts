@@ -86,6 +86,7 @@ export const useDataSyncWorkbenchDiffActions = ({
           isDataSyncPreflightCurrent(selectedTask, selectedPreflight) &&
           selectedPreflight.status !== 'blocked' &&
           (selectedPreflight.approvalRequired === false ||
+            selectedPreflight.approvalSatisfied === true ||
             Boolean(
               selectedApproval &&
                 selectedApproval.definitionHash === selectedPreflight.definitionHash &&

@@ -288,6 +288,12 @@ export const queryEditorExecutionTimerStatusI18nKey = (
   if (!lifecycle) {
     return '';
   }
+  // 执行还没真正结束（前端仍在 loading）时不要显示终态文案：后端 lifecycle 可能
+  // 先一步报 done，而结果集加工、元数据回填仍在进行，运行按钮还在转圈。此时显示
+  // 「执行完成」会和转圈自相矛盾，所以继续显示「执行中」。
+  if (isTerminalQueryEditorExecutionStatus(lifecycle.status) && timingActive) {
+    return 'query_editor.execution.status.running';
+  }
   if (isActiveQueryEditorExecutionStatus(lifecycle.status) && !timingActive) {
     return '';
   }

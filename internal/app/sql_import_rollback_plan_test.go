@@ -55,7 +55,6 @@ func TestPlanSQLImportRollbackFallsBackForUnknownStatements(t *testing.T) {
 	cases := []string{
 		"CALL refresh_sales();",
 		"DROP DATABASE app;",
-		"CREATE OR REPLACE VIEW v AS SELECT 1;",
 		"WITH changed AS (SELECT 1) UPDATE users SET id = 1;",
 	}
 	for _, sql := range cases {
@@ -68,6 +67,27 @@ func TestPlanSQLImportRollbackFallsBackForUnknownStatements(t *testing.T) {
 		}
 		if plan.AdditiveOnly {
 			t.Fatalf("%q was incorrectly marked additive: %+v", sql, plan)
+		}
+	}
+}
+
+func TestPlanSQLImportRollbackScopesCreateOrReplaceView(t *testing.T) {
+	for _, sql := range []string{
+		"CREATE OR REPLACE VIEW v_files AS SELECT 1;",
+		"CREATE OR REPLACE FORCE VIEW v_files AS SELECT 1;",
+	} {
+		plan, err := planSQLImportRollbackReader(strings.NewReader(sql), "postgres", DefaultSQLImportMaxStatementBytes)
+		if err != nil {
+			t.Fatalf("%q: %v", sql, err)
+		}
+		if plan.WholeDatabase {
+			t.Fatalf("%q incorrectly requested a whole database snapshot: %+v", sql, plan)
+		}
+		if plan.AdditiveOnly {
+			t.Fatalf("%q was incorrectly marked additive: %+v", sql, plan)
+		}
+		if !reflect.DeepEqual(plan.Tables, []string{"v_files"}) {
+			t.Fatalf("%q tables = %#v, want [v_files]", sql, plan.Tables)
 		}
 	}
 }

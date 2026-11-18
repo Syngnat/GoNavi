@@ -108,6 +108,8 @@ export const useTableOverviewTableActions = ({
       showCountdownDangerConfirm({
           title: t('table_overview.modal.delete_table.title'),
           content: t('table_overview.modal.delete_table.content', { table: tableName }),
+          // 删除表只保留危险操作的二次确认，不再重复倒计时。
+          countdownSeconds: 0,
           onOk: async () => {
               if (!await confirmProductionMutation(
                   connection,
@@ -200,7 +202,7 @@ export const useTableOverviewTableActions = ({
       message.success(shouldPin ? t('table_overview.message.pinned') : t('table_overview.message.unpinned'));
   }, [connection?.id, pinnedSidebarTables, schemaName, setSidebarTablePinned, t, tab.dbName]);
 
-  // 改名提交（校验 + 生产库确认 + 调用 + 刷新），Modal 流程与表名就地编辑共用。
+  // 改名提交（校验 + 生产库确认 + 调用 + 刷新），供右键菜单的改名弹窗使用。
   const commitTableRename = useCallback(async (tableName: string, rawNewName: string): Promise<boolean> => {
       const trimmed = rawNewName.trim();
       if (!trimmed) { message.error(t('table_overview.validation.table_name_required')); return false; }
@@ -310,14 +312,22 @@ export const useTableOverviewTableActions = ({
   const accentColor = 'var(--gn-accent)';
   const containerBg = undefined;
 
-  const toggleSort = (field: SortField) => {
+  const toggleSort = useCallback((field: SortField) => {
       if (sortField === field) {
           setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
       } else {
           setSortField(field);
-          setSortOrder(field === 'name' || field === 'comment' || field === 'engine' ? 'asc' : 'desc');
+      setSortOrder(
+          field === 'name'
+          || field === 'comment'
+          || field === 'engine'
+          || field === 'charset'
+          || field === 'collation'
+              ? 'asc'
+              : 'desc',
+      );
       }
-  };
+  }, [setSortField, setSortOrder, sortField]);
 
   const getSortMenuLabel = (field: SortField, labelKey: string) => {
       const suffix = sortField === field ? (sortOrder === 'asc' ? ' ↑' : ' ↓') : '';
@@ -331,6 +341,8 @@ export const useTableOverviewTableActions = ({
       { key: 'dataSize', label: getSortMenuLabel('dataSize', 'table_overview.sort.size'), onClick: () => toggleSort('dataSize') },
       { key: 'indexSize', label: getSortMenuLabel('indexSize', 'table_overview.metric.index_size'), onClick: () => toggleSort('indexSize') },
       { key: 'engine', label: getSortMenuLabel('engine', 'table_overview.metric.engine'), onClick: () => toggleSort('engine') },
+      { key: 'charset', label: getSortMenuLabel('charset', 'table_overview.metric.charset'), onClick: () => toggleSort('charset') },
+      { key: 'collation', label: getSortMenuLabel('collation', 'table_overview.metric.collation'), onClick: () => toggleSort('collation') },
       { key: 'updateTime', label: getSortMenuLabel('updateTime', 'table_overview.metric.updated_at'), onClick: () => toggleSort('updateTime') },
       { key: 'createTime', label: getSortMenuLabel('createTime', 'table_overview.metric.created_at'), onClick: () => toggleSort('createTime') },
   ];
@@ -501,7 +513,7 @@ export const useTableOverviewTableActions = ({
   return {
     textPrimary, textSecondary, textMuted, accentColor, containerBg, toggleSort, sortMenuItems,
     hasKnownTableSize, getCombinedTableSize, maxCombinedSize, renderToolbarSummary,
-    renderV2OverviewTableContextMenu, commitTableRename,
+    renderV2OverviewTableContextMenu,
   };
 };
 

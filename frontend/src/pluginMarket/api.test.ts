@@ -24,7 +24,7 @@ describe('market generated adapter', () => {
     await expect(marketAPI.catalog('', 'updated', '')).rejects.toThrow();
   });
   it('reads public ratings without any write operation', async () => {
-    const rating = { userId: 'u1', pluginId: 'test.hello', stars: 4, body: 'Helpful', version: '1.0.0', updatedAt: 'now' };
+    const rating = { userId: 'u1', userName: 'octocat', pluginId: 'test.hello', stars: 4, body: 'Helpful', version: '1.0.0', updatedAt: 'now' };
     host.PluginMarketRatings.mockResolvedValue({ success: true, data: [rating] });
     expect(await marketAPI.ratings('test.hello')).toEqual([rating]);
     expect(host.PluginMarketRatings).toHaveBeenCalledWith('test.hello');

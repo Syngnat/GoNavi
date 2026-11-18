@@ -5,13 +5,15 @@ body[data-ui-version="v2"] .gn-v2-data-viewer {
 
 body[data-ui-version="v2"] .gn-v2-data-grid {
   padding: 0 !important;
-  background: var(--gn-bg-panel) !important;
+  /* 表格容器是圆角卡片，圆角外侧露出的就是这层底色；和上方工具条同用
+     --gn-query-workbench-bg（面板二档），否则圆角那一点点会和工具条差一档颜色。 */
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-frame {
   margin: 0 !important;
-  border-width: 0 0 0.5px !important;
-  border-color: var(--gn-br-1) !important;
+  /* 下边框会横在工具条与下方表格容器的圆角交界处，视觉上多出一道线；四边一律不画。 */
+  border: 0 !important;
   border-radius: 0 !important;
   background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
 }

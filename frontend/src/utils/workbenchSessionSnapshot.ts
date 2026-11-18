@@ -60,6 +60,7 @@ const COMES_BACK_AFTER_RESTART: Record<WorkbenchTabType, boolean> = {
   'sequence-def': true,
   'package-def': true,
   'database-link-def': true,
+  'database-def': true,
   'jvm-overview': true,
   'jvm-resource': true,
   'jvm-audit': true,

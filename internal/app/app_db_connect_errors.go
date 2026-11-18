@@ -208,10 +208,11 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 		if path == "" {
 			path = "(未配置)"
 		}
-		b.WriteString(fmt.Sprintf("类型=%s 路径=%s 超时=%ds", config.Type, path, timeoutSeconds))
+		b.WriteString(fmt.Sprintf("类型=%s 网络方式=%s 路径=%s 超时=%ds",
+			config.Type, connectionNetworkMode(config), path, timeoutSeconds))
 	} else {
-		b.WriteString(fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
-			config.Type, connectionLogHost(config.Host), config.Port, dbName, config.User, timeoutSeconds))
+		b.WriteString(fmt.Sprintf("类型=%s 网络方式=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
+			config.Type, connectionNetworkMode(config), connectionLogHost(config.Host), config.Port, dbName, config.User, timeoutSeconds))
 	}
 
 	if len(config.Hosts) > 0 {
@@ -294,6 +295,8 @@ func formatHTTPTunnelEndpointForLog(config connection.HTTPTunnelConfig) string {
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Host != "" && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) {
 		parsed.User = nil
+		parsed.Path = ""
+		parsed.RawPath = ""
 		parsed.RawQuery = ""
 		parsed.ForceQuery = false
 		parsed.Fragment = ""

@@ -56,3 +56,6 @@ docs/superpowers/specs/*
 !docs/blog/**
 .tmp_superpowers_edit
 .gonavi-dev-signing-identity
+
+# Wails v3 local build output
+bin/

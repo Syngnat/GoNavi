@@ -120,25 +120,25 @@ func TestIRISTableRefAndIdentifierQuoting(t *testing.T) {
 func TestIRISIdentifierQuotingOnlyWhenBareFormIsInvalid(t *testing.T) {
 	cases := map[string]string{
 		// 裸写可用：非保留字、字符集合法（含 % 开头的系统投影与混合大小写）。
-		"USER_TABLE":  "USER_TABLE",
-		"BDA_Store":   "BDA_Store",
-		"_private":    "_private",
-		"%ID":         "%ID",
-		"Order":       "Order",
-		"Value":       "Value",
-		"Index":       "Index",
-		"Key":         "Key",
-		"Name":        "Name",
-		"Status":      "Status",
+		"USER_TABLE": "USER_TABLE",
+		"BDA_Store":  "BDA_Store",
+		"_private":   "_private",
+		"%ID":        "%ID",
+		"Order":      "Order",
+		"Value":      "Value",
+		"Index":      "Index",
+		"Key":        "Key",
+		"Name":       "Name",
+		"Status":     "Status",
 		// 保留字必须加引号，否则 SQL 解析失败。
-		"LEVEL":       `"LEVEL"`,
-		"User":        `"User"`,
-		"Select":      `"Select"`,
-		"top":         `"top"`,
+		"LEVEL":  `"LEVEL"`,
+		"User":   `"User"`,
+		"Select": `"Select"`,
+		"top":    `"top"`,
 		// 非法字符必须加引号，且内部双引号要转义。
-		"has space":   `"has space"`,
-		"a-b":         `"a-b"`,
-		`we"ird`:      `"we""ird"`,
+		"has space": `"has space"`,
+		"a-b":       `"a-b"`,
+		`we"ird`:    `"we""ird"`,
 		// 已带引号的输入先剥壳再判定。
 		`"BDA_Store"`: "BDA_Store",
 	}
@@ -185,19 +185,19 @@ func TestBuildIRISCreateTableDDLIncludesPrimaryAndIndexes(t *testing.T) {
 	)
 
 	for _, want := range []string{
-		`CREATE TABLE "Sample"."Person"`,
-		`"id" INTEGER NOT NULL`,
-		`"name" VARCHAR(80) NOT NULL`,
-		`"created_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
-		`PRIMARY KEY ("id")`,
-		`CREATE UNIQUE INDEX "idx_person_name" ON "Sample"."Person" ("name");`,
-		`CREATE INDEX "idx_person_created_at" ON "Sample"."Person" ("created_at");`,
+		`CREATE TABLE Sample.Person`,
+		`id INTEGER NOT NULL`,
+		`name VARCHAR(80) NOT NULL`,
+		`created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+		`PRIMARY KEY (id)`,
+		`CREATE UNIQUE INDEX idx_person_name ON Sample.Person (name);`,
+		`CREATE INDEX idx_person_created_at ON Sample.Person (created_at);`,
 	} {
 		if !strings.Contains(ddl, want) {
 			t.Fatalf("ddl missing %q:\n%s", want, ddl)
 		}
 	}
-	if strings.Contains(ddl, `CREATE UNIQUE INDEX "app_person_pk"`) {
+	if strings.Contains(ddl, `CREATE UNIQUE INDEX app_person_pk`) {
 		t.Fatalf("primary key index should not be emitted as a standalone index:\n%s", ddl)
 	}
 }
@@ -212,7 +212,7 @@ func TestBuildIRISCreateTableDDLFallsBackToColumnPrimaryKey(t *testing.T) {
 		nil,
 	)
 
-	if !strings.Contains(ddl, `PRIMARY KEY ("id")`) {
+	if !strings.Contains(ddl, `PRIMARY KEY (id)`) {
 		t.Fatalf("ddl missing primary key from column metadata:\n%s", ddl)
 	}
 }
@@ -346,7 +346,7 @@ func TestBuildIRISApplyChangesSQL(t *testing.T) {
 	if !ok {
 		t.Fatal("expected delete SQL")
 	}
-	if deleteSQL != `DELETE FROM "Sample"."Person" WHERE "id" = ?` || !reflect.DeepEqual(deleteArgs, []interface{}{1}) {
+	if deleteSQL != `DELETE FROM Sample.Person WHERE id = ?` || !reflect.DeepEqual(deleteArgs, []interface{}{1}) {
 		t.Fatalf("unexpected delete SQL/args: %s %#v", deleteSQL, deleteArgs)
 	}
 
@@ -357,7 +357,7 @@ func TestBuildIRISApplyChangesSQL(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("expected update SQL, ok=%v err=%v", ok, err)
 	}
-	if updateSQL != `UPDATE "Sample"."Person" SET "name" = ?, "updated_at" = ? WHERE "id" = ?` {
+	if updateSQL != `UPDATE Sample.Person SET name = ?, updated_at = ? WHERE id = ?` {
 		t.Fatalf("unexpected update SQL: %s", updateSQL)
 	}
 	if !reflect.DeepEqual(updateArgs, []interface{}{"Alice", "2026-05-16", 1}) {
@@ -368,7 +368,7 @@ func TestBuildIRISApplyChangesSQL(t *testing.T) {
 	if !ok {
 		t.Fatal("expected insert SQL")
 	}
-	if insertSQL != `INSERT INTO "Sample"."Person" ("id", "name") VALUES (?, ?)` {
+	if insertSQL != `INSERT INTO Sample.Person (id, name) VALUES (?, ?)` {
 		t.Fatalf("unexpected insert SQL: %s", insertSQL)
 	}
 	if !reflect.DeepEqual(insertArgs, []interface{}{1, "Alice"}) {
@@ -397,9 +397,9 @@ func TestIrisApplyChangesExecutesInDeleteUpdateInsertOrder(t *testing.T) {
 
 	got := state.snapshotExecQueries()
 	want := []string{
-		`DELETE FROM "Sample"."Person" WHERE "id" = ?`,
-		`UPDATE "Sample"."Person" SET "name" = ? WHERE "id" = ?`,
-		`INSERT INTO "Sample"."Person" ("id", "name") VALUES (?, ?)`,
+		`DELETE FROM Sample.Person WHERE id = ?`,
+		`UPDATE Sample.Person SET name = ? WHERE id = ?`,
+		`INSERT INTO Sample.Person (id, name) VALUES (?, ?)`,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected exec queries:\nwant=%#v\ngot=%#v", want, got)

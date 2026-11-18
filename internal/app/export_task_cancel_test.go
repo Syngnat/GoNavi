@@ -34,6 +34,21 @@ func TestExportTaskCancelFlowRegistersCancelsAndCleansUp(t *testing.T) {
 	}
 }
 
+func TestRegisterExportTaskCancelsReplacedTask(t *testing.T) {
+	app := NewApp()
+	ctx1, finish1 := app.beginCancelableExportTask("same-job")
+	defer finish1()
+	ctx2, finish2 := app.beginCancelableExportTask("same-job")
+	defer finish2()
+
+	if ctx1.Err() == nil {
+		t.Fatal("replaced export task should be canceled")
+	}
+	if ctx2.Err() != nil {
+		t.Fatalf("new export task should stay active: %v", ctx2.Err())
+	}
+}
+
 func TestBeginCancelableExportTaskWithoutJobIDIsNotCancelable(t *testing.T) {
 	app := NewApp()
 	exportCtx, finish := app.beginCancelableExportTask("   ")

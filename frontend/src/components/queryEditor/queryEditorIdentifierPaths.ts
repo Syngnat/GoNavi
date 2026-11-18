@@ -125,6 +125,22 @@ export const stripQueryIdentifierQuotesForDialect = (part: string, dbType = ''):
 export const splitQueryIdentifierPathSegments = (qualifiedName: string, dbType = ''): QueryIdentifierPathSegment[] => {
     const text = String(qualifiedName || '').trim();
     if (!text) return [];
+    // Fast path: without quote/bracket characters the scanner below degrades
+    // to `split('.')` + trim + drop-empty. Large documents run this for every
+    // table reference, so skipping the character loop matters. Callers rely on
+    // `raw`/`value` being the trimmed segment and `quoted` being false here.
+    const mayContainQuotes = text.includes('"') || text.includes('`')
+        || (supportsQueryEditorBracketIdentifier(dbType) && text.includes('['));
+    if (!mayContainQuotes) {
+        const parts = text.split('.');
+        const fastSegments: QueryIdentifierPathSegment[] = [];
+        for (const part of parts) {
+            const raw = part.trim();
+            if (!raw) continue;
+            fastSegments.push({ raw, value: raw, quoted: false });
+        }
+        return fastSegments;
+    }
 
     const segments: QueryIdentifierPathSegment[] = [];
     let current = '';

@@ -6,6 +6,8 @@ import { useStore } from '../store';
 import { t } from '../i18n';
 import DeferredWorkspaceContentErrorBoundary from './DeferredWorkspaceContentErrorBoundary';
 import DeferredWorkspaceContentFallback from './DeferredWorkspaceContentFallback';
+import QueryEditorStatementSummaryTable from './queryEditor/QueryEditorStatementSummaryTable';
+import { isQueryEditorStatementSummary } from './queryEditor/run/queryEditorRunStatementSummary';
 import { hasNativeDetachedWindowManager } from '../utils/nativeDetachedWindowHost';
 import {
   clamp,
@@ -259,6 +261,7 @@ const FloatingQueryResultWindows: React.FC = () => {
         }
       `}</style>
       {windows.map((windowState) => {
+        const isStatementSummary = isQueryEditorStatementSummary(windowState.result);
         const isMessage =
           windowState.result.resultType === 'message' ||
           isAffectedRowsResult(windowState.result.columns || []);
@@ -310,7 +313,16 @@ const FloatingQueryResultWindows: React.FC = () => {
               </div>
             </div>
             <div className="gn-detached-result-body">
-              {isMessage ? (
+              {isStatementSummary && windowState.result.summaryEntries?.length ? (
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', padding: 10, overflow: 'hidden' }}>
+                  <QueryEditorStatementSummaryTable
+                    title={t('query_editor.results_panel.summary.title')}
+                    entries={windowState.result.summaryEntries}
+                    darkMode={isDark}
+                    fallbackText={(windowState.result.messages || []).join('\n')}
+                  />
+                </div>
+              ) : isMessage ? (
                 <textarea
                   className="gn-detached-result-message"
                   readOnly

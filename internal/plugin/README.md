@@ -28,7 +28,7 @@ This package implements the version-one [integration contract](https://plugin.go
 | Stderr | Drained with a 1 MiB lifetime budget; never forwarded to UI/logs |
 | Invocations | 16 concurrent/plugin; 30-second default deadline |
 | Pending RPC requests | 64; canceled slots retained until reply/exit |
-| Handshake / probes / stop | 10 seconds / 1-second probes, three misses / at most 2 seconds |
+| Handshake / probes / stop | 10 seconds / 1-second probes, three misses, one five-second confirmation / at most 2 seconds |
 
 Canonical digest: SHA-256 over sorted file records consisting of path, NUL, decimal size, NUL, content SHA-256 hex, and newline. Archive transport checksums are separate. Empty directories and source permission bits do not affect the digest; installation creates file-parent directories only and normalizes permissions. Read-only package files are not protected against a trusted same-user process deliberately changing them. Activation verifies the entire package digest again.
 

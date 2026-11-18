@@ -1,5 +1,5 @@
 import Modal from '../common/ResizableDraggableModal';
-import { Form, Space, Button, Tag, Radio } from 'antd';
+import { Form, Space, Button, Tag, Radio, Progress } from 'antd';
 import { extractFilenameFromPath, type RedisImportConflictMode } from './redisViewerHelpers';
 import type { RedisViewerStateApi } from './useRedisViewerState';
 import type { RedisViewerImportExportApi } from './useRedisViewerImportExport';
@@ -13,7 +13,10 @@ export interface RedisNewKeyModalProps {
     importSelectedKeys: RedisViewerStateApi['importSelectedKeys'];
     importPreviewLoading: RedisViewerStateApi['importPreviewLoading'];
     importingKeys: RedisViewerStateApi['importingKeys'];
+    importProgress: RedisViewerImportExportApi['importProgress'];
+    cancellingImport: RedisViewerImportExportApi['cancellingImport'];
     handleConfirmImportKeys: RedisViewerImportExportApi['handleConfirmImportKeys'];
+    handleCancelImport: RedisViewerImportExportApi['handleCancelImport'];
     resetImportModalState: RedisViewerImportExportApi['resetImportModalState'];
     redisModalContentStyle: RedisViewerStylesApi['redisModalContentStyle'];
     workbenchTheme: RedisViewerStateApi['workbenchTheme'];
@@ -38,7 +41,10 @@ export const RedisNewKeyModal = ({
     importSelectedKeys,
     importPreviewLoading,
     importingKeys,
+    importProgress,
+    cancellingImport,
     handleConfirmImportKeys,
+    handleCancelImport,
     resetImportModalState,
     redisModalContentStyle,
     workbenchTheme,
@@ -69,12 +75,64 @@ export const RedisNewKeyModal = ({
         styles={{ content: redisModalContentStyle, header: { background: 'transparent', borderBottom: 'none', color: workbenchTheme.textPrimary }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none' } }}
     >
         <Form layout="vertical">
+            {importProgress ? (
+                <div
+                    data-redis-import-progress="true"
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        marginBottom: 18,
+                        padding: 12,
+                        border: workbenchTheme.panelBorder,
+                        borderRadius: 12,
+                        background: workbenchTheme.panelBg,
+                    }}
+                >
+                    <Progress
+                        percent={importProgress.total > 0
+                            ? Math.min(100, Math.round((importProgress.current / importProgress.total) * 100))
+                            : 0}
+                        status={importProgress.status === 'error'
+                            ? 'exception'
+                            : (importProgress.status === 'cancelled' ? 'normal' : 'active')}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <span style={{ color: workbenchTheme.textPrimary }}>
+                            {tr('redis_viewer.label.import_progress', {
+                                current: importProgress.current,
+                                total: importProgress.total,
+                                success: importProgress.success,
+                                skipped: importProgress.skipped,
+                            })}
+                        </span>
+                        {importingKeys ? (
+                            <Button
+                                danger
+                                size="small"
+                                loading={cancellingImport}
+                                onClick={() => void handleCancelImport()}
+                            >
+                                {cancellingImport
+                                    ? tr('redis_viewer.state.import_cancelling')
+                                    : tr('redis_viewer.action.cancel_import')}
+                            </Button>
+                        ) : null}
+                    </div>
+                    {importProgress.stage ? (
+                        <span style={{ color: workbenchTheme.textMuted, fontSize: 12 }}>
+                            {importProgress.stage}
+                        </span>
+                    ) : null}
+                </div>
+            ) : null}
             <Form.Item label={tr('redis_viewer.field.import_file')}>
                 <Space wrap size={8}>
                     <Button
                         style={actionButtonStyle}
                         onClick={() => void handleChooseImportFile()}
                         loading={importPreviewLoading}
+                        disabled={importingKeys}
                     >
                         {importPreview ? tr('redis_viewer.action.change_import_file') : tr('redis_viewer.action.select_import_file')}
                     </Button>
@@ -94,7 +152,7 @@ export const RedisNewKeyModal = ({
                                 size="small"
                                 style={primaryActionButtonStyle}
                                 onClick={handleSelectAllImportPreviewKeys}
-                                disabled={importPreview.keys.length === 0}
+                                disabled={importingKeys || importPreview.keys.length === 0}
                             >
                                 {tr('redis_viewer.action.select_all_import_keys')}
                             </Button>
@@ -102,7 +160,7 @@ export const RedisNewKeyModal = ({
                                 size="small"
                                 style={actionButtonStyle}
                                 onClick={handleClearImportPreviewSelection}
-                                disabled={importSelectedKeys.length === 0}
+                                disabled={importingKeys || importSelectedKeys.length === 0}
                             >
                                 {tr('redis_viewer.action.clear_selection')}
                             </Button>
@@ -130,6 +188,7 @@ export const RedisNewKeyModal = ({
                                         data-import-key={item.key}
                                         type="checkbox"
                                         checked={checked}
+                                        disabled={importingKeys}
                                         onChange={(event) => handleToggleImportPreviewKey(item.key, event.target.checked)}
                                     />
                                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: workbenchTheme.textPrimary }}>
@@ -154,6 +213,7 @@ export const RedisNewKeyModal = ({
             <Form.Item label={tr('redis_viewer.field.import_conflict_mode')}>
                 <Radio.Group
                     value={importConflictMode}
+                    disabled={importingKeys}
                     onChange={(event) => setImportConflictMode(event.target.value as RedisImportConflictMode)}
                 >
                     <Radio.Button value="overwrite">{tr('redis_viewer.option.import_overwrite')}</Radio.Button>

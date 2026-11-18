@@ -11,6 +11,9 @@ export interface ImportPreviewModalProps {
   connectionId: string;
   dbName: string;
   tableName: string;
+  targetColumnsOverride?: string[];
+  targetColumnMappings?: Record<string, string>;
+  autoCreateTable?: { tableName: string; sql: string; typeRow?: number; commentRow?: number; created?: boolean };
   continueOnError?: boolean;
   importOptions?: DataImportPreferences;
   onClose: () => void;
@@ -25,6 +28,9 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   connectionId,
   dbName,
   tableName,
+  targetColumnsOverride,
+  targetColumnMappings,
+  autoCreateTable,
   continueOnError = false,
   importOptions,
   onClose,
@@ -42,6 +48,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     mappingValidationError,
   } = useImportPreviewState({
     connectionId, importOptions, continueOnError, visible, filePath, dbName, tableName,
+    targetColumnsOverride, targetColumnMappings, autoCreateTable,
     onImportingChange,
   });
 
@@ -54,7 +61,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     connection, t, importRequestRef, stoppingRef, activeImportJobIdRef, importStartedAtRef,
     setImporting, setStopping, setError, latestProgressRef, setProgress, setImportResult,
     importRPCAbortRef, previewConnectionConfigRef, columnMappings, parserOptions, progress, i18n,
-    importResult, onClose, importing, stopping, loading,
+    importResult, onClose, importing, stopping, loading, autoCreateTable,
   });
 
   const { content } = useImportPreviewContent({

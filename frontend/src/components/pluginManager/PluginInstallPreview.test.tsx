@@ -9,6 +9,7 @@ vi.mock('antd', () => {
 });
 vi.mock('../../i18n/provider', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 import { PluginInstallPreview } from './PluginInstallPreview';
+import { installModalContentMaxHeight } from '../../utils/installModalLayout';
 const inspection: PluginInspection = { manifest: { schemaVersion: 1, apiVersion: 1, id: 'test.hello', name: 'Hello', version: '1.0.0', permissions: ['database.read', 'host.log'] },
   digest: 'b'.repeat(64), sourcePath: '/tmp/plugin.zip', sizeBytes: 128 };
 describe('digest and permission install consent', () => {
@@ -17,8 +18,10 @@ describe('digest and permission install consent', () => {
     const view = create(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install} />);
     let modal = view.root.findByProps({ 'data-component': 'modal' });
     expect(modal.props.okButtonProps.disabled).toBe(true);
-    expect(modal.props.styles.body).toMatchObject({ overflowY: 'auto' });
-    expect(modal.props.styles.body.maxHeight).toContain('100vh');
+    expect(modal.props.styles.content).toMatchObject({ display: 'flex', flexDirection: 'column', maxHeight: installModalContentMaxHeight });
+    expect(modal.props.styles.body).toMatchObject({ minHeight: 0, overflowY: 'auto' });
+    expect(modal.props.styles.header.flexShrink).toBe(0);
+    expect(modal.props.styles.footer.flexShrink).toBe(0);
     await act(async () => { await modal.props.onOk(); });
     expect(install).not.toHaveBeenCalled();
     const descriptions = view.root.findByProps({ 'data-component': 'descriptions' });
@@ -40,6 +43,28 @@ describe('digest and permission install consent', () => {
     act(() => view.root.findByProps({ 'data-component': 'checkbox' }).props.onChange({ target: { checked: true } }));
     await act(async () => { await view.root.findByProps({ 'data-component': 'modal' }).props.onOk(); });
     expect(install).not.toHaveBeenCalled();
+    view.unmount();
+  });
+  it('requires typed confirmation and can replace the trust checkbox', async () => {
+    const install = vi.fn().mockResolvedValue(undefined);
+    const confirmation = <div data-component="typed-confirmation" />;
+    const view = create(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install}
+      confirmation={confirmation} confirmationReady={false} requireTrust={false} showTrust={false}
+      confirmText="plugin.market.install_submit" />);
+    let modal = view.root.findByProps({ 'data-component': 'modal' });
+    expect(modal.props.okText).toBe('plugin.market.install_submit');
+    expect(modal.props.okButtonProps.disabled).toBe(true);
+    expect(view.root.findAllByProps({ 'data-component': 'checkbox' })).toHaveLength(0);
+    expect(view.root.findByProps({ 'data-component': 'typed-confirmation' })).toBeTruthy();
+    await act(async () => { await modal.props.onOk(); });
+    expect(install).not.toHaveBeenCalled();
+    act(() => view.update(<PluginInstallPreview inspection={inspection} allowed onCancel={vi.fn()} onInstall={install}
+      confirmation={confirmation} confirmationReady requireTrust={false} showTrust={false}
+      confirmText="plugin.market.install_submit" />));
+    modal = view.root.findByProps({ 'data-component': 'modal' });
+    expect(modal.props.okButtonProps.disabled).toBe(false);
+    await act(async () => { await modal.props.onOk(); });
+    expect(install).toHaveBeenCalledOnce();
     view.unmount();
   });
   it('shows a read-only data source command and its effect before trust', () => {

@@ -329,3 +329,47 @@ func TestResolveDialConfigWithProxy_RocketMQKeepsDynamicTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveProxyTargetUsesURIWhenHostIsEmpty(t *testing.T) {
+	target, err := resolveProxyTarget(connection.ConnectionConfig{
+		Type: "mysql",
+		URI:  "mysql://root:secret@nginx.local:13306/app",
+	}, "mysql")
+	if err != nil {
+		t.Fatalf("resolveProxyTarget returned error: %v", err)
+	}
+	if target.host != "nginx.local" || target.port != 13306 {
+		t.Fatalf("proxy target = %s:%d, want nginx.local:13306", target.host, target.port)
+	}
+}
+
+func TestResolveProxyTargetRejectsMissingTarget(t *testing.T) {
+	if _, err := resolveProxyTarget(connection.ConnectionConfig{Type: "mysql"}, "mysql"); err == nil {
+		t.Fatal("expected missing proxy target to be rejected instead of defaulting to localhost")
+	}
+}
+
+func TestResolveDialConfigWithProxyKeepsTLSServerName(t *testing.T) {
+	t.Cleanup(proxytunnel.CloseAllForwarders)
+	got, err := resolveDialConfigWithProxy(connection.ConnectionConfig{
+		Type:     "mysql",
+		Host:     "mysql.real.internal",
+		Port:     3306,
+		UseSSL:   true,
+		UseProxy: true,
+		Proxy: connection.ProxyConfig{
+			Type: "http",
+			Host: "127.0.0.1",
+			Port: 18080,
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolveDialConfigWithProxy returned error: %v", err)
+	}
+	if got.TLSServerName != "mysql.real.internal" {
+		t.Fatalf("TLS server name = %q, want original host", got.TLSServerName)
+	}
+	if got.Host == "mysql.real.internal" {
+		t.Fatalf("proxy target host was not rewritten to local forwarder: %s", got.Host)
+	}
+}

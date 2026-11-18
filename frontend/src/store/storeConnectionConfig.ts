@@ -374,7 +374,16 @@ export const sanitizeSavedConnection = (
 ): SavedConnection | null => {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
-  const config = sanitizeConnectionConfig(resolveConnectionConfigPayload(raw));
+  const rawConfig = resolveConnectionConfigPayload(raw) as
+    | Record<string, unknown>
+    | undefined;
+  const hadExplicitHost = toTrimmedString(rawConfig?.host) !== "";
+  const config = sanitizeConnectionConfig(rawConfig);
+  if (raw.hasOpaqueURI === true && !hadExplicitHost) {
+    // URI-only 连接不能让前端默认值把 Host 固化成 localhost；后端仍需从
+    // 密文 URI 中解析实际目标。
+    config.host = "";
+  }
   const id =
     toTrimmedString(raw.id, `conn-${index + 1}`) || `conn-${index + 1}`;
   const displayType = config.type === "diros" ? "doris" : config.type;

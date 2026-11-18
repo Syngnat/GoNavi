@@ -1,3 +1,5 @@
+//go:build !wails3
+
 package nativewindow
 
 import "testing"

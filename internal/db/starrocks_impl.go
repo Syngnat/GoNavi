@@ -259,6 +259,8 @@ func (s *StarRocksDB) Connect(config connection.ConnectionConfig) error {
 	}
 
 	var errorDetails []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for index, address := range addresses {
 		candidateConfig := runConfig
 		host, port, ok := parseHostPortWithDefault(address, defaultStarRocksPort)
@@ -274,11 +276,13 @@ func (s *StarRocksDB) Connect(config connection.ConnectionConfig) error {
 			if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
 				return fmt.Errorf("StarRocks %s 创建 SSH 隧道失败: %w", address, err)
 			}
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败: %v", address, err))
 			continue
 		}
 		db, err := sql.Open(starRocksDriverName, dsn)
 		if err != nil {
+			lastErr = err
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败: %v", address, err))
 			continue
 		}
@@ -290,6 +294,7 @@ func (s *StarRocksDB) Connect(config connection.ConnectionConfig) error {
 		cancel()
 		if pingErr != nil {
 			_ = db.Close()
+			lastErr = pingErr
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 验证失败: %v", address, pingErr))
 			continue
 		}
@@ -302,5 +307,5 @@ func (s *StarRocksDB) Connect(config connection.ConnectionConfig) error {
 	if len(errorDetails) == 0 {
 		return fmt.Errorf("连接建立后验证失败：未找到可用的 StarRocks 地址")
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(errorDetails, "；"))
+	return newConnectAttemptError("连接建立后验证失败", errorDetails, lastErr)
 }

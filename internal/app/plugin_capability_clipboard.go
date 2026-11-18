@@ -4,7 +4,7 @@ import (
 	"context"
 	"unicode/utf8"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // Clipboard access stays replaceable so tests never touch the system clipboard.

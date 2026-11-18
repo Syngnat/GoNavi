@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 func TestPluginChildOptionsAreHostOwnedAndLoopbackOnly(t *testing.T) {

@@ -22,9 +22,9 @@ import (
 
 // serveAgentRequests 是 driver-agent 的 JSON-lines 请求主循环。
 //
-// 使用带协议上限的 Reader，而不是 Scanner 或 ReadString：前者的固定上限会把可恢复的
-// 大请求误判为错误，后者则会为缺少换行的输入无限增长。超限时终止当前代理，由主进程
-// 重建传输，避免残留半帧污染后续请求。
+// 使用按片累积到换行符的 Reader，而不是 Scanner 或 ReadString：Scanner 的固定上限会把
+// 可恢复的大请求误判为错误，ReadString 则会让 bufio 为缺少换行的输入无限增长内部缓冲。
+// 单帧不再设大小上限。
 //
 // 返回非 nil 表示读取过程出现了非 EOF 的真实错误。
 func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *agentRuntime) error {
@@ -52,12 +52,6 @@ func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *age
 		if err != nil && len(raw) == 0 {
 			if errors.Is(err, io.EOF) {
 				return nil
-			}
-			if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
-				_ = responseWriter.write(agentResponse{
-					Success: false,
-					Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
-				})
 			}
 			return err
 		}
@@ -154,26 +148,12 @@ func dispatchBusinessRequest(runtimeState *agentRuntime, req agentRequest, write
 	if method == agentMethodStreamQuery {
 		if err := handleStreamRequest(requestCtx, runtimeState, req, writer); err != nil {
 			fmt.Fprintf(os.Stderr, "写入流式响应失败：%v\n", err)
-			if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
-				_ = writer.write(agentResponse{
-					ID:      req.ID,
-					Success: false,
-					Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
-				})
-			}
 		}
 		return
 	}
 	if method == agentMethodConnect && req.StreamSSHProgress {
 		if err := handleConnectRequest(requestCtx, runtimeState, req, writer); err != nil {
 			fmt.Fprintf(os.Stderr, "写入 SSH 连接进度失败：%v\n", err)
-			if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
-				_ = writer.write(agentResponse{
-					ID:      req.ID,
-					Success: false,
-					Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
-				})
-			}
 		}
 		return
 	}
@@ -181,13 +161,6 @@ func dispatchBusinessRequest(runtimeState *agentRuntime, req agentRequest, write
 	resp := handleRequestWithContext(requestCtx, runtimeState, req, nil)
 	if err := writer.write(resp); err != nil {
 		fmt.Fprintf(os.Stderr, "写入响应失败：%v\n", err)
-		if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
-			_ = writer.write(agentResponse{
-				ID:      req.ID,
-				Success: false,
-				Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
-			})
-		}
 		return
 	}
 	if method == agentMethodQuery {

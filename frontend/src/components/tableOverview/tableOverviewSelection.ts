@@ -5,35 +5,10 @@
 
 export const OVERVIEW_SELECTABLE_SELECTOR = '[data-table-overview-select]';
 
-/** 表名元素标记：选中态下再次单击它进入就地改名。 */
-export const OVERVIEW_NAME_SELECTOR = '[data-table-overview-rename]';
-
-/** 点击目标是否落在表名元素上（决定是否触发就地改名）。 */
-export const isOverviewNameTarget = (element: Element | null | undefined): boolean => (
-  !!element && typeof (element as Element).closest === 'function'
-  && !!(element as Element).closest(OVERVIEW_NAME_SELECTOR)
-);
-
 /** 取点击目标所属的可选行元素（用于把焦点放到行上）。 */
 export const resolveOverviewRowElement = (element: Element | null | undefined): HTMLElement | null => {
   if (!element || typeof (element as Element).closest !== 'function') return null;
   return element.closest(OVERVIEW_SELECTABLE_SELECTOR) as HTMLElement | null;
-};
-
-/**
- * 键盘事件是否应当触发改名：焦点不在输入类控件里、也不是在表名编辑器里。
- * 否则表名输入框里按 Enter 会被重复当成「进入改名」。
- */
-export const isRenameHotkeyTarget = (target: Element | null | undefined): boolean => {
-  if (!target || typeof (target as Element).closest !== 'function') return true;
-  const element = target as Element;
-  if (element.closest('[data-table-overview-name-editor]')) return false;
-  const tagName = element.tagName.toLowerCase();
-  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return false;
-  // 「加载更多」等按钮上的 Enter 归按钮自己。
-  if (tagName === 'button' || tagName === 'a') return false;
-  if (element.closest('[role="button"], [contenteditable="true"], [contenteditable=""]')) return false;
-  return true;
 };
 
 const readRowName = (element: Element | null | undefined): string => (

@@ -101,6 +101,9 @@ func (a *App) preflightDataSyncJobContext(ctx context.Context, input syncjob.Job
 	result.SourceFingerprint = source.Fingerprint
 	result.TargetFingerprint = target.Fingerprint
 	result.ApprovalRequired = dataSyncJobRequiresExecutionApproval(definition, target)
+	if result.ApprovalRequired {
+		result.ApprovalSatisfied = a.dataSyncJobStoredApprovalSatisfied(definition, target.Fingerprint)
+	}
 	result.Capability = sync.ResolveMigrationCapability(source.Config, target.Config)
 
 	for _, mapping := range definition.Mappings {

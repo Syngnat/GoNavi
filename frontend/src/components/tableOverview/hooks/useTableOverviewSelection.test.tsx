@@ -11,13 +11,12 @@ const ROW_HEIGHT = 30;
 let container: HTMLDivElement;
 let root: Root;
 
-const Harness = ({ names, onSelection, onActivateName }: {
+const Harness = ({ names, onSelection }: {
   names: string[];
   onSelection: (n: string[]) => void;
-  onActivateName?: (name: string) => void;
 }) => {
   const contentRef = React.useRef<HTMLDivElement | null>(null);
-  const { selectedNames, isSelected } = useTableOverviewSelection({ contentRef, onActivateName });
+  const { selectedNames, isSelected } = useTableOverviewSelection({ contentRef });
   onSelection(selectedNames);
   return (
     <div>
@@ -30,10 +29,9 @@ const Harness = ({ names, onSelection, onActivateName }: {
             tabIndex={-1}
             className={isSelected(name) ? 'is-selected' : ''}
           >
-            <span data-name={name} data-table-overview-rename={name}>{name}</span>
+            <span data-name={name}>{name}</span>
           </div>
         ))}
-        <span data-table-overview-name-editor="true"><input data-testid="editor-input" /></span>
       </div>
       <div data-testid="outside">其他区域</div>
     </div>
@@ -75,11 +73,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const renderHarness = (names: string[], onActivateName?: (name: string) => void) => {
-  act(() => root.render(<Harness names={names} onSelection={() => {}} onActivateName={onActivateName} />));
+const renderHarness = (names: string[]) => {
+  act(() => root.render(<Harness names={names} onSelection={() => {}} />));
 };
-
-const nameElement = (name: string) => container.querySelector(`[data-name="${name}"]`) as HTMLElement;
 
 const clickRow = (target: HTMLElement, options: MouseEventInit = {}) => {
   act(() => {
@@ -141,82 +137,4 @@ describe('useTableOverviewSelection', () => {
     expect(latestSelection()).toEqual([]);
   });
 
-  it('已单选该表时再次点击表名触发就地改名', () => {
-    const onActivateName = vi.fn();
-    renderHarness(['t1', 't2'], onActivateName);
-
-    // 第一次点在表名上只是选中，不触发改名。
-    clickRow(nameElement('t1'));
-    expect(onActivateName).not.toHaveBeenCalled();
-
-    // 选中后再点同名表名 → 触发改名，且选中集不变。
-    clickRow(nameElement('t1'));
-    expect(onActivateName).toHaveBeenCalledWith('t1');
-    expect(latestSelection()).toEqual(['t1']);
-  });
-
-  it('多选状态下点击表名不改名，只收窄为单选', () => {
-    const onActivateName = vi.fn();
-    renderHarness(['t1', 't2'], onActivateName);
-
-    clickRow(row('t1'));
-    clickRow(row('t2'), { shiftKey: true });
-    expect(latestSelection()).toEqual(['t1', 't2']);
-
-    clickRow(nameElement('t2'));
-    expect(onActivateName).not.toHaveBeenCalled();
-    expect(latestSelection()).toEqual(['t2']);
-  });
-
-  it('点在行内非表名位置不触发改名', () => {
-    const onActivateName = vi.fn();
-    renderHarness(['t1'], onActivateName);
-
-    clickRow(row('t1'));
-    clickRow(row('t1'));
-    expect(onActivateName).not.toHaveBeenCalled();
-  });
-
-  it('单选后按回车进入改名', () => {
-    const onActivateName = vi.fn();
-    renderHarness(['t1', 't2'], onActivateName);
-
-    clickRow(row('t1'));
-    expect(document.activeElement).toBe(row('t1'));
-
-    act(() => {
-      row('t1').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-    expect(onActivateName).toHaveBeenCalledWith('t1');
-  });
-
-  it('多选或未选中时回车不进入改名', () => {
-    const onActivateName = vi.fn();
-    renderHarness(['t1', 't2'], onActivateName);
-
-    act(() => {
-      row('t1').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-    expect(onActivateName).not.toHaveBeenCalled();
-
-    clickRow(row('t1'));
-    clickRow(row('t2'), { shiftKey: true });
-    act(() => {
-      row('t2').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-    expect(onActivateName).not.toHaveBeenCalled();
-  });
-
-  it('焦点在表名输入框里时回车不重复触发改名', () => {
-    const onActivateName = vi.fn();
-    renderHarness(['t1'], onActivateName);
-
-    clickRow(row('t1'));
-    const input = container.querySelector('[data-testid="editor-input"]') as HTMLInputElement;
-    input.focus();
-    act(() => {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-    expect(onActivateName).not.toHaveBeenCalled();
-  });
 });

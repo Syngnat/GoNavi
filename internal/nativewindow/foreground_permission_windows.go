@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && !wails3
 
 package nativewindow
 

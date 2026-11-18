@@ -4,13 +4,14 @@ import type { MarketSource } from './types';
 const api = vi.hoisted(() => ({ list: vi.fn(), save: vi.fn() }));
 vi.mock('./sourceApi', () => ({ marketSourcesAPI: api }));
 import { useMarketSources } from './useMarketSources';
+import { clearMarketSourcesCache } from './marketSourcesCache';
 const a: MarketSource = { baseUrl: 'https://plugin.gonavi.org', sourceId: 'a'.repeat(64), enabled: true, trustedOfficial: true };
 const b: MarketSource = { baseUrl: 'https://private.test', sourceId: 'b'.repeat(64), enabled: true, trustedOfficial: false };
 let renderer: ReturnType<typeof create> | undefined;
 let manager: ReturnType<typeof useMarketSources>;
 function Harness() { manager = useMarketSources(); return null; }
 async function mount() { await act(async () => { renderer = create(<Harness />); }); }
-beforeEach(() => { vi.resetAllMocks(); api.list.mockResolvedValue([a]); api.save.mockResolvedValue([a, b]); });
+beforeEach(() => { clearMarketSourcesCache(); vi.resetAllMocks(); api.list.mockResolvedValue([a]); api.save.mockResolvedValue([a, b]); });
 afterEach(() => { if (renderer) act(() => renderer!.unmount()); renderer = undefined; });
 describe('saved market source lifecycle', () => {
   it('uses saved sources and persists opt-in flags through the API', async () => {
@@ -18,6 +19,15 @@ describe('saved market source lifecycle', () => {
     await act(async () => { await manager.save([{ baseUrl: a.baseUrl, enabled: false }, { baseUrl: b.baseUrl, enabled: true }]); });
     expect(manager.sources).toEqual([a, b]); expect(manager.revision).toBe(1);
     expect(api.save).toHaveBeenCalledWith([{ baseUrl: a.baseUrl, enabled: false }, { baseUrl: b.baseUrl, enabled: true }]);
+  });
+  it('keeps the last source list visible while a re-entry refresh is pending', async () => {
+    await mount(); expect(manager.sources).toEqual([a]);
+    await act(async () => { renderer!.unmount(); }); renderer = undefined;
+    let complete: (rows: MarketSource[]) => void = () => {};
+    api.list.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    await mount();
+    expect(manager.sources).toEqual([a]); expect(manager.loading).toBe(true); expect(api.list).toHaveBeenCalledTimes(2);
+    await act(async () => { complete([a]); }); expect(manager.loading).toBe(false);
   });
   it('prevents late refresh results from replacing a completed save', async () => {
     let complete: (rows: MarketSource[]) => void = () => {};

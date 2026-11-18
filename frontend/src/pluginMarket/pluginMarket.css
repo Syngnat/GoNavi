@@ -16,15 +16,19 @@
 .plugin-market .plugin-market-card { gap: 10px; padding: 20px; border-inline-start: 3px solid var(--gn-br-2); border-radius: 10px; }
 .plugin-market .plugin-market-card[data-official="true"] { border-inline-start-color: var(--gn-accent); }
 .plugin-market-card .plugin-card-header { align-items: flex-start; gap: 8px; }
-.plugin-market-card .plugin-card-header .ant-typography { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-market-card-heading { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.plugin-market-card-heading .plugin-logo { flex: 0 0 40px; width: 40px; height: 40px; }
+.plugin-market-card .plugin-card-header .ant-typography { margin: 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
 .plugin-market-card .ant-tag { align-self: flex-start; margin-inline-end: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .plugin-market-card .plugin-market-description { font-size: 13px; line-height: 1.65; min-height: 64px; }
 .plugin-market-card-meta { display: flex; flex-direction: column; gap: 4px; color: var(--gn-fg-3); font-size: 12px; overflow-wrap: anywhere; }
-.plugin-market-card-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--gn-br-1); }
+.plugin-market-card-footer { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--gn-br-1); }
 .plugin-market-metrics { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--gn-fg-3); font-size: 12px; }
 .plugin-market-metrics .ant-rate { font-size: 12px; }
 .plugin-market-metrics .ant-rate-star:not(:last-child) { margin-inline-end: 2px; }
 .plugin-market-card-footer > .ant-btn { flex-shrink: 0; }
+.plugin-market-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; }
+.plugin-market-card-actions > .ant-btn { flex-shrink: 0; }
 .plugin-market-loading, .plugin-market-empty { display: grid; place-items: center; min-height: 240px; padding: 24px 16px; background: var(--gn-bg-panel); border: 1px dashed var(--gn-br-2); border-radius: 10px; }
 .plugin-market-load-more { align-self: center; min-width: 160px; }
 @media (max-width: 820px) {
@@ -61,6 +65,87 @@
  .plugin-market-group { padding: 12px; }
 }
 
+.market-install-package { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel-2); }
+.market-install-package-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.market-install-package-icon { display: inline-flex; flex: 0 0 40px; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--gn-accent) 24%, var(--gn-br-2)); border-radius: 10px; background: color-mix(in srgb, var(--gn-accent) 8%, var(--gn-bg-panel)); color: var(--gn-accent); font-size: 19px; }
+.market-install-package-text { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.market-install-package-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.market-install-package-title { min-width: 0; overflow-wrap: anywhere; font-size: 15px; line-height: 1.4; }
+.market-install-package-title-row .ant-tag { margin: 0; }
+.market-install-package-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--gn-fg-3); font-size: 12px; }
+.market-install-package-checked { display: inline-flex; align-items: center; gap: 4px; color: var(--gn-success, #10b981); }
+.market-install-package-digest { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 9px; border-top: 1px solid var(--gn-br-1); }
+.market-install-package-digest-label { flex: 0 0 auto; color: var(--gn-fg-3); font-size: 11px; letter-spacing: .02em; }
+.market-install-package-digest code { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--gn-fg-3); font-size: 11px; line-height: 1.35; }
+.market-install-package-digest .ant-btn { flex: 0 0 auto; padding-inline: 4px; font-size: 12px; }
+.market-install-permissions { display: flex; flex-direction: column; gap: 8px; }
+.market-install-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.market-install-section-heading .ant-typography { margin: 0; font-size: 13px; }
+.market-install-permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.market-install-permission { display: flex; gap: 9px; min-width: 0; padding: 10px 11px; border: 1px solid var(--gn-br-1); border-radius: 8px; background: var(--gn-bg-panel); }
+.market-install-permission-icon { display: inline-flex; flex: 0 0 26px; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: color-mix(in srgb, var(--gn-accent) 9%, var(--gn-bg-panel-2)); color: var(--gn-accent); font-size: 14px; }
+.market-install-permission-body { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.market-install-permission-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.market-install-permission-head .ant-typography { overflow-wrap: anywhere; font-size: 12px; }
+.market-install-permission-head > span { flex: 0 0 auto; color: var(--gn-fg-3); font-size: 11px; }
+.market-install-permission-detail { overflow-wrap: anywhere; color: var(--gn-fg-3); font-size: 11px; }
+.market-install-permission-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 1px; }
+.market-install-permission-chips code { max-width: 100%; padding: 1px 5px; overflow-wrap: anywhere; border-radius: 4px; background: var(--gn-bg-panel-2); color: var(--gn-fg-3); font-size: 10px; line-height: 1.5; }
+.market-install-identity { display: flex; flex-direction: column; padding: 0 0 2px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel); }
+.market-install-identity .ant-typography { margin: 0; }
+.market-install-identity-head { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px 10px; }
+.market-install-identity-icon { display: inline-flex; flex: 0 0 30px; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-panel-2)); color: var(--gn-accent); font-size: 16px; }
+.market-install-identity-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.market-install-identity-head .ant-typography { font-size: 13px; line-height: 1.4; }
+.market-install-identity-head .ant-typography-secondary { color: var(--gn-fg-3); font-size: 12px; }
+.market-install-repo-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 38px; margin: 0 15px; padding: 0 5px 0 11px; border: 1px solid var(--gn-br-2); border-radius: 7px; background: var(--gn-bg-panel-2); }
+.market-install-repo-row .ant-btn { flex: 0 0 auto; padding-inline: 4px; font-size: 12px; }
+.market-install-repo-label { flex: 0 0 26px; width: 26px; color: var(--gn-fg-3); font-size: 12px; }
+.market-install-repo-value { flex: 1; min-width: 0; overflow: hidden; color: var(--gn-fg-2); font-family: var(--gn-font-mono); font-size: 12px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.market-install-repo-input { min-height: 38px; }
+/* 输入框只作为外层行内的透明文本层：去掉 Ant 自带的底色、描边和聚焦光晕，避免出现“框中框”。 */
+.market-install-repo-input .ant-input,
+.market-install-repo-input .ant-input:hover,
+.market-install-repo-input .ant-input:focus,
+.market-install-repo-input .ant-input-focused,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input:hover,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input:focus,
+body[data-ui-version="v2"] .market-install-repo-input .ant-input-focused,
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"],
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"]:hover,
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"]:focus,
+body[data-ui-version="v2"] .market-install-repo-input input.ant-input[type="text"].ant-input-focused {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* 中文标签与等宽地址的字体基线相差 1px：只下移两处地址文本，让它们与“仓库”基线一致。 */
+.market-install-repo-value,
+.market-install-repo-input .ant-input {
+  transform: translateY(1px);
+}
+.market-install-repo-input:focus-within { border-color: color-mix(in srgb, var(--gn-accent) 60%, var(--gn-br-2)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-accent) 12%, transparent); }
+.market-install-repo-input.is-matched:focus-within { border-color: color-mix(in srgb, var(--gn-success, #10b981) 60%, var(--gn-br-2)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-success, #10b981) 12%, transparent); }
+.market-install-repo-input .ant-input::placeholder { color: var(--gn-fg-3); font-family: var(--gn-font-mono); }
+.market-install-repo-input.is-matched { border-color: color-mix(in srgb, var(--gn-success, #10b981) 60%, var(--gn-br-2)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-success, #10b981) 12%, transparent); }
+.market-install-confirm-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 15px 0; padding-left: 12px; color: var(--gn-fg-3); font-size: 12px; }
+.market-install-match { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 4px; color: var(--gn-success, #10b981); }
+.market-install-identity-notes { display: flex; flex-direction: column; gap: 3px; margin: 6px 15px 0; padding-left: 12px; }
+.market-install-identity .ant-checkbox-wrapper { margin: 12px 15px 12px; color: var(--gn-fg-2); font-size: 12px; line-height: 1.5; }
+@media (max-width: 640px) {
+ .market-install-permission-grid { grid-template-columns: minmax(0, 1fr); }
+ .market-install-package-digest { align-items: flex-start; flex-wrap: wrap; }
+ .market-install-package-digest code { flex-basis: 100%; order: 3; }
+}
 .plugin-market-filter-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--gn-br-2); border-radius: 10px; background: var(--gn-bg-panel); }
 .plugin-market-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; }
 .plugin-market-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }

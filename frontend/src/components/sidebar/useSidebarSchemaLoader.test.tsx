@@ -132,6 +132,22 @@ describe('sidebar schema lazy loading', () => {
     expect(publicNode.children).toBe(publicChildren);
   });
 
+  // 回归：ensureFresh 过去先清空子树再请求，DBGetTables 失败时不会 publish，
+  // 库节点会一直空着——用户看到的就是「执行 TRUNCATE 后左侧树整棵消失」。
+  it('keeps the loaded subtree when an ensureFresh schema load fails', async () => {
+    mount();
+    await act(async () => { await loaders.loadTables(tree[0]); });
+    const salesNode = tree[0].children.find((node: any) => node.title === 'sales');
+    await act(async () => { await loaders.loadTables(salesNode); });
+    expect(salesNode.children?.length).toBeGreaterThan(0);
+
+    mocks.tables.mockResolvedValue({ success: false, message: 'connection lost', data: [] });
+    await act(async () => { await loaders.loadTables(salesNode, { ensureFresh: true }); });
+
+    // 失败后节点仍保留原来的表，而不是被清成空节点。
+    expect(find(salesNode.key).children?.length).toBeGreaterThan(0);
+  });
+
   it('database refresh only discovers schema names even when schema expansion was remembered', async () => {
     mount(); await act(async () => { await loaders.loadTables(tree[0]); });
     const publicNode = tree[0].children.find((node: any) => node.title === 'public');

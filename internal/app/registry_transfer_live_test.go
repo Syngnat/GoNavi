@@ -22,7 +22,7 @@ import (
 	syncbackend "GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/internal/uievents"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // registryTransferCase 描述一次端到端实测：在实验室库里建表灌数，然后依次走导出、SQL 备份与恢复、

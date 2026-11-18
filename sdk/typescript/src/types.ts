@@ -40,6 +40,8 @@ export interface Page { id: string; title: string; body?: UINode; html?: PageHTM
 /** `page` opens a declared page in a tab; `window` opens the manifest window and needs no page. */
 export interface Navigation { id: string; title: string; target?: 'page' | 'window'; page?: string; location: 'tools'; order?: number }
 export interface LaunchTarget { type: 'window' | 'page'; page?: string }
+/** Requires ui.pages; the host keeps the slot position and renders the page inline. */
+export interface SettingsSection { id: string; slot: 'appearance.background'; page: string; title?: string; description?: string; order?: number }
 /** Declared connection/database/collection menu entry; the host owns the launch context. */
 export interface ConnectionAction { id: string; title: string; description?: string; connectionTypes: string[]; scopes?: ('connection' | 'database' | 'collection')[]; target: LaunchTarget }
 export interface Manifest {
@@ -52,7 +54,7 @@ export interface Manifest {
   permissionNotes?: Record<string, string>;
   requires?: { id: string; minVersion?: string; optional?: boolean }[];
   backend?: { default?: Entry; platforms?: Record<string, Entry> };
-  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body?: UINode; html?: PageHTML }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[] };
+  contributes?: { commands?: Command[]; panels?: { id: string; title: string; body?: UINode; html?: PageHTML }[]; dataSources?: DataSource[]; skills?: Skill[]; aiProviders?: AIProvider[]; exporters?: Exporter[]; pages?: Page[]; navigation?: Navigation[]; connectionActions?: ConnectionAction[]; settingsSections?: SettingsSection[] };
   window?: { entry: string; title?: string; width?: number; height?: number };
 }
 export interface InitializeParams {

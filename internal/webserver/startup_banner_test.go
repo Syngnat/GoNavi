@@ -133,3 +133,28 @@ func TestRunRejectsUnknownFlag(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty for a rejected flag", got)
 	}
 }
+
+func TestWriteStartupBannerLeadsWithSetupURL(t *testing.T) {
+	t.Setenv("GONAVI_WEB_PASSWORD", "")
+	t.Setenv("GONAVI_WEB_SETUP_TOKEN", "gate-token")
+	manager, err := newWebAuthManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("newWebAuthManager: %v", err)
+	}
+	var console bytes.Buffer
+	server := &Server{
+		options: Options{Addr: "0.0.0.0:34116", Console: &console},
+		auth:    manager,
+	}
+
+	server.writeStartupBanner("0.0.0.0:34116")
+
+	output := console.String()
+	wantURL := "http://127.0.0.1:34116/setup?setup=gate-token"
+	if !strings.Contains(output, "首次初始化请打开："+wantURL) {
+		t.Fatalf("banner = %q, want the setup URL as the only link to open", output)
+	}
+	if strings.Contains(output, "已启动：http://") {
+		t.Fatalf("banner = %q, want no bare startup URL while setup is required", output)
+	}
+}

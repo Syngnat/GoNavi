@@ -147,6 +147,7 @@ export const runSidebarMultiTableDrop = async (
   showCountdownDangerConfirm({
     title: t('sidebar.multi_table_menu.confirm_drop_title', { count: total }),
     content: t('sidebar.multi_table_menu.confirm_drop_content'),
+    countdownSeconds: 0,
     onOk: async () => {
       if (!await confirmEachProductionConnection(groups)) return;
       const hide = message.loading(t('sidebar.multi_table_menu.action_loading', { count: total }), 0);

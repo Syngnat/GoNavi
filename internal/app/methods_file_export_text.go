@@ -12,7 +12,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // 单次文本导出的内容上限：对比报告是纯文本产物，正常远小于此。
@@ -134,6 +134,9 @@ func (a *App) OpenExportedTextFile(filePath string) connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: "unsupported file type for open"}
 	}
 
+	if openFileNatively(target) {
+		return connection.QueryResult{Success: true, Data: map[string]string{"path": target}}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":

@@ -66,6 +66,7 @@ func (a *App) dbQueryWithCancel(
 	auditOptions.executionContext = traceContext
 	defer func() {
 		a.recordQueryRequestTraceOutcome(requestTrace, result, ownsRequestTrace)
+		maybeReleaseQueryResultMemory(result)
 	}()
 	requestTrace.AddEvent("query.accepted", nil)
 

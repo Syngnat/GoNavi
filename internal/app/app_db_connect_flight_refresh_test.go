@@ -16,6 +16,8 @@ func TestShouldRefreshCachedConnectionCoversDriverAgentRuntimeFailures(t *testin
 		{"代理请求超时", errors.New("人大金仓 驱动代理 查询 请求超时：context deadline exceeded"), true},
 		{"代理响应读取失败", errors.New("读取 人大金仓 驱动代理响应失败：unexpected EOF"), true},
 		{"旧英文连接错误保持可刷新", errors.New("invalid connection"), true},
+		{"裸 EOF 保持可刷新", errors.New("EOF"), true},
+		{"业务文本包含 eof 不误判", errors.New(`table eof_stats does not exist`), false},
 		{"代理缺失需重装不重连", errors.New("人大金仓 驱动代理缺失，请在驱动管理中重新安装启用"), false},
 		{"代理路径为空不重连", errors.New("人大金仓 驱动代理路径为空"), false},
 		{"架构不兼容不重连", errors.New("启动 人大金仓 驱动代理失败：bad cpu type（检测到驱动代理与当前系统架构不兼容，请在驱动管理中重新安装启用）"), false},

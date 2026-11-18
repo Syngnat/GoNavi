@@ -29,12 +29,14 @@ func (r *kafkaGoRuntime) Publish(ctx context.Context, command kafkaPublishComman
 	return 1, nil
 }
 
+// kafkaPublishBatchBytes 放宽 kafka-go 默认 1 MiB 的客户端批次上限。
+// 超过默认值时客户端会直接报 Message Size Too Large，看起来像 broker 拒收。
+const kafkaPublishBatchBytes = 32 << 20
+
 // newPublishWriter 构造单条发布用的 Writer。
 //
 // Topic 只能设在 Writer 上：kafka-go 要求 Writer.Topic 与 Message.Topic 二选一，
-// 两边都设会让每次 WriteMessages 直接失败。BatchBytes 默认 1 MiB，超过就在客户端
-// 报「Message Size Too Large」，看起来像 broker 拒收；这里放宽到驱动代理单帧上限，
-// 消息能否写入交给 broker 的 message.max.bytes 判定。
+// 两边都设会让每次 WriteMessages 直接失败。消息能否写入交给 broker 的 message.max.bytes 判定。
 func (r *kafkaGoRuntime) newPublishWriter(topic string) *kafka.Writer {
 	return &kafka.Writer{
 		Addr:         kafka.TCP(r.brokers...),
@@ -44,7 +46,7 @@ func (r *kafkaGoRuntime) newPublishWriter(topic string) *kafka.Writer {
 		ReadTimeout:  r.timeout,
 		WriteTimeout: r.timeout,
 		BatchTimeout: 20 * time.Millisecond,
-		BatchBytes:   OptionalDriverAgentMaxJSONLineBytes,
+		BatchBytes:   kafkaPublishBatchBytes,
 	}
 }
 

@@ -38,6 +38,8 @@ vi.mock('../../wailsjs/go/app/App', () => ({
   DBGetTables: mocks.dbGetTables,
   ImportData: mocks.importData,
   SelectSQLFileForExecution: mocks.selectSQLFileForExecution,
+  PreviewImportFileWithOptions: vi.fn(),
+  CancelImportJob: vi.fn(),
 }));
 
 vi.mock('./DatabaseImportExecutionPanel', () => ({
@@ -66,6 +68,12 @@ vi.mock('./ImportJobHistoryPanel', () => ({
   default: (props: Record<string, unknown>) => React.createElement(
     'mock-import-job-history',
     { 'data-import-job-history-mock': 'true', ...props },
+  ),
+}));
+
+vi.mock('./dataImport/ImportTableCreateModal', () => ({
+  ImportTableCreateModal: (props: Record<string, unknown>) => (
+    props.open ? React.createElement('mock-import-table-create-modal', props) : null
   ),
 }));
 

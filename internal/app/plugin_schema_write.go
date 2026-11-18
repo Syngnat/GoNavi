@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsruntime "GoNavi-Wails/internal/desktop"
 
 	"GoNavi-Wails/internal/ai"
 	"GoNavi-Wails/internal/connection"

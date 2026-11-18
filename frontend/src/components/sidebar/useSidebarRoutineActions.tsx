@@ -30,6 +30,7 @@ import type { SidebarCopyExportActionsApi } from './useSidebarCopyExportActions'
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
 import { buildPgRoutineDefinitionQuery } from '../../utils/pgRoutineDefinition';
 import { usesDriverObjectDefinition } from '../definitionViewerDialect';
+import { buildOracleRoutineDefinitionQuery } from '../../utils/oracleRoutineDefinition';
 
 export interface UseSidebarRoutineActionsInput {
   addTab: UseSidebarObjectActionsArgs['addTab'];
@@ -181,12 +182,12 @@ export const useSidebarRoutineActions = ({
           query = '';
           break;
         case 'oracle': case 'dm': {
-          const owner = schema ? escapeSQLLiteral(schema).toUpperCase() : '';
-          if (owner) {
-            query = `SELECT TEXT FROM ALL_SOURCE WHERE OWNER = '${owner}' AND NAME = '${escapeSQLLiteral(name).toUpperCase()}' AND TYPE = '${routineType}' ORDER BY LINE`;
-          } else {
-            query = `SELECT TEXT FROM USER_SOURCE WHERE NAME = '${escapeSQLLiteral(name).toUpperCase()}' AND TYPE = '${routineType}' ORDER BY LINE`;
-          }
+          query = buildOracleRoutineDefinitionQuery(
+            dialect,
+            schema,
+            name,
+            routineType,
+          );
           break;
         }
         case 'duckdb': {

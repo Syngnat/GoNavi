@@ -148,7 +148,7 @@ func assertXLSXExportRecords(t *testing.T, path string, selected bool, maxRows i
 	headers := []string{"编号", "amount", "姓名", "code", "bigint", "precise", "nullable"}
 	wantRows := [][]string{
 		{"1", "12.5", "alice", "0012", "9007199254740993", "0.1234567890123456", ""},
-		{"0", "-0.1", "中文 & <test>", "0024", "18446744073709551615", "12.5", "end"},
+		{"0", "-0.1", "中文 & <test>", "0024", "18446744073709551615", "12.50", "end"},
 		{"-42", "0", "tail", "", "", "", ""},
 	}
 	if selected {
@@ -196,7 +196,7 @@ func assertXLSXExportRecords(t *testing.T, path string, selected bool, maxRows i
 				t.Fatal(err)
 			}
 			cellType := excelize.CellTypeInlineString
-			if column == 1 || (!selected && column == 0) || (selected && column == 2) || (column == 5 && index == 1) {
+			if column == 1 || (!selected && column == 0) || (selected && column == 2) {
 				cellType = excelize.CellTypeNumber
 			}
 			assertXLSXExportCell(t, book, sheet, cell, want, cellType)

@@ -24,9 +24,10 @@ import (
 // HighGoDB implements Database interface for HighGo (瀚高) database
 // HighGo is a PostgreSQL-compatible database, so we reuse PostgreSQL driver
 type HighGoDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder
+	conn               *sql.DB
+	pingTimeout        time.Duration
+	forwarder          *ssh.LocalForwarder
+	metadataQueryState *pgMetadataQueryState
 }
 
 type highgoSessionExecer struct {
@@ -66,6 +67,7 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 			_ = h.Close()
 		}
 	}()
+	h.metadataQueryState = &pgMetadataQueryState{}
 
 	runConfig := config
 
@@ -103,10 +105,13 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for idx, attempt := range attempts {
 		dsn := h.getDSN(attempt)
 		db, err := sql.Open("highgo", dsn)
 		if err != nil {
+			lastErr = err
 			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
 			continue
 		}
@@ -116,6 +121,7 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 		if err := h.Ping(); err != nil {
 			_ = db.Close()
 			h.conn = nil
+			lastErr = err
 			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
 			continue
 		}
@@ -124,10 +130,11 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) (err error) {
 		}
 		return nil
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+	return newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 }
 
 func (h *HighGoDB) Close() error {
+	h.metadataQueryState = nil
 	if h.forwarder != nil {
 		if err := h.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 HighGo SSH 端口转发失败：%v", err)
@@ -314,7 +321,7 @@ func (h *HighGoDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := h.Query(buildPGLikeColumnsMetadataQuery(schema, table))
+	data, err := queryPGLikeColumnsMetadata(h, h.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +335,7 @@ func (h *HighGoDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := h.Query(buildPGLikeIndexesMetadataQuery(schema, table))
+	data, err := queryPGLikeIndexesMetadata(h, h.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}

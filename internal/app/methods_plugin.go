@@ -211,16 +211,20 @@ func (a *App) pluginInvokeContext(ctx context.Context, id, command, argumentsJSO
 // locale and theme mirror the current main-application appearance so the
 // plugin window can follow them; empty values keep the plugin's own defaults.
 func (a *App) PluginOpenWindow(id, locale, theme string) connection.QueryResult {
+	logger.Infof("Plugin open window requested: id=%q", id)
 	if !a.pluginManagementAllowed() || a.headlessRuntime {
 		return a.pluginFailure("window_unavailable")
 	}
 	if _, err := a.pluginManager(a.pluginContext()); err != nil {
 		return a.pluginFailure("runtime_unavailable")
 	}
-	a.plugins.mu.Lock()
-	windows := a.plugins.windows
-	a.plugins.mu.Unlock()
+	windows, err := a.ensurePluginWindows(a.pluginContext())
+	if err != nil {
+		logger.Warnf("Plugin window host unavailable: %v", err)
+		return a.pluginFailure("window_unavailable")
+	}
 	if windows == nil {
+		logger.Warnf("Plugin window host is disabled for this runtime")
 		return a.pluginFailure("window_unavailable")
 	}
 	value, err := windows.Open(a.pluginContext(), id, id, nil, locale, theme)

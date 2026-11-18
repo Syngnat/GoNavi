@@ -29,7 +29,11 @@ export type PageCallRead =
 // A page message is untrusted: only its shape decides whether the host acts on it. A frame
 // token is minted per iframe and injected into its runtime, so a message without this frame's
 // token is dropped silently - it can only come from another window or a stale page.
-export function readPageCallMessage(data: unknown, token: string): PageCallRead {
+export function readPageCallMessage(
+  data: unknown,
+  token: string,
+  maxArgumentBytes: number = PAGE_MAX_ARGUMENT_BYTES,
+): PageCallRead {
   if (!isRecord(data) || data.type !== PAGE_CALL_TYPE) return null;
   if (typeof token !== 'string' || token === '' || data.token !== token) return null;
   const id = data.id;
@@ -44,7 +48,7 @@ export function readPageCallMessage(data: unknown, token: string): PageCallRead 
   } catch {
     return { kind: 'invalid', id };
   }
-  if (new TextEncoder().encode(argumentsJSON).length > PAGE_MAX_ARGUMENT_BYTES) {
+  if (new TextEncoder().encode(argumentsJSON).length > maxArgumentBytes) {
     return { kind: 'invalid', id };
   }
   return { kind: 'call', message: { id, method, argumentsJSON } };

@@ -2,7 +2,7 @@ import {
     buildQueryEditorTableSuggestionLabel, normalizeQueryEditorTableSuggestionText,
 } from '../queryEditorCompletionColumns';
 import {
-    appendCommentToDetail, resolveQueryEditorCompletionFilterText, type CompletionRoutineMeta,
+    normalizeCommentText, resolveQueryEditorCompletionFilterText, type CompletionRoutineMeta,
     type CompletionViewMeta, type CompletionSynonymMeta,
 } from '../QueryEditorHelpers';
 import { t as translate } from '../../../i18n';
@@ -54,7 +54,9 @@ export const createSqlCompletionSuggestionBuilders = ({
     ) => ({
         label: buildQueryEditorTableSuggestionLabel(
             label,
-            appendCommentToDetail(detailPrefix, comment),
+            // 右侧详情列里「对象类型」固定在最末端：注释在前、类型在后，
+            // 这样同一列的文本不会因为有没有注释而左右移动。
+            [normalizeCommentText(comment), detailPrefix].filter(Boolean).join(' - '),
             useStructuredCompletionLabel,
         ),
         filterText: resolveQueryEditorCompletionFilterText(filterPrefix, filterCandidates)
@@ -151,8 +153,9 @@ export const createSqlCompletionSuggestionBuilders = ({
             label: synonymName,
             kind: monaco.languages.CompletionItemKind.Class,
             insertText: quoteCompletionPath(synonymName),
+            // 「指向对象 - 同义词」：对象类型固定在最右端。
             detail: targetName
-                ? `${translate('query_editor.object_info.synonym')} (${targetName})`
+                ? `${targetName} - ${translate('query_editor.object_info.synonym')}`
                 : translate('query_editor.object_info.synonym'),
             range,
             sortText,

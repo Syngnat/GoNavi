@@ -36,7 +36,10 @@ import {
  */
 export const SQL_EMBEDDED_WRITE_KEYWORDS = new Set([
   // DML
-  'insert',
+  // `insert` 不在此集合内：MySQL 的 INSERT(str, pos, len, newstr) 是字符串函数，
+  // 常出现在 SELECT 列表里（如 `SELECT INSERT(name, 1, 1, '_') FROM t`），
+  // 按关键字匹配会把纯读 SQL 判成写操作。它由
+  // SQL_EMBEDDED_INSERT_STATEMENT_PATTERN 单独识别「INSERT 后面不跟左括号」的形态。
   'delete',
   'update',
   'upsert',
@@ -213,6 +216,20 @@ export const firstEmbeddedWriteKeyword = (statement: string, dbType = ''): strin
       !isReadOnlyContextualKeyword(previousToken)
     ) {
       return token;
+    }
+
+    // `INSERT` 需要区分两种形态：
+    //   INSERT INTO t ...        —— 写语句，命中
+    //   INSERT(str, 1, 1, '_')   —— MySQL 字符串函数，只读
+    // 判据是「其后第一个非空白字符是否为左括号」。
+    if (token === 'insert' && !isReadOnlyContextualKeyword(previousToken)) {
+      let probe = index;
+      while (probe < text.length && /[ \t\r\n]/.test(text[probe])) {
+        probe++;
+      }
+      if (text[probe] !== '(') {
+        return token;
+      }
     }
 
     previousPreviousToken = previousToken;

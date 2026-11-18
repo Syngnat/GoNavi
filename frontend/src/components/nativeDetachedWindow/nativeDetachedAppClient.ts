@@ -5,6 +5,8 @@ import {
   type NativeDetachedWindowBootstrap,
   type NativeDetachedWindowActionPayload,
   fetchNativeDetachedWindowBootstrap,
+  fetchCurrentNativeDetachedHostState,
+  type NativeDetachedHostStateSnapshot,
   presentCurrentNativeDetachedWindow,
   readyNativeDetachedWindow,
   syncNativeDetachedWindow,
@@ -34,6 +36,7 @@ export type NativeDetachedWindowClient = {
   cancelCloseRequest?: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
   openAISettings: (visibilityRevision: number, providerId?: string) => Promise<void>;
   hostEvent?: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
+  hostState?: () => Promise<NativeDetachedHostStateSnapshot | null>;
   closeCurrentWindow: () => Promise<void>;
   hideCurrentWindow?: (visibilityRevision: number) => Promise<void>;
   cancelClose?: () => Promise<void>;
@@ -50,6 +53,7 @@ export const defaultClient: NativeDetachedWindowClient = {
   cancelCloseRequest: cancelNativeDetachedWindowClose,
   openAISettings: hideCurrentNativeDetachedWindowForAISettings,
   hostEvent: sendNativeDetachedHostEvent,
+  hostState: fetchCurrentNativeDetachedHostState,
   closeCurrentWindow: closeCurrentNativeDetachedWindow,
   hideCurrentWindow: hideCurrentNativeDetachedWindow,
   cancelClose: cancelCurrentNativeDetachedWindowClose,

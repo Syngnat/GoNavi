@@ -11,7 +11,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func (a *App) SelectSavedQueryDirectory(currentDirectory string) connection.QueryResult {
@@ -166,6 +166,13 @@ func (a *App) OpenSavedQueryDirectory() connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: a.appText("app.data_root.saved_query_directory.backend.error.directory_unavailable", nil)}
 	}
 
+	if openDirectoryNatively(directory) {
+		return connection.QueryResult{
+			Success: true,
+			Message: a.appText("app.data_root.saved_query_directory.backend.message.opened", nil),
+			Data:    dataRootInfoPayload(a.configDir),
+		}
+	}
 	var cmd *exec.Cmd
 	switch stdRuntime.GOOS {
 	case "darwin":
@@ -272,6 +279,15 @@ func (a *App) RevealSavedQueryInFolder(id string) connection.QueryResult {
 		}
 	}
 
+	if revealFileNatively(filePath) {
+		return connection.QueryResult{
+			Success: true,
+			Message: a.appText("app.data_root.saved_query_directory.backend.message.revealed", map[string]any{
+				"path": filePath,
+			}),
+			Data: map[string]any{"id": targetID, "path": filePath},
+		}
+	}
 	cmd := savedQueryRevealCommand(stdRuntime.GOOS, filePath)
 	if cmd == nil {
 		return connection.QueryResult{

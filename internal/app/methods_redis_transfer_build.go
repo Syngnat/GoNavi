@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -66,6 +67,10 @@ func normalizeRedisTransferKeys(keys []string) []string {
 }
 
 func collectRedisKeysByPattern(client redis.RedisClient, pattern string) ([]string, error) {
+	return collectRedisKeysByPatternContext(context.Background(), client, pattern)
+}
+
+func collectRedisKeysByPatternContext(ctx context.Context, client redis.RedisClient, pattern string) ([]string, error) {
 	normalizedPattern := strings.TrimSpace(pattern)
 	if normalizedPattern == "" {
 		normalizedPattern = "*"
@@ -75,6 +80,9 @@ func collectRedisKeysByPattern(client redis.RedisClient, pattern string) ([]stri
 	keys := make([]string, 0)
 	var cursor uint64
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		result, err := client.ScanKeys(normalizedPattern, cursor, redisExportScanBatchSize)
 		if err != nil {
 			return nil, err
@@ -108,6 +116,10 @@ func collectRedisKeysByPattern(client redis.RedisClient, pattern string) ([]stri
 }
 
 func loadAllRedisStreamEntries(client redis.RedisClient, key string, pageSize int64) ([]redis.StreamEntry, error) {
+	return loadAllRedisStreamEntriesContext(context.Background(), client, key, pageSize)
+}
+
+func loadAllRedisStreamEntriesContext(ctx context.Context, client redis.RedisClient, key string, pageSize int64) ([]redis.StreamEntry, error) {
 	if pageSize <= 0 {
 		pageSize = redisExportStreamPageSize
 	}
@@ -117,6 +129,9 @@ func loadAllRedisStreamEntries(client redis.RedisClient, key string, pageSize in
 	lastID := ""
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		batch, err := client.GetStream(key, start, "+", pageSize+1)
 		if err != nil {
 			return nil, err
@@ -143,9 +158,16 @@ func loadAllRedisStreamEntries(client redis.RedisClient, key string, pageSize in
 }
 
 func buildRedisTransferEntry(client redis.RedisClient, key string) (redisTransferEntry, error) {
+	return buildRedisTransferEntryContext(context.Background(), client, key)
+}
+
+func buildRedisTransferEntryContext(ctx context.Context, client redis.RedisClient, key string) (redisTransferEntry, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return redisTransferEntry{}, fmt.Errorf("redis key is empty")
+	}
+	if err := ctx.Err(); err != nil {
+		return redisTransferEntry{}, err
 	}
 
 	keyType, err := client.GetKeyType(key)
@@ -200,7 +222,7 @@ func buildRedisTransferEntry(client redis.RedisClient, key string) (redisTransfe
 		}
 		entry.Value = value
 	case "stream":
-		value, err := loadAllRedisStreamEntries(client, key, redisExportStreamPageSize)
+		value, err := loadAllRedisStreamEntriesContext(ctx, client, key, redisExportStreamPageSize)
 		if err != nil {
 			return redisTransferEntry{}, err
 		}
@@ -213,6 +235,16 @@ func buildRedisTransferEntry(client redis.RedisClient, key string) (redisTransfe
 }
 
 func buildRedisExportPayload(client redis.RedisClient, dbIndex int, options RedisExportKeysOptions) (redisTransferFile, error) {
+	return buildRedisExportPayloadContext(context.Background(), client, dbIndex, options, nil)
+}
+
+func buildRedisExportPayloadContext(
+	ctx context.Context,
+	client redis.RedisClient,
+	dbIndex int,
+	options RedisExportKeysOptions,
+	progress func(current, total int64),
+) (redisTransferFile, error) {
 	scope := normalizeRedisExportScope(options.Scope)
 	pattern := strings.TrimSpace(options.Pattern)
 
@@ -223,7 +255,7 @@ func buildRedisExportPayload(client redis.RedisClient, dbIndex int, options Redi
 	if scope == "selected" {
 		keys = normalizeRedisTransferKeys(options.Keys)
 	} else {
-		keys, err = collectRedisKeysByPattern(client, pattern)
+		keys, err = collectRedisKeysByPatternContext(ctx, client, pattern)
 		if err != nil {
 			return redisTransferFile{}, err
 		}
@@ -233,12 +265,22 @@ func buildRedisExportPayload(client redis.RedisClient, dbIndex int, options Redi
 	}
 
 	entries := make([]redisTransferEntry, 0, len(keys))
-	for _, key := range keys {
-		entry, err := buildRedisTransferEntry(client, key)
+	total := int64(len(keys))
+	if progress != nil {
+		progress(0, total)
+	}
+	for index, key := range keys {
+		if err := ctx.Err(); err != nil {
+			return redisTransferFile{}, err
+		}
+		entry, err := buildRedisTransferEntryContext(ctx, client, key)
 		if err != nil {
 			return redisTransferFile{}, fmt.Errorf("%s: %w", key, err)
 		}
 		entries = append(entries, entry)
+		if progress != nil {
+			progress(int64(index+1), total)
+		}
 	}
 
 	return redisTransferFile{

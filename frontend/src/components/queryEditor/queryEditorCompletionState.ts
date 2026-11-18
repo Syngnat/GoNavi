@@ -10,7 +10,7 @@ import type {
     CompletionPackageMeta,
 } from './QueryEditorHelpers';
 
-export const SQL_COMPLETION_PROVIDER_VERSION = '20260831-hover-ddl-v6';
+export const SQL_COMPLETION_PROVIDER_VERSION = '20261110-monaco-perf-v1';
 export const _g = globalThis as any;
 export const SQL_COMPLETION_PROVIDER_MODULE_TOKEN = {};
 export const QUERY_EDITOR_MONACO_LANGUAGE_IDS = ['sql', 'mysql'] as const;

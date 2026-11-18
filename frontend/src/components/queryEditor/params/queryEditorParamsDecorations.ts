@@ -1,4 +1,12 @@
 import type * as MonacoNS from 'monaco-editor';
+import { getQueryEditorModelValueLength } from '../queryEditorIdentifierPaths';
+
+// 参数高亮的两道上限。1MiB 与「键入分析上限」同一量级：普通 SQL 完全不受
+// 影响；超限时整体清空（避免留下与最新文本不符的旧高亮）。
+// 出现次数上限更关键：deltaDecorations 每条约 0.5–1μs，密集参数下仅长度
+// 上限挡不住（1MB 可产出数十万条）。
+const QUERY_EDITOR_PARAM_DECORATION_MAX_TEXT_LENGTH = 1_048_576;
+const QUERY_EDITOR_PARAM_DECORATION_MAX_OCCURRENCES = 2_000;
 
 // Monaco 参数装饰：为当前 SQL 中出现的 :name 记号加高亮，提示可填值。
 // 位置来自后端 AnalyzeQueryParameters 的语句拆分结果不可用（后端返回的是
@@ -19,6 +27,11 @@ export function applyParamNameDecorations(
   if (!model) {
     return;
   }
+  const modelLength = getQueryEditorModelValueLength(model);
+  if (modelLength !== null && modelLength > QUERY_EDITOR_PARAM_DECORATION_MAX_TEXT_LENGTH) {
+    clearParamNameDecorations(editor);
+    return;
+  }
   const decorations: MonacoNS.editor.IModelDeltaDecoration[] = [];
   if (paramNames.length > 0) {
     const alternation = paramNames
@@ -28,6 +41,10 @@ export function applyParamNameDecorations(
     const text = model.getValue();
     let match = pattern.exec(text);
     while (match) {
+      if (decorations.length >= QUERY_EDITOR_PARAM_DECORATION_MAX_OCCURRENCES) {
+        clearParamNameDecorations(editor);
+        return;
+      }
       const start = model.getPositionAt(match.index);
       const end = model.getPositionAt(match.index + match[0].length);
       decorations.push({

@@ -230,7 +230,41 @@ describe('DataSyncPreflightPanel production approval', () => {
     );
   });
 
-  it('uses the backend notBefore window and never creates a frontend-only approval', () => {
+  it('shows a stored production approval as already satisfied', () => {
+    const renderer = TestRenderer.create(
+      <DataSyncPreflightPanel
+        snapshot={{
+          taskId: 'task-1',
+          taskRevision: 4,
+          taskEditEpoch: 0,
+          status: 'passed',
+          issues: [],
+          definitionHash: 'hash-1',
+          approvalRequired: true,
+          approvalSatisfied: true,
+          checkedAt: '2030-08-08T00:00:00.000Z',
+        }}
+        currentRevision={4}
+        stale={false}
+        running={false}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onLocateIssue={() => undefined}
+        onBeginApproval={vi.fn()}
+        onApprove={vi.fn()}
+      />,
+    );
+
+    expect(JSON.stringify(renderer.toJSON())).toContain(
+      'One-time production authorization granted',
+    );
+    expect(
+      renderer.root.findAllByType('button').some((button) =>
+        button.children.join('').includes('Begin server 10-second confirmation'),
+      ),
+    ).toBe(false);
+  });
+
+  it('auto-approves only after the backend notBefore window', () => {
     vi.useFakeTimers();
     const now = Date.parse('2030-08-08T00:00:00.000Z');
     vi.setSystemTime(now);
@@ -300,13 +334,39 @@ describe('DataSyncPreflightPanel production approval', () => {
     act(() => {
       vi.advanceTimersByTime(10_000);
     });
+    expect(onApprove).toHaveBeenCalledTimes(1);
     const confirm = renderer.root
       .findAllByType('button')
       .find((button) =>
         button.children.includes('Confirm production write and grant token'),
       )!;
     expect(confirm.props.disabled).toBe(false);
-    act(() => confirm.props.onClick());
+    act(() => {
+      renderer.update(
+        <DataSyncPreflightPanel
+          snapshot={snapshot}
+          currentRevision={4}
+          stale={false}
+          running={false}
+          t={t}
+          onLocateIssue={() => undefined}
+          approvalChallenge={{
+            definitionHash: 'hash-1',
+            notBefore: new Date(now + 10_000).toISOString(),
+            expiresAt: new Date(now + 120_000).toISOString(),
+          }}
+          approving
+          onBeginApproval={onBegin}
+          onApprove={onApprove}
+        />,
+      );
+    });
     expect(onApprove).toHaveBeenCalledTimes(1);
+    expect(
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Requesting authorization'))!
+        .props.disabled,
+    ).toBe(true);
   });
 });

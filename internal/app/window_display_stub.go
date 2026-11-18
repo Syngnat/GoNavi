@@ -1,4 +1,4 @@
-//go:build !windows && (!darwin || !cgo)
+//go:build !windows && (!darwin || !cgo) && !wails3
 
 package app
 

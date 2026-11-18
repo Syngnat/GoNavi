@@ -3,11 +3,7 @@ import { LogError, LogInfo } from '../../../wailsjs/runtime';
 import { resolveOceanBaseProtocolFromConfig } from '../../utils/oceanBaseProtocol';
 import { resolveSqlDialect } from '../../utils/sqlDialect';
 import { t as translate } from '../../i18n';
-import {
-    maskQueryEditorSqlLiteralsAndComments,
-    QUERY_EDITOR_HOVER_DELAY_MS,
-} from './QueryEditorHelpers';
-import { buildQueryEditorAiInlineSuggestOptions } from './QueryEditorAiAssist';
+import { maskQueryEditorSqlLiteralsAndComments } from './QueryEditorHelpers';
 
 export const buildQueryEditorMonacoActionLabel = (key: string): string =>
     `GoNavi: ${translate(key)}`;
@@ -118,36 +114,4 @@ export const writeQueryEditorFormatLog = (level: 'info' | 'error', messageText: 
     }
 };
 
-export const buildQueryEditorMonacoOptions = (
-    isObjectEditQueryTab: boolean,
-    wordWrapEnabled = false,
-) => ({
-    minimap: { enabled: false },
-    automaticLayout: true,
-    fixedOverflowWidgets: true,
-    wordWrap: wordWrapEnabled ? ('on' as const) : ('off' as const),
-    // Keep the find widget as an overlay; Monaco's default top spacer creates a blank band.
-    find: {
-        addExtraSpaceOnTop: false,
-    },
-    hover: {
-        enabled: true,
-        delay: QUERY_EDITOR_HOVER_DELAY_MS,
-        above: false,
-    },
-    scrollBeyondLastLine: false,
-    quickSuggestions: { other: true, comments: false, strings: false },
-    suggestOnTriggerCharacters: true,
-    suggestLineHeight: QUERY_EDITOR_TABLE_SUGGESTION_ROW_HEIGHT,
-    inlineSuggest: buildQueryEditorAiInlineSuggestOptions(),
-    ...(isObjectEditQueryTab
-        ? {
-            lineNumbersMinChars: 4,
-            stickyScroll: { enabled: false },
-        }
-        : {}),
-});
-
 export const QUERY_EDITOR_SQL_PROMPT_PLACEHOLDER = '{SQL}';
-
-const QUERY_EDITOR_TABLE_SUGGESTION_ROW_HEIGHT = 36;

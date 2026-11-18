@@ -1093,10 +1093,12 @@ describe('Sidebar locate toolbar', () => {
       .toBeLessThan(sortedSuffixMarkup.indexOf('用户表'));
 
     const treeTitleSource = readSourceFile('./sidebar/SidebarTreeTitle.tsx');
+    const hoverCardSource = readSourceFile('./common/MetadataHoverCard.tsx');
     const sidebarHelpersSource = readSourceFile('./sidebar/sidebarHelpers.ts');
 
-    expect(treeTitleSource).toContain('title={renderHoverInfo}');
-    expect(treeTitleSource).toContain('const renderHoverInfo = React.useCallback(');
+    expect(hoverCardSource).toContain('title={renderContent}');
+    expect(hoverCardSource).toContain('const renderContent = React.useCallback(');
+    expect(treeTitleSource).toContain('content={renderMetadataHoverContent(node, displayTitle)}');
     expect(treeTitleSource).not.toContain('title={<SidebarTableHoverInfo');
     expect(treeTitleSource).toContain("node.type === 'table' && sidebarTableMetadataFields.length > 0");
 

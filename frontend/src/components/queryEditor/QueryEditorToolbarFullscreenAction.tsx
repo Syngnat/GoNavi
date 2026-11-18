@@ -1,5 +1,6 @@
 import React from 'react';
-import { Button, Tooltip } from 'antd';
+import { Tooltip } from 'antd';
+import { QueryToolbarButton } from './QueryToolbarButton';
 import { GnFullscreenExitIcon, GnFullscreenIcon } from '../icons/gnIcons';
 
 import { t as defaultTranslate } from '../../i18n';
@@ -39,7 +40,7 @@ export const QueryEditorToolbarFullscreenAction: React.FC<QueryEditorToolbarFull
 
   return (
     <Tooltip title={title}>
-      <Button
+      <QueryToolbarButton
         aria-label={actionLabel}
         aria-pressed={active}
         className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-fullscreen-action"

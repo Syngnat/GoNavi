@@ -92,3 +92,19 @@ export const resolvePlainClickSelectedKeys = (
   // 点击未选中行 → 只选它；点击已选中行 → 取消（保持原有的二次点击取消语义）。
   return stillSelected ? [clickedKey] : [];
 };
+
+/**
+ * Keeps selectedNodesRef aligned with the normalized plain-click selection.
+ * rc-tree's info.selectedNodes still carries the pre-normalization multi-select
+ * array, so filtering it by the normalized keys prevents stale nodes from
+ * leaking into paste targets, batch actions and titlebar context.
+ */
+export const resolvePlainClickSelectedNodes = <T extends MultiSelectableNode>(
+  nodes: ReadonlyArray<T | null | undefined> | null | undefined,
+  normalizedKeys: ReadonlyArray<unknown> | null,
+): T[] => {
+  const rawNodes = (nodes || []).filter(Boolean) as T[];
+  if (!normalizedKeys) return rawNodes;
+  const selectedKeys = new Set(normalizedKeys.map((key) => String(key)));
+  return rawNodes.filter((node) => selectedKeys.has(String(node?.key)));
+};

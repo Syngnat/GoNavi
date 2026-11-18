@@ -15,6 +15,11 @@ import { dispatchSidebarDatabaseRefresh } from '../../../utils/sidebarDatabaseRe
 import {
     QUERY_EDITOR_SQL_LOG_TAB_KEY, type QueryEditorResultSet,
 } from '../../QueryEditorResultsPanel';
+import {
+    buildQueryEditorStatementSummaryEntriesFromExecutionResults,
+    buildQueryEditorStatementSummaryFailureEntries,
+    buildQueryEditorStatementSummaryResultSet,
+} from './queryEditorRunStatementSummary';
 import type { TabData } from '../../../types';
 import type { SavedConnection } from '../../../typeDefs/connectionTypes';
 
@@ -34,12 +39,13 @@ export interface HandleQueryEditorRunFailureInput {
     clearQueryId: () => void;
     updateResultPanelVisibility: (visible: boolean) => void;
     setExecutionError: React.Dispatch<React.SetStateAction<string>>;
+    showRunFailureSummary?: (summary: QueryEditorResultSet) => void;
 }
 
 export const handleQueryEditorRunFailure = async ({
     oracleCompileFailureMessage, res, tab, normalizedDbType, sourceStatements, executionConfig,
     executionDbName, isCurrentRun, conn, clearUnpinnedResultSets, currentQueryIdRef, queryId,
-    clearQueryId, updateResultPanelVisibility, setExecutionError,
+    clearQueryId, updateResultPanelVisibility, setExecutionError, showRunFailureSummary,
 }: HandleQueryEditorRunFailureInput) => {
     const executionErrorText = oracleCompileFailureMessage
         ? translate('query_editor.message.object_compile_failed', {
@@ -138,11 +144,49 @@ export const handleQueryEditorRunFailure = async ({
         return;
     }
 
+    const structuredSummaryEntries = Array.isArray(res.statementResults)
+        ? buildQueryEditorStatementSummaryEntriesFromExecutionResults({
+            results: res.statementResults,
+            statementAt: (statementIndex) => sourceStatements[statementIndex - 1] || '',
+            dbType: normalizedDbType,
+        })
+        : [];
+    const fallbackSummaryEntries = structuredSummaryEntries.length > 0
+        ? []
+        : buildQueryEditorStatementSummaryFailureEntries({
+            sourceStatements,
+            executedCount: Number(res.executedCount) || 0,
+            failedIndex: failedStatementIndex,
+            errorText: executionErrorText,
+            outcomeUnknown: triggerExecutionOutcomeUnknown,
+            dbType: normalizedDbType,
+        });
+    const failureSummaryEntries = structuredSummaryEntries.length > 0
+        ? structuredSummaryEntries
+        : fallbackSummaryEntries;
+    const failureSummary = failureSummaryEntries.length > 1
+        && failureSummaryEntries.some((entry) => entry.status !== 'success')
+        ? buildQueryEditorStatementSummaryResultSet({
+            entries: failureSummaryEntries,
+            affectedResultCount: failureSummaryEntries.length,
+            key: 'run-failure-summary',
+            exportSql: sourceStatements.join(';\n'),
+            executionDbName,
+        })
+        : null;
+    if (failureSummary) {
+        failureSummary.outcomeUnknown = triggerExecutionOutcomeUnknown;
+    }
+
     updateResultPanelVisibility(true);
     setExecutionError(triggerRestoreMessage
         || executionErrorText);
     if (oracleCompileFailureMessage) {
         message.error(executionErrorText);
+    }
+    if (failureSummary && showRunFailureSummary) {
+        showRunFailureSummary(failureSummary);
+        return;
     }
     clearUnpinnedResultSets(QUERY_EDITOR_SQL_LOG_TAB_KEY);
     return;

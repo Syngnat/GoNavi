@@ -1,22 +1,23 @@
 import { Alert, Button, Modal, Spin, Typography } from 'antd';
 import { useI18n } from '../i18n/provider';
-import { PluginInstallPreview } from '../components/pluginManager/PluginInstallPreview';
 import { pluginErrorText } from '../plugins/apiResult';
 import { formatBytes } from '../utils/byteSize';
 import { useMarketInspection } from './useMarketInspection';
-import { MarketInspectionProof } from './MarketInspectionProof';
-import type { MarketInspectionRequest } from './types';
+import { MarketInstallReview } from './MarketInstallReview';
+import type { MarketInspectionRequest, MarketPlugin } from './types';
 
 interface Props {
   request: MarketInspectionRequest;
+  plugin: MarketPlugin;
   source: string;
+  trustedOfficial: boolean;
   allowed: boolean;
   replace?: boolean;
   onClose: () => void;
   onInstalled: () => void;
   onInstallError: (message: string) => void;
 }
-export function MarketInstallConsent({ request, source, allowed, replace, onClose, onInstalled, onInstallError }: Props) {
+export function MarketInstallConsent({ request, plugin, source, trustedOfficial, allowed, replace, onClose, onInstalled, onInstallError }: Props) {
   const { t } = useI18n();
   const inspection = useMarketInspection(request, allowed);
   const close = () => { inspection.cancel(); onClose(); };
@@ -32,9 +33,10 @@ export function MarketInstallConsent({ request, source, allowed, replace, onClos
       {inspection.error && <Alert showIcon type="error" message={inspection.error} />}
     </div>
   </Modal>;
-  return <PluginInstallPreview key={inspection.quoteRevision} inspection={inspection.quote.inspection} allowed={inspection.canInstall} replace={replace} onCancel={close}
-    digestLabel={t('plugin.market.content_digest')}
-    details={<MarketInspectionProof quote={inspection.quote} source={source} error={inspection.error} consumed={inspection.consumed} installing={inspection.installing} />}
+  return <MarketInstallReview key={inspection.quoteRevision} inspection={inspection.quote.inspection} plugin={plugin}
+    sourceBaseUrl={source} trustedOfficial={trustedOfficial} allowed={inspection.canInstall} replace={replace}
+    confirmText={replace ? t('plugin.install.replace_confirm') : t('plugin.market.install_submit')}
+    error={inspection.error} consumed={inspection.consumed} installing={inspection.installing} onCancel={close}
     onInstall={async () => {
       try { await inspection.commit(); onClose(); }
       catch (cause) { onInstallError(pluginErrorText(cause)); throw cause; }

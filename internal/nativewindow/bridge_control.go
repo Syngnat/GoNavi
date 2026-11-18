@@ -1,3 +1,5 @@
+//go:build !wails3
+
 package nativewindow
 
 import (
@@ -5,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // Control is bound only in a child and always targets that process's native

@@ -63,6 +63,19 @@ type Contributions struct {
 	Sidebar           []SidebarGroup     `json:"sidebar,omitempty"`
 	Views             []View             `json:"views,omitempty"`
 	Keybindings       []Keybinding       `json:"keybindings,omitempty"`
+	SettingsSections  []SettingsSection  `json:"settingsSections,omitempty"`
+}
+
+// SettingsSection declares a plugin page embedded in a host-owned settings slot.
+// The host keeps the slot position and fallback entry, so the setting stays in the
+// same place whether or not a plugin provides it.
+type SettingsSection struct {
+	ID          string `json:"id"`
+	Slot        string `json:"slot"`
+	Page        string `json:"page"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Order       int    `json:"order,omitempty"`
 }
 
 // Keybinding opens a declared page or window from a host-wide shortcut.

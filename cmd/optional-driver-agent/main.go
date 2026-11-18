@@ -638,26 +638,12 @@ func (w *agentStreamResponseWriter) flushRows() error {
 	}
 	rows := w.rows
 	w.rows = nil
-	for len(rows) > 0 {
-		batch := rows
-		for {
-			err := w.writer.write(agentResponse{
-				ID:        w.requestID,
-				Success:   true,
-				ChunkType: agentChunkRows,
-				Data:      batch,
-			})
-			if err == nil {
-				break
-			}
-			if !errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) || len(batch) == 1 {
-				return err
-			}
-			batch = batch[:len(batch)/2]
-		}
-		rows = rows[len(batch):]
-	}
-	return nil
+	return w.writer.write(agentResponse{
+		ID:        w.requestID,
+		Success:   true,
+		ChunkType: agentChunkRows,
+		Data:      rows,
+	})
 }
 
 func (w *agentStreamResponseWriter) finish() error {
@@ -774,9 +760,6 @@ func writeResponse(writer *bufio.Writer, resp agentResponse) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	if len(payload) > db.OptionalDriverAgentMaxJSONLineBytes {
-		return db.ErrOptionalDriverAgentJSONLineTooLarge
-	}
 	if _, err := writer.Write(payload); err != nil {
 		return err
 	}

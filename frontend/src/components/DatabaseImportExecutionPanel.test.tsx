@@ -23,6 +23,7 @@ const createRunnerState = (
   percent: 0,
   bytesRead: 0,
   totalBytes: 0,
+  stageCode: '',
   bytesPerSecond: 0,
   etaSeconds: 0,
   currentSQL: '',
@@ -75,6 +76,7 @@ vi.mock('antd', async () => {
   const Alert = (props: Record<string, unknown>) => React.createElement('mock-alert', props);
   const Button = ({ children, ...props }: any) => <button {...props}>{children}</button>;
   const Progress = (props: Record<string, unknown>) => React.createElement('mock-progress', props);
+  const Spin = (props: Record<string, unknown>) => React.createElement('mock-spin', props);
   const Radio = ({ children, ...props }: any) => React.createElement('mock-radio', props, children);
   Radio.Group = ({ children, ...props }: any) => React.createElement('mock-radio-group', props, children);
   const Paragraph = ({ children, ...props }: any) => <p {...props}>{children}</p>;
@@ -84,6 +86,7 @@ vi.mock('antd', async () => {
     Alert,
     Button,
     Progress,
+    Spin,
     Radio,
     Typography: { Paragraph, Text, Title },
   };
@@ -381,6 +384,29 @@ describe('DatabaseImportExecutionPanel', () => {
     expect(renderer.root.findByProps({
       'data-database-import-stage': 'true',
     }).props.children).toBe('Running preflight checks');
+  });
+
+  it('renders an indeterminate progress indicator while saving the rollback snapshot', async () => {
+    mocks.state = createRunnerState({
+      jobId: 'database-import-job-1',
+      status: 'running',
+      stage: 'Saving rollback snapshot',
+      stageCode: 'snapshot',
+      bytesRead: 0,
+      totalBytes: 4.4 * 1024 * 1024 * 1024,
+      percent: 0,
+    });
+    const renderer = await renderPanel();
+
+    expect(renderer.root.findByProps({
+      'data-database-import-snapshot-progress': 'true',
+    })).toBeTruthy();
+    expect(renderer.root.findAllByProps({
+      'data-database-import-progress': 'true',
+    })).toHaveLength(0);
+    expect(renderer.root.findAllByProps({
+      'data-database-import-transfer-metrics': 'true',
+    })).toHaveLength(0);
   });
 
   it('requires a second confirmation before rerunning the whole SQL file', async () => {

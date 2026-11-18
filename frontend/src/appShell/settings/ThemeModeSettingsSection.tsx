@@ -1,6 +1,6 @@
 import { CheckOutlined } from '@ant-design/icons';
 import CustomThemeManager from '../../components/settings/CustomThemeManager';
-import BackgroundImageSettings from '../../components/settings/BackgroundImageSettings';
+import { PluginSettingsSection } from '../../pluginSettings/PluginSettingsSection';
 import ToolbarButtonAppearanceSettings from '../../components/settings/ToolbarButtonAppearanceSettings';
 import TitlebarActionsPlacementSettings from '../../components/settings/TitlebarActionsPlacementSettings';
 import {
@@ -74,7 +74,7 @@ export const ThemeModeSettingsSection = ({
       )}
       {renderThemeSettingsSection(
           t('app.theme.background.title'),
-          <BackgroundImageSettings />,
+          <PluginSettingsSection slot="appearance.background" />,
       )}
       {renderThemeSettingsSection(
           t('app.theme.toolbar_buttons.title'),

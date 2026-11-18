@@ -116,6 +116,89 @@ func installCopyTableTestDatabase(t *testing.T, database db.Database) *App {
 	return NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
 }
 
+func TestResolvePostgresCopyTableColumnTraitsFallsBackByServerCapability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantCalls    int
+		wantIdentity bool
+	}{
+		{
+			name:         "PostgreSQL 10/11 keeps identity without attgenerated",
+			wantCalls:    2,
+			wantIdentity: true,
+		},
+		{
+			name:      "PostgreSQL 9 falls back without generated or identity columns",
+			wantCalls: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			database := &fakeCopyTableDB{
+				queryFunc: func(query string) ([]map[string]interface{}, error) {
+					calls++
+					if strings.Contains(query, "a.attgenerated") {
+						return nil, errors.New(`column "attgenerated" does not exist`)
+					}
+					if strings.Contains(query, "a.attidentity") {
+						if tt.wantCalls == 3 {
+							return nil, errors.New(`column "attidentity" does not exist`)
+						}
+						return []map[string]interface{}{{
+							"column_name":    "id",
+							"generated_kind": "",
+							"identity_kind":  "a",
+						}}, nil
+					}
+					return []map[string]interface{}{{
+						"column_name":    "id",
+						"generated_kind": "",
+						"identity_kind":  "",
+					}}, nil
+				},
+			}
+
+			traits, err := resolvePostgresCopyTableColumnTraits(database, "postgres", "public", "users")
+			if err != nil {
+				t.Fatalf("resolvePostgresCopyTableColumnTraits() error: %v", err)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("query calls = %d, want %d; queries=%v", calls, tt.wantCalls, database.queryQueries)
+			}
+			if traits["id"].identity != tt.wantIdentity {
+				t.Fatalf("identity trait = %v, want %v; traits=%+v", traits["id"].identity, tt.wantIdentity, traits)
+			}
+			for _, query := range database.queryQueries {
+				if strings.Contains(query, "to_jsonb") {
+					t.Fatalf("table copy metadata must not use to_jsonb: %s", query)
+				}
+			}
+		})
+	}
+}
+
+func TestResolvePostgresCopyTableColumnTraitsDoesNotFallbackForConnectionErrors(t *testing.T) {
+	t.Parallel()
+
+	connectionErr := errors.New("connection reset by peer while executing SELECT a.attidentity")
+	database := &fakeCopyTableDB{
+		queryFunc: func(string) ([]map[string]interface{}, error) {
+			return nil, connectionErr
+		},
+	}
+	_, err := resolvePostgresCopyTableColumnTraits(database, "postgres", "public", "users")
+	if !errors.Is(err, connectionErr) {
+		t.Fatalf("expected connection error, got %v", err)
+	}
+	if len(database.queryQueries) != 1 {
+		t.Fatalf("connection errors must not trigger compatibility fallback, queries=%v", database.queryQueries)
+	}
+}
+
 func TestCopyTableMySQLChoosesNextSuffixAndCopiesWritableColumns(t *testing.T) {
 	database := &fakeCopyTableDB{
 		columns: []connection.ColumnDefinition{

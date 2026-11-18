@@ -252,8 +252,8 @@ describe('buildMessageConsumeCommand', () => {
   });
 
   it('builds a Kafka metadata preview query so payload loads on demand', () => {
-    // 列表只取元数据列：payload 可能有十几 MB，塞进列表帧会让驱动代理单帧超限、
-    // 整条预览流中断；完整内容在点击消息时按 partition+offset 单独拉取。
+    // 列表只取元数据列：payload 可能有十几 MB，不放进列表结果；
+    // 完整内容在点击消息时按 partition+offset 单独拉取。
     // 起始位置写进命令：界面默认展示「最新位置」，后端未配置时却从最早读。
     expect(buildMessageConsumeCommand(
       { type: 'kafka' },

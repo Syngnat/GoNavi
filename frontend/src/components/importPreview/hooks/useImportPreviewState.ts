@@ -29,11 +29,21 @@ export interface UseImportPreviewStateInput {
   filePath: ImportPreviewModalProps['filePath'];
   dbName: ImportPreviewModalProps['dbName'];
   tableName: ImportPreviewModalProps['tableName'];
+  targetColumnsOverride?: ImportPreviewModalProps['targetColumnsOverride'];
+  targetColumnMappings?: ImportPreviewModalProps['targetColumnMappings'];
+  autoCreateTable?: ImportPreviewModalProps['autoCreateTable'];
   onImportingChange: ImportPreviewModalProps['onImportingChange'];
 }
 
+type PreviewColumnsResult = {
+  success: boolean;
+  message?: string;
+  data?: unknown;
+};
+
 export const useImportPreviewState = ({
   connectionId, importOptions, continueOnError, visible, filePath, dbName, tableName,
+  targetColumnsOverride, targetColumnMappings, autoCreateTable,
   onImportingChange,
 }: UseImportPreviewStateInput) => {
   const i18n = useOptionalI18n();
@@ -41,7 +51,15 @@ export const useImportPreviewState = ({
   const connections = useStore((state) => state.connections);
   const darkMode = useStore((state) => state.theme === "dark");
   const connection = connections.find((item) => item.id === connectionId);
-  const parserOptions = buildImportParserOptions(importOptions, continueOnError, connection?.config);
+  const parserOptions = {
+    ...buildImportParserOptions(importOptions, continueOnError, connection?.config),
+    ...(autoCreateTable && Number(autoCreateTable.typeRow) > 0
+      ? { typeRow: Number(autoCreateTable.typeRow) }
+      : {}),
+    ...(autoCreateTable && Number(autoCreateTable.commentRow) > 0
+      ? { commentRow: Number(autoCreateTable.commentRow) }
+      : {}),
+  };
   const parserOptionsKey = JSON.stringify({
     losslessHive: parserOptions.losslessHive,
     encoding: parserOptions.encoding,
@@ -50,7 +68,19 @@ export const useImportPreviewState = ({
     nullToken: parserOptions.nullToken,
     emptyStringAsNull: parserOptions.emptyStringAsNull,
     sheetName: parserOptions.sheetName,
+    typeRow: parserOptions.typeRow,
+    commentRow: parserOptions.commentRow,
   });
+  const normalizedTargetColumnsOverride = Array.isArray(targetColumnsOverride)
+    ? targetColumnsOverride.map((column) => String(column || '').trim()).filter(Boolean)
+    : [];
+  const targetColumnsOverrideKey = JSON.stringify(normalizedTargetColumnsOverride);
+  const normalizedTargetColumnMappings = Object.fromEntries(
+    Object.entries(targetColumnMappings || {})
+      .map(([source, target]) => [String(source || '').trim(), String(target || '').trim()])
+      .filter(([source, target]) => Boolean(source && target)),
+  );
+  const targetColumnMappingsKey = JSON.stringify(normalizedTargetColumnMappings);
   const [loading, setLoading] = useState(true);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [targetColumns, setTargetColumns] = useState<string[]>([]);
@@ -102,7 +132,17 @@ export const useImportPreviewState = ({
         previewRequestRef.current += 1;
       }
     };
-  }, [visible, filePath, connectionId, dbName, tableName, connection, parserOptionsKey]);
+  }, [
+    visible,
+    filePath,
+    connectionId,
+    dbName,
+    tableName,
+    connection,
+    parserOptionsKey,
+    targetColumnsOverrideKey,
+    targetColumnMappingsKey,
+  ]);
 
   useEffect(() => () => {
     importRequestRef.current += 1;
@@ -210,19 +250,29 @@ export const useImportPreviewState = ({
         setError(t("data_import.capability.reason.capability_unavailable"));
         return;
       }
+      const previewPromise = invokeAppWithSignal(
+        "PreviewImportFileWithOptions",
+        [filePath, parserOptions],
+        signal,
+        () => previewFile(filePath, parserOptions),
+      );
+      const targetColumnsPromise: Promise<PreviewColumnsResult> = normalizedTargetColumnsOverride.length > 0
+        ? Promise.resolve({
+            success: true,
+            data: normalizedTargetColumnsOverride.map((name) => ({
+              name,
+              nullable: "YES",
+            })),
+          })
+        : invokeAppWithSignal<PreviewColumnsResult>(
+            "DBGetColumns",
+            [rpcConfig, dbName, tableName],
+            signal,
+            () => DBGetColumns(rpcConfig, dbName, tableName),
+          );
       const [previewRes, columnsRes] = await Promise.all([
-        invokeAppWithSignal(
-          "PreviewImportFileWithOptions",
-          [filePath, parserOptions],
-          signal,
-          () => previewFile(filePath, parserOptions),
-        ),
-        invokeAppWithSignal(
-          "DBGetColumns",
-          [rpcConfig, dbName, tableName],
-          signal,
-          () => DBGetColumns(rpcConfig, dbName, tableName),
-        ),
+        previewPromise,
+        targetColumnsPromise,
       ]);
       if (previewRequestRef.current !== requestId) return;
       if (!previewRes.success || !previewRes.data) {
@@ -251,6 +301,11 @@ export const useImportPreviewState = ({
       });
       const nextMappings: Record<string, string> = {};
       sourceColumns.forEach((sourceColumn) => {
+        const hintedTarget = normalizedTargetColumnMappings[sourceColumn];
+        if (hintedTarget && nextTargetColumns.includes(hintedTarget)) {
+          nextMappings[sourceColumn] = hintedTarget;
+          return;
+        }
         const exactTarget = nextTargetColumns.find((targetColumn) => targetColumn === sourceColumn);
         const insensitiveTargets = targetsByLowerName.get(sourceColumn.toLowerCase()) || [];
         nextMappings[sourceColumn] = exactTarget || (insensitiveTargets.length === 1 ? insensitiveTargets[0] : "");

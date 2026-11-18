@@ -59,8 +59,7 @@ func TestKafkaMessageRowsProjectedDropsPayload(t *testing.T) {
 	}
 }
 
-// 大 payload 不再展开成 value.xxx 列：展开会让同一份内容在行里出现两次，
-// 十几 MB 的消息会因此顶满驱动代理的单帧上限。
+// 大 payload 不再展开成 value.xxx 列：展开会让同一份内容在行里出现两次。
 func TestKafkaMessageRowsSkipsFlatteningOversizedPayload(t *testing.T) {
 	big := strings.Repeat("x", kafkaFlattenMaxPayloadBytes+1)
 	records := []kafkaMessageRecord{{

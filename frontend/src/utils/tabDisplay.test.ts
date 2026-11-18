@@ -10,6 +10,7 @@ import {
   DEFAULT_TAB_DISPLAY_SETTINGS,
   getDefaultTabDisplaySnapshot,
   getTabDisplayKindLabel,
+  isDoubleLineTabDisplay,
   resolveTabDisplayElementOrder,
   resolveConnectionHostSummary,
   sanitizeTabDisplaySettings,
@@ -595,6 +596,16 @@ describe('tabDisplay', () => {
     ]);
 
     expect(index.get('conn-1')).toBe('核心交易库');
+  });
+
+  it('treats double-line layout as enabled even when the secondary row has no content', () => {
+    expect(isDoubleLineTabDisplay({
+      layout: 'double',
+      primaryElements: ['object'],
+      secondaryElements: [],
+    })).toBe(true);
+    expect(isDoubleLineTabDisplay({ layout: 'single', secondaryElements: ['database'] })).toBe(false);
+    expect(isDoubleLineTabDisplay(undefined)).toBe(false);
   });
 
   it('keeps separate single-line and double-line settings when switching layouts', () => {

@@ -159,6 +159,14 @@ describe('QueryEditor external SQL save', () => {
           { columns: ['id'], rows: firstPageRows, statementIndex: 1 },
         ],
       })
+      // 首屏之后会自动在后台补一次 COUNT(*)，这里让它返回真实总数，
+      // 验证「精确总数已知时翻页结果不被估算值覆盖」。
+      .mockResolvedValueOnce({
+        success: true,
+        data: [
+          { columns: ['__gonavi_total__'], rows: [{ __gonavi_total__: 1000 }], statementIndex: 1 },
+        ],
+      })
       .mockResolvedValueOnce({
         success: true,
         data: [
@@ -183,7 +191,7 @@ describe('QueryEditor external SQL save', () => {
       current: 1,
       pageSize: 500,
       total: 1000,
-      totalKnown: false,
+      totalKnown: true,
     });
     expect(dataGridState.latestProps?.resultExportAllSql).toBe('SELECT id FROM users');
 
@@ -195,8 +203,8 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(2);
-    const pageSql = String(backendApp.DBQueryMulti.mock.calls[1][2]);
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(3);
+    const pageSql = String(backendApp.DBQueryMulti.mock.calls[2][2]);
     expect(pageSql).toContain('SELECT * FROM (SELECT id FROM users) AS __gonavi_query_page__');
     expect(pageSql).toContain('LIMIT 501 OFFSET 500');
     expect(dataGridState.latestProps?.pagination).toMatchObject({
@@ -208,7 +216,7 @@ describe('QueryEditor external SQL save', () => {
     expect(dataGridState.latestProps?.data?.[0]).toMatchObject({ id: 501 });
   });
 
-  it('counts the exact total for a limited query result and updates pagination', async () => {
+  it('counts the exact total for a limited query result without a manual click', async () => {
     const firstPageRows = Array.from({ length: 500 }, (_item, index) => ({ id: index + 1 }));
     backendApp.GenerateQueryID
       .mockResolvedValueOnce('query-page-initial')
@@ -238,22 +246,10 @@ describe('QueryEditor external SQL save', () => {
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
-    });
-
-    expect(dataGridState.latestProps?.pagination).toMatchObject({
-      total: 1000,
-      totalKnown: false,
-    });
-    expect(dataGridState.latestProps?.onRequestTotalCount).toEqual(expect.any(Function));
-
-    await act(async () => {
-      await dataGridState.latestProps.onRequestTotalCount();
-    });
-    await act(async () => {
-      await Promise.resolve();
       await Promise.resolve();
     });
 
+    // 首屏之后自动补一次 COUNT(*)：不需要用户点「统计总数」。
     expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(2);
     expect(backendApp.DBQueryMulti).toHaveBeenLastCalledWith(
       expect.anything(),
@@ -266,6 +262,55 @@ describe('QueryEditor external SQL save', () => {
       totalKnown: true,
       totalCountLoading: false,
     });
+    // 自动统计仍保留手动入口，供失败后重试。
+    expect(dataGridState.latestProps?.onRequestTotalCount).toEqual(expect.any(Function));
+  });
+
+  it('stops automatic total counting once the user cancels it', async () => {
+    const firstPageRows = Array.from({ length: 500 }, (_item, index) => ({ id: index + 1 }));
+    let resolveCount!: (value: any) => void;
+    const pendingCount = new Promise((resolve) => {
+      resolveCount = resolve;
+    });
+    backendApp.GenerateQueryID
+      .mockResolvedValueOnce('query-page-initial')
+      .mockResolvedValueOnce('query-total-count');
+    backendApp.CancelQuery.mockResolvedValue({ success: true });
+    backendApp.DBQueryMulti
+      .mockResolvedValueOnce({
+        success: true,
+        data: [
+          { columns: ['id'], rows: firstPageRows, statementIndex: 1 },
+        ],
+      })
+      .mockImplementationOnce(() => pendingCount);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'SELECT id FROM users LIMIT 0,500' })} />);
+    });
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(dataGridState.latestProps?.pagination?.totalCountLoading).toBe(true);
+
+    await act(async () => {
+      await dataGridState.latestProps.onCancelTotalCount();
+      await Promise.resolve();
+    });
+    expect(dataGridState.latestProps?.pagination).toMatchObject({
+      totalCountLoading: false,
+      totalCountCancelled: true,
+    });
+
+    // 用户取消后不应再自动重试，否则取消按钮形同虚设。
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(2);
   });
 
   it('cancels a query-result total count without applying its late response', async () => {
@@ -420,11 +465,10 @@ describe('QueryEditor external SQL save', () => {
     await act(async () => {
       await findButton(renderer!, '运行').props.onClick();
       await Promise.resolve();
-    });
-    await act(async () => {
-      await dataGridState.latestProps.onRequestTotalCount();
+      await Promise.resolve();
       await Promise.resolve();
     });
+    // 精确总数由首屏之后的后台统计得出，无需手动点「统计总数」。
     expect(dataGridState.latestProps?.pagination).toMatchObject({ total: 1234, totalKnown: true });
 
     await act(async () => {

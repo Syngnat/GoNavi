@@ -12,9 +12,11 @@ import { sharedActiveEditorModelUri } from '../queryEditorCompletionState';
 import { useStore } from '../../../store';
 import { QUERY_EDITOR_AI_INLINE_DEBOUNCE_MS } from '../queryEditorRunHelpers';
 import { isShortcutMatch } from '../../../utils/shortcuts';
+import { isSqlAiCompletionEnabled } from '../../../utils/sqlAiCompletionEnabled';
 import type { OnMount } from '../../MonacoEditor';
 import type { createQueryEditorAiInlineGhostState } from './queryEditorAiInlineGhostState';
 import type { SavedConnection } from '../../../typeDefs/connectionTypes';
+import { shouldSkipAutomaticQueryEditorAiInlineGhost } from './queryEditorAiInlineGhostPolicy';
 
 export interface CreateQueryEditorAiInlineGhostActionsInput {
     clearAiInlineGhost: ReturnType<typeof createQueryEditorAiInlineGhostState>['clearAiInlineGhost'];
@@ -204,6 +206,15 @@ export const createQueryEditorAiInlineGhostActions = ({
             return;
         }
 
+        // 长度探测绝不能退化成「读出全文再量长度」：这正是本门控要避免的成本。
+        // 拿不到 O(1) 长度时按「无法判定」处理，交给下面的快照与请求逻辑。
+        const modelLength = typeof model.getValueLength === 'function'
+            ? Number(model.getValueLength())
+            : Number.NaN;
+        if (!manualTrigger && shouldSkipAutomaticQueryEditorAiInlineGhost(modelLength)) {
+            return;
+        }
+
         let editorSnapshot = buildInlineGhostEditorSnapshot(model, position);
         if (manualTrigger) {
             const normalizedState = recoverStrayManualSqlCompletionMarker(model, position, editorSnapshot);
@@ -307,28 +318,31 @@ export const createQueryEditorAiInlineGhostActions = ({
                         }
                         return;
                     }
-                    const aiService = getQueryEditorAiService();
-                    const readiness = await resolveQueryEditorInlineRuntimeReadiness(aiService);
-                    if (
-                        !readiness.ready
-                        || requestId !== aiInlineGhostRequestSeqRef.current
-                        || editorRef.current !== editor
-                    ) {
-                        return;
+                    let insertText = '';
+                    if (isSqlAiCompletionEnabled()) {
+                        const aiService = getQueryEditorAiService();
+                        const readiness = await resolveQueryEditorInlineRuntimeReadiness(aiService);
+                        if (
+                            !readiness.ready
+                            || requestId !== aiInlineGhostRequestSeqRef.current
+                            || editorRef.current !== editor
+                        ) {
+                            return;
+                        }
+                        await ensureQueryEditorAiContextMetadata(editorSnapshot);
+                        if (
+                            requestId !== aiInlineGhostRequestSeqRef.current
+                            || editorRef.current !== editor
+                        ) {
+                            return;
+                        }
+                        insertText = await requestQueryEditorInlineCompletion({
+                            service: aiService,
+                            aiContext: buildQueryEditorAiContext(),
+                            editorSnapshot,
+                            autoAddTableAlias,
+                        });
                     }
-                    await ensureQueryEditorAiContextMetadata(editorSnapshot);
-                    if (
-                        requestId !== aiInlineGhostRequestSeqRef.current
-                        || editorRef.current !== editor
-                    ) {
-                        return;
-                    }
-                    const insertText = await requestQueryEditorInlineCompletion({
-                        service: aiService,
-                        aiContext: buildQueryEditorAiContext(),
-                        editorSnapshot,
-                        autoAddTableAlias,
-                    });
                     const currentPosition = normalizeEditorPosition(editor.getPosition?.());
                     if (
                         requestId !== aiInlineGhostRequestSeqRef.current

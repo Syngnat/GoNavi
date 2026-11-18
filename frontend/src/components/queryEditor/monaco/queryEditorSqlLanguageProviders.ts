@@ -309,7 +309,7 @@ export const registerQueryEditorSqlLanguageProviders = ({
             }
 
             const {
-                foundTables, currentDatabase, hasCompletionDatabaseScope,
+                foundTables, tableReferenceOrder, currentDatabase, hasCompletionDatabaseScope,
                 isCurrentCompletionDatabase, rawWordPrefix, wordPrefix, getPrefixMatchRank,
                 expectsTableName, expectsRoutineName, sortGroups,
             } = createSqlCompletionRankingContext({
@@ -391,7 +391,7 @@ export const registerQueryEditorSqlLanguageProviders = ({
                 }
             }
             const { suggestions } = buildSqlCompletionGlobalSuggestions({
-                expectsTableName, foundTables, activeDialect, referencedColumns, wordPrefix,
+                expectsTableName, foundTables, tableReferenceOrder, activeDialect, referencedColumns, wordPrefix,
                 isCurrentCompletionDatabase, sortGroups, monaco, quoteCompletionPart,
                 applyCompletionFragmentCase, rawWordPrefix, range, currentDatabase,
                 completionTables, splitSchemaAndTable, buildDbQualifiedTableSuggestionMeta,

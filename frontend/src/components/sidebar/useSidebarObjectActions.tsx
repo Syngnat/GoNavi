@@ -179,7 +179,7 @@ export const useSidebarObjectActions = ({
   migratePinnedDatabaseKey,
 }: UseSidebarObjectActionsArgs) => {
   const {
-    confirmSidebarMutation, handleCopyStructure, handleCopyTableName, handleCopyTable,
+    confirmSidebarMutation, handleCopyStructure, handleCopyTableName, handleCopyTable, handleCopyTables,
     handleCopyDatabase, handleCopyDatabaseName, handleExport, openExportDialog, handleCopyTableAsInsert,
     openTableDdlInDesigner, openTableInERView, injectTablePromptToAI,
   } = useSidebarCopyExportActions({
@@ -240,6 +240,7 @@ export const useSidebarObjectActions = ({
   return {
     handleCopyStructure,
     handleCopyTable,
+    handleCopyTables,
     handleCopyTableName,
     handleCopyDatabase, handleCopyDatabaseName,
     handleExport,

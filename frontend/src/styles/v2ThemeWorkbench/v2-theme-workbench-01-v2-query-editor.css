@@ -94,6 +94,8 @@ body[data-ui-version="v2"] .gn-v2-designer-toolbar {
 }
 
 body[data-ui-version="v2"] .gn-v2-query-toolbar {
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
   --gn-toolbar-action-fg: var(--gn-client-query-toolbar-button-fg, var(--gn-query-toolbar-button-fg, var(--gn-toolbar-button-fg)));
   --gn-toolbar-action-bg: var(--gn-client-query-toolbar-button-bg, var(--gn-query-toolbar-button-bg, var(--gn-toolbar-button-bg)));
   --gn-toolbar-action-border: var(--gn-client-query-toolbar-button-border, var(--gn-query-toolbar-button-border, var(--gn-toolbar-button-border)));
@@ -409,8 +411,10 @@ body[data-ui-version="v2"] .gn-v2-query-toolbar-action-group > .ant-btn:not(:fir
   margin-left: 0 !important;
 }
 
+body[data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn::before,
 body[data-ui-version="v2"] .gn-v2-query-toolbar-action-group > .ant-btn::before {
   display: none !important;
+  pointer-events: none !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-query-transaction-commit-button {

@@ -371,32 +371,55 @@ func normalizeOpenAIToolCallHistory(messages []ai.Message) []ai.Message {
 }
 
 // normalizeOpenAISystemMessageOrder keeps strict OpenAI-compatible endpoints
-// from rejecting a historical system message that appears after a user,
-// assistant, or tool message. It preserves the relative order within both
-// groups so tool-call sequences remain intact.
+// from rejecting the request. Model chat templates such as Qwen's raise
+// "System message must be at the beginning." for any system message past index
+// zero, including a second consecutive one, so every system message is folded
+// into a single leading message. Non-system messages keep their relative order
+// so tool-call sequences remain intact.
 func normalizeOpenAISystemMessageOrder(messages []ai.Message) []ai.Message {
-	seenNonSystemMessage := false
+	systemCount := 0
 	needsReorder := false
+	seenNonSystemMessage := false
 	for _, message := range messages {
 		if message.Role == "system" {
+			systemCount++
 			if seenNonSystemMessage {
 				needsReorder = true
-				break
 			}
 			continue
 		}
 		seenNonSystemMessage = true
 	}
-	if !needsReorder {
+	if systemCount == 0 || (systemCount == 1 && !needsReorder) {
 		return messages
 	}
 
-	reordered := make([]ai.Message, 0, len(messages))
+	var merged ai.Message
+	mergedSet := false
+	contents := make([]string, 0, systemCount)
+	images := make([]string, 0)
 	for _, message := range messages {
-		if message.Role == "system" {
-			reordered = append(reordered, message)
+		if message.Role != "system" {
+			continue
 		}
+		if !mergedSet {
+			merged = message
+			mergedSet = true
+		}
+		if strings.TrimSpace(message.Content) != "" {
+			contents = append(contents, message.Content)
+		}
+		images = append(images, message.Images...)
 	}
+	merged.Role = "system"
+	merged.Content = strings.Join(contents, "\n\n")
+	merged.Images = images
+	merged.ToolCalls = nil
+	merged.ToolCallID = ""
+	merged.ReasoningContent = ""
+
+	reordered := make([]ai.Message, 0, len(messages)-systemCount+1)
+	reordered = append(reordered, merged)
 	for _, message := range messages {
 		if message.Role != "system" {
 			reordered = append(reordered, message)

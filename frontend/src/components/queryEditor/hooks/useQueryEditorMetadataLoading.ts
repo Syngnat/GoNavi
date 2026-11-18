@@ -5,7 +5,6 @@ import {
     getTabQueryValue,
     normalizeMetadataDialect,
     resolveOracleLikeDefaultSchemaName,
-    collectQueryEditorReferencedDatabaseNames,
     QUERY_EDITOR_OBJECT_DECORATION_MAX_TEXT_LENGTH,
     type CompletionSynonymMeta,
 } from '../QueryEditorHelpers';
@@ -41,6 +40,7 @@ import {
     buildQueryEditorMetadataIdentityKey,
 } from '../queryEditorCompletionTables';
 import { isConnectionScopedQueryEditorMetadata } from '../queryEditorLazyTablesCache';
+import { collectQueryEditorReferencedDatabaseNamesForModel } from '../queryEditorReferencedDatabasesCache';
 import {
     fetchQueryEditorDatabaseMetadata,
     fetchQueryEditorSynonymMetadata,
@@ -198,11 +198,23 @@ export const useQueryEditorMetadataLoading = ({
                 }
 
                 setDbList(dbs);
-                // 新建查询落在连接上时 dbName 会是空的，这里按列表首个库补上默认选中。
+                // 新建查询落在连接上时 dbName 会是空的。优先沿用侧栏当前库和
+                // 最近实际使用过的库；只有都没有时才退回列表首个非系统库。
+                const storeState = useStore.getState();
+                const activeContext = storeState.activeContext;
+                const recentDbNames = (storeState.recentConnectionTargets || [])
+                    .filter((target) => target.connectionId === currentConnectionId && target.dbName)
+                    .map((target) => String(target.dbName || '').trim())
+                    .filter(Boolean);
+                const preferredDbName = activeContext?.connectionId === currentConnectionId
+                    ? String(activeContext.dbName || '').trim()
+                    : '';
                 const defaultDb = resolveDefaultQueryEditorDatabase({
                     config: conn.config,
                     currentDb: currentDbRef.current,
                     databaseNames: dbs,
+                    preferredDbName,
+                    recentDbNames,
                 });
                 if (defaultDb) {
                     switchQueryContextRef.current(currentConnectionId, defaultDb, { silentPending: true });
@@ -476,11 +488,14 @@ export const useQueryEditorMetadataLoading = ({
             if (queryEditorActiveRef.current) {
                 setSharedCurrentDb(metadataDbName);
             }
-            const metadataDbNames = collectQueryEditorReferencedDatabaseNames(
-                getCurrentQuery(),
+            // 按 model 版本号复用结果：键入防抖那条路径刚为同一份文档算过一遍，
+            // 10MB 下重复扫描要再付约 0.5 秒。文档变了版本号就变，自然失效。
+            const metadataDbNames = collectQueryEditorReferencedDatabaseNamesForModel(
+                editorRef.current?.getModel?.(),
                 metadataDbName,
                 visibleDbs,
                 metadataDialect,
+                getCurrentQuery,
             );
             if (metadataDbNames.length === 0 && connectionScopedMetadata) {
                 metadataDbNames.push('');

@@ -54,6 +54,43 @@ body[data-ui-version="v2"] .gn-v2-table-overview-view-switch-btn:hover {
   color: var(--gn-fg-1);
 }
 
+body[data-ui-version="v2"] .gn-v2-table-overview-column-picker-trigger {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0.5px solid var(--gn-br-1);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gn-fg-3);
+  background: var(--gn-bg-panel-2);
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-overview-column-picker-trigger:hover,
+body[data-ui-version="v2"] .gn-v2-table-overview-column-picker-trigger:focus-visible {
+  color: var(--gn-accent);
+  background: var(--gn-bg-hover);
+}
+
+.gn-v2-table-overview-column-picker {
+  min-width: 210px;
+  display: grid;
+  gap: 7px;
+}
+
+.gn-v2-table-overview-column-picker-hint {
+  color: var(--gn-fg-4);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.gn-v2-table-overview-column-picker .ant-checkbox-wrapper {
+  min-height: 24px;
+  align-items: center;
+}
+
 body[data-ui-version="v2"] .gn-v2-table-overview-icon {
   width: 28px;
   height: 28px;
@@ -182,6 +219,16 @@ body[data-ui-version="v2"] .gn-v2-table-row {
   transition: background 0.08s, border-color 0.08s, box-shadow 0.08s;
 }
 
+body[data-ui-version="v2"] .gn-v2-table-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+
 body[data-ui-version="v2"] .gn-v2-table-card:hover,
 body[data-ui-version="v2"] .gn-v2-table-row:hover {
   background: var(--gn-bg-hover) !important;
@@ -267,17 +314,9 @@ body[data-ui-version="v2"] .gn-v2-table-row:last-child {
 
 .gn-table-overview-compact-header,
 .gn-table-overview-compact-row {
-  width: max(100%, 1120px);
+  width: max(100%, var(--gn-table-overview-compact-min-width, 1120px));
   box-sizing: border-box;
-  grid-template-columns:
-    minmax(190px, 1.7fr)
-    minmax(170px, 1.4fr)
-    minmax(88px, 0.65fr)
-    minmax(104px, 0.75fr)
-    minmax(104px, 0.75fr)
-    minmax(100px, 0.75fr)
-    minmax(154px, 1.1fr)
-    minmax(154px, 1.1fr);
+  grid-template-columns: var(--gn-table-overview-compact-columns);
 }
 
 .gn-table-overview-compact-header {
@@ -286,7 +325,7 @@ body[data-ui-version="v2"] .gn-v2-table-row:last-child {
   z-index: 2;
   display: grid;
   align-items: stretch;
-  min-width: 1120px;
+  min-width: var(--gn-table-overview-compact-min-width, 1120px);
   min-height: 32px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.12);
   background: #f7f8fa;
@@ -306,7 +345,9 @@ body[data-ui-version="v2"] .gn-v2-table-row:last-child {
 }
 
 .gn-table-overview-compact-section {
-  min-width: 1120px;
+  min-width: var(--gn-table-overview-compact-min-width, 1120px);
+  width: max(100%, var(--gn-table-overview-compact-min-width, 1120px));
+  box-sizing: border-box;
   padding: 0 10px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   background: #f9fafb;
@@ -361,8 +402,8 @@ body[data-ui-version="v2"] .gn-table-overview-compact-scroll {
 
 body[data-ui-version="v2"] .gn-table-overview-compact-header {
   min-height: 30px;
-  min-width: 1120px;
-  width: max(100%, 1120px);
+  min-width: var(--gn-table-overview-compact-min-width, 1120px);
+  width: max(100%, var(--gn-table-overview-compact-min-width, 1120px));
   border-bottom-width: 0.5px;
   border-bottom-color: var(--gn-br-2);
   background: color-mix(in srgb, var(--gn-fg-1) 2.5%, var(--gn-bg-panel-2)) !important;
@@ -388,8 +429,8 @@ body[data-ui-version="v2"] .gn-table-overview-compact-sort-button[aria-pressed="
 }
 
 body[data-ui-version="v2"] .gn-table-overview-compact-section {
-  min-width: 1120px;
-  width: max(100%, 1120px);
+  min-width: var(--gn-table-overview-compact-min-width, 1120px);
+  width: max(100%, var(--gn-table-overview-compact-min-width, 1120px));
   box-sizing: border-box;
   padding: 0 10px;
   border-bottom-width: 0.5px;
@@ -399,8 +440,8 @@ body[data-ui-version="v2"] .gn-table-overview-compact-section {
 
 body[data-ui-version="v2"] .gn-table-overview-compact-row {
   min-height: 30px !important;
-  min-width: 1120px !important;
-  width: max(100%, 1120px) !important;
+  min-width: var(--gn-table-overview-compact-min-width, 1120px) !important;
+  width: max(100%, var(--gn-table-overview-compact-min-width, 1120px)) !important;
   border-bottom-width: 0.5px !important;
   border-bottom-color: var(--gn-br-1) !important;
   background: var(--gn-bg-panel-2) !important;
@@ -432,21 +473,9 @@ body[data-ui-version="v2"] .gn-table-overview-compact-row.is-selected {
   box-shadow: inset 2px 0 0 var(--gn-accent);
 }
 
-/* 点击后行会被程序化聚焦（供回车改名），鼠标操作不需要焦点框。 */
+/* 点击后行会被程序化聚焦，鼠标操作不需要焦点框。 */
 body[data-ui-version="v2"] [data-table-overview-select]:focus {
   outline: none;
-}
-
-/* 表名就地编辑：撑满名字所在的行内位置，输入框内仍可正常选择文字。 */
-body[data-ui-version="v2"] .gn-table-overview-name-editor {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-body[data-ui-version="v2"] .gn-table-overview-name-editor .ant-input {
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 body[data-ui-version="v2"] .gn-v2-table-card.is-selected:hover,

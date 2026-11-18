@@ -3,18 +3,24 @@ import { create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import type { PluginStatus } from '../../plugins/types';
 vi.mock('antd', () => {
-  const element = (name: string) => (props: React.HTMLAttributes<HTMLElement>) => React.createElement('div', { ...props, 'data-component': name });
+  // 必须透传 children：丢掉 children 后 findByProps 只能命中没有文本的组合组件，
+  // 断言失败时 react-test-renderer 会序列化整棵树，直接耗尽内存。
+  const element = (name: string) => ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement('div', { ...props, 'data-component': name }, children);
   return { Alert: element('alert'), Button: element('button'), Drawer: element('drawer'), Tag: element('tag'), Typography: { Title: element('title'), Paragraph: element('paragraph') } };
 });
 vi.mock('../../i18n/provider', () => ({ useI18n: () => ({ t: (key: string, params?: Record<string, string>) => {
   const updates: Record<string, string> = {
     'plugin.update.available': '有新版本{{version}}',
     'plugin.update.action': '更新到{{version}}',
+    'plugin.update.action_short': '更新',
     'plugin.update.source': '来源{{source}}',
   };
   return (updates[key] ?? key).replace(/\{\{(\w+)\}\}/g, (match, name: string) => params?.[name] ?? match);
 } }) }));
-vi.mock('./PluginLifecycleControls', () => ({ PluginLifecycleControls: () => React.createElement('div', { 'data-component': 'lifecycle' }) }));
+vi.mock('./PluginLifecycleControls', () => ({ PluginLifecycleControls: (props: { update?: { label: string; disabled: boolean; onClick: () => void } }) =>
+  React.createElement('div', { 'data-component': 'lifecycle' },
+    props.update && React.createElement('button', { 'data-component': 'update', disabled: props.update.disabled, onClick: props.update.onClick }, props.update.label)) }));
 vi.mock('./PluginCommandsPanel', () => ({ PluginCommandsPanel: () => null }));
 vi.mock('./PluginDataSourceSummary', () => ({ PluginDataSourceSummary: () => null }));
 vi.mock('./PluginAIProviderSummary', () => ({ PluginAIProviderSummary: () => null }));
@@ -29,7 +35,7 @@ describe('plugin card updates', () => {
     const onUpdate = vi.fn();
     const view = create(<PluginCard plugin={plugin} manager={manager} expanded={false} onToggle={vi.fn()}
       update={{ version: '1.2.0', sourceLabel: 'Official catalog' }} onUpdate={onUpdate} updateDisabled />);
-    const button = view.root.findByType('footer').findByProps({ 'data-component': 'button' });
+    const button = view.root.findByProps({ 'data-component': 'lifecycle' }).findByProps({ 'data-component': 'update' });
     expect(button.props.disabled).toBe(true);
     button.props.onClick();
     expect(onUpdate).not.toHaveBeenCalled();
@@ -42,7 +48,7 @@ describe('plugin card updates', () => {
     const managed = { runtime: { safeMode: false, managementAllowed: true }, busy: {}, revoked: new Set<string>(), installRemote } as never;
     const view = create(<PluginCard plugin={plugin} manager={managed} expanded={false} onToggle={onToggle}
       update={{ version: '1.2.0', sourceLabel: 'Official catalog' }} onUpdate={onUpdate} />);
-    const button = view.root.findByType('footer').findByProps({ 'data-component': 'button' });
+    const button = view.root.findByProps({ 'data-component': 'lifecycle' }).findByProps({ 'data-component': 'update' });
     expect(button.props.disabled).toBe(false);
     expect(onUpdate).not.toHaveBeenCalled();
     button.props.onClick();
@@ -51,7 +57,7 @@ describe('plugin card updates', () => {
     expect(installRemote).not.toHaveBeenCalled();
     view.unmount();
   });
-  it('shows the available version near the installed version and an update footer after lifecycle controls', () => {
+  it('shows the available version in the header and an unversioned update button in the lifecycle row', () => {
     const view = create(<PluginCard plugin={plugin} manager={manager} expanded={false} onToggle={vi.fn()}
       update={{ version: '1.2.0', sourceLabel: 'Official catalog' }} onUpdate={vi.fn()} />);
     const header = view.root.findByType('header');
@@ -60,13 +66,16 @@ describe('plugin card updates', () => {
     expect(version.children).toEqual(['1.0.0']);
     expect(available.children).toEqual(['有新版本1.2.0']);
     expect(available.parent?.parent).toBe(version.parent?.parent);
-    const footer = view.root.findByType('footer');
-    const button = footer.findByProps({ 'data-component': 'button' });
-    expect(button.children).toEqual(['更新到1.2.0']);
-    expect(footer.findByProps({ className: 'plugin-update-source' }).children).toEqual(['来源Official catalog']);
-    const card = view.root.findByType('article');
-    const lifecycleIndex = card.children.findIndex((child) => typeof child !== 'string' && child.findAllByProps({ 'data-component': 'lifecycle' }).length > 0);
-    expect(card.children[lifecycleIndex + 1]).toBe(footer);
+    // 更新按钮不再单独占一行，也不再带版本号。
+    const update = view.root.findByProps({ 'data-component': 'lifecycle' }).findByProps({ 'data-component': 'update' });
+    expect(update.children).toEqual(['更新']);
+    expect(view.root.findAllByType('footer')).toHaveLength(0);
+    view.unmount();
+  });
+  it('keeps the update source visible in the expanded details', () => {
+    const view = create(<PluginCard plugin={plugin} manager={manager} expanded onToggle={vi.fn()}
+      update={{ version: '1.2.0', sourceLabel: 'Official catalog' }} onUpdate={vi.fn()} />);
+    expect(view.root.findByProps({ className: 'plugin-update-source' }).children).toEqual(['来源Official catalog']);
     view.unmount();
   });
 });

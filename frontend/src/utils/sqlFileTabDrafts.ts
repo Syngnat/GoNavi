@@ -173,6 +173,48 @@ const cancelScheduledPersistedDraftFlush = (): void => {
   }
 };
 
+// 条目在 upsertPersistedDraftEntry 里总是整对象替换（从不原地改），因此可以
+// 按对象缓存序列化结果：只有一个标签页改动时，其余条目的 JSON 直接复用，
+// 不必每次 flush 都把最多 30MB 全部重新 stringify。
+const persistedDraftEntryJsonCache = new WeakMap<PersistedQueryTabDraftEntry, string>();
+
+// 配额超限时按「最新优先」逐级收缩重试的条目数。首项 30 即原行为。
+const QUERY_TAB_DRAFT_FLUSH_RETRY_ENTRY_LIMITS = [QUERY_TAB_DRAFT_SNAPSHOT_MAX_COUNT, 15, 8, 4, 2, 1];
+
+const isDraftSnapshotQuotaExceeded = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { name?: string; code?: number; message?: string };
+  if (candidate.name === 'QuotaExceededError' || candidate.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+    return true;
+  }
+  if (candidate.code === 22 || candidate.code === 1014) {
+    return true;
+  }
+  // 部分 WebKit 版本只给出文本信息。
+  return /quota/i.test(String(candidate.message || ''));
+};
+
+// 只在落盘时把超长草稿截到上限：键入路径不再为此拷贝，而持久化格式与
+// 「单条最多 1MiB」的既有约定保持不变。
+const stringifyPersistedDraftEntry = (entry: PersistedQueryTabDraftEntry): string => {
+  if (entry.query.length <= QUERY_TAB_DRAFT_SNAPSHOT_MAX_TEXT_LENGTH) {
+    const cached = persistedDraftEntryJsonCache.get(entry);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const json = JSON.stringify(entry);
+    persistedDraftEntryJsonCache.set(entry, json);
+    return json;
+  }
+  // 超长条目每次键入都会变，缓存没有意义，直接序列化截断后的副本。
+  return JSON.stringify({
+    ...entry,
+    query: entry.query.slice(0, QUERY_TAB_DRAFT_SNAPSHOT_MAX_TEXT_LENGTH),
+  });
+};
+
 const flushPersistedDrafts = (): void => {
   cancelScheduledPersistedDraftFlush();
   if (flushedPersistedDraftRevision === persistedDraftRevision) {
@@ -193,11 +235,24 @@ const flushPersistedDrafts = (): void => {
     const payload = Array.from(persistedDrafts.values())
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, QUERY_TAB_DRAFT_SNAPSHOT_MAX_COUNT);
-    storage.setItem(
-      QUERY_TAB_DRAFT_SNAPSHOT_STORAGE_KEY,
-      JSON.stringify(payload),
-    );
-    flushedPersistedDraftRevision = revision;
+    // 整份快照是一个 all-or-nothing 的 localStorage 值：30 × 1MiB 逼近配额，
+    // 超限时旧实现会连正常大小的草稿一起丢掉。这里按「最新优先」逐级收缩
+    // 后重试，键名、顺序与条目结构都不变，读取方无需改动。
+    for (const maxEntries of QUERY_TAB_DRAFT_FLUSH_RETRY_ENTRY_LIMITS) {
+      const candidate = payload.slice(0, maxEntries);
+      try {
+        storage.setItem(
+          QUERY_TAB_DRAFT_SNAPSHOT_STORAGE_KEY,
+          `[${candidate.map(stringifyPersistedDraftEntry).join(',')}]`,
+        );
+        flushedPersistedDraftRevision = revision;
+        return;
+      } catch (error) {
+        if (!isDraftSnapshotQuotaExceeded(error)) {
+          throw error;
+        }
+      }
+    }
   } catch {
     // ignore storage quota or serialization failures
   }
@@ -276,10 +331,18 @@ const upsertPersistedDraftEntry = (
   if (!tabId) {
     return;
   }
-  const query = String(content ?? '').slice(0, QUERY_TAB_DRAFT_SNAPSHOT_MAX_TEXT_LENGTH);
+  const rawContent = String(content ?? '');
+  const oversized = rawContent.length > QUERY_TAB_DRAFT_SNAPSHOT_MAX_TEXT_LENGTH;
+  // 每次键入都会走到这里。大文档不做截断拷贝，只在落盘时截断（见
+  // flushPersistedDrafts）；判定「是否空白」只扫描上限以内的前缀，
+  // 与旧实现的 `slice(0, MAX).trim()` 结论一致。
+  const cappedPrefix = oversized
+    ? rawContent.slice(0, QUERY_TAB_DRAFT_SNAPSHOT_MAX_TEXT_LENGTH)
+    : rawContent;
+  const query = oversized ? rawContent : cappedPrefix;
   const filePath = toTrimmedString(tab.filePath);
   const savedQueryId = toTrimmedString(tab.savedQueryId);
-  const shouldKeep = Boolean(query.trim() || filePath || savedQueryId);
+  const shouldKeep = Boolean(filePath || savedQueryId) || cappedPrefix.trim().length > 0;
   if (!shouldKeep) {
     persistedDrafts.delete(tabId);
     schedulePersistedDraftFlush();

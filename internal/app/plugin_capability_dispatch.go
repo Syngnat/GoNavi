@@ -74,7 +74,12 @@ func dispatchPluginCapability(
 		return nil, code
 	}
 	if callCtx.Err() != nil {
-		return nil, "internal"
+		// 默认把取消当成失败：半成品结果不该被当成成功。PartialResultOnCancel 的能力例外——
+		// 它在取消后不再写，并且 items 里逐条说明「哪条已落地、哪条被取消」，调用方需要这些事实
+		// 才能对账（否则用户只看到一句 internal，而库里已经多了几条供应商）。
+		if !capability.PartialResultOnCancel {
+			return nil, "internal"
+		}
 	}
 	maxResult := capability.MaxResultBytes
 	if maxResult <= 0 {

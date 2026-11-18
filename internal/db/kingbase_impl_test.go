@@ -421,7 +421,9 @@ func TestKingbaseQueryAndColumnsUseVisibleRelationMetadata(t *testing.T) {
 	for _, schema := range []string{"", "archive"} {
 		t.Run("schema="+schema, func(t *testing.T) {
 			query := "SELECT name FROM customers LIMIT 101 OFFSET 0"
-			metadataQuery := buildPGLikeColumnsMetadataQuery(schema, "customers")
+			// GetColumns 走 Kingbase 专用查询（identity_generation 不用 to_jsonb），
+			// 与 PG 版不是同一条 SQL，stub 的 key 必须与实现一致。
+			metadataQuery := buildKingbaseColumnsMetadataQuery(schema, "customers")
 			fakeKingbaseStateMu.Lock()
 			fakeKingbaseState.queryErr = nil
 			fakeKingbaseState.queries = nil
@@ -452,6 +454,45 @@ func TestKingbaseQueryAndColumnsUseVisibleRelationMetadata(t *testing.T) {
 				t.Fatal("unqualified metadata must use the connection search_path")
 			}
 		})
+	}
+}
+
+func TestKingbaseGetIndexesFallsBackWhenIndnKeyattsUnavailable(t *testing.T) {
+	registerFakeKingbaseDriverOnce.Do(func() { sql.Register(fakeKingbaseDriverName, fakeKingbaseDriver{}) })
+	conn, err := sql.Open(fakeKingbaseDriverName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetMaxOpenConns(1)
+
+	client := &KingbaseDB{
+		conn:               conn,
+		metadataQueryState: &pgMetadataQueryState{},
+	}
+	modernQuery := buildPGLikeIndexesMetadataQuery("archive", "customers")
+	legacyQuery := buildPGLikeIndexesMetadataLegacyQuery("archive", "customers")
+	fakeKingbaseStateMu.Lock()
+	fakeKingbaseState.queryErr = nil
+	fakeKingbaseState.queries = nil
+	fakeKingbaseState.queryResults = map[string]fakeKingbaseQueryResult{
+		modernQuery: {err: errors.New(`column "indnkeyatts" does not exist`)},
+		legacyQuery: {
+			columns: []string{"index_name", "column_name", "is_unique", "seq_in_index", "index_type"},
+			rows:    [][]driver.Value{{"idx_customers_name", "name", "f", "1", "btree"}},
+		},
+	}
+	fakeKingbaseStateMu.Unlock()
+
+	indexes, err := client.GetIndexes("archive", "customers")
+	if err != nil || len(indexes) != 1 || indexes[0].Name != "idx_customers_name" {
+		t.Fatalf("indexes=%+v err=%v", indexes, err)
+	}
+	if firstMode := client.metadataQueryState.indexesMode(); firstMode != pgMetadataQueryLegacy {
+		t.Fatalf("index mode = %v, want legacy", firstMode)
+	}
+	if _, err := client.GetIndexes("archive", "customers"); err != nil {
+		t.Fatalf("cached GetIndexes error: %v", err)
 	}
 }
 
@@ -486,7 +527,7 @@ func (fakeKingbaseConn) QueryContext(ctx context.Context, query string, args []d
 		}
 		return &fakeKingbaseRows{columns: result.columns, rows: result.rows}, nil
 	}
-	if strings.Contains(query, "FROM pg_class t") && strings.Contains(query, "JOIN pg_index ix") && strings.Contains(query, "t.relname = 'users'") {
+	if strings.Contains(query, "JOIN pg_class t") && strings.Contains(query, "FROM pg_index ix") && strings.Contains(query, "t.relname = 'users'") {
 		return &fakeKingbaseRows{
 			columns: []string{"index_name", "column_name", "is_unique", "seq_in_index", "index_type"},
 			rows: [][]driver.Value{

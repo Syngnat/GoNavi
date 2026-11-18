@@ -112,6 +112,7 @@ import { useSidebarObjectMenuActions } from './sidebar/useSidebarObjectMenuActio
 import { useSidebarContextMenus } from './sidebar/useSidebarContextMenus';
 import { useSidebarTreeDnd } from './sidebar/useSidebarTreeDnd';
 import { useSidebarToolbarModel } from './sidebar/useSidebarToolbarModel';
+import { useSidebarTableClipboard } from './sidebar/useSidebarTableClipboard';
 import { useLateBoundCallback } from '../hooks/useLateBoundCallback';
 import { SidebarObjectExplorer } from './sidebar/SidebarObjectExplorer';
 import type { SidebarProps } from './sidebar/sidebarProps';
@@ -139,6 +140,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
   hideTitlebarAboutAction = false,
   hideTitlebarDriverAction = false,
   isWebRuntime = false,
+  onOpenDataSyncWorkbench,
   onToggleAI,
   onToggleLogPanel,
   v2ExplorerContext,
@@ -172,6 +174,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
     canLocateActiveTab, overlayTheme, modalPanelStyle, modalSectionStyle, modalScrollSectionStyle,
     renderSidebarModalTitle,
   } = useSidebarStoreState();
+  const sidebarClipboardRootRef = React.useRef<HTMLDivElement | null>(null);
   const {
     usePersistentSidebarFilter, tableDoubleClickAction, sidebarSingleDatabaseExpansion, searchValue,
     setSearchValue, deferredSearchValue, searchScopes, setSearchScopes, v2ExplorerFilter,
@@ -353,7 +356,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
   });
 
   const {
-    handleCopyStructure, handleCopyTable, handleCopyTableName, handleExport, openExportDialog,
+    handleCopyStructure, handleCopyTable, handleCopyTables, handleCopyTableName, handleExport, openExportDialog,
     handleCreateDatabase, handleCreateSchema, openRenameSchemaModal, handleRenameSchema,
     handleDeleteSchema, handleRenameDatabase, handleRenameTable, handleDeleteTable,
     handleTableDataDangerAction, openViewDefinition, openEditView, openCreateView,
@@ -454,6 +457,15 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
     openSavedQueryGroupModal, deleteSavedQueryGroup, moveSavedQueryToGroup, setTreeData,
     connectionStates, sidebarRootOrder, rootSortMode, rootConnectionSortMode,
   });
+  useSidebarTableClipboard({
+    rootRef: sidebarClipboardRootRef,
+    selectedNodesRef,
+    connectionIds,
+    activeShortcutPlatform,
+    onCopyTables: handleCopyTables,
+    onOpenDataSyncWorkbench,
+    blocked: Boolean(contextMenu?.kind),
+  });
   const {
     updateSidebarTreeDropPreview, clearSidebarTreeDragVisuals, handleSidebarTreeDragOverCapture,
     handleSidebarTreeDropCapture, allowSidebarTreeDrop, handleDrop, onRightClick,
@@ -493,6 +505,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
 
   return (
     <div
+        ref={sidebarClipboardRootRef}
         className="gn-v2-sidebar-redesign"
         data-sidebar-actions-rail={sidebarActionsInRail ? 'true' : undefined}
         style={{ display: 'flex', height: '100%', minHeight: 0 }}

@@ -7,7 +7,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # 新推送排队等待正在进行的构建，而不是把它取消：一次全平台构建约 30-40 分钟，
+  # 快完成时被取消会白跑；同一 group 仍只保留一个排队项，后推的提交替换更早的等待项。
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -77,8 +79,13 @@ jobs:
           path: frontend/node_modules
           key: ${{ runner.os }}-node20-frontend-${{ hashFiles('frontend/package-lock.json', 'frontend/patches/*.patch') }}
 
-      - name: Install Wails
-        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+      - name: Install Wails CLIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          bash scripts/install-wails3-cli.sh
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Build frontend dist
         shell: bash
@@ -672,8 +679,13 @@ jobs:
             echo "✅ AppImage 工具准备完成"
           fi
 
-      - name: Install Wails
-        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+      - name: Install Wails CLIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          bash scripts/install-wails3-cli.sh
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Setup MSYS2 Toolchain For DuckDB (Windows AMD64)
         id: msys2_duckdb
@@ -769,6 +781,8 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          GONAVI_WAILS3: ${{ vars.GONAVI_WAILS3 }}
         run: |
           set -euo pipefail
           DEV_VERSION="${{ steps.version.outputs.version }}"
@@ -792,7 +806,13 @@ jobs:
           mkdir -p "$GOCACHE"
           echo "🧭 使用隔离 GOCACHE：$GOCACHE"
           python3 scripts/ci-apply-wails-webkit-tags.py "${{ matrix.linux_webkit }}"
-          if [ -n "${{ matrix.wails_tags }}" ]; then
+          # Wails v3.1.0 only supports the GTK3/WebKitGTK 4.1 stack (or GTK4/6.0).
+          # Keep the WebKitGTK 4.0 rows on the v2 build; their runners only have
+          # the 4.0 development package.
+          if [ "${GONAVI_WAILS3:-1}" = "1" ] && [ "${{ matrix.linux_webkit }}" != "4.0" ]; then
+            bash scripts/ci-build-wails3-release.sh \
+              "${{ matrix.platform }}" "${{ matrix.build_name }}" "${DEV_VERSION}"
+          elif [ -n "${{ matrix.wails_tags }}" ]; then
             wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -tags "${{ matrix.wails_tags }}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${DEV_VERSION}"
           else
             wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${DEV_VERSION}"
@@ -1115,6 +1135,21 @@ jobs:
             "$DMG_NAME" \
             "$APP_NAME"
 
+          # create-dmg 只会输出 zlib(UDZO); 100MB 级主程序改用 LZMA(ULMO) 通常能再
+          # 省 8-10MB。dev DMG 不做签名/公证, 转换放在挂载校验之前即可; 失败则保留
+          # create-dmg 的原始产物, 不影响发布。
+          BEFORE_BYTES=$(wc -c <"$DMG_NAME" | tr -d '[:space:]')
+          ULMO_DMG="${DMG_NAME%.dmg}-ulmo.dmg"
+          rm -f "$ULMO_DMG"
+          if hdiutil convert "$DMG_NAME" -format ULMO -o "$ULMO_DMG" >/dev/null 2>&1 && [ -f "$ULMO_DMG" ]; then
+            mv "$ULMO_DMG" "$DMG_NAME"
+            AFTER_BYTES=$(wc -c <"$DMG_NAME" | tr -d '[:space:]')
+            echo "🗜️ DMG 已改用 ULMO(LZMA): $((BEFORE_BYTES / 1024 / 1024))MB -> $((AFTER_BYTES / 1024 / 1024))MB"
+          else
+            rm -f "$ULMO_DMG"
+            echo "::warning title=DMG ULMO 压缩跳过::hdiutil convert 失败, 保留 create-dmg 的默认压缩"
+          fi
+
           VERIFY_MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gonavi-dev-verify.XXXXXX")
           hdiutil attach -nobrowse -readonly -mountpoint "$VERIFY_MOUNT_DIR" "$DMG_NAME" >/dev/null
           PACKAGED_APP="$VERIFY_MOUNT_DIR/GoNavi.app"
@@ -1298,11 +1333,12 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Name=GoNavi' \
-            'Exec=gonavi' \
+            'Exec=gonavi %u' \
             'Icon=gonavi' \
             'Type=Application' \
             'Categories=Development;Database;' \
             'Comment=Database Management Tool' \
+            'MimeType=x-scheme-handler/gonavi;text/x-sql;' \
             > AppDir/usr/share/applications/gonavi.desktop
 
           cp AppDir/usr/share/applications/gonavi.desktop AppDir/gonavi.desktop

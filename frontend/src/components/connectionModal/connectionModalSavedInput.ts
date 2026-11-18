@@ -77,6 +77,7 @@ export type BuildConnectionConfigParams = {
   initialValues?: SavedConnection | null;
   nacosNamespaceIdTouched?: boolean;
   oracleModeTouched?: boolean;
+  uriTouched?: boolean;
   translate: Translate;
 };
 

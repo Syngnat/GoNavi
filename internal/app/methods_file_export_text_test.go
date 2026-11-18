@@ -9,7 +9,7 @@ import (
 
 	"GoNavi-Wails/internal/secretstore"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func newExportTextTestApp() *App {

@@ -219,6 +219,7 @@ func (a *App) noteRollbackSnapshotStage(job *managedImportJob) {
 		"jobId":             job.job.ID,
 		"status":            "running",
 		"stage":             stage,
+		"stageCode":         "snapshot",
 		"executed":          job.job.Succeeded,
 		"failed":            job.job.Failed,
 		"total":             job.job.Current,

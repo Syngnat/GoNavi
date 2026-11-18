@@ -425,6 +425,12 @@ body[data-ui-version="v2"] .gn-v2-tab-label-part-group {
   max-width: 112px;
 }
 
+/* 双行布局的副行独占一行，不再沿用单行页签的 92/112px 宽度上限；
+   内容在页签可用宽度内尽量完整展示，真正放不下时再由 flex 收缩省略。 */
+body[data-ui-version="v2"] .gn-v2-tab-label-double .gn-v2-tab-label-secondary .gn-v2-tab-label-part {
+  max-width: none;
+}
+
 body[data-ui-version="v2"] .gn-v2-tab-label-part-host {
   color: var(--gn-info);
 }

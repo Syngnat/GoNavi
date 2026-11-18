@@ -298,16 +298,14 @@ func TestOpenAIProviderChatMovesSystemMessagesToRequestPrefix(t *testing.T) {
 			t.Fatalf("decode request body failed: %v", err)
 		}
 
-		seenNonSystemMessage := false
-		for _, message := range received.Messages {
-			if message.Role == "system" {
-				if seenNonSystemMessage {
-					http.Error(w, `{"error":{"message":"System message must be at the beginning."}}`, http.StatusBadRequest)
-					return
-				}
-				continue
+		// Qwen's chat template rejects any system message past index zero,
+		// including a second consecutive one: exactly one leading system
+		// message is allowed.
+		for index, message := range received.Messages {
+			if message.Role == "system" && index != 0 {
+				http.Error(w, `{"error":{"message":"System message must be at the beginning."}}`, http.StatusBadRequest)
+				return
 			}
-			seenNonSystemMessage = true
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -342,9 +340,12 @@ func TestOpenAIProviderChatMovesSystemMessagesToRequestPrefix(t *testing.T) {
 	for index, message := range received.Messages {
 		gotRoles[index] = message.Role
 	}
-	wantRoles := []string{"system", "system", "user", "assistant", "user"}
+	wantRoles := []string{"system", "user", "assistant", "user"}
 	if len(gotRoles) != len(wantRoles) {
 		t.Fatalf("expected roles %v, got %v", wantRoles, gotRoles)
+	}
+	if content, _ := received.Messages[0].Content.(string); content != "follow the product rules\n\nfollow the workspace rules" {
+		t.Fatalf("expected merged system content, got %q", content)
 	}
 	for index, want := range wantRoles {
 		if gotRoles[index] != want {
@@ -466,16 +467,14 @@ func TestOpenAIProviderChatStreamMovesSystemMessagesToRequestPrefix(t *testing.T
 			t.Fatalf("decode request body failed: %v", err)
 		}
 
-		seenNonSystemMessage := false
-		for _, message := range received.Messages {
-			if message.Role == "system" {
-				if seenNonSystemMessage {
-					http.Error(w, `{"error":{"message":"System message must be at the beginning."}}`, http.StatusBadRequest)
-					return
-				}
-				continue
+		// Qwen's chat template rejects any system message past index zero,
+		// including a second consecutive one: exactly one leading system
+		// message is allowed.
+		for index, message := range received.Messages {
+			if message.Role == "system" && index != 0 {
+				http.Error(w, `{"error":{"message":"System message must be at the beginning."}}`, http.StatusBadRequest)
+				return
 			}
-			seenNonSystemMessage = true
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")

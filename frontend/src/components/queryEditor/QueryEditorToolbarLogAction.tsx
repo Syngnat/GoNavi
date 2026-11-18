@@ -1,5 +1,6 @@
 import React from 'react';
-import { Button, Tooltip } from 'antd';
+import { Tooltip } from 'antd';
+import { QueryToolbarButton } from './QueryToolbarButton';
 import { BugOutlined } from '@ant-design/icons';
 
 import { t as defaultTranslate } from '../../i18n';
@@ -23,7 +24,7 @@ export const QueryEditorToolbarLogAction: React.FC<QueryEditorToolbarLogActionPr
 
   return (
     <Tooltip title={title}>
-      <Button
+      <QueryToolbarButton
         aria-label={t('log_panel.title')}
         aria-pressed={enabled}
         className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-log-action"

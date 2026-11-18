@@ -206,6 +206,10 @@ export const sanitizeTabDisplaySettings = (value: unknown): TabDisplaySettings =
   return result;
 };
 
+export const isDoubleLineTabDisplay = (settings?: Partial<TabDisplaySettings> | null): boolean => (
+  sanitizeTabDisplaySettings(settings).layout === 'double'
+);
+
 export const resolveTabDisplayElementOrder = (settings?: Partial<TabDisplaySettings> | null): TabDisplayElementKey[] => {
   const sanitized = sanitizeTabDisplaySettings(settings);
   const visible = [...sanitized.primaryElements, ...sanitized.secondaryElements];
@@ -542,6 +546,9 @@ const buildCompactObjectTabTitle = (tab: TabData, translate: TabDisplayTranslate
   if (tab.type === 'database-link-def') {
     return replaceTitleObjectLabel(tab.title, tab.databaseLinkName);
   }
+  if (tab.type === 'database-def') {
+    return replaceTitleObjectLabel(tab.title, tab.dbName);
+  }
   return tab.title;
 };
 
@@ -579,6 +586,7 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'sequence-def') return 'SEQ';
   if (tab.type === 'package-def') return 'PKG';
   if (tab.type === 'database-link-def') return 'DBLINK';
+  if (tab.type === 'database-def') return 'DB';
   return 'TAB';
 };
 
@@ -592,6 +600,7 @@ const getTabRawObjectLabel = (tab: TabData, translate: TabDisplayTranslate = def
   if (tab.sequenceName) return tab.sequenceName;
   if (tab.packageName) return tab.packageName;
   if (tab.databaseLinkName) return tab.databaseLinkName;
+  if (tab.type === 'database-def') return tab.dbName || tab.title;
   if (tab.triggerName) return tab.triggerName;
   if (tab.resourcePath) return tab.resourcePath;
   if (tab.filePath) return getFileNameFromPath(tab.filePath);

@@ -2,6 +2,7 @@ package aiservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -647,4 +648,76 @@ func TestMCPHTTPCommandProcessStopHelper(t *testing.T) {
 		return
 	}
 	select {}
+}
+
+func TestMCPHTTPServerPrefersInProcessStarter(t *testing.T) {
+	originalInProcess := startMCPHTTPInProcess
+	originalStarter := startMCPHTTPProcess
+	originalHealth := waitMCPHTTPHealth
+	t.Cleanup(func() {
+		startMCPHTTPInProcess = originalInProcess
+		startMCPHTTPProcess = originalStarter
+		waitMCPHTTPHealth = originalHealth
+	})
+
+	var inProcessOptions mcpHTTPProcessStartOptions
+	startMCPHTTPInProcess = func(_ context.Context, options mcpHTTPProcessStartOptions) (mcpHTTPProcess, error) {
+		inProcessOptions = options
+		return newFakeMCPHTTPProcess(), nil
+	}
+	startMCPHTTPProcess = func(context.Context, mcpHTTPProcessStartOptions, mcpHTTPTextLookup) (mcpHTTPProcess, error) {
+		t.Fatal("child process starter must not run when the in-process server starts")
+		return nil, nil
+	}
+	waitMCPHTTPHealth = func(context.Context, string, mcpHTTPTextLookup) error { return nil }
+
+	service := newMCPHTTPTestService(t)
+	started, err := service.AIStartMCPHTTPServer(ai.MCPHTTPServerOptions{Addr: "127.0.0.1:8765", Path: "mcp"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if inProcessOptions.Addr != "127.0.0.1:8765" || inProcessOptions.Path != "/mcp" {
+		t.Fatalf("in-process options = %#v", inProcessOptions)
+	}
+	if inProcessOptions.Token == "" {
+		t.Fatal("in-process server must receive the bearer token")
+	}
+	if !started.Running {
+		t.Fatalf("status = %#v, want running", started)
+	}
+	if _, err := service.AIStopMCPHTTPServer(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
+func TestMCPHTTPServerFallsBackToChildProcess(t *testing.T) {
+	originalInProcess := startMCPHTTPInProcess
+	originalStarter := startMCPHTTPProcess
+	originalHealth := waitMCPHTTPHealth
+	t.Cleanup(func() {
+		startMCPHTTPInProcess = originalInProcess
+		startMCPHTTPProcess = originalStarter
+		waitMCPHTTPHealth = originalHealth
+	})
+
+	startMCPHTTPInProcess = func(context.Context, mcpHTTPProcessStartOptions) (mcpHTTPProcess, error) {
+		return nil, errors.New("in-process unavailable")
+	}
+	childStarts := 0
+	startMCPHTTPProcess = func(context.Context, mcpHTTPProcessStartOptions, mcpHTTPTextLookup) (mcpHTTPProcess, error) {
+		childStarts++
+		return newFakeMCPHTTPProcess(), nil
+	}
+	waitMCPHTTPHealth = func(context.Context, string, mcpHTTPTextLookup) error { return nil }
+
+	service := newMCPHTTPTestService(t)
+	if _, err := service.AIStartMCPHTTPServer(ai.MCPHTTPServerOptions{Addr: "127.0.0.1:8765", Path: "mcp"}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if childStarts != 1 {
+		t.Fatalf("child starts = %d, want 1", childStarts)
+	}
+	if _, err := service.AIStopMCPHTTPServer(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
 }

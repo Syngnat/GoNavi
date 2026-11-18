@@ -311,6 +311,8 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) (err error) {
 	attemptNo := 0
 
 	var errorDetails []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for sslIndex, sslConfig := range sslAttempts {
 		sslLabel := mongoAttemptSSLLabel(sslConfig, sslIndex > 0)
 
@@ -338,6 +340,7 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) (err error) {
 			clientOpts := options.Client().ApplyURI(uri)
 			tlsConfig, tlsErr := resolveGenericTLSConfig(attemptConfig)
 			if tlsErr != nil {
+				lastErr = tlsErr
 				detail := fmt.Sprintf("%s %sTLS 配置失败: %v", sslLabel, authLabel, tlsErr)
 				errorDetails = append(errorDetails, detail)
 				logger.Warnf("MongoDB TLS 配置失败：%d/%d 模式=%s 凭据=%s 错误=%v", attemptNo, totalAttempts, sslLabel, authLabel, tlsErr)
@@ -365,6 +368,7 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) (err error) {
 				if sshRouteHint != "" {
 					detail = fmt.Sprintf("%s（%s）", detail, sshRouteHint)
 				}
+				lastErr = attemptErr
 				errorDetails = append(errorDetails, detail)
 				continue
 			}
@@ -381,6 +385,10 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) (err error) {
 				}
 				logger.Warnf("MongoDB(v1) 连接尝试验证失败：%d/%d 模式=%s 凭据=%s 耗时=%s 错误=%v",
 					attemptNo, totalAttempts, sslLabel, authLabel, time.Since(attemptStarted).Round(time.Millisecond), attemptErr)
+				// mongo-driver v1 的 Connect 不做 I/O，认证失败与不可达都在 Ping
+				// 才暴露。这里必须记下 attemptErr，否则最终汇总错误没有 cause，
+				// 多次尝试时还会指向前一次的旧错误。
+				lastErr = attemptErr
 				detail := fmt.Sprintf("%s %s验证失败: %v", sslLabel, authLabel, attemptErr)
 				if sshRouteHint != "" {
 					detail = fmt.Sprintf("%s（%s）", detail, sshRouteHint)
@@ -398,7 +406,7 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	if len(errorDetails) > 0 {
-		return fmt.Errorf("MongoDB 连接失败：%s", strings.Join(errorDetails, "；"))
+		return newConnectAttemptError("MongoDB 连接失败", errorDetails, lastErr)
 	}
 
 	return fmt.Errorf("MongoDB 连接失败：无可用连接方案")

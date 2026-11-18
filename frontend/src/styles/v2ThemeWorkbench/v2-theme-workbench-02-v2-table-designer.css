@@ -275,7 +275,10 @@ body[data-ui-version="v2"] .gn-v2-query-results {
   box-sizing: border-box;
   min-width: 0;
   padding-inline: 8px;
-  background: var(--gn-bg-app);
+  /* 与内容同用面板色。padding-inline 的内缩带若沿用 --gn-bg-app，暗色下
+     (rgb(12,14,18)) 比内容面板 (rgb(27,31,39)) 深一档，结果区左右会各显出一道
+     突兀的黑边；亮色两值仅差 4（246 与 250），看不出来。 */
+  background: var(--gn-bg-panel-2);
 }
 
 body[data-ui-version="v2"] .gn-v2-query-results .query-result-tabs > .ant-tabs-nav {

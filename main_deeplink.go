@@ -1,4 +1,4 @@
-//go:build !bindings
+//go:build !bindings && !wails3
 
 package main
 
@@ -11,7 +11,7 @@ import (
 	"GoNavi-Wails/internal/deeplink"
 	"GoNavi-Wails/internal/logger"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 // deepLinkWakeEvent tells the front end that the browser sign-in sent the person back: it

@@ -11,7 +11,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/secretstore"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func TestPluginExportQueryEntrypointsRejectBeforeDatabaseOrPicker(t *testing.T) {

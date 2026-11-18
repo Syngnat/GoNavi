@@ -137,7 +137,12 @@ vi.mock('antd', async () => {
     Form: FormComponent,
     InputNumber: ({ ...props }: any) => React.createElement('input', props),
     Popconfirm: passthrough('span'),
+    Progress: passthrough('span'),
     Tooltip: ({ children }: any) => React.createElement(React.Fragment, null, children),
+    Typography: {
+      Text: passthrough('span'),
+      Paragraph: passthrough('div'),
+    },
     Radio: {
       Group: passthrough('div'),
       Button,

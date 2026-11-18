@@ -6,7 +6,10 @@ vi.mock('antd', () => {
   const element = (name: string) => (props: React.HTMLAttributes<HTMLElement>) => React.createElement('div', { ...props, 'data-component': name });
   return { Button: element('button'), Rate: element('rate'), Tag: element('tag'), Typography: { Title: element('title'), Paragraph: element('paragraph') } };
 });
-vi.mock('@ant-design/icons', () => ({ ArrowUpOutlined: () => null, SafetyCertificateOutlined: () => null }));
+vi.mock('@ant-design/icons', () => ({ AppstoreOutlined: () => null, ArrowUpOutlined: () => null, DownloadOutlined: () => null, SafetyCertificateOutlined: () => null }));
+const remote = vi.hoisted(() => ({ srcs: [] as string[] }));
+vi.mock('./useMarketPluginIcon', () => ({ useMarketPluginIcon: () => remote.srcs }));
+vi.mock('../components/pluginManager/PluginLogo', () => ({ PluginLogo: ({ remoteSources }: { remoteSources?: string[] }) => React.createElement('span', { 'data-component': 'plugin-logo', 'data-remote-sources': remoteSources?.join('|') ?? '' }) }));
 import { MarketPluginCard } from './MarketPluginCard';
 import type { MarketPlugin } from './types';
 
@@ -15,7 +18,7 @@ const plugin: MarketPlugin = {
   version: '1.1.0', platforms: ['any'], ratingAverage: 0, ratingCount: 0, downloadCount: 0, updatedAt: 'now',
 };
 let renderer: ReturnType<typeof create> | undefined;
-afterEach(() => { if (renderer) act(() => renderer!.unmount()); renderer = undefined; });
+afterEach(() => { if (renderer) act(() => renderer!.unmount()); renderer = undefined; remote.srcs = []; });
 const tags = () => renderer!.root.findAllByProps({ 'data-component': 'tag' });
 
 describe('market plugin card update badges', () => {
@@ -40,6 +43,39 @@ describe('market plugin card update badges', () => {
     await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} installedVersion="1.0.0" sourceScoped onSelect={vi.fn()} />); });
     expect(tags().some((tag) => String(tag.children).includes('plugin.market.installed_identity'))).toBe(true);
     expect(tags().some((tag) => tag.props.className === 'plugin-market-upgrade')).toBe(false);
+  });
+
+  it('renders the plugin logo slot for every market card', async () => {
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} onSelect={vi.fn()} />); });
+    expect(renderer!.root.findAllByProps({ 'data-component': 'plugin-logo' })).toHaveLength(1);
+  });
+
+  it('forwards the resolved remote logo candidates to the logo slot', async () => {
+    remote.srcs = [
+      'https://raw.githubusercontent.com/author/repo/HEAD/icons/icon.png',
+      'https://raw.githubusercontent.com/author/repo/HEAD/icons/provider.png',
+    ];
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} sourceId={'a'.repeat(64)} onSelect={vi.fn()} />); });
+    expect(renderer!.root.findByProps({ 'data-component': 'plugin-logo' }).props['data-remote-sources']).toBe(remote.srcs.join('|'));
+  });
+
+  it('offers installation directly on the card', async () => {
+    const onInstall = vi.fn();
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} onSelect={vi.fn()} onInstall={onInstall} />); });
+    const install = renderer!.root.findAllByProps({ 'data-component': 'button' })
+      .find((button) => String(button.children).includes('plugin.market.install'));
+    expect(install).toBeTruthy();
+    expect(install!.props.disabled).toBe(false);
+    act(() => install!.props.onClick());
+    expect(onInstall).toHaveBeenCalledOnce();
+  });
+
+  it('disables card installation when the same version is already installed', async () => {
+    await act(async () => { renderer = create(<MarketPluginCard plugin={plugin} installedVersion="1.1.0" onSelect={vi.fn()} onInstall={vi.fn()} />); });
+    const install = renderer!.root.findAllByProps({ 'data-component': 'button' })
+      .find((button) => String(button.children).includes('plugin.market.versions.installed'));
+    expect(install).toBeTruthy();
+    expect(install!.props.disabled).toBe(true);
   });
 
 });

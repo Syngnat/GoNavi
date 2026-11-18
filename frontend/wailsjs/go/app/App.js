@@ -946,6 +946,10 @@ export function ImportSavedQueries(arg1) {
   return window['go']['app']['App']['ImportSavedQueries'](arg1);
 }
 
+export function InferImportTableSchema(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['InferImportTableSchema'](arg1, arg2, arg3, arg4);
+}
+
 export function InspectDriverPackage(arg1, arg2) {
   return window['go']['app']['App']['InspectDriverPackage'](arg1, arg2);
 }
@@ -1778,6 +1782,10 @@ export function SelectCertificateFile(arg1, arg2) {
   return window['go']['app']['App']['SelectCertificateFile'](arg1, arg2);
 }
 
+export function SelectDataImportFile() {
+  return window['go']['app']['App']['SelectDataImportFile']();
+}
+
 export function SelectDataRootDirectory(arg1) {
   return window['go']['app']['App']['SelectDataRootDirectory'](arg1);
 }
@@ -1898,6 +1906,10 @@ export function SessionAgentUpdate(arg1, arg2, arg3) {
   return window['go']['app']['App']['SessionAgentUpdate'](arg1, arg2, arg3);
 }
 
+export function SetAIProviderStore(arg1) {
+  return window['go']['app']['App']['SetAIProviderStore'](arg1);
+}
+
 export function SetApplicationBrandIcon(arg1) {
   return window['go']['app']['App']['SetApplicationBrandIcon'](arg1);
 }
@@ -1912,6 +1924,10 @@ export function SetMacNativeWindowControls(arg1) {
 
 export function SetUpdateChannel(arg1) {
   return window['go']['app']['App']['SetUpdateChannel'](arg1);
+}
+
+export function SetWindowHiddenForMemoryTrim(arg1) {
+  return window['go']['app']['App']['SetWindowHiddenForMemoryTrim'](arg1);
 }
 
 export function SetWindowTranslucency(arg1, arg2, arg3) {

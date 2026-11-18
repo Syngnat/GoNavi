@@ -140,7 +140,9 @@ describe('sqlFileTabDrafts', () => {
 
     scheduling.runNextIdleCallback();
 
-    expect(stringifySpy).toHaveBeenCalledTimes(1);
+    // 序列化按条目缓存，因此 30 条各自 stringify 一次；关键是它发生在
+    // 空闲回调里而不是键入路径上，且整份快照只写一次。
+    expect(stringifySpy).toHaveBeenCalledTimes(30);
     expect(setItemSpy).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.getItem('gonavi-query-tab-drafts-v1') || '[]')).toHaveLength(30);
   });
@@ -398,5 +400,74 @@ describe('sqlFileTabDrafts', () => {
     flushQueryTabDraftSnapshots();
     const payload = JSON.parse(localStorage.getItem('gonavi-query-tab-drafts-v1') || '[]');
     expect(payload.find((entry: { tabId: string }) => entry.tabId === 'query-empty-db-override')?.dbName).toBe('');
+  });
+
+  it('re-serializes only the entry that changed', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const scheduling = createBrowserSchedulingHarness();
+    const storage = new MemoryStorage();
+    const stringifySpy = vi.spyOn(JSON, 'stringify');
+    vi.stubGlobal('window', scheduling.windowStub);
+    vi.stubGlobal('localStorage', storage);
+
+    const { persistQueryTabDraftSnapshot, flushQueryTabDraftSnapshots } = await import('./sqlFileTabDrafts');
+    const makeTab = (index: number) => ({
+      id: `draft-${index}`,
+      title: `Draft ${index}`,
+      connectionId: 'conn-1',
+      dbName: 'main',
+    });
+    for (let index = 0; index < 10; index += 1) {
+      persistQueryTabDraftSnapshot(makeTab(index), `select ${index};`);
+    }
+    flushQueryTabDraftSnapshots();
+    stringifySpy.mockClear();
+
+    persistQueryTabDraftSnapshot(makeTab(3), 'select 333;');
+    flushQueryTabDraftSnapshots();
+
+    expect(stringifySpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(storage.getItem('gonavi-query-tab-drafts-v1') || '[]');
+    expect(payload).toHaveLength(10);
+    expect(payload.find((entry: { tabId: string }) => entry.tabId === 'draft-3')?.query).toBe('select 333;');
+  });
+
+  it('retries with fewer newest-first entries when storage rejects the snapshot', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const scheduling = createBrowserSchedulingHarness();
+    const storage = new MemoryStorage();
+    let attempts = 0;
+    const originalSetItem = storage.setItem.bind(storage);
+    storage.setItem = (key: string, value: string) => {
+      attempts += 1;
+      // 前两次（30 条与 15 条上限，本例实际都是 6 条）模拟配额超限，
+      // 第三次（8 条上限同样 6 条）仍会失败，直到 4 条上限才落盘。
+      if (attempts <= 3) {
+        const error = new Error('quota exceeded');
+        error.name = 'QuotaExceededError';
+        throw error;
+      }
+      originalSetItem(key, value);
+    };
+    vi.stubGlobal('window', scheduling.windowStub);
+    vi.stubGlobal('localStorage', storage);
+
+    const { persistQueryTabDraftSnapshot, flushQueryTabDraftSnapshots } = await import('./sqlFileTabDrafts');
+    for (let index = 0; index < 6; index += 1) {
+      persistQueryTabDraftSnapshot({
+        id: `quota-${index}`,
+        title: `Quota ${index}`,
+        connectionId: 'conn-1',
+        dbName: 'main',
+      }, `select ${index};`);
+    }
+    flushQueryTabDraftSnapshots();
+
+    expect(attempts).toBeGreaterThan(1);
+    const payload = JSON.parse(storage.getItem('gonavi-query-tab-drafts-v1') || '[]');
+    expect(payload.length).toBeGreaterThan(0);
+    expect(payload.length).toBeLessThan(6);
   });
 });

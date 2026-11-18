@@ -25,6 +25,7 @@ import { RedisViewerSidebar } from './redisViewer/RedisViewerSidebar';
 import { RedisNewKeyModal } from './redisViewer/RedisNewKeyModal';
 import { RedisJsonEditModal } from './redisViewer/RedisJsonEditModal';
 import { RedisKeyContextMenu } from './redisViewer/RedisKeyContextMenu';
+import { ExportProgressDialog } from './ExportProgressModal';
 
 export interface RedisViewerProps {
     connectionId: string;
@@ -187,6 +188,12 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         handleChooseImportFile,
         handleOpenImportModal,
         handleConfirmImportKeys,
+        handleCancelImport,
+        importProgress,
+        cancellingImport,
+        exportProgressState,
+        cancelExport,
+        resetExportProgress,
         importSelectedKeySet,
         handleToggleImportPreviewKey,
         handleSelectAllImportPreviewKeys,
@@ -207,6 +214,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         importPreview,
         importSelectedKeys,
         confirmRedisMutation,
+        importingKeys,
         setImportingKeys,
         importConflictMode,
         setSelectedKeys,
@@ -675,7 +683,10 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                 importSelectedKeys={importSelectedKeys}
                 importPreviewLoading={importPreviewLoading}
                 importingKeys={importingKeys}
+                importProgress={importProgress}
+                cancellingImport={cancellingImport}
                 handleConfirmImportKeys={handleConfirmImportKeys}
+                handleCancelImport={handleCancelImport}
                 resetImportModalState={resetImportModalState}
                 redisModalContentStyle={redisModalContentStyle}
                 workbenchTheme={workbenchTheme}
@@ -691,6 +702,12 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                 formatTTL={formatTTL}
                 importConflictMode={importConflictMode}
                 setImportConflictMode={setImportConflictMode}
+            />
+
+            <ExportProgressDialog
+                state={exportProgressState}
+                reset={resetExportProgress}
+                cancelExport={cancelExport}
             />
 
             {/* TTL Modal */}

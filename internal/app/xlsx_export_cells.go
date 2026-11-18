@@ -41,6 +41,8 @@ func writeXLSXNumberCell(writer *bufio.Writer, columnRef string, rowRef string, 
 // xlsxNumericCellLiteral accepts plain decimals within Excel's 15-digit precision.
 // Integers with more than 15 digits stay text (also keeping them below 2^53);
 // decimals must round-trip without changing value, not be exactly binary-representable.
+// The spelling must already be canonical: a text value such as "1.00" or "0001"
+// is someone's identifier or formatted amount, and Excel must not normalize it.
 func xlsxNumericCellLiteral(text string) (string, bool) {
 	if text == "" || text[0] == '+' {
 		return "", false
@@ -88,10 +90,37 @@ func xlsxNumericCellLiteral(text string) (string, bool) {
 	}
 	canonical := strconv.FormatFloat(value, 'f', -1, 64)
 	parsed, ok := new(big.Rat).SetString(canonical)
-	if !ok || original.Cmp(parsed) != 0 {
+	if !ok || original.Cmp(parsed) != 0 || canonical != text {
 		return "", false
 	}
 	return canonical, true
+}
+
+// resolveXLSXTextColumns judges a materialized export column the way the person
+// reading the workbook expects: one value that is not already written as a
+// canonical number makes the whole column text, so identifiers keep their
+// leading zeros and amounts keep trailing zeros such as "1.00".
+func resolveXLSXTextColumns(data []map[string]interface{}, columns []string) map[string]bool {
+	text := make(map[string]bool)
+	for _, row := range data {
+		for _, column := range columns {
+			if text[column] {
+				continue
+			}
+			value := row[column]
+			if value == nil {
+				continue
+			}
+			formatted := formatExportCellText(value)
+			if formatted == "" {
+				continue
+			}
+			if _, ok := xlsxNumericCellLiteral(formatted); !ok {
+				text[column] = true
+			}
+		}
+	}
+	return text
 }
 
 func writeXLSXInlineStringCell(writer *bufio.Writer, columnRef string, rowRef string, value string) error {

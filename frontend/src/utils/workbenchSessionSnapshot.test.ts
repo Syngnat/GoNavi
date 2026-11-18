@@ -45,6 +45,23 @@ describe('workbench session snapshot', () => {
     expect(toSnapshotTab(tab({ id: 'redis-4', type: 'redis-keys' }))?.redisDB).toBeUndefined();
   });
 
+  it('restores a read-only database definition tab by connection and database', () => {
+    expect(toSnapshotTab(tab({
+      id: 'database-def-conn-1-tenant',
+      type: 'database-def',
+      dbName: 'tenant',
+      readOnly: true,
+      title: 'Database definition: tenant',
+    }))).toMatchObject({
+      id: 'database-def-conn-1-tenant',
+      type: 'database-def',
+      connectionId: 'conn-1',
+      dbName: 'tenant',
+      readOnly: true,
+      title: 'Database definition: tenant',
+    });
+  });
+
   it('does not bring back tabs that exist to carry out one request', () => {
     (['table-export', 'data-import', 'sql-file-execution', 'sql-analysis'] as WorkbenchTabType[]).forEach((type) => {
       expect(toSnapshotTab(tab({ id: `${type}-1`, type }))).toBeNull();

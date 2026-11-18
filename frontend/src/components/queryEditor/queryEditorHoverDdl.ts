@@ -231,6 +231,49 @@ type QueryEditorObjectResolveContext = {
     documentContext: { text: string; offset: number };
 };
 
+// 单行大文档的悬停窗口上限。超过后只读光标两侧各这么多字符，坐标换算到
+// 窗口局部系后返回。
+const QUERY_EDITOR_TABLE_SOURCE_PROBE_MAX_CHARS = 50_000;
+
+const buildQueryEditorCharWindowContext = (
+    model: any,
+    position: { lineNumber: number; column: number },
+    modelLength: number | null,
+): QueryEditorObjectResolveContext | null => {
+    if (
+        typeof model?.getOffsetAt !== 'function'
+        || typeof model?.getPositionAt !== 'function'
+        || typeof model?.getValueInRange !== 'function'
+    ) {
+        return null;
+    }
+    const rawOffset = Number(model.getOffsetAt(position));
+    if (!Number.isFinite(rawOffset)) {
+        return null;
+    }
+    const totalLength = modelLength ?? Number.MAX_SAFE_INTEGER;
+    const startOffset = Math.max(0, rawOffset - QUERY_EDITOR_TABLE_SOURCE_PROBE_MAX_CHARS);
+    const endOffset = Math.min(totalLength, rawOffset + QUERY_EDITOR_TABLE_SOURCE_PROBE_MAX_CHARS);
+    const start = model.getPositionAt(startOffset);
+    const end = model.getPositionAt(endOffset);
+    const text = String(model.getValueInRange({
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: end.lineNumber,
+        endColumn: end.column,
+    }) ?? '');
+    if (!text) {
+        return null;
+    }
+    const cursorOffset = Math.max(0, Math.min(text.length, rawOffset - startOffset));
+    const cursorPosition = model.getPositionAt(rawOffset);
+    return {
+        text,
+        lineNumber: cursorPosition.lineNumber - start.lineNumber + 1,
+        documentContext: { text, offset: cursorOffset },
+    };
+};
+
 // Hover 可读取完整短文档；大文档则只取光标附近的小窗口，并把行号和 offset 换算到同一局部坐标系。
 // 不能把 Monaco 全文 offset 传给单行 fallback，否则限定名窗口会被夹到行尾。
 export const buildQueryEditorObjectResolveContext = (
@@ -244,6 +287,16 @@ export const buildQueryEditorObjectResolveContext = (
         ? resolvedText.length === modelLength
         : resolvedText !== lineContent || Number(model?.getLineCount?.() || 1) <= 1;
     if (usesFullDocument) {
+        // 单行大文档（压缩过的 SQL）里「整篇文本」可能就是一行：此时全文
+        // 掩码与限定名扫描都会退化为整篇成本。按字符窗口收敛到光标附近，
+        // 与补全路径的 readQueryEditorCompletionAnalysisText 同一策略；
+        // 窗口内坐标系是自洽的，必须在这里直接返回，不能再走下面的行号分支。
+        if (resolvedText.length > QUERY_EDITOR_TABLE_SOURCE_PROBE_MAX_CHARS) {
+            const windowed = buildQueryEditorCharWindowContext(model, position, modelLength);
+            if (windowed) {
+                return windowed;
+            }
+        }
         const offset = typeof model?.getOffsetAt === 'function'
             ? model.getOffsetAt(position)
             : getQueryEditorDocumentOffsetAtPosition(resolvedText, position.lineNumber, position.column);

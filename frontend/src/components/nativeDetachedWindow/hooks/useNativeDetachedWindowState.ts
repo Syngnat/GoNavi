@@ -258,6 +258,45 @@ export const useNativeDetachedWindowState = ({ client }: UseNativeDetachedWindow
     );
   }, [bootstrap]);
 
+  // The first host snapshot may have been emitted before React registered the
+  // command listener. Re-fetch the cached state now that the listener exists;
+  // the revision check drops it when a newer event already arrived.
+  useEffect(() => {
+    if (!bootstrap || typeof client.hostState !== 'function') return undefined;
+    let active = true;
+    void client.hostState().then((snapshot) => {
+      if (!active || !snapshot?.storeState) return;
+      const themeContext = readNativeDetachedThemeContext(snapshot.storeState);
+      if (themeContext !== undefined) setCustomThemeOverride(themeContext);
+      hostStateRevisionRef.current = applyNativeDetachedHostStateCommand(
+        useStore,
+        bootstrap.id,
+        hostStateRevisionRef.current,
+        {
+          id: bootstrap.id,
+          action: 'sync-host-state',
+          payload: {
+            revision: Math.trunc(Number(snapshot.revision)) || undefined,
+            storeState: snapshot.storeState,
+          },
+        },
+        {
+          processedEventIds: processedHostEventIdsRef.current,
+          previousHostAIContextsRef,
+          dispatchHostEvent: (hostEvent) => {
+            if (typeof window === 'undefined') return;
+            window.dispatchEvent(new CustomEvent(hostEvent.name, {
+              detail: hostEvent.detail,
+            }));
+          },
+        },
+      );
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [bootstrap, client]);
+
   useEffect(() => {
     if (!bootstrap || typeof window === 'undefined' || !client.hostEvent) return undefined;
     const eventNames: NativeDetachedHostEventName[] = bootstrap.kind === 'ai-chat'

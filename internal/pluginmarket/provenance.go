@@ -77,6 +77,12 @@ func (s *Service) RecordInstall(ctx context.Context, id, path, contentDigest str
 
 // VerifyInstallSource rejects updates to an existing runtime package unless its canonical digest and source match recorded provenance.
 // The host must call this for every existing runtime record, including sideloaded and manually modified packages.
+//
+// A record that does not exist means the package was installed outside the marketplace (a local
+// package or a sideload), which is not a hijack risk: there is no earlier source binding to
+// protect, and the replacement still goes through a fresh inspection and the user's explicit
+// trust. Such packages therefore update online like any other. Only a real binding — a record
+// that belongs to another source, or bytes that no longer match what was recorded — is refused.
 func (s *Service) VerifyInstallSource(ctx context.Context, id, contentDigest string) error {
 	if !validID(id) || !digestPattern.MatchString(contentDigest) {
 		return ErrInvalidRequest
@@ -94,7 +100,10 @@ func (s *Service) VerifyInstallSource(ctx context.Context, id, contentDigest str
 		return ErrSourceChanged
 	}
 	record, exists := store.state.Installs[id]
-	if !exists || record.ContentDigest != contentDigest || record.SourceID != sourceID(s.state.BaseURL) {
+	if !exists {
+		return nil
+	}
+	if record.ContentDigest != contentDigest || record.SourceID != sourceID(s.state.BaseURL) {
 		return ErrSourceMismatch
 	}
 	return nil

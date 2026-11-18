@@ -13,7 +13,7 @@ import (
 	"GoNavi-Wails/internal/importjob"
 	"GoNavi-Wails/internal/requesttrace"
 	"GoNavi-Wails/internal/syncjob"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 const reproductionBundleSourceLimit = 200

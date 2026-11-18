@@ -148,6 +148,7 @@ export const useConnectionModalSaveAndTest = ({
         nacosNamespaceIdTouched:
           form.isFieldTouched?.("nacosNamespaceId") === true,
         oracleModeTouched: oracleModeTouchedRef.current,
+        uriTouched: form.isFieldTouched?.("uri") === true,
         translate: t,
       });
       const payload = buildSavedConnectionInput({
@@ -326,6 +327,7 @@ export const useConnectionModalSaveAndTest = ({
         nacosNamespaceIdTouched:
           form.isFieldTouched?.("nacosNamespaceId") === true,
         oracleModeTouched: oracleModeTouchedRef.current,
+        uriTouched: form.isFieldTouched?.("uri") === true,
         translate: t,
       });
       if (!isCurrentTestRun()) return;

@@ -13,7 +13,7 @@ export function MarketRatingsPanel({ ratings, websiteURL }: { ratings: MarketRat
     <Typography.Title level={5}>{t('plugin.market.ratings')}</Typography.Title>
     {ratings.length === 0 && <div className="market-detail-rating-empty"><Typography.Text type="secondary">{t('plugin.market.detail_reviews_empty')}</Typography.Text></div>}
     {ratings.slice((currentPage - 1) * 10, currentPage * 10).map((rating) => <article className="market-detail-rating" key={rating.userId}>
-      <div className="market-detail-rating-header"><Typography.Text strong>{rating.userId}</Typography.Text><Rate disabled value={rating.stars} /></div>
+      <div className="market-detail-rating-header"><Typography.Text strong>{rating.userName || rating.userId}</Typography.Text><Rate disabled value={rating.stars} /></div>
       <Typography.Text type="secondary" className="market-detail-rating-meta">{rating.version} · {rating.updatedAt}</Typography.Text>
       <p className="plugin-rating-body">{rating.body}</p>
     </article>)}

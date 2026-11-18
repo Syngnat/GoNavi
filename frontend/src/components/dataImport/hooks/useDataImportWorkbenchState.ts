@@ -33,6 +33,7 @@ import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
 import { isDatabaseVisible, filterVisibleDatabaseNames } from '../../../utils/databaseVisibility';
 import { normalizeTableNamesFromMetadataRows } from '../../../utils/tableMetadataRows';
 import type { DataImportWorkbenchProps } from '../../DataImportWorkbench';
+import type { ImportAutoCreateTableDraft } from '../importTableTypeMapping';
 
 export interface UseDataImportWorkbenchStateInput {
   tab: DataImportWorkbenchProps['tab'];
@@ -68,6 +69,7 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
   const [filePath, setFilePath] = useState('');
   const [fileName, setFileName] = useState('');
   const [fileSizeMB, setFileSizeMB] = useState('');
+  const [autoCreateTable, setAutoCreateTable] = useState<ImportAutoCreateTableDraft | null>(null);
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [loadingTables, setLoadingTables] = useState(false);
   const [selectingFile, setSelectingFile] = useState(false);
@@ -91,11 +93,14 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
   });
   const [capabilityRequestToken, setCapabilityRequestToken] = useState(0);
   const appliedPrefillRef = useRef<string | null>(null);
+  const autoCreatePrefillKeyRef = useRef<string | null>(null);
+  const autoCreateTableNameRef = useRef('');
   const fileSelectionRequestRef = useRef(0);
   const browserFileInputRef = useRef<HTMLInputElement>(null);
   const tabRef = useRef(tab);
   const wasImportingRef = useRef(false);
   tabRef.current = tab;
+  autoCreateTableNameRef.current = autoCreateTable?.tableName || '';
 
   const selectedConnection = useMemo(
     () => eligibleConnections.find((connection) => connection.id === selectedConnectionId),
@@ -182,6 +187,7 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
     setFilePath('');
     setFileName('');
     setFileSizeMB('');
+    setAutoCreateTable(null);
     if (browserFileInputRef.current) browserFileInputRef.current.value = '';
   }, []);
 
@@ -198,6 +204,11 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
       .map((value) => String(value || '').trim())
       .join('::');
     if (appliedPrefillRef.current === prefillKey) return;
+    if (autoCreatePrefillKeyRef.current === prefillKey) {
+      autoCreatePrefillKeyRef.current = null;
+      appliedPrefillRef.current = prefillKey;
+      return;
+    }
     appliedPrefillRef.current = prefillKey;
     setImportMode(nextMode);
     setSelectedConnectionId(String(tab.connectionId || '').trim());
@@ -366,10 +377,17 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
           }));
           return;
         }
-        const nextOptions = toSortedOptions(normalizeTableNamesFromMetadataRows(res.data));
+        const loadedTableNames = normalizeTableNamesFromMetadataRows(res.data);
+        const autoCreateTableName = autoCreateTableNameRef.current;
+        const nextOptions = toSortedOptions([
+          ...loadedTableNames,
+          ...(autoCreateTableName ? [autoCreateTableName] : []),
+        ]);
         setTableOptions(nextOptions);
         const availableNames = new Set(nextOptions.map((option) => option.value));
-        setSelectedTableName((current) => (availableNames.has(current) ? current : ''));
+        setSelectedTableName((current) => (
+          availableNames.has(current) || current === autoCreateTableName ? current : ''
+        ));
       })
       .catch((error: any) => {
         if (!alive) return;
@@ -387,7 +405,54 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
     return () => {
       alive = false;
     };
-  }, [importMode, importing, invalidateFileSelection, selectedConnectionConfig, selectedDbName, t]);
+  }, [
+    importMode,
+    importing,
+    invalidateFileSelection,
+    selectedConnectionConfig,
+    selectedDbName,
+    t,
+  ]);
+
+  const applyAutoCreateTable = useCallback((
+    payload: ImportAutoCreateTableDraft,
+    file: { filePath: string; fileName: string; fileSizeMB: string },
+  ) => {
+    fileSelectionRequestRef.current += 1;
+    setSelectingFile(false);
+    setAutoCreateTable(payload);
+    setSelectedTableName(payload.tableName);
+    setTableOptions((current) => toSortedOptions([
+      ...current.map((option) => option.value),
+      payload.tableName,
+    ]));
+    setFilePath(file.filePath);
+    setFileName(file.fileName);
+    setFileSizeMB(file.fileSizeMB);
+    if (browserFileInputRef.current) browserFileInputRef.current.value = '';
+    autoCreatePrefillKeyRef.current = [
+      tabRef.current.dataImportLaunchKey,
+      'table',
+      selectedConnectionId,
+      selectedDbName,
+      payload.tableName,
+    ].map((value) => String(value || '').trim()).join('::');
+    syncWorkbenchTab({
+      connectionId: selectedConnectionId,
+      dbName: selectedDbName,
+      tableName: payload.tableName,
+      dataImportMode: 'table',
+      dataImportRunning: false,
+    });
+  }, [
+    selectedConnectionId,
+    selectedDbName,
+    syncWorkbenchTab,
+  ]);
+
+  const markAutoCreateTableCreated = useCallback(() => {
+    setAutoCreateTable((current) => (current ? { ...current, created: true } : current));
+  }, []);
 
   const clearSelectedFile = () => {
     invalidateFileSelection();
@@ -458,7 +523,8 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
   return {
     t, darkMode, importMode, connectionOptions, selectedConnectionId, selectedDbName,
     selectedTableName, databaseOptions, tableOptions, filePath, setFilePath, fileName, setFileName,
-    fileSizeMB, setFileSizeMB, loadingDatabases, loadingTables, selectingFile, setSelectingFile,
+    fileSizeMB, setFileSizeMB, autoCreateTable, loadingDatabases, loadingTables, selectingFile,
+    setSelectingFile,
     importing, setImporting, conflictKeyColumnsInput, setConflictKeyColumnsInput,
     historyRefreshToken, setHistoryRefreshToken, databaseError, tableError,
     setCapabilityRequestToken, fileSelectionRequestRef, browserFileInputRef, wasImportingRef,
@@ -466,6 +532,8 @@ export const useDataImportWorkbenchState = ({ tab }: UseDataImportWorkbenchState
     capabilityAllowsImport, activePreferences, continueOnError, supportedConflictPolicies,
     conflictPolicySupported, conflictKeysValid, tableImportOptionsValid, capabilityReason,
     capabilityMessageKey, capabilityDetails, syncWorkbenchTab, updateImportPreferences,
+    applyAutoCreateTable,
+    markAutoCreateTableCreated,
     clearSelectedFile, handleModeChange, handleConnectionChange, handleDatabaseChange,
     handleTableChange,
   };

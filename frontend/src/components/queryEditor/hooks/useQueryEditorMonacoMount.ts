@@ -1,13 +1,15 @@
+import { useEffect } from 'react';
 import type { BeforeMount, OnMount } from '../../MonacoEditor';
 import { installQueryEditorViewStateMemory } from '../queryEditorResultSessionLifecycle';
 import { installQueryEditorSuggestWidgetWidth } from '../queryEditorSuggestionLayout';
 import { QUERY_EDITOR_SQL_SNIPPET_SUGGEST_DETAIL_MIN_HEIGHT } from '../queryEditorLazyTablesCache';
 import { normalizeEditorPosition } from '../QueryEditorHelpers';
 import { setSharedActiveEditorModelUri } from '../queryEditorCompletionState';
+import { QUERY_EDITOR_AI_INLINE_CONTEXT_KEY } from '../queryEditorRunHelpers';
 import {
+    applyQueryEditorAutomaticLayout,
     buildQueryEditorMonacoOptions,
-    QUERY_EDITOR_AI_INLINE_CONTEXT_KEY,
-} from '../queryEditorRunHelpers';
+} from '../queryEditorMonacoLayout';
 import { decorateV2MonacoContextMenu } from '../../common/V2ActionMenuPopup';
 import { createQueryEditorAiInlineGhostState } from '../monaco/queryEditorAiInlineGhostState';
 import { createQueryEditorAiInlineGhostActions } from '../monaco/queryEditorAiInlineGhostActions';
@@ -251,6 +253,7 @@ export const useQueryEditorMonacoMount = ({
         const mountedEditorOptions = buildQueryEditorMonacoOptions(
             isObjectEditQueryTab,
             wordWrapEnabled,
+            isActive,
         );
         editor.updateOptions?.(isElasticsearchMode ? {
             ...mountedEditorOptions,
@@ -380,6 +383,10 @@ export const useQueryEditorMonacoMount = ({
             editor, connectionsRef, currentConnectionIdRef, getCurrentQuery, currentDbRef,
         });
     };
+    useEffect(() => {
+        applyQueryEditorAutomaticLayout(editorRef.current, isActive);
+    }, [editorRef, isActive]);
+
     return { handleEditorBeforeMount, handleEditorDidMount };
 };
 

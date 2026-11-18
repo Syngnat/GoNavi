@@ -101,7 +101,7 @@ func connectSSH(config connection.SSHConfig) (*ssh.Client, error) {
 		User:            config.User,
 		Auth:            authMethods,
 		HostKeyCallback: hostKeyCallback,
-		Timeout:         5 * time.Second,
+		Timeout:         resolveSSHConnectTimeout(config),
 	}
 
 	addr, _, err := sshDialAddress(config)
@@ -110,7 +110,7 @@ func connectSSH(config connection.SSHConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 	config.ReportProgress("tcp_connecting", "running")
-	tcpConn, err := net.DialTimeout("tcp", addr, sshConfig.Timeout)
+	tcpConn, err := net.DialTimeout("tcp", addr, resolveSSHConnectTimeout(config))
 	if err != nil {
 		config.ReportProgress("tcp_connecting", "error")
 		logger.Error(err, "SSH 连接建立失败：地址=%s 用户=%s", addr, config.User)
@@ -120,7 +120,7 @@ func connectSSH(config connection.SSHConfig) (*ssh.Client, error) {
 	// net.DialTimeout only bounds the TCP connection. Keep the same deadline on
 	// the socket while SSH exchanges its banner and host key so a peer that
 	// accepts TCP but never completes SSH cannot leave the UI waiting forever.
-	if err := tcpConn.SetDeadline(time.Now().Add(sshConfig.Timeout)); err != nil {
+	if err := tcpConn.SetDeadline(time.Now().Add(resolveSSHConnectTimeout(config))); err != nil {
 		_ = tcpConn.Close()
 		config.ReportProgress("failed", "error")
 		return nil, fmt.Errorf("set SSH handshake deadline: %w", err)

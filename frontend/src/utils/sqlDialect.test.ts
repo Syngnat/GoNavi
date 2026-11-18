@@ -205,52 +205,102 @@ describe('sqlDialect', () => {
 
   it('localizes common function completion details for zh-CN and en-US', () => {
     setCurrentLanguage('zh-CN');
-    expect(detailByName('mysql', 'COUNT')).toBe('聚合函数 - 计数');
+    expect(detailByName('mysql', 'COUNT')).toBe('计数 - 聚合函数');
 
     setCurrentLanguage('en-US');
-    expect(detailByName('mysql', 'COUNT')).toBe('Aggregate function - count');
+    expect(detailByName('mysql', 'COUNT')).toBe('count - Aggregate function');
   });
 
   it('localizes mysql and starrocks function completion details for zh-CN and en-US', () => {
     setCurrentLanguage('zh-CN');
-    expect(detailByName('mysql', 'GROUP_CONCAT')).toBe('MySQL - 分组拼接');
-    expect(detailByName('starrocks', 'TO_BITMAP')).toBe('StarRocks - 构造 Bitmap');
+    expect(detailByName('mysql', 'GROUP_CONCAT')).toBe('分组拼接 - MySQL');
+    expect(detailByName('starrocks', 'TO_BITMAP')).toBe('构造 Bitmap - StarRocks');
 
     setCurrentLanguage('en-US');
-    expect(detailByName('mysql', 'GROUP_CONCAT')).toBe('MySQL - grouped concatenation');
-    expect(detailByName('starrocks', 'TO_BITMAP')).toBe('StarRocks - build bitmap');
+    expect(detailByName('mysql', 'GROUP_CONCAT')).toBe('grouped concatenation - MySQL');
+    expect(detailByName('starrocks', 'TO_BITMAP')).toBe('build bitmap - StarRocks');
   });
 
   it('localizes postgresql and oracle function completion details for zh-CN and en-US', () => {
     setCurrentLanguage('zh-CN');
-    expect(detailByName('postgres', 'STRING_AGG')).toBe('PostgreSQL - 字符串聚合');
-    expect(detailByName('oracle', 'NVL')).toBe('Oracle - NULL 替换');
+    expect(detailByName('postgres', 'STRING_AGG')).toBe('字符串聚合 - PostgreSQL');
+    expect(detailByName('oracle', 'NVL')).toBe('NULL 替换 - Oracle');
 
     setCurrentLanguage('en-US');
-    expect(detailByName('postgres', 'STRING_AGG')).toBe('PostgreSQL - string aggregation');
-    expect(detailByName('oracle', 'NVL')).toBe('Oracle - null replacement');
+    expect(detailByName('postgres', 'STRING_AGG')).toBe('string aggregation - PostgreSQL');
+    expect(detailByName('oracle', 'NVL')).toBe('null replacement - Oracle');
   });
 
   it('localizes sql server and sqlite function completion details for zh-CN and en-US', () => {
     setCurrentLanguage('zh-CN');
-    expect(detailByName('sqlserver', 'GETDATE')).toBe('SQL Server - 当前日期时间');
-    expect(detailByName('sqlite', 'JSON_EXTRACT')).toBe('SQLite - JSON 提取');
+    expect(detailByName('sqlserver', 'GETDATE')).toBe('当前日期时间 - SQL Server');
+    expect(detailByName('sqlite', 'JSON_EXTRACT')).toBe('JSON 提取 - SQLite');
 
     setCurrentLanguage('en-US');
-    expect(detailByName('sqlserver', 'GETDATE')).toBe('SQL Server - current date and time');
-    expect(detailByName('sqlite', 'JSON_EXTRACT')).toBe('SQLite - JSON value extraction');
+    expect(detailByName('sqlserver', 'GETDATE')).toBe('current date and time - SQL Server');
+    expect(detailByName('sqlite', 'JSON_EXTRACT')).toBe('JSON value extraction - SQLite');
   });
 
   it('localizes duckdb clickhouse and tdengine function completion details for zh-CN and en-US', () => {
     setCurrentLanguage('zh-CN');
-    expect(detailByName('duckdb', 'STRUCT_PACK')).toBe('DuckDB - 构造结构体');
-    expect(detailByName('clickhouse', 'formatDateTime')).toBe('ClickHouse - 日期格式化');
-    expect(detailByName('tdengine', 'TIMEDIFF')).toBe('TDengine - 时间差');
+    expect(detailByName('duckdb', 'STRUCT_PACK')).toBe('构造结构体 - DuckDB');
+    expect(detailByName('clickhouse', 'formatDateTime')).toBe('日期格式化 - ClickHouse');
+    expect(detailByName('tdengine', 'TIMEDIFF')).toBe('时间差 - TDengine');
 
     setCurrentLanguage('en-US');
-    expect(detailByName('duckdb', 'STRUCT_PACK')).toBe('DuckDB - build struct');
-    expect(detailByName('clickhouse', 'formatDateTime')).toBe('ClickHouse - date formatting');
-    expect(detailByName('tdengine', 'TIMEDIFF')).toBe('TDengine - time difference');
+    expect(detailByName('duckdb', 'STRUCT_PACK')).toBe('build struct - DuckDB');
+    expect(detailByName('clickhouse', 'formatDateTime')).toBe('date formatting - ClickHouse');
+    expect(detailByName('tdengine', 'TIMEDIFF')).toBe('time difference - TDengine');
+  });
+});
+
+// Oracle 家族标识符定界：裸名折叠为大写，双引号精确匹配且区分大小写。
+// 过去这里无条件加引号，导致小写表名（如元数据或用户输入的小写对象）被拼成
+// `"hr"."employees"`，Oracle 找不到 `HR.EMPLOYEES` 而报 ORA-00942。
+describe('oracle identifier quoting folds bare names instead of forcing quotes', () => {
+  // 全大写才能裸写：裸名会被 Oracle 折叠成大写，所以 `ORDERS` 裸写仍指向
+  // `ORDERS`；而小写/混合大小写只有带引号才指向原对象。
+  it('leaves an all-upper-case name unquoted so Oracle folds it to the same object', () => {
+    expect(quoteSqlIdentifierPart('oracle', 'ORDERS')).toBe('ORDERS');
+    expect(quoteSqlIdentifierPath('oracle', 'CRH_QC.QCREFORMRECEIVE'))
+      .toBe('CRH_QC.QCREFORMRECEIVE');
+  });
+
+  it('quotes lower-case and mixed-case names, which only match case-sensitively', () => {
+    expect(quoteSqlIdentifierPart('oracle', 'qcreformreceive')).toBe('"qcreformreceive"');
+    expect(quoteSqlIdentifierPart('oracle', 'Order_Items')).toBe('"Order_Items"');
+    expect(quoteSqlIdentifierPath('oracle', 'crh_qc.qcreformreceive'))
+      .toBe('"crh_qc"."qcreformreceive"');
+  });
+
+  it('keeps delimiters when the source was explicitly quoted', () => {
+    expect(quoteSqlIdentifierPart('oracle', '"Order Items"')).toBe('"Order Items"');
+    expect(quoteSqlIdentifierPath('oracle', '"HR"."Order Items"')).toBe('"HR"."Order Items"');
+  });
+
+  // 回归：全大写 + 合法裸名的判断漏了保留字。`DATE` / `LEVEL` / `ROWID` 这类
+  // 名字裸写会直接报 ORA-00904 / ORA-00911，表设计器生成的 DDL 因此不可执行。
+  it('quotes reserved words even when they are all upper case', () => {
+    for (const reserved of ['DATE', 'LEVEL', 'ROWID', 'NUMBER', 'ORDER', 'COMMENT', 'SIZE', 'SESSION']) {
+      expect(quoteSqlIdentifierPart('oracle', reserved)).toBe(`"${reserved}"`);
+    }
+    // 可作列名的词不应被误加引号。
+    for (const usable of ['VALUE', 'TYPE', 'NAME', 'STATUS', 'ORDERS']) {
+      expect(quoteSqlIdentifierPart('oracle', usable)).toBe(usable);
+    }
+  });
+
+  it('quotes names that cannot be written bare', () => {
+    expect(quoteSqlIdentifierPart('oracle', 'order items')).toBe('"order items"');
+    expect(quoteSqlIdentifierPart('oracle', 'my-table')).toBe('"my-table"');
+    expect(quoteSqlIdentifierPart('oracle', '中文表')).toBe('"中文表"');
+  });
+
+  it('applies the same rule to the other Oracle-family dialects', () => {
+    expect(quoteSqlIdentifierPart('dameng', 'ORDERS')).toBe('ORDERS');
+    expect(quoteSqlIdentifierPart('dameng', 'orders')).toBe('"orders"');
+    expect(quoteSqlIdentifierPart('oceanbase', 'ORDERS', { oceanBaseProtocol: 'oracle' }))
+      .toBe('ORDERS');
   });
 });
 

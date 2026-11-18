@@ -95,6 +95,145 @@ func migrateLegacyWebKitStorageIfNeededWithHome(a *App, buildType string, resolv
 	return nil
 }
 
+// legacyLocalStorageSkipPrefixes lists regenerable caches that must not slow
+// down the first-boot migration or consume the destination localStorage quota.
+var legacyLocalStorageSkipPrefixes = []string{
+	"gonavi.plugin-market.catalog.v1:",
+	// The migration marker is written into the same localStorage database it
+	// describes. Including it in the source payload would change the fingerprint
+	// on every launch, so the "already imported" check could never match.
+	"gonavi-legacy-local-storage-migrated-",
+}
+
+// findLegacyWebKitLocalStorage returns the legacy WebKit localStorage
+// database used for the v2 -> v3 migration. Unlike
+// findLegacyWebKitVisibleConfig it keeps every localStorage key so the frontend
+// can restore theme, layout, tabs and AI sessions too.
+func findLegacyWebKitLocalStorage(homeDir string) (map[string]string, string, bool) {
+	var bestV2, bestAny map[string]string
+	var bestV2Path, bestAnyPath string
+	bestV2Score, bestAnyScore := -1, -1
+
+	for _, bundleID := range legacyWebKitBundleIDs {
+		pattern := filepath.Join(homeDir, "Library", "WebKit", bundleID, "WebsiteData", "Default", "*", "*", "LocalStorage", "localstorage.sqlite3")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, dbPath := range matches {
+			items, err := readLegacyWebKitLocalStorage(dbPath)
+			if err != nil {
+				continue
+			}
+			score := legacyLocalStorageScore(items)
+			if score > bestAnyScore {
+				bestAny = items
+				bestAnyPath = dbPath
+				bestAnyScore = score
+			}
+			if legacyLocalStorageIsV2Origin(dbPath) && score > bestV2Score {
+				bestV2 = items
+				bestV2Path = dbPath
+				bestV2Score = score
+			}
+		}
+	}
+
+	if bestV2Score >= 0 {
+		return bestV2, bestV2Path, true
+	}
+	if bestAnyScore >= 0 {
+		return bestAny, bestAnyPath, true
+	}
+	return map[string]string{}, "", false
+}
+
+// legacyLocalStorageIsV2Origin reports whether the database belongs to the
+// wails://wails origin used by Wails v2 and, deliberately, by current v3
+// builds. Wails v3's default wails://localhost store can still exist from a
+// preview build; it is rejected so a richer v3 profile cannot become the
+// migration source and a v3 settings reset cannot re-import old settings.
+func legacyLocalStorageIsV2Origin(dbPath string) bool {
+	originPath := filepath.Join(filepath.Dir(filepath.Dir(dbPath)), "origin")
+	if data, err := os.ReadFile(originPath); err == nil && len(data) > 0 {
+		// WKWebView stores the origin as a small binary payload that still
+		// contains the ASCII host. v2 used wails://wails; current v3 pins that
+		// origin, while preview builds used wails://localhost.
+		if strings.Contains(string(data), "localhost") {
+			return false
+		}
+		return strings.Contains(string(data), "wails")
+	}
+	name := strings.ToLower(filepath.Base(dbPath))
+	if strings.Contains(name, "localhost") {
+		return false
+	}
+	return strings.Contains(name, "wails_wails") || strings.Contains(name, "wails")
+}
+
+func legacyLocalStorageScore(items map[string]string) int {
+	if len(items) == 0 {
+		return -1
+	}
+	score := len(items)
+	if value, ok := items[legacyPersistKey]; ok {
+		score += 1000
+		// Default profiles and real profiles can expose the same number of keys.
+		// The persisted UI payload size is the reliable signal that separates a
+		// freshly written default store from the user's previous settings.
+		score += len(value) / 64
+	}
+	if _, ok := items["gonavi-background-image-v1"]; ok {
+		score += 10
+	}
+	return score
+}
+
+func readLegacyWebKitLocalStorage(dbPath string) (map[string]string, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT key, CAST(value AS BLOB) FROM ItemTable`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make(map[string]string)
+	for rows.Next() {
+		var key string
+		var raw []byte
+		if err := rows.Scan(&key, &raw); err != nil {
+			return nil, err
+		}
+		key = strings.TrimSpace(key)
+		if key == "" || skipLegacyLocalStorageKey(key) {
+			continue
+		}
+		value := decodeLegacyWebKitJSON(raw)
+		if value == "" {
+			continue
+		}
+		items[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func skipLegacyLocalStorageKey(key string) bool {
+	for _, prefix := range legacyLocalStorageSkipPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func findLegacyWebKitVisibleConfig(homeDir string) (legacyWebKitVisibleConfig, string, error) {
 	var best legacyWebKitVisibleConfig
 	var bestPath string

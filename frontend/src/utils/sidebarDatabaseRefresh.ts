@@ -53,6 +53,35 @@ export const dispatchSidebarDatabaseRefresh = (
   return true;
 };
 
+export type SidebarTableCreatedRequest = {
+  connectionId: string;
+  dbName: string;
+  schemaName?: string;
+  tableName?: string;
+};
+
+export const dispatchSidebarTableCreated = (
+  request: Partial<SidebarTableCreatedRequest> | null | undefined,
+): boolean => {
+  const connectionId = String(request?.connectionId || '').trim();
+  const dbName = String(request?.dbName || '').trim();
+  if (!connectionId || !dbName || typeof window === 'undefined') return false;
+  const schemaName = String(request?.schemaName || '').trim();
+  const tableName = String(request?.tableName || '').trim();
+  window.dispatchEvent(new CustomEvent<SidebarTableCreatedRequest>(
+    'gonavi:sidebar-table-created',
+    {
+      detail: {
+        connectionId,
+        dbName,
+        ...(schemaName ? { schemaName } : {}),
+        ...(tableName ? { tableName } : {}),
+      },
+    },
+  ));
+  return true;
+};
+
 const buildSidebarTableDataRefreshRequest = (
   request: SidebarDatabaseRefreshRequest,
   tableName: string,

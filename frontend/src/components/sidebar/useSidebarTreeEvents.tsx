@@ -26,7 +26,10 @@ import { resolveDataSourceType } from '../../utils/dataSourceCapabilities';
 import { isConnectionStructureEditRestricted } from '../../utils/connectionReadOnly';
 import { message } from 'antd';
 import { tryOpenSidebarObjectNode } from './sidebarOpenObjectNode';
-import { resolvePlainClickSelectedKeys } from './sidebarTableMultiSelect';
+import {
+  resolvePlainClickSelectedKeys,
+  resolvePlainClickSelectedNodes,
+} from './sidebarTableMultiSelect';
 import { buildOptionalSchemaContext } from './sidebarRootHelpers';
 import { useSidebarObjectActions } from './useSidebarObjectActions';
 import React from 'react';
@@ -264,7 +267,7 @@ export const useSidebarTreeEvents = ({
       const normalizedKeys = resolvePlainClickSelectedKeys(selectedKeysFromTree, info?.node?.key, hasModifier);
       const keys: React.Key[] = (normalizedKeys ?? selectedKeysFromTree) as React.Key[];
       setSidebarSelectedKeys(keys);
-      selectedNodesRef.current = info.selectedNodes || [];
+      selectedNodesRef.current = resolvePlainClickSelectedNodes(info.selectedNodes, normalizedKeys);
 
       if (keys.length === 0) {
           publishTitlebarSelection(null);

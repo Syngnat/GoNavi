@@ -56,7 +56,21 @@ type mcpHTTPTextLookup func(key string, params map[string]any) string
 var (
 	startMCPHTTPProcess = startMCPHTTPCommandProcess
 	waitMCPHTTPHealth   = waitMCPHTTPHealthEndpoint
+	// startMCPHTTPInProcess 由桌面宿主注入。为空时保持子进程模式。
+	startMCPHTTPInProcess func(context.Context, mcpHTTPProcessStartOptions) (mcpHTTPProcess, error)
 )
+
+// MCPHTTPProcess 是宿主自管的 MCP HTTP 服务生命周期。
+type MCPHTTPProcess = mcpHTTPProcess
+
+// MCPHTTPStartOptions 是归一化后的监听参数。
+type MCPHTTPStartOptions = mcpHTTPProcessStartOptions
+
+// SetMCPHTTPProcessStarter 让桌面宿主在主进程内提供 MCP HTTP 服务，省掉一个
+// 常驻的 mcp-server 子进程。starter 返回错误时自动回退到子进程模式。
+func SetMCPHTTPProcessStarter(starter func(context.Context, MCPHTTPStartOptions) (MCPHTTPProcess, error)) {
+	startMCPHTTPInProcess = starter
+}
 
 // AIGetMCPHTTPServerStatus 返回客户端内置 HTTP MCP 服务状态。
 func (s *Service) AIGetMCPHTTPServerStatus() ai.MCPHTTPServerStatus {
@@ -140,7 +154,7 @@ func (s *Service) startMCPHTTPServer(options ai.MCPHTTPServerOptions) (ai.MCPHTT
 		return status, err
 	}
 	_ = waitMCPHTTPAddrAvailable(attempt.ctx, startOptions.Addr, mcpHTTPAddrWait)
-	process, err := startMCPHTTPProcess(attempt.ctx, startOptions, textLookup)
+	process, err := startMCPHTTPProcessForOptions(attempt.ctx, startOptions, textLookup)
 	if err != nil {
 		err = localizeMCPHTTPError(textLookup, "ai_service.backend.error.mcp_http_start_failed", nil, err)
 		status := stoppedMCPHTTPStatus(statusFromMCPHTTPOptions(startOptions, token, textLookup), err.Error())
@@ -471,6 +485,19 @@ func normalizeInAppMCPHTTPOptions(options ai.MCPHTTPServerOptions, textLookup mc
 		// 默认开放 execute_sql，与内置助手共用安全控制；schemaOnly=true 时只暴露结构工具。
 		SchemaOnly: options.SchemaOnly,
 	}, token, nil
+}
+
+// startMCPHTTPProcessForOptions 优先使用宿主注入的进程内实现；它不可用或
+// 启动失败时回退到独立子进程，保证 MCP 功能不受宿主能力影响。
+func startMCPHTTPProcessForOptions(ctx context.Context, options mcpHTTPProcessStartOptions, textLookup mcpHTTPTextLookup) (mcpHTTPProcess, error) {
+	if startMCPHTTPInProcess != nil {
+		process, err := startMCPHTTPInProcess(ctx, options)
+		if err == nil {
+			return process, nil
+		}
+		logger.Warnf("进程内 MCP HTTP 服务启动失败，回退到子进程：%v", err)
+	}
+	return startMCPHTTPProcess(ctx, options, textLookup)
 }
 
 func startMCPHTTPCommandProcess(ctx context.Context, options mcpHTTPProcessStartOptions, textLookup mcpHTTPTextLookup) (mcpHTTPProcess, error) {

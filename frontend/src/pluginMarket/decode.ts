@@ -51,6 +51,7 @@ export function decodeMarketPlugin(data: unknown): MarketPlugin {
     if (value != null && (typeof value !== 'string' || encoder.encode(value).length > limit)) invalid();
   }
   if ((p.platforms as string[]).some((platform) => encoder.encode(platform).length > 64)) invalid();
+  if (p.sourceUrl != null && (typeof p.sourceUrl !== 'string' || encoder.encode(p.sourceUrl).length > 2048 || !safeHTTPURL(p.sourceUrl))) invalid();
   if (p.sourceId != null && typeof p.sourceId !== 'string') invalid();
   if (p.manifest != null) p.manifest = decodeManifest(p.manifest);
   if (p.artifact != null) {
@@ -72,6 +73,7 @@ export function decodeRating(data: unknown): MarketRating {
   boundedJSON(data);
   const r = requireRecord(data);
   if (['userId', 'pluginId', 'body', 'version', 'updatedAt'].some((key) => typeof r[key] !== 'string')
+    || (r.userName != null && (typeof r.userName !== 'string' || r.userName.length > 256))
     || !Number.isInteger(r.stars) || Number(r.stars) < 1 || Number(r.stars) > 5) invalid();
   return r as unknown as MarketRating;
 }

@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !wails3
 
 package nativewindow
 
@@ -6,10 +6,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 )
-
-func pluginPlatformEnvironment(string) []string {
-	return []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
-}
 
 func configurePluginWebview(app *options.App, _ string) error {
 	// Wails v2 uses the process-default WebKit context. XDG paths and HOME were

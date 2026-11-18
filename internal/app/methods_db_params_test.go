@@ -98,6 +98,11 @@ func TestDBQueryMultiWithParamsBindsPerStatement(t *testing.T) {
 	if len(fake.argsExecValues[0]) != 1 || fake.argsExecValues[0][0] != int64(7) {
 		t.Fatalf("写入绑定值异常: %#v", fake.argsExecValues[0])
 	}
+	if len(result.StatementResults) != 2 ||
+		result.StatementResults[0].Status != connection.StatementResultSuccess ||
+		result.StatementResults[1].Status != connection.StatementResultSuccess {
+		t.Fatalf("参数化逐语句状态异常: %#v", result.StatementResults)
+	}
 }
 
 func TestDBQueryMultiWithParamsReusesSameNameAcrossStatements(t *testing.T) {

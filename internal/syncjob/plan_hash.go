@@ -50,6 +50,9 @@ func ApprovalScopeHash(input JobDefinition) (string, error) {
 	definition.NextRunAt = 0
 	definition.LastScheduledAt = 0
 	definition.ArchivedAt = 0
+	// AnchorAt is assigned by the store when an interval task is first saved.
+	// It is persistence metadata, not an operation the user approved.
+	definition.Schedule.AnchorAt = 0
 	return hashJobDefinition(definition)
 }
 

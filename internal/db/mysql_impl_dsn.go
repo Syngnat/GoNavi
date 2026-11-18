@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"sort"
 	"strconv"
@@ -23,8 +24,8 @@ type mySQLCompatibleConnectPlan struct {
 }
 
 const (
-	mySQLCompatPlanDefaultLabel                = "默认兼容参数"
-	mySQLCompatPlanDisableMultiStatementsLabel = "禁用 multiStatements 兼容重试"
+	mySQLCompatPlanDefaultLabel                = "默认方案（multiStatements=true）"
+	mySQLCompatPlanDisableMultiStatementsLabel = "兼容回退方案（multiStatements=false）"
 )
 
 func hasMySQLConnectionParam(config connection.ConnectionConfig, names ...string) bool {
@@ -61,7 +62,8 @@ func hasMySQLConnectionParam(config connection.ConnectionConfig, names ...string
 
 func resolveMySQLTLSParam(config connection.ConnectionConfig) (string, bool, error) {
 	mode := resolveMySQLTLSMode(config)
-	if mode == "false" || !hasTLSCertificatePaths(config) {
+	serverName := strings.TrimSpace(config.TLSServerName)
+	if mode == "false" || (!hasTLSCertificatePaths(config) && serverName == "") {
 		return mode, false, nil
 	}
 	tlsConfig, err := resolveGenericTLSConfig(config)
@@ -70,6 +72,9 @@ func resolveMySQLTLSParam(config connection.ConnectionConfig) (string, bool, err
 	}
 	if tlsConfig == nil {
 		return mode, false, nil
+	}
+	if serverName != "" {
+		tlsConfig.ServerName = serverName
 	}
 	name := mysqlTLSConfigName(config)
 	if err := mysql.RegisterTLSConfig(name, tlsConfig); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already registered") {
@@ -106,6 +111,11 @@ func buildMySQLCompatibleDSNWithOptions(config connection.ConnectionConfig, prot
 		mergeMySQLConnectionParams(params, parsed.Query())
 	}
 	mergeMySQLConnectionParams(params, mysqlConnectionParamsFromText(config.ConnectionParams))
+	// 显式证书路径或代理场景的原始主机生成的命名 TLS 配置不能被
+	// URI/ConnectionParams 里的 tls/useSSL/sslMode 覆盖。
+	if (hasTLSCertificatePaths(config) || strings.TrimSpace(config.TLSServerName) != "") && normalizedSSLMode(config) != sslModeDisable {
+		params.Set("tls", tlsMode)
+	}
 	encodedParams := encodeMySQLDSNQuery(params)
 	return fmt.Sprintf(
 		"%s:%s@%s(%s)/%s?%s",
@@ -296,11 +306,58 @@ func normalizeMySQLAddress(host string, port int) string {
 	if h == "" {
 		h = "localhost"
 	}
+	h = strings.TrimPrefix(strings.TrimSuffix(h, "]"), "[")
 	p := port
 	if p <= 0 {
 		p = defaultMySQLPort
 	}
-	return fmt.Sprintf("%s:%d", h, p)
+	return net.JoinHostPort(h, strconv.Itoa(p))
+}
+
+func parseMySQLHostPort(raw string, defaultPort int) (string, int, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", 0, false
+	}
+	if strings.HasPrefix(text, "[") {
+		end := strings.Index(text, "]")
+		if end < 0 {
+			return "", 0, false
+		}
+		host := strings.TrimSpace(text[1:end])
+		rest := strings.TrimSpace(text[end+1:])
+		if host == "" {
+			return "", 0, false
+		}
+		if rest == "" {
+			return host, defaultPort, true
+		}
+		if !strings.HasPrefix(rest, ":") {
+			return "", 0, false
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(rest, ":")))
+		if err != nil || port <= 0 || port > 65535 {
+			return "", 0, false
+		}
+		return host, port, true
+	}
+	if strings.Count(text, ":") == 1 {
+		host, portText, _ := strings.Cut(text, ":")
+		host = strings.TrimSpace(host)
+		portText = strings.TrimSpace(portText)
+		if host == "" {
+			return "", 0, false
+		}
+		if portText == "" {
+			return host, defaultPort, true
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil || port <= 0 || port > 65535 {
+			return "", 0, false
+		}
+		return host, port, true
+	}
+	return text, defaultPort, true
 }
 
 var mysqlDatabaseQueries = []string{

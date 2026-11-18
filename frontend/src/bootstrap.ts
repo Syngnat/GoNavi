@@ -1,5 +1,7 @@
 import { loadCatalog } from './i18n/catalog';
 import { resolveLanguage } from './i18n/resolveLanguage';
+import { installWails3Bridge } from './platform/wails3Bridge';
+import { migrateLegacyLocalStorageIfNeeded } from './utils/legacyLocalStorageMigration';
 import { isNativeDetachedWindowRoute } from './utils/nativeDetachedWindowRoute';
 import { showBootSplashError } from './utils/bootSplash';
 
@@ -40,7 +42,23 @@ const readDetachedLanguagePreference = async (): Promise<string | undefined> => 
   }
 };
 
+const isPluginPageRoute = (): boolean => (
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/plugin-pages/')
+);
+
 const loadEntry = async (): Promise<void> => {
+  // Current v3 builds pin the window to the v2 origin, so the packaged app
+  // already sees the v2 localStorage and must not migrate it into itself.
+  // The endpoint is a fallback for builds that still use the v3 default
+  // origin; it only exists in packaged builds (the Vite dev server does not
+  // proxy the Go asset middleware). Plugin pages and detached windows share
+  // the app origin but must not run the app-level migration.
+  if (!import.meta.env.DEV && !isNativeDetachedWindowRoute() && !isPluginPageRoute()) {
+    migrateLegacyLocalStorageIfNeeded();
+  }
+  // Installed before either entry runs: detached windows and the main window
+  // both call the generated v2-shaped bindings from their first render.
+  await installWails3Bridge();
   const detached = isNativeDetachedWindowRoute();
   const preference = detached ? await readDetachedLanguagePreference() : undefined;
   const language = resolveLanguage(preference, readBrowserLanguages());

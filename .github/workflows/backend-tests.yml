@@ -11,7 +11,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # 新推送排队等待正在进行的测试，而不是取消它；同一 group 只保留一个等待项。
+  cancel-in-progress: false
 
 permissions:
   contents: read

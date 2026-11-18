@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Progress, Typography } from 'antd';
+import { Alert, Button, Progress, Spin, Typography } from 'antd';
 import {
   PlayCircleOutlined,
   ReloadOutlined,
@@ -88,6 +88,7 @@ const DatabaseImportExecutionPanel: React.FC<DatabaseImportExecutionPanelProps> 
   const terminal = state.status === 'done'
     || state.status === 'cancelled'
     || state.status === 'error';
+  const snapshotPending = state.status === 'running' && state.stageCode === 'snapshot';
   const completedWithErrors = state.status === 'done' && state.failed > 0;
   const subtleBackground = `var(--gn-bg-subtle, var(--gn-bg-panel-2, ${darkMode
     ? 'rgba(255,255,255,0.04)'
@@ -360,12 +361,21 @@ const DatabaseImportExecutionPanel: React.FC<DatabaseImportExecutionPanelProps> 
 
         {state.status !== 'idle' ? (
           <div style={{ marginTop: 16 }}>
-            <Progress
-              data-database-import-progress="true"
-              percent={Math.round(progressPercent)}
-              status={completedWithErrors ? 'normal' : resolveProgressStatus(state.status)}
-              strokeColor={state.status === 'cancelled' || completedWithErrors ? warningColor : undefined}
-            />
+            {snapshotPending ? (
+              <div
+                data-database-import-snapshot-progress="true"
+                style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}
+              >
+                <Spin size="large" />
+              </div>
+            ) : (
+              <Progress
+                data-database-import-progress="true"
+                percent={Math.round(progressPercent)}
+                status={completedWithErrors ? 'normal' : resolveProgressStatus(state.status)}
+                strokeColor={state.status === 'cancelled' || completedWithErrors ? warningColor : undefined}
+              />
+            )}
             <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <Text data-database-import-stage="true" type="secondary">{stageText}</Text>
               <Text type="secondary">
@@ -376,7 +386,7 @@ const DatabaseImportExecutionPanel: React.FC<DatabaseImportExecutionPanelProps> 
                 })}
               </Text>
             </div>
-            {transferMetrics ? (
+            {!snapshotPending && transferMetrics ? (
               <Text
                 data-database-import-transfer-metrics="true"
                 type="secondary"

@@ -19,6 +19,7 @@ export interface DataImportSourceFileFieldProps {
   tableImportOptionsValid: DataImportWorkbenchStateApi['tableImportOptionsValid'];
   selectedDbName: DataImportWorkbenchStateApi['selectedDbName'];
   selectedTableName: DataImportWorkbenchStateApi['selectedTableName'];
+  autoCreateTable: DataImportWorkbenchStateApi['autoCreateTable'];
   handleSelectFile: DataImportWorkbenchFileSourceApi['handleSelectFile'];
   capabilityDetails: DataImportWorkbenchStateApi['capabilityDetails'];
 }
@@ -26,7 +27,8 @@ export interface DataImportSourceFileFieldProps {
 export const DataImportSourceFileField = ({
   importMode, t, filePath, fileName, selectedFileBackground, selectingFile, importing,
   capabilityAllowsImport, selectedConnectionConfig, loadingDatabases, loadingTables,
-  tableImportOptionsValid, selectedDbName, selectedTableName, handleSelectFile, capabilityDetails,
+  tableImportOptionsValid, selectedDbName, selectedTableName, autoCreateTable, handleSelectFile,
+  capabilityDetails,
 }: DataImportSourceFileFieldProps) => (
   <div style={{ display: 'grid', gap: 6 }}>
     <Text type="secondary">
@@ -64,6 +66,7 @@ export const DataImportSourceFileField = ({
         || loadingDatabases
         || loadingTables
         || (importMode === 'table' && !tableImportOptionsValid)
+        || (importMode === 'table' && Boolean(autoCreateTable))
         || (importMode === 'table' && (!selectedDbName || !selectedTableName))
       }
       onClick={() => void handleSelectFile()}

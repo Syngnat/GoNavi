@@ -181,6 +181,9 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
 
     const lacksAlterForeignKeySupport = (dbType: string): boolean => dbType === 'sqlite' || dbType === 'duckdb' || dbType === 'tdengine';
 
+    // 这两个封装是表设计器里所有标识符引用的唯一出口。dbType 已经由
+    // getDbType() 按连接协议归一（OceanBase Oracle 协议 → oracle），
+    // 因此这里只需把归一后的方言继续传给引用函数即可。
     const quoteIdentifierPartByDialect = (part: string, dbType: string): string => {
         return quoteSqlIdentifierPart(dbType, part);
     };

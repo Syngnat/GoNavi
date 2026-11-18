@@ -71,11 +71,11 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
             <div style={{ padding: '8px 16px', borderBottom: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <strong>{objectLabel}: </strong>{objectName}
-                    {tab.dbName && <span style={{ marginLeft: 16, color: '#888' }}>{t('definition_viewer.field.database')}: {tab.dbName}</span>}
+                    {tab.dbName && tab.type !== 'database-def' && <span style={{ marginLeft: 16, color: '#888' }}>{t('definition_viewer.field.database')}: {tab.dbName}</span>}
                     {tab.routineType && <span style={{ marginLeft: 16, color: '#888' }}>{t('definition_viewer.field.type')}: {tab.routineType}</span>}
                 </div>
                 {tab.type === 'event-def' && <JobManagementButton tab={tab} onChanged={loadDefinition} />}
-                {tab.type === 'job-def' ? <JobManagementButton tab={tab} onChanged={loadDefinition} /> : tab.type !== 'database-link-def' ? (
+                {tab.type === 'job-def' ? <JobManagementButton tab={tab} onChanged={loadDefinition} /> : tab.type !== 'database-link-def' && tab.type !== 'database-def' ? (
                 <Button size="small" icon={<EditOutlined />} onClick={openObjectEditQuery} disabled={!normalizedObjectName} loading={openingObjectEdit}>
                     {t('definition_viewer.action.edit_object')}
                 </Button>

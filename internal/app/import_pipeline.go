@@ -117,6 +117,16 @@ type ImportFileOptions struct {
 	ConflictPolicy      string            `json:"conflictPolicy,omitempty"`
 	ConflictKeyColumns  []string          `json:"conflictKeyColumns,omitempty"`
 	ResumeJobID         string            `json:"resumeJobId,omitempty"`
+	// TypeRow / CommentRow 是表头之外的类型行与注释行（1 起，0 表示没有）。
+	// 这两行会作为元数据读取并从数据行中跳过，不会导入。
+	TypeRow    int `json:"typeRow,omitempty"`
+	CommentRow int `json:"commentRow,omitempty"`
+	// HeaderOverride 只由后端在读取类型/注释行后注入：解析器按 HeaderRow 跳过元数据行，
+	// 但列名仍取原始表头，保证列映射键与前端预览一致。不参与 JSON 传输。
+	HeaderOverride []string `json:"-"`
+	// AutoCreateTable 仅在「按文件新建表」流程出现：目标表不存在时先执行建表 SQL，
+	// 再走原有列映射与写入。为空时行为与历史版本完全一致。
+	AutoCreateTable *ImportAutoCreateTable `json:"autoCreateTable,omitempty"`
 }
 
 func resolveImportContinueOnError(options ImportFileOptions) bool {

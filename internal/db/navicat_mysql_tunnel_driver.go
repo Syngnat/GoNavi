@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"reflect"
 	"strings"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 
@@ -36,11 +38,14 @@ func newNavicatMySQLTunnelConnector(config connection.ConnectionConfig) (*navica
 	}
 	return &navicatMySQLTunnelConnector{client: &navicatMySQLTunnelClient{
 		endpoint: endpoint,
-		httpClient: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-			// A 307/308 redirect would replay database credentials and SQL in the
-			// POST body to a different endpoint. Tunnel URLs must be explicit.
-			return http.ErrUseLastResponse
-		}},
+		httpClient: &http.Client{
+			Transport: newNavicatMySQLTunnelTransport(getConnectTimeout(config)),
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				// A 307/308 redirect would replay database credentials and SQL in the
+				// POST body to a different endpoint. Tunnel URLs must be explicit.
+				return http.ErrUseLastResponse
+			},
+		},
 		host:      strings.TrimSpace(config.Host),
 		port:      port,
 		login:     config.User,
@@ -50,6 +55,18 @@ func newNavicatMySQLTunnelConnector(config connection.ConnectionConfig) (*navica
 		webPass:   config.HTTPTunnel.Password,
 		base64SQL: config.HTTPTunnel.EncodeBase64 == nil || *config.HTTPTunnel.EncodeBase64,
 	}}, nil
+}
+
+func newNavicatMySQLTunnelTransport(timeout time.Duration) *http.Transport {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   timeout,
+		ResponseHeaderTimeout: timeout,
+		ExpectContinueTimeout: time.Second,
+	}
 }
 
 func (c *navicatMySQLTunnelConnector) Connect(context.Context) (driver.Conn, error) {

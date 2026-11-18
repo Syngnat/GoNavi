@@ -22,11 +22,13 @@ const scopedDetail = (scopeKey: string, actionKey: string): SqlFunctionDetailTem
 const vendorDetail = (vendor: string, actionKey: string): SqlFunctionDetailTemplate => ({ kind: 'vendor', vendor, actionKey });
 const fn = (name: string, detail: SqlFunctionDetailTemplate): SqlFunctionDefinition => ({ name, detail });
 
+// 详情统一为「动作 - 对象类型」：类型固定落在最右端，与表/列的候选保持同一列，
+// 这样补全列表右侧那一列始终是对象类型，扫视时不必再区分两种顺序。
 const renderSqlFunctionDetail = (detail: SqlFunctionDetailTemplate): string => {
   if (detail.kind === 'scoped') {
-    return `${translate(detail.scopeKey)} - ${translate(detail.actionKey)}`;
+    return `${translate(detail.actionKey)} - ${translate(detail.scopeKey)}`;
   }
-  return `${detail.vendor} - ${translate(detail.actionKey)}`;
+  return `${translate(detail.actionKey)} - ${detail.vendor}`;
 };
 
 const COMMON_FUNCTIONS = [

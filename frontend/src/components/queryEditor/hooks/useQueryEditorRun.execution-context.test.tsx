@@ -97,7 +97,7 @@ function createRunInput(sql: string): UseQueryEditorRunInput {
         lastExecutedEditorQueryRef: { current: '' },
         normalizeExecutableStatementList: (statements, dialect) => statements.map(text => stripLeadingSqlTrivia(text, dialect)),
         queryOptions: {
-            maxRows: 0, wordWrap: false, showColumnComment: false, showColumnType: false,
+            wordWrap: false, showColumnComment: false, showColumnType: false,
             alignNumericTemporalCellsRight: false, showQueryResultsPanel: true,
             showSqlExecutionLog: true, queryEditorEditorHeightRatio: 0.5,
         },

@@ -95,7 +95,7 @@ describe.each(['mysql', 'mariadb'])('QueryEditor %s DELIMITER execution', (dbTyp
 
     expect(backendApp.DBQueryMultiWithOptions).toHaveBeenCalledWith(
       expect.objectContaining({ type: dbType }), 'main', expectedSql, 'query-1',
-      expect.objectContaining({ maxRowsPerResult: 5000 }),
+      expect.objectContaining({ maxRowsPerResult: -1 }),
     );
     expect(backendApp.DBQueryMulti.mock.calls[0][2]).toBe(expectedSql);
     expect(backendApp.DBQueryMultiTransactionalWithOptions).not.toHaveBeenCalled();

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   normalizeSidebarDatabaseListRefreshRequest,
   normalizeSidebarDatabaseRefreshRequest,
+  dispatchSidebarTableCreated,
   dispatchSidebarTableDataRefresh,
   dispatchSidebarTableMutationRefresh,
 } from './sidebarDatabaseRefresh';
@@ -40,6 +41,29 @@ describe('sidebar database refresh requests', () => {
     expect(normalizeSidebarDatabaseListRefreshRequest({ connectionId: ' ' })).toBeNull();
   });
 
+  it('dispatches a table-created refresh with the real database and schema node', () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { dispatchEvent });
+
+    expect(dispatchSidebarTableCreated({
+      connectionId: 'conn-1',
+      dbName: 'app',
+      schemaName: 'public',
+      tableName: 'orders_copy2',
+    })).toBe(true);
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'gonavi:sidebar-table-created',
+      detail: {
+        connectionId: 'conn-1',
+        dbName: 'app',
+        schemaName: 'public',
+        tableName: 'orders_copy2',
+      },
+    }));
+
+    expect(dispatchSidebarTableCreated({ connectionId: '', dbName: 'app' })).toBe(false);
+  });
+
   it('keeps live row-count targets while dropping blanks and duplicates', () => {
     expect(normalizeSidebarDatabaseRefreshRequest({
       connectionId: 'conn-1', dbName: 'app', schemaName: ' reporting ',
@@ -56,8 +80,10 @@ describe('sidebar database refresh requests', () => {
     ['postgres', 'reporting.orders', 'reporting', 'main', 'reporting.orders'],
     ['postgres', 'orders', 'reporting', 'main', 'reporting.orders'],
     ['sqlserver', 'dbo.orders', 'dbo', 'main', '[dbo].[orders]'],
-    ['dameng', 'APP.ORDERS', 'APP', 'APP', '"APP"."ORDERS"'],
-    ['oracle', 'ORDERS', 'tenant.audit', 'tenant.audit', '"tenant.audit"."ORDERS"'],
+    // Oracle 家族按需定界：裸名交由数据库折叠大小写；只有 `.` 这类裸名
+    // 不允许的字符才必须加引号，否则会把限定名错误地当成单个标识符。
+    ['dameng', 'APP.ORDERS', 'APP', 'APP', 'APP.ORDERS'],
+    ['oracle', 'ORDERS', 'tenant.audit', 'tenant.audit', '"tenant.audit".ORDERS'],
   ])('targets the existing %s table without duplicating its schema', (type, tableName, schemaName, expectedDatabase, expectedTable) => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal('window', { dispatchEvent });

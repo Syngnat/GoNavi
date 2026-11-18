@@ -20,13 +20,12 @@ async function render() {
   return { view, onRun, onChange, onStatus };
 }
 
-it('uses the full query toolbar with sample connection, database, limits, transaction and diagnostic controls', async () => {
+it('uses the full query toolbar with sample connection, database, transaction and diagnostic controls', async () => {
   const { view } = await render();
   try {
     const toolbar = view.root.findByType(QueryEditorToolbar).props;
     expect(toolbar.queryCapableConnections[0].name).toBe('Demo · MySQL');
     expect(toolbar.currentDb).toBe('sales');
-    expect(toolbar.maxRows).toBe(100);
     expect(toolbar.sqlEditorCommitMode).toBe('manual');
     expect(toolbar.analysisMenuItems).toHaveLength(3);
     expect(toolbar.formatSettingsMenu).toHaveLength(2);
@@ -40,9 +39,8 @@ it('runs, formats and saves only the sample query without changing application p
   const { view, onRun, onChange, onStatus } = await render();
   const original = useStore.getState();
   try {
-    act(() => view.root.findByType(QueryEditorToolbar).props.onMaxRowsChange(2));
     act(() => view.root.findByType(QueryEditorToolbar).props.onRun());
-    expect(onRun).toHaveBeenCalledWith('select * from orders', 2);
+    expect(onRun).toHaveBeenCalledWith('select * from orders');
     act(() => view.root.findByType(QueryEditorToolbar).props.onFormat());
     expect(onChange).toHaveBeenLastCalledWith('SELECT\n  *\nFROM\n  orders');
     act(() => view.root.findByType(QueryEditorToolbar).props.onQuickSave());

@@ -115,7 +115,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(backendApp.DBQueryMulti.mock.calls[0]?.[2]).toBe(
-      "SELECT * FROM contract WHERE contract_code = 'YEC202608039' LIMIT 5000",
+      "SELECT * FROM contract WHERE contract_code = 'YEC202608039'",
     );
     renderer!.unmount();
   });

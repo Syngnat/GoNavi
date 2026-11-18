@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"GoNavi-Wails/internal/logger"
 )
 
 func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -17,6 +19,7 @@ func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	// No CORS: the credential stays in the child Go proxy, never in plugin JS.
 	entry := c.authorize(r)
 	if entry == nil {
+		logger.Warnf("plugin bridge unauthorized: path=%s host=%q want=%q idLen=%d tokenLen=%d", r.URL.Path, r.Host, strings.TrimPrefix(c.endpoint, "http://"), len(r.Header.Get(pluginWindowHeader)), len(r.Header.Get(pluginTokenHeader)))
 		pluginHTTPError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -28,11 +31,13 @@ func (c *PluginController) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := c.entryStatus(entry); err != nil {
+		logger.Warnf("plugin bridge generation revoked: id=%s err=%v", entry.info.PluginID, err)
 		c.revokeEntry(entry)
 		pluginHTTPError(w, http.StatusGone, "generation_revoked")
 		return
 	}
 	if entry.life.Err() != nil {
+		logger.Warnf("plugin bridge window revoked: id=%s err=%v path=%s", entry.info.PluginID, entry.life.Err(), r.URL.Path)
 		pluginHTTPError(w, http.StatusGone, "window_revoked")
 		return
 	}

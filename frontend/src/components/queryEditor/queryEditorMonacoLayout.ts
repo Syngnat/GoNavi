@@ -2,6 +2,8 @@ import { t as translate } from '../../i18n';
 import { QUERY_EDITOR_HOVER_DELAY_MS } from './QueryEditorHelpers';
 import { buildQueryEditorAiInlineSuggestOptions } from './QueryEditorAiAssist';
 
+// 补全列表统一采用两行式（名称 / 类型·注释），行高按两行文本设定。
+// 单行布局下超长表名会被右侧类型挤成省略号，两行式可以同时保住名称与类型。
 export const QUERY_EDITOR_TABLE_SUGGESTION_ROW_HEIGHT = 36;
 export const QUERY_EDITOR_FIND_WIDGET_VISIBLE_CLASS = 'is-find-widget-visible';
 export const QUERY_EDITOR_FIND_CONTROLLER_ID = 'editor.contrib.findController';
@@ -53,7 +55,7 @@ export const buildQueryEditorMonacoOptions = (
         addExtraSpaceOnTop: false,
     },
     hover: {
-        enabled: 'on' as const,
+        enabled: true,
         delay: QUERY_EDITOR_HOVER_DELAY_MS,
         above: false,
     },

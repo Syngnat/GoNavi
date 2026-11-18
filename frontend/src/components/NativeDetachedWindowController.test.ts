@@ -162,20 +162,20 @@ describe('NativeDetachedWindowController', () => {
 
   it('applies a query-result DataGrid setting delta even when no SQL log was added', () => {
     const workbenchStateSources = new Map<string, Record<string, unknown>>([
-      ['query-result:query-a:r1', { queryOptions: { maxRows: 500 } }],
+      ['query-result:query-a:r1', { queryOptions: { wordWrap: false } }],
     ]);
-    useStore.setState({ queryOptions: { ...useStore.getState().queryOptions, maxRows: 500 } });
+    useStore.setState({ queryOptions: { ...useStore.getState().queryOptions, wordWrap: false } });
 
     applyNativeDetachedWindowEvent({
       id: 'query-result:query-a:r1',
       kind: 'query-result',
       action: 'sync',
       payload: {
-        workbenchState: { queryOptions: { ...useStore.getState().queryOptions, maxRows: 2000 } },
+        workbenchState: { queryOptions: { ...useStore.getState().queryOptions, wordWrap: true } },
       },
     }, undefined, { workbenchStateSources });
 
-    expect(useStore.getState().queryOptions.maxRows).toBe(2000);
+    expect(useStore.getState().queryOptions.wordWrap).toBe(true);
   });
 
   it('preserves peer window record changes while advancing the child source snapshot', () => {

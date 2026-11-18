@@ -10,7 +10,7 @@ import (
 	"GoNavi-Wails/internal/importjob"
 	"GoNavi-Wails/internal/uievents"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 // PreviewImportFile 解析导入文件，返回字段列表、总行数、前 5 行预览数据
@@ -44,7 +44,11 @@ func (a *App) previewImportFileContext(ctx context.Context, filePath string, opt
 		defer func() { queryResult = sanitizeWebManagedResult(queryResult, filePath) }()
 	}
 	if err := validateImportFileOptions(options); err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(err).Error()}
+	}
+	options, err = normalizeImportFileHeaderOptions(ctx, filePath, options)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(err).Error()}
 	}
 	sourceIdentity, err := captureImportSourceIdentity(filePath)
 	if err != nil {
@@ -95,6 +99,27 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 	}
 
 	// 返回文件路径供前端预览
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{"filePath": selection}}
+}
+
+// SelectDataImportFile 仅选择要导入的数据文件，不要求目标表已存在；供「按文件新建表」向导
+// 先选文件、再推断列结构。桌面端弹系统文件对话框，Web 端由前端文件输入处理。
+func (a *App) SelectDataImportFile() connection.QueryResult {
+	selection, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: a.appText("file.backend.dialog.import_data_file", nil),
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: a.appText("file.backend.filter.data_files", nil),
+				Pattern:     "*.csv;*.json;*.xlsx",
+			},
+		},
+	})
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if strings.TrimSpace(selection) == "" {
+		return connection.QueryResult{Success: false, Message: "已取消"}
+	}
 	return connection.QueryResult{Success: true, Data: map[string]interface{}{"filePath": selection}}
 }
 
@@ -222,8 +247,17 @@ func (a *App) importDataWithProgressOptionsContext(
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	if err := validateImportFileOptions(options); err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(err).Error()}
 	}
+	// 原始选项要写进导入任务并参与恢复指纹；归一化后的选项只用于本次流式读取
+	// （HeaderRow 会推进到类型/注释行之后）。否则恢复时会把已推进的 HeaderRow
+	// 与原始 TypeRow/CommentRow 再比一次，误判为「类型行必须在表头之后」。
+	originalOptions := options
+	normalizedOptions, normalizeErr := normalizeImportFileHeaderOptions(parent, filePath, options)
+	if normalizeErr != nil {
+		return connection.QueryResult{Success: false, Message: a.localizeImportHeaderMetadataError(normalizeErr).Error()}
+	}
+	options = normalizedOptions
 	if err := validateImportConflictPolicyForDB(dbType, options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -238,7 +272,7 @@ func (a *App) importDataWithProgressOptionsContext(
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.import_source_changed", nil)}
 	}
 	if recovery != nil {
-		if err := a.validateTableImportRecovery(recovery, config, dbName, tableName, options, sourceIdentity); err != nil {
+		if err := a.validateTableImportRecovery(recovery, config, dbName, tableName, originalOptions, sourceIdentity); err != nil {
 			return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, err)}
 		}
 	}
@@ -258,7 +292,7 @@ func (a *App) importDataWithProgressOptionsContext(
 		}
 		defer cleanupRegistration()
 		if recovery != nil {
-			if err := a.claimTableImportRecovery(recovery, sourceIdentity.Token, buildImportTargetFingerprint(config, dbName, tableName), buildImportFileOptionsHash(options)); err != nil {
+			if err := a.claimTableImportRecovery(recovery, sourceIdentity.Token, buildImportTargetFingerprint(config, dbName, tableName), buildImportFileOptionsHash(originalOptions)); err != nil {
 				return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, err)}
 			}
 		}
@@ -273,8 +307,8 @@ func (a *App) importDataWithProgressOptionsContext(
 			ConnectionID:        config.ID,
 			DatabaseName:        dbName,
 			TableName:           tableName,
-			OptionsHash:         buildImportFileOptionsHash(options),
-			TableImportOptions:  importJobTableOptionsFromImportFileOptions(options),
+			OptionsHash:         buildImportFileOptionsHash(originalOptions),
+			TableImportOptions:  importJobTableOptionsFromImportFileOptions(originalOptions),
 		}
 		if recovery != nil {
 			start.Stage = "resuming"
@@ -352,6 +386,9 @@ func (a *App) importDataWithProgressOptionsContext(
 		if err := a.captureTableImportRollbackPoint(importCtx, managedJob, config, dbName, tableName, jobID); err != nil {
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
+	}
+	if err := a.ensureImportAutoCreateTarget(importCtx, dbInst, config, dbName, tableName, options, recovery != nil); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	targetColumns, colErr := a.importTargetColumnsContext(importCtx, dbInst, config, dbName, tableName)

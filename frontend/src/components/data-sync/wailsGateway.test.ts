@@ -672,6 +672,31 @@ describe('real Wails data sync gateway', () => {
     expect(api.DataSyncRunStart).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses a persisted production approval after save without minting another token', async () => {
+    const task = taskFixture();
+    const api = apiFixture({
+      DataSyncJobPreflight: vi.fn(async (definition) =>
+        success({
+          ...preflightData(task, true),
+          definition,
+          approvalSatisfied: true,
+        }),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const preflight = await gateway.preflightTask(task);
+    expect(preflight.approvalSatisfied).toBe(true);
+    const saved = await gateway.saveTask(task);
+    expect(saved).toMatchObject({ id: task.id });
+    expect(api.DataSyncJobSave).toHaveBeenCalledWith(expect.anything(), '');
+    const refreshedPreflight = await gateway.preflightTask(saved);
+    await expect(gateway.startTask(saved, refreshedPreflight)).resolves.toMatchObject({
+      id: 'run-1',
+    });
+    expect(api.DataSyncRunStart).toHaveBeenCalledWith(saved.id, saved.revision, '');
+  });
+
   it('binds authorization to the exact local signature and runnable lifecycle', async () => {
     const task = taskFixture();
     const api = apiFixture();

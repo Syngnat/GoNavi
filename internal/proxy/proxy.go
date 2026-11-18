@@ -27,10 +27,11 @@ const (
 )
 
 type LocalForwarder struct {
-	LocalAddr  string
-	RemoteAddr string
-	ProxyAddr  string
-	ProxyType  string
+	LocalAddr   string
+	RemoteAddr  string
+	ProxyAddr   string
+	ProxyType   string
+	dialTimeout time.Duration
 
 	cfg       connection.ProxyConfig
 	listener  net.Listener
@@ -73,9 +74,16 @@ func NormalizeConfig(config connection.ProxyConfig) (connection.ProxyConfig, err
 }
 
 func GetOrCreateLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost string, remotePort int) (*LocalForwarder, error) {
+	return GetOrCreateLocalForwarderWithTimeout(proxyConfig, remoteHost, remotePort, defaultDialTimeout)
+}
+
+func GetOrCreateLocalForwarderWithTimeout(proxyConfig connection.ProxyConfig, remoteHost string, remotePort int, timeout time.Duration) (*LocalForwarder, error) {
 	cfg, err := NormalizeConfig(proxyConfig)
 	if err != nil {
 		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = defaultDialTimeout
 	}
 	if strings.TrimSpace(remoteHost) == "" || remotePort <= 0 {
 		return nil, proxyTextError("proxy.backend.error.remote_addr_invalid", map[string]any{
@@ -83,7 +91,7 @@ func GetOrCreateLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost st
 		})
 	}
 
-	key := forwarderCacheKey(cfg, remoteHost, remotePort)
+	key := forwarderCacheKey(cfg, remoteHost, remotePort, timeout)
 	forwarderMu.RLock()
 	if existing, ok := localForwarders[key]; ok && existing != nil && !existing.IsClosed() {
 		forwarderMu.RUnlock()
@@ -100,7 +108,7 @@ func GetOrCreateLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost st
 		delete(localForwarders, key)
 	}
 
-	next, err := NewLocalForwarder(cfg, remoteHost, remotePort)
+	next, err := newLocalForwarder(cfg, remoteHost, remotePort, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -108,19 +116,30 @@ func GetOrCreateLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost st
 	return next, nil
 }
 
-func forwarderCacheKey(cfg connection.ProxyConfig, remoteHost string, remotePort int) string {
+func forwarderCacheKey(cfg connection.ProxyConfig, remoteHost string, remotePort int, timeouts ...time.Duration) string {
 	trimmedHost := strings.TrimSpace(remoteHost)
 	credential := cfg.User + "\x00" + cfg.Password
 	credentialHash := sha256.Sum256([]byte(credential))
 	// 仅保留短指纹用于区分不同认证信息，避免在 key 日志中泄露明文口令。
 	fingerprint := hex.EncodeToString(credentialHash[:8])
-	return fmt.Sprintf("%s://%s:%d@%s:%d#%s", cfg.Type, cfg.Host, cfg.Port, trimmedHost, remotePort, fingerprint)
+	timeout := defaultDialTimeout
+	if len(timeouts) > 0 && timeouts[0] > 0 {
+		timeout = timeouts[0]
+	}
+	return fmt.Sprintf("%s://%s:%d@%s:%d#%s#t=%s", cfg.Type, cfg.Host, cfg.Port, trimmedHost, remotePort, fingerprint, timeout)
 }
 
 func NewLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost string, remotePort int) (*LocalForwarder, error) {
+	return newLocalForwarder(proxyConfig, remoteHost, remotePort, defaultDialTimeout)
+}
+
+func newLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost string, remotePort int, timeout time.Duration) (*LocalForwarder, error) {
 	cfg, err := NormalizeConfig(proxyConfig)
 	if err != nil {
 		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = defaultDialTimeout
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -132,13 +151,14 @@ func NewLocalForwarder(proxyConfig connection.ProxyConfig, remoteHost string, re
 	remoteAddr := net.JoinHostPort(strings.TrimSpace(remoteHost), fmt.Sprintf("%d", remotePort))
 	proxyAddr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
 	forwarder := &LocalForwarder{
-		LocalAddr:  localAddr,
-		RemoteAddr: remoteAddr,
-		ProxyAddr:  proxyAddr,
-		ProxyType:  cfg.Type,
-		cfg:        cfg,
-		listener:   listener,
-		closeChan:  make(chan struct{}),
+		LocalAddr:   localAddr,
+		RemoteAddr:  remoteAddr,
+		ProxyAddr:   proxyAddr,
+		ProxyType:   cfg.Type,
+		dialTimeout: timeout,
+		cfg:         cfg,
+		listener:    listener,
+		closeChan:   make(chan struct{}),
 	}
 
 	go forwarder.forward()
@@ -165,7 +185,7 @@ func (f *LocalForwarder) forward() {
 func (f *LocalForwarder) handleConnection(localConn net.Conn) {
 	defer localConn.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultDialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), f.dialTimeout)
 	remoteConn, err := dialThroughProxy(ctx, f.cfg, "tcp", f.RemoteAddr)
 	cancel()
 	if err != nil {
@@ -257,7 +277,7 @@ func dialSOCKS5(ctx context.Context, cfg connection.ProxyConfig, network, addres
 			Password: cfg.Password,
 		}
 	}
-	dialer, err := xproxy.SOCKS5("tcp", proxyAddr, auth, &net.Dialer{Timeout: defaultDialTimeout})
+	dialer, err := xproxy.SOCKS5("tcp", proxyAddr, auth, &net.Dialer{Timeout: dialTimeoutFromContext(ctx)})
 	if err != nil {
 		return nil, proxyWrapError("proxy.backend.error.socks5_dialer_failed", map[string]any{"detail": err.Error()}, err)
 	}
@@ -306,7 +326,7 @@ func contextErrorForProxyIO(ctx context.Context, err error) error {
 
 func dialHTTPConnect(ctx context.Context, cfg connection.ProxyConfig, address string) (net.Conn, error) {
 	proxyAddr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
-	dialer := &net.Dialer{Timeout: defaultDialTimeout}
+	dialer := &net.Dialer{Timeout: dialTimeoutFromContext(ctx)}
 	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, proxyWrapError("proxy.backend.error.http_connect_failed", map[string]any{"detail": err.Error()}, err)
@@ -388,6 +408,19 @@ func dialHTTPConnect(ctx context.Context, cfg connection.ProxyConfig, address st
 		return conn, nil
 	}
 	return &bufferedConn{Conn: conn, reader: reader}, nil
+}
+
+func dialTimeoutFromContext(ctx context.Context) time.Duration {
+	if ctx != nil {
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining > 0 {
+				return remaining
+			}
+			return time.Nanosecond
+		}
+	}
+	return defaultDialTimeout
 }
 
 type bufferedConn struct {

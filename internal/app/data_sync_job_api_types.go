@@ -49,6 +49,7 @@ type DataSyncJobPreflightResult struct {
 	SourceFingerprint string                      `json:"sourceFingerprint,omitempty"`
 	TargetFingerprint string                      `json:"targetFingerprint,omitempty"`
 	ApprovalRequired  bool                        `json:"approvalRequired"`
+	ApprovalSatisfied bool                        `json:"approvalSatisfied"`
 	Capability        sync.MigrationCapability    `json:"capability"`
 	CDCCapability     *synccdc.Capability         `json:"cdcCapability,omitempty"`
 	Issues            []DataSyncJobPreflightIssue `json:"issues"`

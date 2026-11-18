@@ -80,6 +80,8 @@ func stripConnectionSecretFields(config connection.ConnectionConfig) connection.
 	stripped.RedisSentinelPassword = ""
 	stripped.URI = ""
 	stripped.DSN = ""
+	stripped.TLSServerName = ""
+	stripped.SSH.ConnectTimeout = 0
 	stripped.JVM.JMX.Password = ""
 	stripped.JVM.Endpoint.APIKey = ""
 	stripped.JVM.Agent.APIKey = ""

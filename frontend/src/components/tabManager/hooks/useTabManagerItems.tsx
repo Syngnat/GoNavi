@@ -13,6 +13,7 @@ import {
 import {
   buildTabDisplayModel,
   getConnectionGroupName,
+  isDoubleLineTabDisplay,
   resolveConnectionHostSummary,
 } from '../../../utils/tabDisplay';
 import { t } from '../../../i18n';
@@ -304,13 +305,10 @@ export const useTabManagerItems = ({
   }, [tabs, activeTabId, addTab, setActiveTab, connections]);
 
   const tabIds = useMemo(() => dockedTabs.map((tab) => tab.id), [dockedTabs]);
+  // 布局是全局设置；即使副行当前没有内容，页签条也保持双行高度。
   const hasDoubleLineTabLabel = useMemo(() => (
-    dockedTabs.some((tab) => {
-      const connection = connections.find((conn) => conn.id === tab.connectionId);
-      const displayModel = buildTabDisplayModel(tab, connection, appearance.tabDisplay, t, getConnectionGroupName(connectionGroupNameById, tab.connectionId));
-      return displayModel.layout === 'double' && Boolean(displayModel.secondaryText);
-    })
-  ), [appearance.tabDisplay, connections, connectionGroupNameById, dockedTabs]);
+    dockedTabs.length > 0 && isDoubleLineTabDisplay(appearance.tabDisplay)
+  ), [appearance.tabDisplay, dockedTabs.length]);
 
   const tabCloseButtonPosition = sanitizeTabCloseButtonPosition(appearance.tabCloseButtonPosition);
 

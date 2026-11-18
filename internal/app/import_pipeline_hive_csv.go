@@ -143,13 +143,11 @@ func streamHiveCSVImportFile(path string, consumer importFileConsumer, options I
 			return fmt.Errorf("read Hive CSV header: %w", err)
 		}
 	}
-	columns := make([]string, len(fields))
+	fallbackColumns := make([]string, len(fields))
 	for i, field := range fields {
-		columns[i] = field.text
+		fallbackColumns[i] = field.text
 	}
-	if len(columns) > 0 {
-		columns[0] = strings.TrimPrefix(columns[0], "\ufeff")
-	}
+	columns := resolveImportHeaderColumns(fallbackColumns, options)
 	if !hasImportUsableColumns(columns) {
 		return fmt.Errorf("Hive CSV has no usable header")
 	}

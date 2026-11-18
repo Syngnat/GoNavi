@@ -5,11 +5,19 @@ import {
   resolveDataSyncEntryModePresentation,
   type DataSyncEntryMode,
   type DataSyncEntryModeAlias,
+  type DataSyncPastePrefill,
 } from '../components/dataSyncEntryMode';
 
 type BuildDataSyncWorkbenchTabInput = {
   entryMode: DataSyncEntryModeAlias;
   title?: string;
+  pastePrefill?: DataSyncPastePrefill;
+};
+
+type BuildDataSyncPasteWorkbenchTabInput = {
+  entryMode: DataSyncEntryModeAlias;
+  pastePrefill: DataSyncPastePrefill;
+  requestId?: number;
 };
 
 const DATA_SYNC_ENTRY_MODE_SLUGS: Record<DataSyncEntryMode, string> = {
@@ -56,5 +64,33 @@ export const buildDataSyncWorkbenchTab = (
     type: 'data-sync',
     connectionId: '',
     dataSyncEntryMode: entryMode,
+    ...(input.pastePrefill ? { dataSyncPastePrefill: input.pastePrefill } : {}),
+  };
+};
+
+export const buildDataSyncPasteWorkbenchTab = (
+  input: BuildDataSyncPasteWorkbenchTabInput,
+): TabData => {
+  const requestId = Number.isFinite(input.requestId)
+    ? Number(input.requestId)
+    : Date.now();
+  const requestKey = String(requestId);
+  const base = buildDataSyncWorkbenchTab({
+    entryMode: input.entryMode,
+    pastePrefill: input.pastePrefill,
+  });
+  const tables = Array.isArray(input.pastePrefill.source.tables)
+    ? input.pastePrefill.source.tables.map((table) => String(table || '').trim()).filter(Boolean)
+    : [String(input.pastePrefill.source.table || '').trim()].filter(Boolean);
+  const titleSuffix = tables.length > 1
+    ? t('sidebar.table_clipboard.multi_tab_title', { count: tables.length })
+    : tables[0] || '';
+  return {
+    ...base,
+    id: `data-sync-workbench-paste-${requestKey}`,
+    title: titleSuffix ? `${base.title} · ${titleSuffix}` : base.title,
+    dataSyncFocusTaskId: `data-sync-paste-task-${requestKey}`,
+    dataSyncFocusStage: 'endpoints',
+    dataSyncFocusRequestId: requestKey,
   };
 };

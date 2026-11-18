@@ -71,6 +71,7 @@ type webAuthConfig struct {
 // resolveWebSetupGateToken 决定首次初始化的门禁令牌。
 // 环境变量优先；未设置时每次启动生成随机值，由启动横幅打印到终端/容器日志。
 // 这样即使 0.0.0.0 暴露且尚未配置密码，第一个访问者也无法直接抢注管理员。
+// 只监听回环地址时，本机打开根地址的跳转会带上令牌；非回环监听仍然只出现在启动输出里。
 func resolveWebSetupGateToken() string {
 	if configured := strings.TrimSpace(os.Getenv(webAuthSetupTokenEnvName)); configured != "" {
 		return configured

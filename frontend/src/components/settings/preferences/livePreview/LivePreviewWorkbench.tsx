@@ -37,11 +37,10 @@ export function LivePreviewWorkbench({ mode, actions, initialTab = 'query' }: Pr
     onLocate={() => { setCollapsed(false); setTab('table'); setRevealTable(value => value + 1); }} onScrollToTop={() => setCollapsed(false)}
     onConnectionActions={() => setRenameConnection(!renameConnection)} />;
   const selectTable = (name: string) => { setTable(name); setRows(PREVIEW_RECORDS[name]); setTab('table'); setStatus(''); };
-  const run = (query: string, maxRows: number) => {
+  const run = (query: string) => {
     const result = runPreviewQuery(query);
     if (!result) { setStatus(t('settings.preview.query_help')); return; }
-    const nextRows = maxRows > 0 ? result.rows.slice(0, maxRows) : result.rows;
-    setTable(result.table); setRows(nextRows); setStatus(t('settings.preview.query_done', { count: nextRows.length }));
+    setTable(result.table); setRows(result.rows); setStatus(t('settings.preview.query_done', { count: result.rows.length }));
   };
   const grid = <LivePreviewGrid rows={rows} onChange={setRows} table={table} density={appearance.dataTableDensity}
     rowNumbers={mode !== 'navicat' && appearance.showDataTableRowNumber} borders={appearance.showDataTableVerticalBorders}

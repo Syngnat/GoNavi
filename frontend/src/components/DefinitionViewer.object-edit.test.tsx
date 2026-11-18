@@ -437,6 +437,46 @@ describe('DefinitionViewer object edit entry', () => {
     expect(query).toContain('SELECT COUNT(*) INTO v_count FROM dual;');
   });
 
+  it('loads Dameng procedures from ALL_SOURCE PROC rows', async () => {
+    storeState.connections[0].config.type = 'dameng';
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [
+        { TEXT: 'PROCEDURE WLJY_WJDP.P_DP_JY_DEAL(p_id IN NUMBER) AS\n' },
+        { TEXT: 'BEGIN\n' },
+        { TEXT: '  NULL;\n' },
+        { TEXT: 'END;\n' },
+      ],
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(createTab({
+        id: 'routine-def-conn-1-WLJY_WJDP-WLJY_WJDP.P_DP_JY_DEAL',
+        title: '存储过程: WLJY_WJDP.P_DP_JY_DEAL',
+        type: 'routine-def',
+        dbName: 'WLJY_WJDP',
+        routineName: 'WLJY_WJDP.P_DP_JY_DEAL',
+        routineType: 'PROCEDURE',
+        schemaName: 'WLJY_WJDP',
+        viewName: undefined,
+        viewKind: undefined,
+      })));
+      await flushPromises();
+    });
+
+    const sql = String(backendApp.DBQuery.mock.calls[0][2] || '');
+    expect(sql).toContain("OWNER = 'WLJY_WJDP'");
+    expect(sql).toContain("NAME = 'P_DP_JY_DEAL'");
+    expect(sql).toContain("UPPER(TYPE) IN ('PROC', 'PROCEDURE', 'FUNCTION')");
+    expect(sql).not.toContain("TYPE = 'PROCEDURE'");
+
+    const editorText = String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''));
+    expect(editorText).toContain('CREATE OR REPLACE PROCEDURE WLJY_WJDP.P_DP_JY_DEAL(p_id IN NUMBER)');
+    expect(editorText).toContain('  NULL;');
+    expect(editorText).not.toContain('definition not found');
+  });
+
   it('clears stale same-tab drafts before opening object edit so comments are not replaced', async () => {
     storeState.connections[0].config.type = 'oracle';
     const tab = createTab({

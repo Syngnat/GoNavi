@@ -3,6 +3,7 @@ package httpserver
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"io"
 	"net"
 	"net/http"
@@ -141,5 +142,91 @@ func TestStreamingWriteTimeoutAllowsIdleHandlerThenWrite(t *testing.T) {
 	}
 	if got := string(body); got != `{"ok":true}` {
 		t.Fatalf("invoke body = %q", got)
+	}
+}
+
+func TestDecompressRequestBodyInflatesBoundedGzip(t *testing.T) {
+	var received int
+	handler := limitRequestBody(DecompressRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received = len(body)
+		w.WriteHeader(http.StatusNoContent)
+	})), MaxRequestBodyBytes, time.Second)
+
+	plain := bytes.Repeat([]byte("row,"), 400_000) // 1.6 MiB decoded, well under the transport cap once compressed
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if int64(compressed.Len()) >= MaxRequestBodyBytes {
+		t.Fatalf("test payload did not compress below the transport limit: %d", compressed.Len())
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(compressed.Bytes()))
+	request.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body=%q", recorder.Code, recorder.Body.String())
+	}
+	if received != len(plain) {
+		t.Fatalf("decoded bytes = %d, want %d", received, len(plain))
+	}
+}
+
+func TestDecompressRequestBodyRejectsExpansionOverCap(t *testing.T) {
+	handler := DecompressRequestBody(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler must not run for an oversized decoded body")
+	}))
+	// Repeating one byte compresses extremely well, so the compressed body stays
+	// tiny while the decoded body exceeds the inflation cap.
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	chunk := bytes.Repeat([]byte("0"), 1<<20)
+	for written := int64(0); written <= MaxDecodedRequestBodyBytes; written += int64(len(chunk)) {
+		if _, err := writer.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(compressed.Bytes()))
+	request.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestLimitInvokeRequestBodyAllowsExportSizedBodies(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), int(MaxRequestBodyBytes)+1024)
+	var received int
+	handler := LimitInvokeRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received = len(body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent || received != len(payload) {
+		t.Fatalf("status = %d, received = %d, want %d bytes accepted", recorder.Code, received, len(payload))
+	}
+
+	general := limitRequestBody(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("general body limit must keep rejecting export-sized payloads")
+	}), MaxRequestBodyBytes, time.Second)
+	rejected := httptest.NewRecorder()
+	general.ServeHTTP(rejected, httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload)))
+	if rejected.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("general limit status = %d, want %d", rejected.Code, http.StatusRequestEntityTooLarge)
 	}
 }

@@ -113,7 +113,7 @@ func applyMySQLURI(config connection.ConnectionConfig) connection.ConnectionConf
 	hostText := strings.TrimSpace(parsed.Host)
 	if hostText != "" {
 		for _, entry := range strings.Split(hostText, ",") {
-			host, port, ok := parseHostPortWithDefault(entry, defaultPort)
+			host, port, ok := parseMySQLHostPort(entry, defaultPort)
 			if !ok {
 				continue
 			}
@@ -121,11 +121,10 @@ func applyMySQLURI(config connection.ConnectionConfig) connection.ConnectionConf
 		}
 	}
 
-	if len(config.Hosts) == 0 && len(hostsFromURI) > 0 {
+	// 显式地址优先：Host/Hosts 都为空时才用 URI 里的主机，避免存量的隐藏 URI 覆盖界面地址。
+	if strings.TrimSpace(config.Host) == "" && len(config.Hosts) == 0 && len(hostsFromURI) > 0 {
 		config.Hosts = hostsFromURI
-	}
-	if strings.TrimSpace(config.Host) == "" && len(hostsFromURI) > 0 {
-		host, port, ok := parseHostPortWithDefault(hostsFromURI[0], defaultPort)
+		host, port, ok := parseMySQLHostPort(hostsFromURI[0], defaultPort)
 		if ok {
 			config.Host = host
 			config.Port = port
@@ -149,13 +148,21 @@ func collectMySQLAddresses(config connection.ConnectionConfig) []string {
 	if len(config.Hosts) > 0 {
 		candidates = append(candidates, config.Hosts...)
 	} else {
-		candidates = append(candidates, normalizeMySQLAddress(config.Host, defaultPort))
+		if strings.TrimSpace(config.Host) == "" {
+			candidates = append(candidates, normalizeMySQLAddress("", defaultPort))
+		} else {
+			host, port, ok := parseMySQLHostPort(config.Host, defaultPort)
+			if !ok {
+				return nil
+			}
+			candidates = append(candidates, normalizeMySQLAddress(host, port))
+		}
 	}
 
 	result := make([]string, 0, len(candidates))
 	seen := make(map[string]struct{}, len(candidates))
 	for _, entry := range candidates {
-		host, port, ok := parseHostPortWithDefault(entry, defaultPort)
+		host, port, ok := parseMySQLHostPort(entry, defaultPort)
 		if !ok {
 			continue
 		}

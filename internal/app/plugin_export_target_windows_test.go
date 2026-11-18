@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 func TestPluginExportPickerAllowsCanonicalDifferentVolume(t *testing.T) {

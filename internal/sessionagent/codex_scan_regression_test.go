@@ -117,6 +117,45 @@ func TestParseCodexSessionMetaSkipsThreadSourceSubagent(t *testing.T) {
 	}
 }
 
+// 新版 Codex 把 guardian / memory consolidation 写成 source.internal；
+// 这类系统线程的 cwd 是 Codex 数据目录，不能当成用户项目展示。
+func TestParseCodexSessionMetaSkipsInternalSource(t *testing.T) {
+	cases := map[string]string{
+		"guardian":        `{"type":"session_meta","payload":{"id":"th-g","cwd":"/Users/me/.codex","source":{"internal":"guardian"},"thread_source":"guardian_review"}}`,
+		"memory":          `{"type":"session_meta","payload":{"id":"th-m","cwd":"/Users/me/.codex","source":{"internal":"memory_consolidation"},"thread_source":"memory_consolidation"}}`,
+		"thread_source":   `{"type":"session_meta","payload":{"id":"th-t","cwd":"/Users/me/.codex","source":"vscode","thread_source":"guardian_review"}}`,
+		"string_internal": `{"type":"session_meta","payload":{"id":"th-s","cwd":"/Users/me/.codex","source":"internal_guardian"}}`,
+	}
+	for name, meta := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			// 带一条用户消息，确保被跳过是因为线程来源，而不是空会话过滤。
+			path := writeRollout(t, dir, "rollout-internal.jsonl", meta, userMessageLine)
+			parsed, err := parseCodexSessionMeta(path, map[string]string{})
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if parsed != nil {
+				t.Fatalf("internal thread must be skipped: %+v", parsed)
+			}
+		})
+	}
+}
+
+// 只有 session_meta、没有用户/助手正文的空会话不进列表。
+func TestScanCodexSessionsSkipsEmptySession(t *testing.T) {
+	root := t.TempDir()
+	sessionsDir := filepath.Join(root, "sessions", "2026", "01", "05")
+	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeRollout(t, sessionsDir, "rollout-empty.jsonl",
+		`{"type":"session_meta","payload":{"id":"th-empty","cwd":"E:/work/demo","source":"vscode"}}`)
+	if metas := ScanCodexSessions(root); len(metas) != 0 {
+		t.Fatalf("empty session must be skipped: %+v", metas)
+	}
+}
+
 // 旧版本子代理没有 session_meta 标记，只能靠文件名识别。
 func TestParseCodexSessionMetaSkipsSubagentByFileName(t *testing.T) {
 	dir := t.TempDir()
@@ -213,7 +252,8 @@ func TestParseCodexSessionMetaKeepsAssistantHTML(t *testing.T) {
 }
 
 // 压缩形态的头尾扫描：头尾行都要来自解压后的真实内容。
-func TestReadSessionLinesDecodesCompressed(t *testing.T) {	dir := t.TempDir()
+func TestReadSessionLinesDecodesCompressed(t *testing.T) {
+	dir := t.TempDir()
 	lines := make([]string, 0, 40)
 	for i := 0; i < 40; i++ {
 		lines = append(lines, `{"type":"event_msg","payload":{"n":`+string(rune('0'+i%10))+`}}`)
@@ -257,7 +297,7 @@ func TestDedupeRolloutCopiesAcrossRoots(t *testing.T) {
 }
 
 // 压缩形态的按需取全文：ContentRef 的字节偏移是在**解压流**上算出来的
-//（解析时经 OpenRollout 解压），回读也必须走解压流，不能在压缩文件上
+// （解析时经 OpenRollout 解压），回读也必须走解压流，不能在压缩文件上
 // 直接 seek。
 func TestResolveContentOnCompressedRollout(t *testing.T) {
 	dir := t.TempDir()
@@ -299,6 +339,7 @@ func TestParseCodexSessionMetaDetectsFork(t *testing.T) {
 	dir := t.TempDir()
 	path := writeRollout(t, dir, "rollout-fork.jsonl",
 		`{"type":"session_meta","payload":{"id":"th-fork","cwd":"E:/work/demo","source":"vscode","forked_from_id":"01a13667-48a9-7a92-9303-198269feba28"}}`,
+		userMessageLine,
 	)
 	meta, err := parseCodexSessionMeta(path, map[string]string{})
 	if err != nil {
@@ -317,6 +358,7 @@ func TestParseCodexSessionMetaWithoutFork(t *testing.T) {
 	dir := t.TempDir()
 	path := writeRollout(t, dir, "rollout-plain.jsonl",
 		`{"type":"session_meta","payload":{"id":"th-plain","cwd":"E:/work/demo","source":"vscode"}}`,
+		userMessageLine,
 	)
 	meta, err := parseCodexSessionMeta(path, map[string]string{})
 	if err != nil {

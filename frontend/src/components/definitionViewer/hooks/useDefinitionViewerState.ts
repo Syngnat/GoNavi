@@ -9,6 +9,7 @@ import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
 import { normalizeMySQLViewDDL } from '../definitionViewerSql';
 import type { DefinitionViewerProps } from '../../DefinitionViewer';
 import { buildPgRoutineDefinitionQuery } from '../../../utils/pgRoutineDefinition';
+import { buildOracleRoutineDefinitionQuery } from '../../../utils/oracleRoutineDefinition';
 
 export interface UseDefinitionViewerStateInput {
   tab: DefinitionViewerProps['tab'];
@@ -198,11 +199,14 @@ export const useDefinitionViewerState = ({ tab }: UseDefinitionViewerStateInput)
               return buildSqlServerObjectDefinitionQueries('routine', routineName, dbName, 'routine_definition');
           case 'oracle':
           case 'dm': {
-              const owner = schema ? escapeSQLLiteral(schema).toUpperCase() : (safeDbName ? safeDbName.toUpperCase() : '');
-              if (owner) {
-                  return [`SELECT TEXT FROM ALL_SOURCE WHERE OWNER = '${owner}' AND NAME = '${safeName.toUpperCase()}' AND TYPE = '${upperType}' ORDER BY LINE`];
-              }
-              return [`SELECT TEXT FROM USER_SOURCE WHERE NAME = '${safeName.toUpperCase()}' AND TYPE = '${upperType}' ORDER BY LINE`];
+              return [
+                  buildOracleRoutineDefinitionQuery(
+                      dialect,
+                      schema || dbName,
+                      name,
+                      upperType,
+                  ),
+              ];
           }
           case 'duckdb': {
               const schemaRef = schema || 'main';

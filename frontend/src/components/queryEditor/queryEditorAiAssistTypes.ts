@@ -46,6 +46,12 @@ export interface QueryEditorAiEditorSnapshot {
     suffix: string;
     currentLineBeforeCursor: string;
     currentLineAfterCursor: string;
+    /** 快照来自哪个 model（Monaco 的 model id 每实例唯一）。仅内存内使用，不落盘、不进 IPC。 */
+    modelId?: string;
+    /** 建快照时的 model 版本号。版本相同即可证明文档未被改动，无需重读全文比对。 */
+    versionId?: number;
+    /** 快照建立时的光标位置，配合 modelId + versionId 才可判定快照仍有效。 */
+    snapshotPosition?: { lineNumber: number; column: number };
 }
 
 export interface QueryEditorAiRuntimeReadiness {

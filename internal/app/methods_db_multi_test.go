@@ -461,4 +461,17 @@ func TestDBQueryMultiPreservesPerStatementResultsForMultipleWriteStatements(t *t
 	if got := resultSets[1].Rows[0]["affectedRows"]; got != int64(10) {
 		t.Fatalf("expected second affectedRows=10, got %#v", got)
 	}
+	if len(result.StatementResults) != 2 {
+		t.Fatalf("expected two statement results, got %#v", result.StatementResults)
+	}
+	if result.StatementResults[0].Status != connection.StatementResultSuccess ||
+		result.StatementResults[1].Status != connection.StatementResultSuccess {
+		t.Fatalf("expected both statements to succeed, got %#v", result.StatementResults)
+	}
+	if result.StatementResults[0].AffectedRows == nil || *result.StatementResults[0].AffectedRows != 5 {
+		t.Fatalf("expected first statement affectedRows=5, got %#v", result.StatementResults[0])
+	}
+	if result.StatementResults[1].AffectedRows == nil || *result.StatementResults[1].AffectedRows != 10 {
+		t.Fatalf("expected second statement affectedRows=10, got %#v", result.StatementResults[1])
+	}
 }

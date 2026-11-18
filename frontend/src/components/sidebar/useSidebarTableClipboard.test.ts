@@ -1,0 +1,603 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  areSidebarTableClipboardEntriesFromSameSource,
+  canCopySidebarTableDirectly,
+  isSameSidebarTableDatabase,
+  resolveSidebarTableClipboardCopyEventCommand,
+  resolveSidebarTableClipboardCommand,
+  resolveSidebarTableClipboardEntry,
+  resolveSidebarTableClipboardEntries,
+  resolveSidebarTableClipboardPasteTarget,
+  resolveSidebarTableClipboardPasteEventCommand,
+  resolveSidebarTableClipboardTarget,
+} from './useSidebarTableClipboard';
+
+const connectionIds = ['conn-a', 'conn-b'];
+
+const createKeyEvent = (
+  overrides: Partial<KeyboardEvent> = {},
+): KeyboardEvent => ({
+  key: 'c',
+  code: 'KeyC',
+  ctrlKey: false,
+  metaKey: false,
+  altKey: false,
+  shiftKey: false,
+  isComposing: false,
+  defaultPrevented: false,
+  keyCode: 67,
+  which: 67,
+  target: null,
+  preventDefault: vi.fn(),
+  ...overrides,
+} as unknown as KeyboardEvent);
+
+const createClipboardEvent = (
+  overrides: Partial<ClipboardEvent> = {},
+): ClipboardEvent => ({
+  defaultPrevented: false,
+  target: null,
+  preventDefault: vi.fn(),
+  ...overrides,
+} as unknown as ClipboardEvent);
+
+const createTableNode = (overrides: Record<string, unknown> = {}) => ({
+  key: 'conn-a-shop-table-orders',
+  title: 'orders',
+  type: 'table',
+  dataRef: {
+    id: 'conn-a',
+    dbName: 'shop',
+    schemaName: '',
+    tableName: 'orders',
+    config: { type: 'mysql' },
+  },
+  ...overrides,
+});
+
+const createDatabaseNode = (
+  connectionId: string,
+  database: string,
+  overrides: Record<string, unknown> = {},
+) => ({
+  key: `${connectionId}-${database}`,
+  title: database,
+  type: 'database',
+  dataRef: {
+    id: connectionId,
+    dbName: database,
+    schemaName: '',
+    config: { type: 'mysql' },
+  },
+  ...overrides,
+});
+
+describe('sidebar table clipboard resolution', () => {
+  it('copies a selected table with its connection, database, schema and name', () => {
+    const node = createTableNode();
+    expect(resolveSidebarTableClipboardEntry(node, connectionIds)).toEqual({
+      node,
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+      table: 'orders',
+    });
+  });
+
+  it('resolves multiple table nodes and rejects mixed non-table selections', () => {
+    const customers = createTableNode({
+      key: 'conn-a-shop-table-customers',
+      title: 'customers',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName: 'customers',
+        config: { type: 'mysql' },
+      },
+    });
+    expect(resolveSidebarTableClipboardEntries(
+      [createTableNode(), customers],
+      connectionIds,
+    )?.map((entry) => entry.table)).toEqual(['orders', 'customers']);
+    expect(resolveSidebarTableClipboardEntries(
+      [createTableNode(), createDatabaseNode('conn-a', 'shop')],
+      connectionIds,
+    )).toBeNull();
+  });
+
+  it('only treats entries from the same connection, database and schema as one source', () => {
+    const orders = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const customers = resolveSidebarTableClipboardEntry(createTableNode({
+      key: 'conn-a-shop-table-customers',
+      title: 'customers',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName: 'customers',
+        config: { type: 'mysql' },
+      },
+    }), connectionIds)!;
+    const otherDatabase = resolveSidebarTableClipboardEntry(createTableNode({
+      key: 'conn-a-archive-table-orders',
+      title: 'orders',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'archive',
+        schemaName: '',
+        tableName: 'orders',
+        config: { type: 'mysql' },
+      },
+    }), connectionIds)!;
+
+    expect(areSidebarTableClipboardEntriesFromSameSource([orders, customers])).toBe(true);
+    expect(areSidebarTableClipboardEntriesFromSameSource([orders, otherDatabase])).toBe(false);
+  });
+
+  it('resolves database, schema group and table nodes as paste targets', () => {
+    const database = createDatabaseNode('conn-a', 'shop');
+    expect(resolveSidebarTableClipboardTarget(database, connectionIds)).toEqual({
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
+
+    const schema = {
+      key: 'conn-a-app-schema-public',
+      title: 'public',
+      type: 'object-group',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'app',
+        schemaName: 'public',
+        groupKey: 'schema',
+      },
+    };
+    expect(resolveSidebarTableClipboardTarget(schema, connectionIds)).toEqual({
+      connectionId: 'conn-a',
+      database: 'app',
+      schema: 'public',
+    });
+
+    expect(resolveSidebarTableClipboardTarget(createTableNode(), connectionIds)).toEqual({
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
+  });
+
+  it('treats the same connection and database as a direct copy even without a schema target', () => {
+    const entry = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const target = resolveSidebarTableClipboardTarget(
+      createDatabaseNode('conn-a', 'shop'),
+      connectionIds,
+    )!;
+    expect(isSameSidebarTableDatabase(entry, target)).toBe(true);
+  });
+
+  it('requires the same schema when the paste target is schema-scoped', () => {
+    const source = resolveSidebarTableClipboardEntry(
+      createTableNode({
+        dataRef: {
+          id: 'conn-a',
+          dbName: 'app',
+          schemaName: 'public',
+          tableName: 'orders',
+          config: { type: 'postgres' },
+        },
+      }),
+      connectionIds,
+    )!;
+    const sameSchema = resolveSidebarTableClipboardTarget({
+      key: 'conn-a-app-schema-public',
+      type: 'object-group',
+      dataRef: { id: 'conn-a', dbName: 'app', schemaName: 'public', groupKey: 'schema' },
+    }, connectionIds)!;
+    const otherSchema = resolveSidebarTableClipboardTarget({
+      key: 'conn-a-app-schema-sales',
+      type: 'object-group',
+      dataRef: { id: 'conn-a', dbName: 'app', schemaName: 'sales', groupKey: 'schema' },
+    }, connectionIds)!;
+
+    expect(isSameSidebarTableDatabase(source, sameSchema)).toBe(true);
+    expect(isSameSidebarTableDatabase(source, otherSchema)).toBe(false);
+  });
+
+  it('infers the shared database when multiple table rows remain selected for paste', () => {
+    const table = (tableName: string) => createTableNode({
+      key: `conn-a-shop-table-${tableName}`,
+      title: tableName,
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName,
+        config: { type: 'mysql' },
+      },
+    });
+
+    expect(resolveSidebarTableClipboardPasteTarget(
+      [table('orders'), table('customers'), table('refunds')],
+      connectionIds,
+    )).toEqual({
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
+  });
+
+  it('rejects a multi-row paste target that spans different databases', () => {
+    expect(resolveSidebarTableClipboardPasteTarget(
+      [
+        createTableNode(),
+        createTableNode({
+          key: 'conn-a-archive-table-orders',
+          title: 'orders',
+          dataRef: {
+            id: 'conn-a',
+            dbName: 'archive',
+            schemaName: '',
+            tableName: 'orders',
+            config: { type: 'mysql' },
+          },
+        }),
+      ],
+      connectionIds,
+    )).toBeNull();
+  });
+});
+
+describe('sidebar table clipboard shortcuts', () => {
+  it.each([
+    ['mac', { metaKey: true }],
+    ['windows', { ctrlKey: true }],
+  ] as const)('copies a single selected table on %s', (shortcutPlatform, modifiers) => {
+    const table = createTableNode();
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent(modifiers),
+      shortcutPlatform,
+      selectedNodes: [table],
+      clipboard: null,
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('copy');
+    expect(command.kind === 'copy' && command.entries[0].table).toBe('orders');
+  });
+
+  it('does not intercept copy while typing in an input', () => {
+    const target = {
+      tagName: 'INPUT',
+      isContentEditable: false,
+      closest: () => null,
+    };
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ metaKey: true, target: target as unknown as EventTarget }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createTableNode()],
+      clipboard: null,
+      connectionIds,
+    });
+    expect(command.kind).toBe('none');
+  });
+
+  it('copies all selected tables when multiple table nodes are selected', () => {
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [
+        createTableNode(),
+        createTableNode({
+          key: 'conn-a-shop-table-customers',
+          title: 'customers',
+          dataRef: {
+            id: 'conn-a',
+            dbName: 'shop',
+            schemaName: '',
+            tableName: 'customers',
+            config: { type: 'mysql' },
+          },
+        }),
+      ],
+      clipboard: null,
+      connectionIds,
+    });
+    expect(command.kind).toBe('copy');
+    expect(command.kind === 'copy' && command.entries.map((entry) => entry.table)).toEqual([
+      'orders',
+      'customers',
+    ]);
+  });
+
+  it('routes same-database paste to the existing copy-table action', () => {
+    const entry = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [entry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-table');
+  });
+
+  it('routes multiple selected tables to one batch copy-table action', () => {
+    const orders = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const customers = resolveSidebarTableClipboardEntry(createTableNode({
+      key: 'conn-a-shop-table-customers',
+      title: 'customers',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName: 'customers',
+        config: { type: 'mysql' },
+      },
+    }), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [orders, customers],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-table');
+    expect(command.kind === 'paste-copy-table' && command.entries.map((entry) => entry.table))
+      .toEqual(['orders', 'customers']);
+  });
+
+  it('pastes immediately when the copied table rows are still the selected target', () => {
+    const ordersNode = createTableNode();
+    const customersNode = createTableNode({
+      key: 'conn-a-shop-table-customers',
+      title: 'customers',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName: 'customers',
+        config: { type: 'mysql' },
+      },
+    });
+    const entries = resolveSidebarTableClipboardEntries(
+      [ordersNode, customersNode],
+      connectionIds,
+    )!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [ordersNode, customersNode],
+      clipboard: entries,
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-table');
+    expect(command.kind === 'paste-copy-table' && command.target).toEqual({
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
+  });
+
+  it('opens the data sync wizard with source and target prefilled for cross-instance paste', () => {
+    const entry = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', ctrlKey: true }),
+      shortcutPlatform: 'windows',
+      selectedNodes: [createDatabaseNode('conn-b', 'analytics')],
+      clipboard: [entry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-via-data-sync');
+    if (command.kind !== 'paste-via-data-sync') return;
+    expect(command.prefill).toEqual({
+      source: {
+        connectionId: 'conn-a',
+        database: 'shop',
+        table: 'orders',
+        tables: ['orders'],
+      },
+      target: { connectionId: 'conn-b', database: 'analytics' },
+    });
+  });
+
+  it('opens the data sync wizard for a different database on the same connection', () => {
+    const entry = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'archive')],
+      clipboard: [entry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-via-data-sync');
+  });
+
+  it('prefills all selected tables when multi-copy crosses instances', () => {
+    const orders = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const customers = resolveSidebarTableClipboardEntry(createTableNode({
+      key: 'conn-a-shop-table-customers',
+      title: 'customers',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        tableName: 'customers',
+        config: { type: 'mysql' },
+      },
+    }), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-b', 'archive')],
+      clipboard: [orders, customers],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-via-data-sync');
+    if (command.kind !== 'paste-via-data-sync') return;
+    expect(command.prefill.source.tables).toEqual(['orders', 'customers']);
+  });
+
+  it('rejects paste when the copied tables span different source databases', () => {
+    const orders = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const otherDatabase = resolveSidebarTableClipboardEntry(createTableNode({
+      key: 'conn-a-archive-table-orders',
+      title: 'orders',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'archive',
+        schemaName: '',
+        tableName: 'orders',
+        config: { type: 'mysql' },
+      },
+    }), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [orders, otherDatabase],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-mixed-sources');
+  });
+
+  it('falls back to the wizard when the source dialect cannot copy a table directly', () => {
+    const oracleNode = createTableNode({
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: 'SALES',
+        tableName: 'ORDERS',
+        config: { type: 'oracle' },
+      },
+    });
+    const entry = resolveSidebarTableClipboardEntry(oracleNode, connectionIds)!;
+    expect(canCopySidebarTableDirectly(entry)).toBe(false);
+
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [entry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-via-data-sync');
+  });
+
+  it('warns instead of pasting when the selected node cannot be a target', () => {
+    const entry = resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [{ key: 'tag-1', type: 'tag', dataRef: {} }],
+      clipboard: [entry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-target-missing');
+  });
+
+  it('ignores paste when nothing was copied or the event was already handled', () => {
+    const noClipboard = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: null,
+      connectionIds,
+    });
+    const handled = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true, defaultPrevented: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!],
+      connectionIds,
+    });
+
+    expect(noClipboard.kind).toBe('none');
+    expect(handled.kind).toBe('none');
+  });
+});
+
+describe('sidebar table clipboard DOM events', () => {
+  it('copies the selected table from the native copy event used by the macOS edit menu', () => {
+    const command = resolveSidebarTableClipboardCopyEventCommand({
+      event: createClipboardEvent({ type: 'copy' }),
+      selectedNodes: [createTableNode()],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('copy');
+    expect(command.kind === 'copy' && command.entries[0].table).toBe('orders');
+  });
+
+  it('leaves native text copy alone when the copy event comes from an editable target', () => {
+    const target = {
+      tagName: 'TEXTAREA',
+      isContentEditable: false,
+      closest: () => null,
+    };
+    const command = resolveSidebarTableClipboardCopyEventCommand({
+      event: createClipboardEvent({ type: 'copy', target: target as unknown as EventTarget }),
+      selectedNodes: [createTableNode()],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('none');
+  });
+
+  it('routes the native paste event to the same-database table copy action', () => {
+    const command = resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste' }),
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-table');
+  });
+
+  it('opens the migration workbench from a native paste event across instances', () => {
+    const command = resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste' }),
+      selectedNodes: [createDatabaseNode('conn-b', 'archive')],
+      clipboard: [resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-via-data-sync');
+    if (command.kind !== 'paste-via-data-sync') return;
+    expect(command.prefill.target.connectionId).toBe('conn-b');
+  });
+
+  it('does not intercept a native paste event inside an input or without a queued table', () => {
+    const inputTarget = {
+      tagName: 'INPUT',
+      isContentEditable: false,
+      closest: () => null,
+    };
+    const clipboard = [resolveSidebarTableClipboardEntry(createTableNode(), connectionIds)!];
+
+    expect(resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste', target: inputTarget as unknown as EventTarget }),
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard,
+      connectionIds,
+    }).kind).toBe('none');
+
+    expect(resolveSidebarTableClipboardPasteEventCommand({
+      event: createClipboardEvent({ type: 'paste' }),
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: null,
+      connectionIds,
+    }).kind).toBe('none');
+  });
+});

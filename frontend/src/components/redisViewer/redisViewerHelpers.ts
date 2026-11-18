@@ -21,6 +21,14 @@ export const REDIS_VALUE_TABLE_MIN_SCROLL_HEIGHT = 96;
 
 export type RedisExportScope = 'all' | 'selected';
 export type RedisImportConflictMode = 'overwrite' | 'skip';
+export type RedisImportProgress = {
+    current: number;
+    total: number;
+    success: number;
+    skipped: number;
+    stage: string;
+    status: 'running' | 'cancelling' | 'cancelled' | 'error';
+};
 export type RedisListSortOrder = 'ascend' | 'descend' | null;
 export type RedisKeyViewMode = 'tree' | 'list' | 'type';
 export type RedisImportPreview = {

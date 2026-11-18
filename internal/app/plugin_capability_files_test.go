@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "GoNavi-Wails/internal/desktop"
 )
 
 func replacePluginFileDialogs(t *testing.T, file, folder, save string) {

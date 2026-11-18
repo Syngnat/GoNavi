@@ -99,8 +99,12 @@ func resolveCreateStatementWithFallbackWithText(dbInst db.Database, config conne
 	}
 
 	var indexes []connection.IndexDefinition
+	var indexErr error
 	if indexRows, idxErr := dbInst.GetIndexes(metadataSchemaName, metadataTableName); idxErr == nil {
 		indexes = indexRows
+	} else {
+		indexErr = idxErr
+		logger.Warnf("建表语句回退读取索引失败：类型=%s 表=%s.%s err=%v", dbType, metadataSchemaName, metadataTableName, idxErr)
 	}
 
 	fallbackDDL, buildErr := buildFallbackCreateStatementWithText(dbType, ddlSchemaName, ddlTableName, columns, indexes, text)
@@ -119,7 +123,20 @@ func resolveCreateStatementWithFallbackWithText(dbInst db.Database, config conne
 		ddlTableName,
 		fallbackDDL,
 	)
-	return appendRegistryCreateStatementSupplement(dbInst, config, metadataSchemaName, metadataTableName, fallbackDDL), nil
+	result := appendRegistryCreateStatementSupplement(dbInst, config, metadataSchemaName, metadataTableName, fallbackDDL)
+	if indexErr != nil {
+		result = appendCreateStatementIndexWarning(result, indexErr)
+	}
+	return result, nil
+}
+
+func appendCreateStatementIndexWarning(ddl string, err error) string {
+	message := strings.TrimSpace(err.Error())
+	message = strings.NewReplacer("\r", " ", "\n", " ").Replace(message)
+	if message == "" {
+		message = "unknown error"
+	}
+	return ddl + "\n-- WARNING: index metadata unavailable, indexes were not exported: " + message
 }
 
 func tryGetOceanBaseOracleShowCreateStatement(dbInst db.Database, schemaName string, tableName string) (string, bool) {

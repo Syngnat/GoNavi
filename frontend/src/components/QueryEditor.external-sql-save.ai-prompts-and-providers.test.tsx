@@ -598,7 +598,7 @@ describe('QueryEditor external SQL save', () => {
       const functionSuggestion = completionItems?.suggestions?.find((item: any) => item?.label === 'GROUP_CONCAT');
 
       expect(functionSuggestion).toBeTruthy();
-      expect(functionSuggestion.detail).toBe('MySQL - grouped concatenation');
+      expect(functionSuggestion.detail).toBe('grouped concatenation - MySQL');
       expect(functionSuggestion.detail).not.toContain('分组拼接');
     });
 
@@ -620,7 +620,7 @@ describe('QueryEditor external SQL save', () => {
       const zhCountSuggestion = zhCompletionItems?.suggestions?.find((item: any) => item?.label === 'COUNT');
 
       expect(zhCountSuggestion).toBeTruthy();
-      expect(zhCountSuggestion.detail).toBe('聚合函数 - 计数');
+      expect(zhCountSuggestion.detail).toBe('计数 - 聚合函数');
 
       await act(async () => {
         storeState.languagePreference = 'en-US';
@@ -635,7 +635,7 @@ describe('QueryEditor external SQL save', () => {
       const enCountSuggestion = enCompletionItems?.suggestions?.find((item: any) => item?.label === 'COUNT');
 
       expect(enCountSuggestion).toBeTruthy();
-      expect(enCountSuggestion.detail).toBe('Aggregate function - count');
+      expect(enCountSuggestion.detail).toBe('count - Aggregate function');
       expect(enCountSuggestion.detail).not.toBe(zhCountSuggestion.detail);
     });
 
@@ -890,11 +890,12 @@ describe('QueryEditor external SQL save', () => {
       const schemaTableSuggestion = completionItems?.suggestions?.find((item: any) => item?.label === 'events');
 
       expect(plainTableSuggestion).toBeTruthy();
-      expect(plainTableSuggestion.detail).toBe('表 - 用户表');
+      // 详情列统一为「注释 - 对象类型」。
+      expect(plainTableSuggestion.detail).toBe('用户表 - 表');
       expect(plainTableSuggestion.detail).not.toContain('Table');
 
       expect(schemaTableSuggestion).toBeTruthy();
-      expect(schemaTableSuggestion.detail).toBe('表 (reporting) - 事件表');
+      expect(schemaTableSuggestion.detail).toBe('事件表 - 表 (reporting)');
       expect(schemaTableSuggestion.detail).not.toContain('Table (reporting)');
     });
 

@@ -16,7 +16,7 @@ import (
 	"GoNavi-Wails/internal/ai/runharness"
 	"GoNavi-Wails/internal/appdata"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	runtime "GoNavi-Wails/internal/desktop"
 )
 
 type AgentDataDirectoryInfo struct {

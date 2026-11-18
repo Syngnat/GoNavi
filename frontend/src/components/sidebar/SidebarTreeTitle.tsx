@@ -1,23 +1,20 @@
 import React from 'react';
-import { Tooltip } from 'antd';
 import { StarFilled } from '@ant-design/icons';
 import { t } from '../../i18n';
 import {
   type SidebarTableMetadataField,
 } from '../../utils/sidebarTableMetadata';
 import { sanitizeRedisDbAlias } from '../../utils/redisDbAlias';
-import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import {
   buildSidebarTableMetadataDisplayItems,
   buildSidebarTableMetadataSnapshot,
-  formatSidebarRowCount,
-  formatSidebarTableSize,
-  formatSidebarTableTimestamp,
   resolveSidebarQueriesFolderTitle,
   resolveV2ObjectGroupTitle,
 } from './sidebarHelpers';
 import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
 import NacosGroupHealthBadge from './NacosGroupHealthBadge';
+import { MetadataHoverCard, MetadataHoverTooltip } from '../common/MetadataHoverCard';
+import { buildSidebarEntityHoverModel } from './sidebarEntityHoverModel';
 
 /** Connection / database state, expressed by the row icon via CSS (no status dot). */
 export type SidebarTreeConnectionStatus = 'loading' | 'success' | 'error' | 'default';
@@ -33,124 +30,16 @@ type SidebarV2TreeTitleOptions = {
 
 const SIDEBAR_TREE_NODE_CONTENT_SELECTOR = '.ant-tree-node-content-wrapper';
 
-const stopSidebarTableHoverPropagation = (event: React.SyntheticEvent<HTMLElement>) => {
-  event.stopPropagation();
-};
-
-const clearSidebarTableNativeHoverTitleElement = (element: HTMLElement | null) => {
+const clearSidebarMetadataNativeHoverTitleElement = (element: HTMLElement | null) => {
   element?.closest(SIDEBAR_TREE_NODE_CONTENT_SELECTOR)?.removeAttribute('title');
 };
 
-const clearSidebarTableNativeHoverTitleRef: React.RefCallback<HTMLSpanElement> = (element) => {
-  clearSidebarTableNativeHoverTitleElement(element);
+const clearSidebarMetadataNativeHoverTitleRef: React.RefCallback<HTMLSpanElement> = (element) => {
+  clearSidebarMetadataNativeHoverTitleElement(element);
 };
 
-const clearSidebarTableNativeHoverTitle = (event: React.SyntheticEvent<HTMLElement>) => {
-  clearSidebarTableNativeHoverTitleElement(event.currentTarget);
-};
-
-type SidebarTableHoverInfoProps = {
-  node: any;
-  displayTitle: string;
-};
-
-/**
- * Keep the table hover card out of the tree-row render path.  rc-tree asks
- * titleRender for every row that enters the virtual window while scrolling;
- * constructing the complete eleven-row card there made a fast scroll spend
- * most of its frame budget creating DOM trees that stay hidden in Tooltip.
- * The card is now a memoized child and is only reconciled when its row data
- * changes (or when the tooltip actually mounts it).
- */
-const SidebarTableHoverInfo = React.memo(({
-  node,
-  displayTitle,
-}: SidebarTableHoverInfoProps) => {
-  const metadata = React.useMemo(
-    () => buildSidebarTableMetadataSnapshot(node?.dataRef),
-    [node],
-  );
-  const dataRef = node?.dataRef || {};
-  const tableName = String(dataRef.tableName || displayTitle || node?.title || '').trim();
-  const schemaName = String(dataRef.schemaName || '').trim();
-  const dbName = String(dataRef.dbName || dataRef?.config?.database || '').trim();
-  const connectionLabel = String(dataRef.name || '').trim();
-  const hostSummary = resolveConnectionHostSummary(dataRef.config);
-  const rows = [
-    [t('tab_manager.hover.label.type'), t('tab_manager.hover.kind.table')],
-    [t('tab_manager.hover.label.connection'), connectionLabel || t('tab_manager.hover.fallback.unbound_connection')],
-    ['Host', hostSummary || t('tab_manager.hover.fallback.host_not_configured')],
-    [t('tab_manager.hover.label.database'), dbName || t('tab_manager.hover.fallback.database_not_specified')],
-    ['Schema', schemaName],
-    [t('tab_manager.hover.label.object'), tableName],
-    [t('table_designer.action.table_comment'), metadata.tableComment || ''],
-    [t('sidebar.v2_table_group_menu.display_table_rows'), metadata.rowCount !== undefined ? formatSidebarRowCount(metadata.rowCount) : ''],
-    [t('sidebar.v2_table_group_menu.display_table_size'), metadata.tableSize !== undefined ? formatSidebarTableSize(metadata.tableSize) : ''],
-    [t('sidebar.v2_table_group_menu.display_create_time'), metadata.createdAt ? formatSidebarTableTimestamp(metadata.createdAt) : ''],
-    [t('sidebar.v2_table_group_menu.display_update_time'), metadata.updatedAt ? formatSidebarTableTimestamp(metadata.updatedAt) : ''],
-  ].filter(([, value]) => Boolean(value));
-
-  return (
-    <div
-      className="gn-v2-tab-hover-card"
-      data-tab-hover-info="true"
-      data-sidebar-table-hover-info="true"
-      onPointerDown={stopSidebarTableHoverPropagation}
-      onPointerMove={stopSidebarTableHoverPropagation}
-      onPointerUp={stopSidebarTableHoverPropagation}
-      onPointerDownCapture={stopSidebarTableHoverPropagation}
-      onPointerUpCapture={stopSidebarTableHoverPropagation}
-      onMouseDown={stopSidebarTableHoverPropagation}
-      onMouseMove={stopSidebarTableHoverPropagation}
-      onMouseUp={stopSidebarTableHoverPropagation}
-      onClick={stopSidebarTableHoverPropagation}
-      onClickCapture={stopSidebarTableHoverPropagation}
-      onTouchStart={stopSidebarTableHoverPropagation}
-      onTouchMove={stopSidebarTableHoverPropagation}
-      onTouchEnd={stopSidebarTableHoverPropagation}
-    >
-      <div className="gn-v2-tab-hover-head">
-        <span>{t('tab_manager.kind_badge.table')}</span>
-        <strong>{tableName || displayTitle}</strong>
-      </div>
-      <div className="gn-v2-tab-hover-rows">
-        {rows.map(([label, value], index) => (
-          <div className="gn-v2-tab-hover-row" key={`${String(label)}-${index}`}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
-
-SidebarTableHoverInfo.displayName = 'SidebarTableHoverInfo';
-
-type SidebarTableHoverTooltipProps = SidebarTableHoverInfoProps & {
-  children: React.ReactElement;
-};
-
-const SidebarTableHoverTooltip = ({
-  node,
-  displayTitle,
-  children,
-}: SidebarTableHoverTooltipProps): React.ReactElement => {
-  const renderHoverInfo = React.useCallback(
-    () => <SidebarTableHoverInfo node={node} displayTitle={displayTitle} />,
-    [displayTitle, node],
-  );
-  return (
-    <Tooltip
-      title={renderHoverInfo}
-      placement="right"
-      mouseEnterDelay={1.2}
-      destroyOnHidden
-      rootClassName="gn-v2-tab-hover-tooltip gn-v2-sidebar-table-hover-tooltip"
-    >
-      {children}
-    </Tooltip>
-  );
+const clearSidebarMetadataNativeHoverTitle = (event: React.SyntheticEvent<HTMLElement>) => {
+  clearSidebarMetadataNativeHoverTitleElement(event.currentTarget);
 };
 
 export const renderSidebarV2TreeTitle = ({
@@ -161,6 +50,20 @@ export const renderSidebarV2TreeTitle = ({
   sidebarTableMetadataFields,
   sidebarDropPlacement,
 }: SidebarV2TreeTitleOptions): React.ReactNode => {
+  const renderMetadataHoverContent = (
+    targetNode: any,
+    targetTitle: string,
+  ) => () => {
+    const model = buildSidebarEntityHoverModel(targetNode, targetTitle, connectionStatus);
+    return model ? (
+      <MetadataHoverCard
+        badge={model.badge}
+        title={model.title}
+        rows={model.rows}
+        dataKind={model.dataKind}
+      />
+    ) : null;
+  };
   const rawTitle = String(node.title ?? '');
   const groupKey = String(node?.dataRef?.groupKey || '');
   if (node.type === 'v2-table-section' || node.type === 'v2-database-section') {
@@ -206,7 +109,7 @@ export const renderSidebarV2TreeTitle = ({
     ? buildSidebarTableMetadataDisplayItems(sidebarTableMetadataFields, tableMetadata)
     : [];
   const effectiveHoverTitle = hoverTitle;
-  const hasTableHoverInfo = node.type === 'table';
+  const hasMetadataHoverInfo = node.type === 'table' || node.type === 'database' || node.type === 'connection';
   const metaText = node.type === 'table' ? '' : getV2TreeMetaText(node);
   // Nacos service groups carry their own trailing metadata: how many services live
   // in the group and how much of it is actually healthy. Both come from the service
@@ -281,14 +184,17 @@ export const renderSidebarV2TreeTitle = ({
     ? <span className={`gn-v2-tree-status is-${connectionStatusAttr}`} aria-hidden="true" />
     : null;
   if (node.type === 'connection') {
-    return (
+    const connectionTitleNode = (
       <span
         className={`${titleClassName} is-connection`}
-        title={effectiveHoverTitle}
+        ref={clearSidebarMetadataNativeHoverTitleRef}
+        title={undefined}
         data-node-type={node.type}
         data-sidebar-node-key={String(node.key || '')}
         data-sidebar-node-type={String(node.type || '')}
         data-sidebar-connection-status={connectionStatusAttr}
+        onPointerOverCapture={clearSidebarMetadataNativeHoverTitle}
+        onMouseOverCapture={clearSidebarMetadataNativeHoverTitle}
       >
         <span className="gn-v2-tree-connection-copy">
           <span className="gn-v2-tree-label">{displayTitle}</span>
@@ -296,20 +202,29 @@ export const renderSidebarV2TreeTitle = ({
         {statusDot}
       </span>
     );
+    return (
+      <MetadataHoverTooltip
+        content={renderMetadataHoverContent(node, displayTitle)}
+        mouseEnterDelay={1.2}
+        rootClassName="gn-v2-tab-hover-tooltip gn-v2-sidebar-table-hover-tooltip"
+      >
+        {connectionTitleNode}
+      </MetadataHoverTooltip>
+    );
   }
   const titleNode = (
     <span
-      ref={hasTableHoverInfo ? clearSidebarTableNativeHoverTitleRef : undefined}
+      ref={hasMetadataHoverInfo ? clearSidebarMetadataNativeHoverTitleRef : undefined}
       className={titleClassName}
-      title={hasTableHoverInfo ? undefined : effectiveHoverTitle}
+      title={hasMetadataHoverInfo ? undefined : effectiveHoverTitle}
       data-node-type={node.type}
       data-group-key={groupKey || undefined}
       data-sidebar-node-key={String(node.key || '')}
       data-sidebar-node-type={String(node.type || '')}
       data-sidebar-drop-placement={sidebarDropPlacement || undefined}
       data-sidebar-connection-status={connectionStatusAttr}
-      onPointerOverCapture={hasTableHoverInfo ? clearSidebarTableNativeHoverTitle : undefined}
-      onMouseOverCapture={hasTableHoverInfo ? clearSidebarTableNativeHoverTitle : undefined}
+      onPointerOverCapture={hasMetadataHoverInfo ? clearSidebarMetadataNativeHoverTitle : undefined}
+      onMouseOverCapture={hasMetadataHoverInfo ? clearSidebarMetadataNativeHoverTitle : undefined}
     >
       <span className="gn-v2-tree-label">
         {redisDbAlias ? (
@@ -339,10 +254,14 @@ export const renderSidebarV2TreeTitle = ({
     </span>
   );
 
-  const wrappedTitleNode = hasTableHoverInfo ? (
-    <SidebarTableHoverTooltip node={node} displayTitle={displayTitle}>
+  const wrappedTitleNode = hasMetadataHoverInfo ? (
+    <MetadataHoverTooltip
+      content={renderMetadataHoverContent(node, displayTitle)}
+      mouseEnterDelay={1.2}
+      rootClassName="gn-v2-tab-hover-tooltip gn-v2-sidebar-table-hover-tooltip"
+    >
       {titleNode}
-    </SidebarTableHoverTooltip>
+    </MetadataHoverTooltip>
   ) : titleNode;
 
   return (

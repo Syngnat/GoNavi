@@ -191,6 +191,10 @@ func cloneImportJobTableOptions(options *importjob.TableImportOptions) *importjo
 		value := *options.NullToken
 		cloned.NullToken = &value
 	}
+	if options.AutoCreateTable != nil {
+		autoCreate := *options.AutoCreateTable
+		cloned.AutoCreateTable = &autoCreate
+	}
 	return &cloned
 }
 
@@ -207,7 +211,24 @@ func importJobTableOptionsFromImportFileOptions(options ImportFileOptions) *impo
 		SheetName:          options.SheetName,
 		ConflictPolicy:     options.ConflictPolicy,
 		ConflictKeyColumns: options.ConflictKeyColumns,
+		TypeRow:            options.TypeRow,
+		CommentRow:         options.CommentRow,
+		AutoCreateTable:    importJobAutoCreateTableFromOptions(options.AutoCreateTable),
 	})
+}
+
+func importJobAutoCreateTableFromOptions(options *ImportAutoCreateTable) *importjob.AutoCreateTableOptions {
+	if options == nil {
+		return nil
+	}
+	return &importjob.AutoCreateTableOptions{TableName: options.TableName, SQL: options.SQL}
+}
+
+func importAutoCreateTableFromJobOptions(options *importjob.AutoCreateTableOptions) *ImportAutoCreateTable {
+	if options == nil {
+		return nil
+	}
+	return &ImportAutoCreateTable{TableName: options.TableName, SQL: options.SQL}
 }
 
 func importFileOptionsFromImportJobTableOptions(options *importjob.TableImportOptions) ImportFileOptions {
@@ -227,6 +248,9 @@ func importFileOptionsFromImportJobTableOptions(options *importjob.TableImportOp
 		SheetName:          cloned.SheetName,
 		ConflictPolicy:     cloned.ConflictPolicy,
 		ConflictKeyColumns: cloned.ConflictKeyColumns,
+		TypeRow:            cloned.TypeRow,
+		CommentRow:         cloned.CommentRow,
+		AutoCreateTable:    importAutoCreateTableFromJobOptions(cloned.AutoCreateTable),
 	}
 }
 

@@ -58,6 +58,10 @@ type OpenRequest struct {
 	Y       int    `json:"y"`
 	Width   int    `json:"width"`
 	Height  int    `json:"height"`
+	// OwnerWindowID records which window opened this one. Nested detached
+	// windows (a query-result window opened from a detached workbench) rely on
+	// it so lifecycle events can be routed back to the source window.
+	OwnerWindowID string `json:"ownerWindowId,omitempty"`
 }
 
 // WindowBounds uses the browser/Wails virtual desktop coordinate system with
@@ -119,6 +123,13 @@ type HostStateRequest struct {
 type hostStatePayload struct {
 	Revision   int64          `json:"revision"`
 	StoreState map[string]any `json:"storeState"`
+}
+
+// HostStateSnapshot is returned by V3Manager.HostState so a detached window can
+// re-fetch the latest host context after registering its listeners.
+type HostStateSnapshot struct {
+	Revision   int64          `json:"revision"`
+	StoreState map[string]any `json:"storeState,omitempty"`
 }
 
 // Event is emitted to the main Wails window. Action mirrors the detached HTTP

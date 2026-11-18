@@ -89,12 +89,21 @@ export const buildQueryEditorViewDefinitionQueries = (
         }
         case 'sqlserver':
             return buildSqlServerObjectDefinitionQueries('view', viewName, dbName, 'view_definition');
-        case 'oracle': {
+        case 'oracle':
+        case 'yashandb':
+        case 'dm': {
             const owner = schema ? escapeQueryEditorObjectEditSqlLiteral(schema).toUpperCase() : (safeDbName ? safeDbName.toUpperCase() : '');
             if (owner) {
                 return [`SELECT TEXT AS view_definition FROM ALL_VIEWS WHERE OWNER = '${owner}' AND VIEW_NAME = '${safeName.toUpperCase()}'`];
             }
             return [`SELECT TEXT AS view_definition FROM USER_VIEWS WHERE VIEW_NAME = '${safeName.toUpperCase()}'`];
+        }
+        case 'clickhouse': {
+            const schemaRef = schema || dbName;
+            const viewRef = schemaRef
+                ? `\`${schemaRef.replace(/`/g, '``')}\`.\`${objectName.replace(/`/g, '``')}\``
+                : `\`${objectName.replace(/`/g, '``')}\``;
+            return [`SHOW CREATE TABLE ${viewRef}`];
         }
         case 'sqlite':
             return [`SELECT sql AS view_definition FROM sqlite_master WHERE type='view' AND name='${safeName}'`];
@@ -139,7 +148,14 @@ export const extractQueryEditorViewDefinition = (dialect: string, data: any[]): 
             .map((value) => String(value))
             .join('');
     }
-    const direct = getQueryEditorObjectEditRawValue(row, ['view_definition', 'definition', 'sql', 'text', 'TEXT', 'SQL']);
+    const direct = getQueryEditorObjectEditRawValue(row, [
+        'view_definition',
+        'definition',
+        'create_statement',
+        'statement',
+        'sql',
+        'text',
+    ]);
     return direct !== undefined && direct !== null ? String(direct) : String(Object.values(row)[0] || '');
 };
 

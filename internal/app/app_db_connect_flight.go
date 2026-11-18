@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +28,8 @@ func normalizeCacheKeyConfig(config connection.ConnectionConfig) connection.Conn
 	// Connection/query timeouts affect operations, not physical connection identity.
 	normalized.Timeout = 0
 	normalized.QueryTimeout = 0
+	normalized.SSH.ConnectTimeout = 0
+	normalized.TLSServerName = ""
 	// keepalive 仅影响后台保活策略，不应参与物理连接复用键。
 	normalized.KeepAliveEnabled = false
 	normalized.KeepAliveIntervalMinutes = 0
@@ -112,10 +116,41 @@ func getCacheKey(config connection.ConnectionConfig) string {
 
 func normalizeConnectionReleaseMatchConfig(config connection.ConnectionConfig) connection.ConnectionConfig {
 	normalized := normalizeCacheKeyConfig(config)
+	if strings.TrimSpace(normalized.Host) == "" && len(normalized.Hosts) == 0 {
+		if target, ok := releaseTargetFromURI(normalized); ok {
+			normalized.Host = target.host
+			normalized.Port = target.port
+		}
+	}
+	normalized = stripConnectionSecretFields(normalized)
 	normalized.Database = ""
 	normalized.RedisDB = 0
 	normalized.ConnectionParams = ""
+	normalized.TLSServerName = ""
 	return normalized
+}
+
+func releaseTargetFromURI(config connection.ConnectionConfig) (hostPort, bool) {
+	text := strings.TrimSpace(config.URI)
+	if text == "" {
+		return hostPort{}, false
+	}
+	if strings.HasPrefix(strings.ToLower(text), "jdbc:") {
+		text = strings.TrimSpace(text[len("jdbc:"):])
+	}
+	parsed, err := url.Parse(text)
+	if err != nil || strings.TrimSpace(parsed.Hostname()) == "" {
+		return hostPort{}, false
+	}
+	port := defaultPortByType(config.Type)
+	if portText := parsed.Port(); portText != "" {
+		parsedPort, err := strconv.Atoi(portText)
+		if err != nil || parsedPort <= 0 || parsedPort > 65535 {
+			return hostPort{}, false
+		}
+		port = parsedPort
+	}
+	return hostPort{host: parsed.Hostname(), port: port}, true
 }
 
 func getConnectionReleaseMatchKey(config connection.ConnectionConfig) string {
@@ -413,12 +448,17 @@ func shouldRefreshCachedConnection(err error) bool {
 		"broken pipe",
 		"connection reset by peer",
 		"server has gone away",
-		"eof",
+		"unexpected eof",
+		"read: eof",
+		"i/o: eof",
 	}
 	for _, pattern := range patterns {
 		if strings.Contains(normalized, pattern) {
 			return true
 		}
+	}
+	if normalized == "eof" {
+		return true
 	}
 	// 驱动代理是独立进程：它在运行期退出、传输关闭或请求超时时，缓存里留下的是一条
 	// 不可用的连接。这里若不判定为可刷新，后续查询会一直失败在同一条坏连接上，

@@ -30,7 +30,7 @@ import { buildMetadataIdentityKey } from '../../../utils/metadataIdentity';
 import type { ColumnDefinition } from '../../../types';
 import {
     dedupeCompletionColumnsByName, findSharedPreloadedColumns,
-    buildCompletionColumnMetadataIdentityKey,
+    buildCompletionColumnMetadataIdentityKey, getSharedColumnIdentityKeySet,
 } from '../queryEditorCompletionColumns';
 import {
     getColumnDefinitionName, getColumnDefinitionType, getColumnDefinitionComment,
@@ -190,14 +190,12 @@ export const createSqlCompletionMetadataLookups = ({
 
         const mergeSharedCompletionColumns = (columns: CompletionColumnMeta[]) => {
             if (columns.length === 0) return;
-            const existingKeys = new Set(sharedAllColumnsData.map((column) => (
-                buildCompletionColumnMetadataIdentityKey(
-                    activeDialect,
-                    column.dbName,
-                    column.tableName,
-                    column.name,
-                )
-            )));
+            // 复用按数组身份缓存的已存在键集：AI 预热可能把整库列灌入
+            // sharedAllColumnsData，逐次重建 Set 会让每次补全都全量扫一遍。
+            // 取副本是因为下面会往里 add，不能污染缓存。
+            const existingKeys = new Set(
+                getSharedColumnIdentityKeySet(activeDialect, sharedAllColumnsData),
+            );
             const missing = columns.filter((column) => {
                 const key = buildCompletionColumnMetadataIdentityKey(
                     activeDialect,

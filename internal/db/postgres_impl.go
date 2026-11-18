@@ -20,9 +20,10 @@ import (
 )
 
 type PostgresDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
+	conn               *sql.DB
+	pingTimeout        time.Duration
+	forwarder          *ssh.LocalForwarder // Store SSH tunnel forwarder
+	metadataQueryState *pgMetadataQueryState
 }
 
 var _ BatchApplierContext = (*PostgresDB)(nil)
@@ -90,6 +91,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 			_ = p.Close()
 		}
 	}()
+	p.metadataQueryState = &pgMetadataQueryState{}
 
 	if supported, reason := DriverRuntimeSupportStatus("postgres"); !supported {
 		if strings.TrimSpace(reason) == "" {
@@ -138,6 +140,8 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
+	// 保留最后一次底层错误，让汇总错误仍可被 errors.Unwrap 展开。
+	var lastErr error
 	for sslIndex, sslConfig := range sslAttempts {
 		sslLabel := "SSL"
 		if sslIndex > 0 {
@@ -152,6 +156,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 
 			dbConn, err := openPostgresDB("postgres", dsn)
 			if err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
 			}
@@ -160,6 +165,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 
 			// Force verification
 			if err := p.Ping(); err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 验证失败: %v", sslLabel, dbName, err))
 				_ = dbConn.Close()
 				p.conn = nil
@@ -175,6 +181,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 
 			// search_path 必须在连接建立时写入 DSN，避免连接池中的连接配置不一致。
 			if err := p.ensureSearchPath(config, dsn); err != nil {
+				lastErr = err
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
 				if p.conn != nil {
 					_ = p.conn.Close()
@@ -190,10 +197,11 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
 	if len(failures) == 0 {
 		return fmt.Errorf("连接建立后验证失败：未找到可用的连接数据库")
 	}
-	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
+	return newConnectAttemptError("连接建立后验证失败", failures, lastErr)
 }
 
 func (p *PostgresDB) Close() error {
+	p.metadataQueryState = nil
 	// Close SSH forwarder first if exists
 	if p.forwarder != nil {
 		if err := p.forwarder.Release(); err != nil {
@@ -450,7 +458,7 @@ func (p *PostgresDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := p.Query(buildPGLikeColumnsMetadataQuery(schema, table))
+	data, err := queryPGLikeColumnsMetadata(p, p.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +472,7 @@ func (p *PostgresDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := p.Query(buildPGLikeIndexesMetadataQuery(schema, table))
+	data, err := queryPGLikeIndexesMetadata(p, p.metadataQueryState, schema, table)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TableOverview from './TableOverview';
+import { TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS } from './tableOverview/TableOverviewSearchInput';
 
 const storeSubscribers = vi.hoisted(() => new Set<() => void>());
 const renderedDropdownMenus = vi.hoisted(() => [] as Array<{ items?: any[] }>);
@@ -130,6 +131,7 @@ vi.mock('@ant-design/icons', () => {
     ExportOutlined: Icon,
     AppstoreOutlined: Icon,
     UnorderedListOutlined: Icon,
+    SettingOutlined: Icon,
     WarningOutlined: Icon,
     CaretUpFilled: Icon,
     CaretDownFilled: Icon,
@@ -146,6 +148,18 @@ vi.mock('antd', () => {
     renderedDropdownMenus.push(menu);
     return <div>{children}</div>;
   };
+  const Popover = ({ children }: any) => <div>{children}</div>;
+  const Checkbox = ({ children, checked, onChange, disabled }: any) => (
+    <label>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      {children}
+    </label>
+  );
   const Tooltip = ({ children }: any) => <div>{children}</div>;
   const Modal: any = ({ children }: any) => <div>{children}</div>;
   Modal.confirm = vi.fn();
@@ -153,10 +167,12 @@ vi.mock('antd', () => {
   const Paragraph = ({ children }: any) => <p>{children}</p>;
   return {
     Button,
+    Checkbox,
     Dropdown,
     Empty,
     Input,
     Modal,
+    Popover,
     Spin,
     Tooltip,
     Typography: { Text, Paragraph },
@@ -171,6 +187,19 @@ const flushPromises = async () => {
     await Promise.resolve();
   });
 };
+
+const flushSearchDebounce = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(
+      resolve,
+      TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS + 30,
+    ));
+  });
+};
+
+const mainTableStatusQueries = () => backendApp.DBQuery.mock.calls.filter(
+  (call) => !String(call[2] || '').includes('mysql.innodb_table_stats'),
+);
 
 const collectText = (node: any): string => {
   if (!node) {
@@ -208,7 +237,7 @@ describe('TableOverview metadata compatibility', () => {
     vi.stubGlobal('document', {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      body: {},
+      body: { style: {} },
     });
     vi.stubGlobal('window', {
       go: { app: { App: backendApp } },
@@ -330,6 +359,7 @@ describe('TableOverview metadata compatibility', () => {
     });
     const initialConfirm = countdownConfirm.mock.calls[0]?.[0];
     expect(initialConfirm).toBeTruthy();
+    expect(initialConfirm.countdownSeconds).toBe(0);
 
     let deleteOperation!: Promise<void>;
     act(() => {
@@ -423,7 +453,7 @@ describe('TableOverview metadata compatibility', () => {
     });
 
     expect(backendApp.ClearTables).toHaveBeenCalledWith(expect.any(Object), 'app_db', ['orders']);
-    expect(backendApp.DBQuery).toHaveBeenCalledTimes(2);
+    expect(mainTableStatusQueries()).toHaveLength(2);
     expect(messageApi.success).toHaveBeenCalled();
   });
 
@@ -650,16 +680,16 @@ describe('TableOverview metadata compatibility', () => {
     assertBareTableName();
     await act(async () => {
       renderer!.root.findByType('input').props.onChange({ target: { value: 'reporting' } });
-      await Promise.resolve();
     });
+    await flushSearchDebounce();
     const filteredText = collectText(renderer!.toJSON());
     expect(filteredText).toContain('reporting_summary');
     expect(filteredText).not.toContain('orders');
 
     await act(async () => {
       renderer!.root.findByType('input').props.onChange({ target: { value: '' } });
-      await Promise.resolve();
     });
+    await flushSearchDebounce();
     assertBareTableName();
     await act(async () => {
       renderer!.root.findByProps({ 'data-table-overview-view-mode': 'list' }).props.onClick();
@@ -965,7 +995,7 @@ describe('TableOverview metadata compatibility', () => {
 
     expect(rowNames()).toEqual(['large_table', 'small_table', 'unknown_stats']);
     expect(renderer!.root.findByProps({ role: 'table' })).toBeTruthy();
-    expect(renderer!.root.findAllByProps({ role: 'columnheader' })).toHaveLength(8);
+    expect(renderer!.root.findAllByProps({ role: 'columnheader' })).toHaveLength(10);
 
     await act(async () => {
       renderer!.root.findByProps({ 'data-table-overview-sort': 'rows' }).props.onClick();
@@ -1039,6 +1069,61 @@ describe('TableOverview metadata compatibility', () => {
     // 展示统一为 YYYY-MM-DD HH:mm:ss（有小数秒时保留，与侧栏 formatSidebarTableTimestamp 一致）
     expect(renderedText).toContain('2026-06-02 10:30:00');
     expect(renderedText).toContain('2026-05-01 09:00:00');
+  });
+
+  it('fills a missing MySQL update time from innodb_table_stats', async () => {
+    storeState.connections = [{
+      id: 'conn-1',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+        password: 'secret',
+        database: 'app_db',
+        useSSH: false,
+        ssh: { host: '', port: 22, user: '', password: '', keyPath: '' },
+      },
+    }];
+    backendApp.DBQuery
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{
+          TABLE_NAME: 'orders',
+          TABLE_COMMENT: '订单表',
+          TABLE_ROWS: 128,
+          DATA_LENGTH: 2048,
+          INDEX_LENGTH: 1024,
+          ENGINE: 'InnoDB',
+          CREATE_TIME: '2026-05-01 09:00:00',
+          UPDATE_TIME: null,
+        }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ table_name: 'orders', update_time: '2026-06-05 12:00:00' }],
+      });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableOverview tab={{
+        id: 'tab-1',
+        title: '表概览 - app_db',
+        type: 'table-overview',
+        connectionId: 'conn-1',
+        dbName: 'app_db',
+      } as any} />);
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(backendApp.DBQuery.mock.calls.some(
+      (call) => String(call[2] || '').includes('mysql.innodb_table_stats'),
+    )).toBe(true);
+    const renderedText = collectText(renderer!.toJSON());
+    expect(renderedText).toContain('2026-06-05 12:00:00');
+    expect(renderedText).toContain('Last updated');
+    expect(messageApi.error).not.toHaveBeenCalled();
   });
 
   it('loads MongoDB collections through DBGetTables instead of information_schema SQL', async () => {

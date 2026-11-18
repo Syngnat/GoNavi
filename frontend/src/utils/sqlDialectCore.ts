@@ -277,7 +277,7 @@ export const appendTableAlias = (tableName: string, alias: string, dbType: strin
 };
 
 export const isBacktickIdentifierDialect = (dbType: string): boolean => (
-  isMysqlFamilyDialect(dbType) || ['clickhouse', 'tdengine', 'iotdb', 'hive'].includes(resolveSqlDialect(dbType))
+  isMysqlFamilyDialect(dbType) || ['clickhouse', 'tdengine', 'iotdb', 'hive', 'greptimedb'].includes(resolveSqlDialect(dbType))
 );
 
 const stripIdentifierQuotes = (part: string, dbType = ''): string => {
@@ -297,19 +297,75 @@ const escapeBracketIdentifier = (value: string) => String(value || '').replace(/
 
 const needsPgLikeQuote = (ident: string): boolean => !/^[a-z_][a-z0-9_]*$/.test(ident);
 
+// Oracle 家族：裸标识符会被折叠为大写，双引号则精确匹配、区分大小写。
+//
+// 判断依据是「这个名字能不能裸写后仍指向同一个对象」：
+//   - 全大写（`ORDERS`）：裸写折叠后仍是 `ORDERS`，不加引号。
+//   - 小写或混合大小写（`orders`、`Order_Items`）：只有带引号才指向原对象；
+//     裸写会被折叠成 `ORDERS`，反而查不到（正是 ORA-00942 的来源）。
+//   - 含空格、连字符、中文等裸名不允许的字符：必须加引号。
+//
+// 注意不能只看「是否是合法裸名」——`orders` 语法上合法，语义上却是另一个对象。
+//
+// 保留字同样不能裸写：`DATE` / `LEVEL` / `ORDER` / `NUMBER` / `ROWID` 这类名字
+// 全大写且符合裸名规则，但裸写会直接报 ORA-00904/ORA-00911。保留字表只收录
+// 真正不能作为标识符使用的词；`VALUE` / `TYPE` / `NAME` 等可作列名的未收录。
+const ORACLE_BARE_IDENT_RE = /^[A-Z_][A-Z0-9_$#]*$/;
+const ORACLE_RESERVED_WORDS = new Set([
+  'access', 'add', 'all', 'alter', 'and', 'any', 'as', 'asc', 'audit', 'between',
+  'by', 'char', 'check', 'cluster', 'column', 'comment', 'compress', 'connect',
+  'create', 'current', 'date', 'decimal', 'default', 'delete', 'desc', 'distinct',
+  'drop', 'else', 'exclusive', 'exists', 'file', 'float', 'for', 'from', 'grant',
+  'group', 'having', 'identified', 'immediate', 'in', 'increment', 'index',
+  'initial', 'insert', 'integer', 'intersect', 'into', 'is', 'level', 'like',
+  'lock', 'long', 'maxextents', 'minus', 'mlslabel', 'mode', 'modify', 'noaudit',
+  'nocompress', 'not', 'nowait', 'null', 'number', 'of', 'offline', 'on', 'online',
+  'option', 'or', 'order', 'pctfree', 'prior', 'privileges', 'public', 'raw',
+  'rename', 'resource', 'revoke', 'row', 'rowid', 'rownum', 'rows', 'select',
+  'session', 'set', 'share', 'size', 'smallint', 'start', 'successful', 'synonym',
+  'sysdate', 'table', 'then', 'to', 'trigger', 'uid', 'union', 'unique', 'update',
+  'user', 'validate', 'values', 'varchar', 'varchar2', 'view', 'whenever', 'where',
+  'with',
+]);
+const needsOracleQuote = (ident: string): boolean =>
+  !ORACLE_BARE_IDENT_RE.test(ident)
+  // 只有「全大写且与保留字同名」才需要引号；小写名本来就进不了上一条正则。
+  || ORACLE_RESERVED_WORDS.has(ident.toLowerCase());
+
 export const unquoteSqlIdentifierPart = stripIdentifierQuotes;
 
 export const unquoteSqlIdentifierPath = (path: string, dbType = ''): string => (
   splitQualifiedNameSegments(path, dbType).filter(Boolean).join('.')
 );
 
-export const quoteSqlIdentifierPart = (dbType: string, part: string): string => {
-  const dialect = resolveSqlDialect(dbType);
+export const quoteSqlIdentifierPart = (
+  dbType: string,
+  part: string,
+  options?: { oceanBaseProtocol?: unknown },
+): string => {
+  // OceanBase 的方言取决于连接协议：不传协议就退化为 mysql（反引号），
+  // 在 Oracle 租户上会直接产生非法标识符。调用方知道协议时必须传进来。
+  const dialect = resolveSqlDialect(dbType, '', options);
   const ident = stripIdentifierQuotes(part, dialect);
   if (!ident) return '';
 
+  // 调用方原本已显式定界（`"Order Items"`）时必须保留定界语义：Oracle 家族会
+  // 区分大小写，剥掉引号再决定就是猜。这里先判断来源是否带引号。
+  const sourceWasQuoted = (() => {
+    const text = String(part || '').trim();
+    if (!text) return false;
+    const segments = splitQualifiedNameSegmentsDetailed(text, dialect);
+    return segments.length === 1 && Boolean(segments[0].quoted);
+  })();
+
   if (isBacktickIdentifierDialect(dialect)) {
     return `\`${escapeBacktickIdentifier(ident)}\``;
+  }
+  if (isOracleLikeDialect(dialect)) {
+    // Oracle 家族按需定界：来源已定界或裸名不合法时才加双引号。
+    return sourceWasQuoted || needsOracleQuote(ident)
+      ? `"${escapeDoubleQuoteIdentifier(ident)}"`
+      : ident;
   }
   if (isSqlServerDialect(dialect)) {
     return `[${escapeBracketIdentifier(ident)}]`;
@@ -327,8 +383,12 @@ export const quoteSqlIdentifierPart = (dbType: string, part: string): string => 
   return `"${escapeDoubleQuoteIdentifier(ident)}"`;
 };
 
-export const quoteSqlIdentifierPath = (dbType: string, path: string): string => {
-  const dialect = resolveSqlDialect(dbType);
+export const quoteSqlIdentifierPath = (
+  dbType: string,
+  path: string,
+  options?: { oceanBaseProtocol?: unknown },
+): string => {
+  const dialect = resolveSqlDialect(dbType, '', options);
   return splitQualifiedNameSegmentsDetailed(path, dialect)
     .filter((segment) => Boolean(segment.value))
     .map((segment) => quoteSqlIdentifierPart(dialect, segment.raw))

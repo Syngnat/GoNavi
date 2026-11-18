@@ -257,7 +257,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !status.Configured {
-		http.Redirect(w, r, buildAuthRedirectURL("/setup", r.URL.RequestURI()), http.StatusSeeOther)
+		http.Redirect(w, r, s.buildSetupRedirectURL(r.URL.RequestURI()), http.StatusSeeOther)
 		return
 	}
 	s.serveStaticPage(w, r, renderAuthPage(
@@ -283,6 +283,9 @@ func (s *Server) handleSetupPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, buildAuthRedirectURL("/login", r.URL.RequestURI()), http.StatusSeeOther)
 		return
 	}
+	if s.redirectMissingLocalSetupGate(w, r) {
+		return
+	}
 	s.serveStaticPage(w, r, renderAuthPage(
 		language,
 		webAuthText(localizer, "web_auth.page.setup.title", nil),
@@ -299,7 +302,7 @@ func (s *Server) requireWebAuth(next http.Handler) http.Handler {
 		if !status.Configured {
 			clearSessionCookie(w, r)
 			if wantsHTMLResponse(r) {
-				http.Redirect(w, r, buildAuthRedirectURL("/setup", r.URL.RequestURI()), http.StatusSeeOther)
+				http.Redirect(w, r, s.buildSetupRedirectURL(r.URL.RequestURI()), http.StatusSeeOther)
 				return
 			}
 			s.writeAuthJSONError(w, http.StatusPreconditionFailed, webAuthText(newWebAuthLocalizer(resolveWebAuthLanguage(r)), "web_auth.error.setup_required", nil), 0)

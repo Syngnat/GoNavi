@@ -51,7 +51,8 @@ export function parseManifest(data: unknown): Manifest {
   }
   if (record(data.contributes)) {
     const contributes = data.contributes;
-    only(contributes, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings']);
+    only(contributes, ['commands', 'panels', 'dataSources', 'skills', 'aiProviders', 'exporters', 'pages', 'navigation', 'connectionActions', 'sidebar', 'views', 'keybindings', 'settingsSections']);
+    if (contributes.settingsSections != null) list(contributes.settingsSections, (item) => only(item, ['id', 'slot', 'page', 'title', 'description', 'order']));
     if (contributes.commands != null) list(contributes.commands, (item) => only(item, ['id', 'title', 'description', 'inputSchema', 'effect']));
     if (contributes.panels != null) list(contributes.panels, (item) => {
       only(item, ['id', 'title', 'body', 'html']);

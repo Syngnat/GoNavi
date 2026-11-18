@@ -42,6 +42,7 @@ export interface UseImportPreviewActionsInput {
   progress: ImportPreviewStateApi['progress'];
   i18n: ImportPreviewStateApi['i18n'];
   importResult: ImportPreviewStateApi['importResult'];
+  autoCreateTable?: ImportPreviewModalProps['autoCreateTable'];
   onClose: ImportPreviewModalProps['onClose'];
   importing: ImportPreviewStateApi['importing'];
   stopping: ImportPreviewStateApi['stopping'];
@@ -53,7 +54,7 @@ export const useImportPreviewActions = ({
   connection, t, importRequestRef, stoppingRef, activeImportJobIdRef, importStartedAtRef,
   setImporting, setStopping, setError, latestProgressRef, setProgress, setImportResult,
   importRPCAbortRef, previewConnectionConfigRef, columnMappings, parserOptions, progress, i18n,
-  importResult, onClose, importing, stopping, loading,
+  importResult, onClose, importing, stopping, loading, autoCreateTable,
 }: UseImportPreviewActionsInput) => {
   const handleImport = async () => {
     if (!previewData || mappingValidationError || importingRef.current) return;
@@ -107,10 +108,21 @@ export const useImportPreviewActions = ({
         Object.entries(columnMappings).filter(([, targetColumn]) => Boolean(targetColumn)),
       );
       const rpcConfig = buildRpcConnectionConfig(config) as any;
+      const autoCreateActive = Boolean(autoCreateTable) && autoCreateTable?.created !== true;
       const options = {
           ...parserOptions,
           columnMappings: selectedMappings,
           jobId: importJobId,
+          ...(autoCreateActive && autoCreateTable
+            ? {
+              autoCreateTable: {
+                tableName: autoCreateTable.tableName,
+                sql: autoCreateTable.sql,
+              },
+              ...(Number(autoCreateTable.typeRow) > 0 ? { typeRow: Number(autoCreateTable.typeRow) } : {}),
+              ...(Number(autoCreateTable.commentRow) > 0 ? { commentRow: Number(autoCreateTable.commentRow) } : {}),
+            }
+            : {}),
           ...(previewData.sourceIdentityToken
             ? { sourceIdentityToken: previewData.sourceIdentityToken }
             : {}),
@@ -124,7 +136,9 @@ export const useImportPreviewActions = ({
           dbName,
           tableName,
           filePath,
-          options,
+          // 生成类会补齐所有字段（含 undefined），历史上省略的选项会被一起发出去；
+          // 这里保留普通对象形态，避免改变调用体与既有回归断言。
+          options as any,
         ),
       );
       if (importRequestRef.current !== importRequestId) return;

@@ -91,6 +91,9 @@ func ValidateManifest(m Manifest) error {
 	if err := validateManifestViews(m, permissions); err != nil {
 		return err
 	}
+	if err := validateManifestSettingsSections(m, permissions); err != nil {
+		return err
+	}
 	if err := validateManifestSidebar(m, permissions, publicCommands); err != nil {
 		return err
 	}
@@ -552,6 +555,59 @@ func validateManifestViews(m Manifest, permissions map[string]bool) error {
 		}
 		if view.Order < minNavigationOrder || view.Order > maxNavigationOrder {
 			return errors.New("view order exceeds limit")
+		}
+	}
+	return nil
+}
+
+// SettingsSlotAppearanceBackground is the only host-owned settings slot in
+// version one: the appearance pane keeps the entry and title while a plugin
+// renders the content.
+const SettingsSlotAppearanceBackground = "appearance.background"
+
+const maxManifestSettingsSections = 8
+
+func validateManifestSettingsSections(m Manifest, permissions map[string]bool) error {
+	contributes := manifestContributions(m)
+	sections := contributes.SettingsSections
+	if len(sections) == 0 {
+		return nil
+	}
+	if !permissions[PagesPermission] {
+		return fmt.Errorf("settings sections require the %s permission", PagesPermission)
+	}
+	if len(sections) > maxManifestSettingsSections {
+		return errors.New("too many settings sections")
+	}
+	pages := make(map[string]bool, len(contributes.Pages))
+	for _, page := range contributes.Pages {
+		pages[page.ID] = true
+	}
+	seen := make(map[string]bool, len(sections))
+	slots := make(map[string]bool, len(sections))
+	for _, section := range sections {
+		if !manifestLocalIDPattern.MatchString(section.ID) || seen[section.ID] {
+			return errors.New("invalid or duplicate settings section")
+		}
+		seen[section.ID] = true
+		if !pages[section.Page] {
+			return errors.New("settings section references an undeclared page")
+		}
+		if section.Slot != SettingsSlotAppearanceBackground {
+			return errors.New("unsupported settings slot")
+		}
+		if slots[section.Slot] {
+			return errors.New("duplicate settings slot")
+		}
+		slots[section.Slot] = true
+		if section.Title != "" && !validManifestText(section.Title, 128) {
+			return errors.New("invalid settings section title")
+		}
+		if section.Description != "" && !validManifestText(section.Description, 512) {
+			return errors.New("invalid settings section description")
+		}
+		if section.Order < minNavigationOrder || section.Order > maxNavigationOrder {
+			return errors.New("settings section order exceeds limit")
 		}
 	}
 	return nil
