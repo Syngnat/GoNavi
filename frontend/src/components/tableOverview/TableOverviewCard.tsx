@@ -3,7 +3,7 @@ import { TableOutlined } from '@ant-design/icons';
 
 import { formatRows, formatSize, type TableStatRow } from './tableOverviewModel';
 
-export type TableOverviewCardProps = {
+export type TableOverviewCardProps = React.HTMLAttributes<HTMLDivElement> & {
   table: TableStatRow;
   displayName: string;
   isSelected: boolean;
@@ -44,6 +44,9 @@ function TableOverviewCard({
     openV2OverviewContextMenu,
     renderNameNode,
     renderMetaBadges,
+    className: extraClassName,
+    style: extraStyle,
+    ...triggerProps
   }, ref) {
   const sizePercent = Math.min(
     100,
@@ -58,9 +61,10 @@ function TableOverviewCard({
   return (
     <div
       ref={ref}
-      className={`gn-v2-table-card${isSelected ? ' is-selected' : ''}`}
+      className={`gn-v2-table-card${isSelected ? ' is-selected' : ''}${extraClassName ? ` ${extraClassName}` : ''}`}
       data-table-overview-card={table.name}
       data-table-overview-select={table.name}
+      {...triggerProps}
       aria-selected={isSelected}
       tabIndex={-1}
       onDoubleClick={() => openTableByDefaultAction(table.name)}
@@ -77,6 +81,7 @@ function TableOverviewCard({
         flexDirection: 'column',
         cursor: 'pointer',
         userSelect: 'none',
+        ...extraStyle,
       }}
     >
       <div className="gn-v2-table-card-name" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
