@@ -327,8 +327,8 @@ const isSqlEditorSensitiveSetTarget = (keyword: string): boolean => (
 /**
  * 语句是否为「会话级、不修改业务数据」的命令（SET / USE）。
  *
- * 用于「写操作未纳入托管事务」提示：`SET SESSION ...`、`SET NAMES ...`、`USE db`
- * 会立即生效且无法回滚，但从不修改业务数据，按写操作告警只会误导。
+ * 用于会话级非数据命令判定：`SET SESSION ...`、`SET NAMES ...`、`USE db`
+ * 会立即生效且无法回滚，但从不修改业务数据，不应按业务写操作处理。
  * `SET GLOBAL` / `SET PERSIST` / `SET PASSWORD` / `SET ROLE` 等作用域超出当前会话，
  * `SET autocommit` / `SET SESSION AUTHORIZATION` 等会改变身份或事务语义，
  * 均按原逻辑提示，避免放宽不可逆操作的可见性。
@@ -441,7 +441,7 @@ export const isSqlEditorSessionResetStatement = (statement: string, dbType = '')
  * 不修改业务数据、也不修改 schema 的语句总判定：会话命令、事务控制、
  * 纯统计维护与会话复位。
  *
- * 只用于「未纳入托管事务」告警与侧栏刷新这类降噪场景；
+ * 只用于侧栏刷新、结果集归类这类降噪场景；
  * 只读保护与生产风险确认必须使用更宽的投影。
  */
 export const isSqlEditorNonDataStatement = (statement: string, dbType = ''): boolean => {

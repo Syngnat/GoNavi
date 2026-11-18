@@ -46,7 +46,8 @@ import {
 } from '../queryEditorSqlServerResultMessages';
 import {
     aggregateQueryEditorStatementResults, collectQueryEditorStatementSummaryEntries,
-    countQueryEditorAffectedRowResults, collectQueryEditorUnmanagedRollbackableStatements,
+    countQueryEditorAffectedRowResults,
+    buildQueryEditorStatementSummaryEntriesFromExecutionResults,
 } from './queryEditorRunStatementSummary';
 import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 import type { TabData, ConnectionConfig } from '../../../types';
@@ -106,7 +107,6 @@ export interface RunQueryEditorSqlStatementsInput {
     clearQueryId: () => void;
     updateResultPanelVisibility: (visible: boolean) => void;
     setExecutionError: React.Dispatch<React.SetStateAction<string>>;
-    mutatingStatements: string[];
     activatePendingSqlTransaction: ReturnType<typeof useSqlEditorTransactionController>['activatePendingSqlTransaction'];
     sqlEditorCommitMode: "manual" | "auto";
     sqlEditorAutoCommitDelayMs: number;
@@ -130,7 +130,7 @@ export const runQueryEditorSqlStatements = async ({
     setParamsDialogState, runState, setQueryId, setExecutionTimingActive,
     executeSqlEditorMultiQuery, executionConnectionParams, finishQueryEditorSqlClock,
     queryEditorUnmountedRef, addSqlLog, currentQueryIdRef, clearQueryId,
-    updateResultPanelVisibility, setExecutionError, mutatingStatements, executionSchemaName,
+    updateResultPanelVisibility, setExecutionError, executionSchemaName,
     activatePendingSqlTransaction, sqlEditorCommitMode, sqlEditorAutoCommitDelayMs,
     appendPendingSqlTransactionExecution, hasConcreteQueryResultSetData,
     isAffectedRowsResultSetData, mergeResultSets, setResultSets, activateExecutedResult, runSeq,
@@ -519,23 +519,14 @@ export const runQueryEditorSqlStatements = async ({
             executionConfig, executionDbName, isCurrentRun, conn, clearUnpinnedResultSets,
             currentQueryIdRef, queryId, clearQueryId, updateResultPanelVisibility,
             setExecutionError,
+            showRunFailureSummary: (summary) => {
+                const retainedResultSets = clearUnpinnedResultSets();
+                const merged = mergeResultSets(retainedResultSets, [summary], false);
+                setResultSets(merged);
+                activateExecutedResult(merged, [summary], runSeq);
+            },
         });
         return;
-    }
-
-    // 有写操作、后端却没返回 transactionPending，说明本次是以 autocommit 落地的
-    // （DDL / TRUNCATE / CALL / 存储过程 / 非事务数据源，见后端 shouldUseManagedSQLTransaction）。
-    // 前端自己的 useManagedTransaction 判定比后端宽松，直接采信它会把 DDL 误报成"已托管"，
-    // 所以这里以后端的实际响应为准。必须显式告知，不能静默假装已保护（§3.2 验收 3）。
-    //
-    // 只对「可回滚却被跳过事务」的写语句告警：DDL / TRUNCATE 本身没有回滚语义
-    // （MySQL 隐式提交），SET / USE 这类会话级命令也不修改业务数据；一次几百条
-    // ALTER 或每次 SET SESSION 都弹一次告警只会变成噪音。
-    const unmanagedRollbackableStatements = collectQueryEditorUnmanagedRollbackableStatements(
-        mutatingStatements, normalizedDbType,
-    );
-    if (res.success && unmanagedRollbackableStatements.length > 0 && !res.transactionPending) {
-        message.warning(translate('query_editor.transaction.message.executed_without_transaction'), 6);
     }
 
     if (res.transactionPending && res.transactionId) {
@@ -592,14 +583,25 @@ export const runQueryEditorSqlStatements = async ({
     // DDL 的受影响行数在 MySQL 等库里恒为 0，单条 DDL 显示「影响行数：0」容易被误读成没执行。
     // 因此把本次执行的受影响行数结果汇总成一个「执行摘要」，SELECT 等真实结果集保持不变。
     const affectedResultCount = countQueryEditorAffectedRowResults(nextResultSets);
-    const statementSummaryEntries = collectQueryEditorStatementSummaryEntries({
+    const affectedStatementSummaryEntries = collectQueryEditorStatementSummaryEntries({
         resultSets: nextResultSets,
         statementAt: (statementIndex) => sourceStatements[statementIndex - 1] || '',
         dbType: normalizedDbType,
     });
+    const structuredStatementSummaryEntries = Array.isArray(res.statementResults)
+        ? buildQueryEditorStatementSummaryEntriesFromExecutionResults({
+            results: res.statementResults,
+            statementAt: (statementIndex) => sourceStatements[statementIndex - 1] || '',
+            dbType: normalizedDbType,
+        })
+        : [];
+    const statementSummaryEntries = structuredStatementSummaryEntries.length > 0
+        ? structuredStatementSummaryEntries
+        : affectedStatementSummaryEntries;
     const aggregatedResultSets = aggregateQueryEditorStatementResults({
         resultSets: nextResultSets,
         entries: statementSummaryEntries,
+        affectedEntries: affectedStatementSummaryEntries,
         affectedResultCount,
         exportSql: sourceStatements.join(';\n'),
         executionDbName,

@@ -9,15 +9,16 @@ import (
 const sqlEditorTransactionFinishTimeout = 30 * time.Second
 
 type managedSQLStatementObservation struct {
-	Statement      string
-	StatementIndex int
-	StatementCount int
-	StartedAt      time.Time
-	CompletedAt    time.Time
-	Duration       time.Duration
-	RowsAffected   int64
-	RowsReturned   int64
-	Err            error
+	Statement         string
+	StatementIndex    int
+	StatementCount    int
+	StartedAt         time.Time
+	CompletedAt       time.Time
+	Duration          time.Duration
+	RowsAffected      int64
+	AffectedRowsKnown bool
+	RowsReturned      int64
+	Err               error
 }
 
 type managedSQLStatementObserver func(managedSQLStatementObservation)

@@ -1,7 +1,4 @@
 import { useEffect, useRef, type MutableRefObject, type RefObject } from 'react';
-import { message } from 'antd';
-
-import { t } from '../../i18n';
 import type { DataSyncPastePrefill } from '../dataSyncEntryMode';
 import {
   isEditableElement,
@@ -10,6 +7,11 @@ import {
 } from '../../utils/shortcuts';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { resolveSidebarNodeConnectionId } from '../sidebarV2Utils';
+import {
+  applySidebarTableClipboardCommand,
+  getSidebarTableClipboardCommandKey,
+  getSidebarTableClipboardEntries,
+} from './sidebarTableClipboardSession';
 
 export type SidebarTableClipboardEntry = {
   node: any;
@@ -28,6 +30,7 @@ export type SidebarTableClipboardTarget = {
 export type SidebarTableClipboardCommand =
   | { kind: 'none' }
   | { kind: 'copy'; entries: SidebarTableClipboardEntry[] }
+  | { kind: 'copy-names'; entries: SidebarTableClipboardEntry[] }
   | { kind: 'paste-copy-table'; entries: SidebarTableClipboardEntry[]; target: SidebarTableClipboardTarget }
   | {
       kind: 'paste-via-data-sync';
@@ -245,6 +248,11 @@ export const resolveSidebarTableClipboardCommand = ({
   }
 
   const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
+  const copyNamesShortcut = shortcutPlatform === 'mac' ? 'Meta+Shift+C' : 'Ctrl+Shift+C';
+  if (isShortcutMatch(event, copyNamesShortcut)) {
+    const entries = resolveSidebarTableClipboardEntries(nodes, connectionIds);
+    return entries ? { kind: 'copy-names', entries } : { kind: 'none' };
+  }
   const copyShortcut = shortcutPlatform === 'mac' ? 'Meta+C' : 'Ctrl+C';
   if (isShortcutMatch(event, copyShortcut)) {
     const entries = resolveSidebarTableClipboardEntries(nodes, connectionIds);
@@ -313,9 +321,8 @@ export const useSidebarTableClipboard = ({
   onOpenDataSyncWorkbench,
   blocked = false,
 }: UseSidebarTableClipboardInput): void => {
-  const clipboardRef = useRef<SidebarTableClipboardEntry[] | null>(null);
   const sidebarActiveRef = useRef(false);
-  const lastHandledRef = useRef<{ action: 'copy' | 'paste'; at: number } | null>(null);
+  const lastHandledRef = useRef<{ commandKey: string; at: number } | null>(null);
   const stateRef = useRef({
     selectedNodesRef,
     connectionIds,
@@ -334,16 +341,15 @@ export const useSidebarTableClipboard = ({
   };
 
   useEffect(() => {
-    const root = rootRef.current;
-    if (!root || typeof document === 'undefined') return;
+    if (typeof document === 'undefined') return;
 
-    const resolveActiveRegion = (): HTMLElement => (
-      root.querySelector<HTMLElement>('[data-sidebar-tree-panel="true"]') || root
+    const resolveActiveRegion = (): HTMLElement | null => (
+      rootRef.current?.querySelector<HTMLElement>('[data-sidebar-tree-panel="true"]') || rootRef.current
     );
     const isInsideActiveRegion = (target: EventTarget | null): boolean => {
       const element = target as Node | null;
       if (!element) return false;
-      return resolveActiveRegion().contains(element);
+      return Boolean(resolveActiveRegion()?.contains(element));
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -359,53 +365,20 @@ export const useSidebarTableClipboard = ({
       command: SidebarTableClipboardCommand,
       state: typeof stateRef.current,
       event: Event,
-      action: 'copy' | 'paste',
     ) => {
       if (command.kind === 'none') return;
       event.preventDefault();
 
       // macOS 原生编辑菜单和 keydown 可能先后触发同一操作，去重避免重复弹窗。
       const now = Date.now();
+      const commandKey = getSidebarTableClipboardCommandKey(command);
       const previous = lastHandledRef.current;
-      if (previous && previous.action === action && now - previous.at < 150) {
+      if (previous && previous.commandKey === commandKey && now - previous.at < 150) {
         return;
       }
-      lastHandledRef.current = { action, at: now };
+      lastHandledRef.current = { commandKey, at: now };
 
-      switch (command.kind) {
-        case 'copy':
-          clipboardRef.current = command.entries;
-          if (command.entries.length === 1) {
-            message.success(t('sidebar.table_clipboard.copy_success', {
-              table: command.entries[0].table,
-              shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
-            }));
-          } else {
-            message.success(t('sidebar.table_clipboard.copy_success_multiple', {
-              count: command.entries.length,
-              shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
-            }));
-          }
-          return;
-        case 'paste-copy-table':
-          state.onCopyTables(command.entries.map((entry) => entry.node));
-          return;
-        case 'paste-via-data-sync':
-          if (state.onOpenDataSyncWorkbench) {
-            state.onOpenDataSyncWorkbench('sync', command.prefill);
-          } else {
-            message.warning(t('sidebar.table_clipboard.data_sync_unavailable'));
-          }
-          return;
-        case 'paste-target-missing':
-          message.warning(t('sidebar.table_clipboard.target_required'));
-          return;
-        case 'paste-mixed-sources':
-          message.warning(t('sidebar.table_clipboard.mixed_sources'));
-          return;
-        default:
-          return;
-      }
+      applySidebarTableClipboardCommand(command, state);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
@@ -416,10 +389,10 @@ export const useSidebarTableClipboard = ({
         event,
         shortcutPlatform: state.activeShortcutPlatform,
         selectedNodes: state.selectedNodesRef.current,
-        clipboard: clipboardRef.current,
+        clipboard: getSidebarTableClipboardEntries(),
         connectionIds: state.connectionIds,
       });
-      applyCommand(command, state, event, command.kind === 'copy' ? 'copy' : 'paste');
+      applyCommand(command, state, event);
     };
     const handleCopy = (event: ClipboardEvent) => {
       if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
@@ -430,7 +403,7 @@ export const useSidebarTableClipboard = ({
         selectedNodes: state.selectedNodesRef.current,
         connectionIds: state.connectionIds,
       });
-      applyCommand(command, state, event, 'copy');
+      applyCommand(command, state, event);
     };
     const handlePaste = (event: ClipboardEvent) => {
       if (!sidebarActiveRef.current && !isInsideActiveRegion(event.target)) return;
@@ -439,10 +412,10 @@ export const useSidebarTableClipboard = ({
       const command = resolveSidebarTableClipboardPasteEventCommand({
         event,
         selectedNodes: state.selectedNodesRef.current,
-        clipboard: clipboardRef.current,
+        clipboard: getSidebarTableClipboardEntries(),
         connectionIds: state.connectionIds,
       });
-      applyCommand(command, state, event, 'paste');
+      applyCommand(command, state, event);
     };
 
     document.addEventListener('pointerdown', handlePointerDown, true);

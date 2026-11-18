@@ -69,6 +69,11 @@ func TestDBQueryMultiTransactionalKeepsDMLTransactionOpenUntilCommit(t *testing.
 	if got := resultSets[1].Rows[0]["affectedRows"]; got != int64(3) {
 		t.Fatalf("expected second affectedRows=3, got %#v", got)
 	}
+	if len(result.StatementResults) != 2 ||
+		result.StatementResults[0].Status != connection.StatementResultSuccess ||
+		result.StatementResults[1].Status != connection.StatementResultSuccess {
+		t.Fatalf("expected two successful statement results, got %#v", result.StatementResults)
+	}
 
 	commitResult := app.DBCommitTransaction(result.TransactionID)
 	if !commitResult.Success {
@@ -513,6 +518,15 @@ func TestDBQueryMultiTransactionalRollsBackAndClosesOnDMLFailure(t *testing.T) {
 		if fakeDB.execQueries[i] != want {
 			t.Fatalf("expected exec query %d = %q, got %q", i, want, fakeDB.execQueries[i])
 		}
+	}
+	if len(result.StatementResults) != 2 {
+		t.Fatalf("expected two statement results, got %#v", result.StatementResults)
+	}
+	if result.StatementResults[0].Status != connection.StatementResultRolledBack {
+		t.Fatalf("expected first statement to be rolled back, got %#v", result.StatementResults[0])
+	}
+	if result.StatementResults[1].Status != connection.StatementResultFailed {
+		t.Fatalf("expected second statement to fail, got %#v", result.StatementResults[1])
 	}
 }
 

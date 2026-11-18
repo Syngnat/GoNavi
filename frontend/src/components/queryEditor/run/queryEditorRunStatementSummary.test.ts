@@ -5,8 +5,10 @@ import { loadAllCatalogs } from '../../../i18n/catalog';
 import type { QueryEditorResultSet } from '../../QueryEditorResultsPanel';
 import {
     aggregateQueryEditorStatementResults,
+    buildQueryEditorStatementSummaryEntriesFromExecutionResults,
+    buildQueryEditorStatementSummaryFailureEntries,
+    buildQueryEditorStatementSummaryCopyText,
     collectQueryEditorStatementSummaryEntries,
-    collectQueryEditorUnmanagedRollbackableStatements,
     countQueryEditorAffectedRowResults,
     isQueryEditorRowCountMeaninglessStatement,
     isQueryEditorStatementSummary,
@@ -61,48 +63,104 @@ describe('queryEditorRunStatementSummary', () => {
         expect(isQueryEditorRowCountMeaninglessStatement('DELETE FROM t WHERE id = 1')).toBe(false);
     });
 
-    it('drops non-data statements from the unmanaged-write warning', () => {
-        const statements = [
-            'SET SESSION group_concat_max_len = 16777216',
-            'SET NAMES utf8mb4',
-            "SET @@SESSION.sql_mode = ''",
-            'SET @visit_count = 1',
-            'USE demo',
-            'BEGIN',
-            'COMMIT',
-            'ANALYZE TABLE t',
-            'UPDATE STATISTICS t',
-            'UPDATE t SET c = 1',
-            'CALL refresh_cache()',
-            'CREATE TABLE t (id int)',
-            'TRUNCATE TABLE t',
-            'SET GLOBAL max_connections = 1000',
-            "SET PASSWORD = 'secret'",
-            'SET @x = 1 DELETE FROM t',
-            "USE demo LOAD DATA INFILE '/tmp/a' INTO TABLE t",
-            'VACUUM FULL t',
-            'OPTIMIZE TABLE t',
-        ];
-        expect(collectQueryEditorUnmanagedRollbackableStatements(statements, 'mysql')).toEqual([
-            "SET @@SESSION.sql_mode = ''",
-            'UPDATE t SET c = 1',
-            'CALL refresh_cache()',
-            'SET GLOBAL max_connections = 1000',
-            "SET PASSWORD = 'secret'",
-            'SET @x = 1 DELETE FROM t',
-            "USE demo LOAD DATA INFILE '/tmp/a' INTO TABLE t",
-            'VACUUM FULL t',
-            'OPTIMIZE TABLE t',
-        ]);
-    });
-
     it('keeps affected rows only for DML entries', () => {
         const statements = ['CREATE TABLE t (id int)', 'UPDATE t SET id = 1'];
         const entries = buildEntries([affectedResult(1, 0), affectedResult(2, 3)], statements);
         expect(entries).toEqual([
-            { statementIndex: 1, statement: statements[0], rowCountMeaningless: true },
-            { statementIndex: 2, statement: statements[1], affectedRows: 3, rowCountMeaningless: false },
+            {
+                statementIndex: 1,
+                statement: statements[0],
+                status: 'success',
+                rowCountMeaningless: true,
+            },
+            {
+                statementIndex: 2,
+                statement: statements[1],
+                status: 'success',
+                affectedRows: 3,
+                rowCountMeaningless: false,
+            },
         ]);
+    });
+
+    it('keeps structured per-statement execution statuses', () => {
+        const statements = ['UPDATE t SET c = 1', 'UPDATE t SET c = 2', 'UPDATE t SET c = 3'];
+        const entries = buildQueryEditorStatementSummaryEntriesFromExecutionResults({
+            results: [
+                { statementIndex: 1, status: 'success', affectedRows: 2 },
+                { statementIndex: 2, status: 'failed', error: 'duplicate key' },
+                { statementIndex: 3, status: 'skipped' },
+            ],
+            statementAt: (statementIndex) => statements[statementIndex - 1] || '',
+            dbType: 'mysql',
+        });
+
+        expect(entries.map((entry) => entry.status)).toEqual(['success', 'failed', 'skipped']);
+        expect(entries[0].affectedRows).toBe(2);
+        expect(entries[1].error).toBe('duplicate key');
+    });
+
+    it('copies every statement with status and error text', () => {
+        const copyText = buildQueryEditorStatementSummaryCopyText([
+            {
+                statementIndex: 1,
+                statement: 'UPDATE t SET c = 1',
+                status: 'success',
+                affectedRows: 2,
+                rowCountMeaningless: false,
+            },
+            {
+                statementIndex: 2,
+                statement: 'UPDATE t SET c = 2',
+                status: 'failed',
+                rowCountMeaningless: false,
+                error: 'duplicate key',
+            },
+        ]);
+
+        expect(copyText).toContain('✓ 1. UPDATE t SET c = 1');
+        expect(copyText).toContain('影响行数：2');
+        expect(copyText).toContain('✗ 2. UPDATE t SET c = 2');
+        expect(copyText).toContain('[失败]');
+        expect(copyText).toContain('duplicate key');
+    });
+
+    it('builds a reliable fallback summary when a later statement fails', () => {
+        const statements = ['UPDATE t SET c = 1', 'UPDATE t SET c = 2', 'UPDATE t SET c = 3'];
+        const entries = buildQueryEditorStatementSummaryFailureEntries({
+            sourceStatements: statements,
+            executedCount: 1,
+            failedIndex: 2,
+            errorText: 'duplicate key',
+            outcomeUnknown: false,
+            dbType: 'mysql',
+        });
+
+        expect(entries.map((entry) => entry.status)).toEqual(['success', 'failed', 'skipped']);
+        expect(entries[1].error).toBe('duplicate key');
+    });
+
+    it('does not guess per-statement status when the failed index is out of range', () => {
+        expect(buildQueryEditorStatementSummaryFailureEntries({
+            sourceStatements: ['UPDATE t SET c = 1', 'UPDATE t SET c = 2'],
+            executedCount: 1,
+            failedIndex: 0,
+            errorText: 'failed',
+            outcomeUnknown: false,
+            dbType: 'mysql',
+        })).toEqual([]);
+    });
+
+    it('marks every statement unknown when a batch outcome is unknown without an index', () => {
+        const entries = buildQueryEditorStatementSummaryFailureEntries({
+            sourceStatements: ['UPDATE t SET c = 1', 'UPDATE t SET c = 2'],
+            executedCount: 0,
+            failedIndex: 0,
+            errorText: 'connection closed',
+            outcomeUnknown: true,
+            dbType: 'mysql',
+        });
+        expect(entries.map((entry) => entry.status)).toEqual(['unknown', 'unknown']);
     });
 
     it('merges hundreds of DDL results into one summary result set', () => {
@@ -120,6 +178,8 @@ describe('queryEditorRunStatementSummary', () => {
         expect(next).toHaveLength(1);
         expect(isQueryEditorStatementSummary(next[0])).toBe(true);
         expect(next[0].summaryStatementCount).toBe(342);
+        expect(next[0].summaryEntries).toHaveLength(342);
+        expect(next[0].summaryEntries?.every((entry) => entry.status === 'success')).toBe(true);
         expect(next[0].messages?.[0]).toBe('342 条语句执行成功：');
         expect(next[0].messages?.some((line) => line.includes('影响行数：0'))).toBe(false);
         expect(next[0].messages?.[next[0].messages!.length - 1]).toContain('结构变更已直接生效');
@@ -176,5 +236,15 @@ describe('queryEditorRunStatementSummary', () => {
         );
         expect(entries).toHaveLength(1);
         expect(entries[0].affectedRows).toBe(5);
+    });
+
+    it('keeps identical statements at different indexes as separate rows', () => {
+        const statements = ['UPDATE t SET c = 1', 'UPDATE t SET c = 1'];
+        const entries = buildEntries(
+            [affectedResult(1, 2), affectedResult(2, 3)],
+            statements,
+        );
+        expect(entries).toHaveLength(2);
+        expect(entries.map((entry) => entry.affectedRows)).toEqual([2, 3]);
     });
 });

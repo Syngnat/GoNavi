@@ -310,14 +310,14 @@ export const useTableOverviewTableActions = ({
   const accentColor = 'var(--gn-accent)';
   const containerBg = undefined;
 
-  const toggleSort = (field: SortField) => {
+  const toggleSort = useCallback((field: SortField) => {
       if (sortField === field) {
           setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
       } else {
           setSortField(field);
           setSortOrder(field === 'name' || field === 'comment' || field === 'engine' ? 'asc' : 'desc');
       }
-  };
+  }, [setSortField, setSortOrder, sortField]);
 
   const getSortMenuLabel = (field: SortField, labelKey: string) => {
       const suffix = sortField === field ? (sortOrder === 'asc' ? ' ↑' : ' ↓') : '';

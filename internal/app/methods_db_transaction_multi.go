@@ -244,16 +244,24 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 	}
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
+	statementObservations := make([]managedSQLStatementObservation, 0, len(statements))
+	auditObserver := withManagedSQLStatementAuditTimestamp(
+		a.sqlAuditTransactionStatementObserver(transactionConfig, dbName, transactionDBType, queryID, transactionID, transactionBoundaryMode, &statementAuditEvents),
+		&statementAuditEvents,
+	)
+	collectObserver := func(observation managedSQLStatementObservation) {
+		statementObservations = append(statementObservations, observation)
+		if auditObserver != nil {
+			auditObserver(observation)
+		}
+	}
 	resultSets, err := executeManagedSQLTransactionStatementsWithObserver(
 		ctx,
 		sessionExecer,
 		transactionConfig,
 		statements,
 		a.appText,
-		withManagedSQLStatementAuditTimestamp(
-			a.sqlAuditTransactionStatementObserver(transactionConfig, dbName, transactionDBType, queryID, transactionID, transactionBoundaryMode, &statementAuditEvents),
-			&statementAuditEvents,
-		),
+		collectObserver,
 		executionOptions,
 	)
 	queryExecutionDuration += time.Since(queryStartedAt)
@@ -295,7 +303,16 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 			Err:           rollbackErr,
 		})
 		logger.Error(err, "DBQueryMultiTransactional 执行失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
-		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
+		rollbackState := connection.StatementResultRolledBack
+		if rollbackErr != nil {
+			rollbackState = connection.StatementResultUnknown
+		}
+		return connection.QueryResult{
+			Success:          false,
+			Message:          err.Error(),
+			QueryID:          queryID,
+			StatementResults: managedObservationStatementResults(statements, statementObservations, rollbackState),
+		}
 	}
 
 	a.sqlTransactionMu.Lock()
@@ -323,6 +340,7 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 		QueryID:            queryID,
 		TransactionID:      transactionID,
 		TransactionPending: true,
+		StatementResults:   managedObservationStatementResults(statements, statementObservations, ""),
 	}
 }
 
@@ -397,16 +415,24 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
+	statementObservations := make([]managedSQLStatementObservation, 0, len(statements))
+	auditObserver := withManagedSQLStatementAuditTimestamp(
+		a.sqlAuditTransactionStatementObserver(runConfig, runConfig.Database, tx.dbType, queryID, transactionID, tx.boundaryMode, &statementAuditEvents),
+		&statementAuditEvents,
+	)
+	collectObserver := func(observation managedSQLStatementObservation) {
+		statementObservations = append(statementObservations, observation)
+		if auditObserver != nil {
+			auditObserver(observation)
+		}
+	}
 	resultSets, err := executeManagedSQLTransactionStatementsWithObserver(
 		ctx,
 		tx.execer,
 		runConfig,
 		statements,
 		a.appText,
-		withManagedSQLStatementAuditTimestamp(
-			a.sqlAuditTransactionStatementObserver(runConfig, runConfig.Database, tx.dbType, queryID, transactionID, tx.boundaryMode, &statementAuditEvents),
-			&statementAuditEvents,
-		),
+		collectObserver,
 	)
 	queryExecutionDuration += time.Since(queryStartedAt)
 	a.appendSQLAuditEvents(statementAuditEvents)
@@ -418,6 +444,7 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 			QueryID:            queryID,
 			TransactionID:      transactionID,
 			TransactionPending: true,
+			StatementResults:   managedObservationStatementResults(statements, statementObservations, ""),
 		}
 	}
 
@@ -427,5 +454,6 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 		QueryID:            queryID,
 		TransactionID:      transactionID,
 		TransactionPending: true,
+		StatementResults:   managedObservationStatementResults(statements, statementObservations, ""),
 	}
 }

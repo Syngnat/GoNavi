@@ -7,6 +7,7 @@ import { buildQueryResultColumnPinScope } from '../utils/queryResultColumnPinSco
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import DataGrid from './DataGrid';
+import QueryEditorStatementSummaryTable from './queryEditor/QueryEditorStatementSummaryTable';
 import {
     isQueryEditorRowCountMeaninglessStatement, isQueryEditorStatementSummary,
 } from './queryEditor/run/queryEditorRunStatementSummary';
@@ -179,6 +180,28 @@ const QueryEditorResultTabContent: React.FC<{
     if (rs.resultType === 'message') {
         // 批量写语句的汇总结果：显示「执行摘要」，避免几百个结果标签
         const isStatementSummary = isQueryEditorStatementSummary(rs);
+        if (isStatementSummary && rs.summaryEntries && rs.summaryEntries.length > 0) {
+            return (
+                <div style={{
+                    flex: 1,
+                    minHeight: 0,
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    padding: 16,
+                    overflow: 'hidden',
+                    boxSizing: 'border-box',
+                    userSelect: 'text',
+                }}>
+                    <QueryEditorStatementSummaryTable
+                        title={t('query_editor.results_panel.summary.title')}
+                        entries={rs.summaryEntries}
+                        darkMode={darkMode}
+                        fallbackText={(rs.messages || []).join('\n')}
+                    />
+                </div>
+            );
+        }
         return (
             <div className="gn-v2-query-success" style={{
                 flex: 1, minHeight: 0, display: 'flex', justifyContent: 'flex-start', flexDirection: 'column', gap: 12,

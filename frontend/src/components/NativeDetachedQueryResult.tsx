@@ -5,6 +5,8 @@ import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import { useStore } from '../store';
 import type { DetachedQueryResultWindow } from '../utils/detachedWindow';
+import QueryEditorStatementSummaryTable from './queryEditor/QueryEditorStatementSummaryTable';
+import { isQueryEditorStatementSummary } from './queryEditor/run/queryEditorRunStatementSummary';
 
 const DataGrid = React.lazy(() => import('./DataGrid'));
 
@@ -100,6 +102,19 @@ const NativeDetachedQueryResult: React.FC<{
             {...sharedGridProps}
           />
         )}
+      </div>
+    );
+  }
+
+  if (isQueryEditorStatementSummary(result) && result.summaryEntries && result.summaryEntries.length > 0) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', padding: 12, overflow: 'hidden' }}>
+        <QueryEditorStatementSummaryTable
+          title={t('query_editor.results_panel.summary.title')}
+          entries={result.summaryEntries}
+          darkMode={isDark}
+          fallbackText={(result.messages || []).join('\n')}
+        />
       </div>
     );
   }

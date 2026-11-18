@@ -122,7 +122,7 @@ const scheduleToWire = (
 };
 
 export const isLocalDataSyncTaskId = (taskId: string): boolean =>
-  taskId.startsWith('data-sync-local-');
+  taskId.startsWith('data-sync-local-') || taskId.startsWith('data-sync-paste-');
 
 export const encodeDataSyncJobDefinition = (
   task: DataSyncTaskDefinition,

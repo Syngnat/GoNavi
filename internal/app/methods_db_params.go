@@ -238,7 +238,7 @@ func (a *App) dbQueryMultiWithParams(
 		}
 	}()
 
-	resultSets, executedCount, failedIndex, auditEvents, execErr := a.executeParameterizedStatements(
+	resultSets, executedCount, failedIndex, statementResults, auditEvents, execErr := a.executeParameterizedStatements(
 		ctx, dbInst, nil, runConfig, resolvedDBType, stmts,
 		trackSQLAudit, auditSource, time.Now(), queryID, "", setRunningQueryCancellable, &queryExecutionDuration,
 	)
@@ -250,16 +250,18 @@ func (a *App) dbQueryMultiWithParams(
 		})
 		logger.Error(execErr, "DBQueryMultiWithParams 语句执行失败：%s index=%d", formatConnSummary(runConfig), failedIndex)
 		return summarizeMultiStatementResult(connection.QueryResult{
-			Success: false,
-			Message: message,
-			QueryID: queryID,
+			Success:          false,
+			Message:          message,
+			QueryID:          queryID,
+			StatementResults: statementResults,
 		}, executedCount, failedIndex, sqlaudit.BoundaryModeImplicit, writeExecutionOutcomeUnknown(ctx, execErr))
 	}
 
 	return summarizeMultiStatementResult(connection.QueryResult{
-		Success: true,
-		Data:    resultSets,
-		QueryID: queryID,
+		Success:          true,
+		Data:             resultSets,
+		QueryID:          queryID,
+		StatementResults: statementResults,
 	}, executedCount, 0, sqlaudit.BoundaryModeImplicit, false)
 }
 
@@ -404,7 +406,7 @@ func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql stri
 
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(stmts))
-	resultSets, _, _, _, execErr := a.executeParameterizedStatements(
+	resultSets, _, _, statementResults, _, execErr := a.executeParameterizedStatements(
 		ctx, nil, tx.execer, runConfig, resolvedDBType, stmts,
 		true, normalizeSQLAuditSource("query_editor"), queryStartedAt, queryID, transactionID, nil, &queryExecutionDuration,
 	)
@@ -417,6 +419,7 @@ func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql stri
 			QueryID:            queryID,
 			TransactionID:      transactionID,
 			TransactionPending: true,
+			StatementResults:   statementResults,
 		}
 	}
 
@@ -426,6 +429,7 @@ func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql stri
 		QueryID:            queryID,
 		TransactionID:      transactionID,
 		TransactionPending: true,
+		StatementResults:   statementResults,
 	}
 }
 
@@ -570,16 +574,25 @@ func (a *App) executeParameterizedStatements(
 	transactionID string,
 	setRunningQueryCancellable func(bool),
 	executionDuration *time.Duration,
-) ([]connection.ResultSetData, int, int, []sqlaudit.Event, error) {
+) ([]connection.ResultSetData, int, int, []connection.StatementExecutionResult, []sqlaudit.Event, error) {
 	resultSets := make([]connection.ResultSetData, 0, len(stmts))
 	executedCount := 0
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(stmts))
+	statementTexts := make([]string, 0, len(stmts))
+	for _, stmt := range stmts {
+		statementTexts = append(statementTexts, stmt.text)
+	}
+	statementResults := newStatementExecutionResults(statementTexts)
 	for idx, stmt := range stmts {
 		if budget := db.RowBudgetFromContext(ctx); budget != nil && budget.Truncated() {
 			// 前一语句已达行预算并停止读取，剩余语句不再执行。
 			break
 		}
 		statementStartedAt := time.Now()
+		var (
+			statementAffectedRowsValue *int64
+			statementRowsReturned      int64
+		)
 		statementErr := func() error {
 			isReadStmt := isReadOnlySQLQuery(runConfig.Type, stmt.text)
 			tryQueryStmtFirst := shouldTryQueryResultFirst(runConfig.Type, stmt.text)
@@ -602,7 +615,12 @@ func (a *App) executeParameterizedStatements(
 					queryErr = errParameterBindingUnsupported
 				}
 				if queryErr == nil {
-					resultSets = append(resultSets, connection.ResultSetData{Rows: data, Columns: columns})
+					statementRowsReturned = int64(len(data))
+					resultSets = append(resultSets, connection.ResultSetData{
+						Rows:           data,
+						Columns:        columns,
+						StatementIndex: idx + 1,
+					})
 				}
 				return queryErr
 			}
@@ -623,9 +641,11 @@ func (a *App) executeParameterizedStatements(
 				execErr = errParameterBindingUnsupported
 			}
 			if execErr == nil {
+				statementAffectedRowsValue = statementAffectedRows(affected)
 				resultSets = append(resultSets, connection.ResultSetData{
-					Rows:    []map[string]interface{}{{"affectedRows": affected}},
-					Columns: []string{"affectedRows"},
+					Rows:           []map[string]interface{}{{"affectedRows": affected}},
+					Columns:        []string{"affectedRows"},
+					StatementIndex: idx + 1,
 				})
 			}
 			return execErr
@@ -646,10 +666,25 @@ func (a *App) executeParameterizedStatements(
 				}
 			}
 			statementErr = classifyDispatchedWriteError(statementErr)
-			return resultSets, executedCount - 1, idx + 1, statementAuditEvents, statementErr
+			outcomeUnknown := writeExecutionOutcomeUnknown(ctx, statementErr)
+			status := connection.StatementResultFailed
+			if outcomeUnknown {
+				status = connection.StatementResultUnknown
+			}
+			updateStatementExecutionResult(statementResults, idx+1, status, nil, 0, time.Since(statementStartedAt), statementErr)
+			return resultSets, executedCount - 1, idx + 1, statementResults, statementAuditEvents, statementErr
 		}
+		updateStatementExecutionResult(
+			statementResults,
+			idx+1,
+			connection.StatementResultSuccess,
+			statementAffectedRowsValue,
+			statementRowsReturned,
+			time.Since(statementStartedAt),
+			nil,
+		)
 	}
-	return resultSets, executedCount, 0, statementAuditEvents, nil
+	return resultSets, executedCount, 0, statementResults, statementAuditEvents, nil
 }
 
 // buildParameterizedStatementAuditEvent 构造单语句审计事件；SQL 字段是含

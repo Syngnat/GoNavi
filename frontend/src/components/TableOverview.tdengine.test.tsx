@@ -208,7 +208,7 @@ describe('TableOverview metadata compatibility', () => {
     vi.stubGlobal('document', {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      body: {},
+      body: { style: {} },
     });
     vi.stubGlobal('window', {
       go: { app: { App: backendApp } },

@@ -34,7 +34,10 @@ import LogPanel from './LogPanel';
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 import { QueryEditorExecutionStatus } from './queryEditor/QueryEditorExecutionStatus';
 import { QueryEditorExecutionErrorCard } from './queryEditor/QueryEditorExecutionErrorCard';
-import { isQueryEditorStatementSummary } from './queryEditor/run/queryEditorRunStatementSummary';
+import {
+    isQueryEditorStatementSummary,
+    type QueryEditorStatementSummaryEntry,
+} from './queryEditor/run/queryEditorRunStatementSummary';
 import {
     resolveVisibleQueryEditorExecutionLifecycle,
     type QueryEditorExecutionLifecycleState,
@@ -57,6 +60,7 @@ export type QueryEditorResultSet = {
     /** 批量写语句汇总行（见 queryEditorRunStatementSummary），渲染为「执行摘要」。 */
     summaryKind?: string;
     summaryStatementCount?: number;
+    summaryEntries?: QueryEditorStatementSummaryEntry[];
     requestLabel?: string;
     httpStatus?: number;
     rawResponse?: string;

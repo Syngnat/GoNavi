@@ -16,6 +16,7 @@ vi.mock('antd', () => ({
 }));
 
 import { useSidebarTableClipboard } from './useSidebarTableClipboard';
+import { clearSidebarTableClipboard } from './sidebarTableClipboardSession';
 
 const sourceNode = {
   key: 'conn-a-shop-table-orders',
@@ -90,6 +91,7 @@ describe('useSidebarTableClipboard DOM events', () => {
   beforeEach(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
+    clearSidebarTableClipboard();
     selectedNodesRef = { current: [sourceNode] };
     container = document.createElement('div');
     document.body.appendChild(container);

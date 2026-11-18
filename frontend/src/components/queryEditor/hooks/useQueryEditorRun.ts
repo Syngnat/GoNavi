@@ -313,7 +313,7 @@ export const useQueryEditorRun = ({
                   setQueryId, setExecutionTimingActive, executeSqlEditorMultiQuery,
                   executionConnectionParams, executionSchemaName, finishQueryEditorSqlClock, queryEditorUnmountedRef,
                   addSqlLog, currentQueryIdRef, clearQueryId, updateResultPanelVisibility,
-                  setExecutionError, mutatingStatements, activatePendingSqlTransaction,
+                  setExecutionError, activatePendingSqlTransaction,
                   sqlEditorCommitMode, sqlEditorAutoCommitDelayMs,
                   appendPendingSqlTransactionExecution, hasConcreteQueryResultSetData,
                   isAffectedRowsResultSetData, mergeResultSets, setResultSets, activateExecutedResult,

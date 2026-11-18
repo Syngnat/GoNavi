@@ -12,6 +12,7 @@ import {
     CLOSE_ACTIVE_RESULT_TAB_EVENT,
 } from '../../../utils/closeTabShortcut';
 import { filterQueryEditorResultSetsForBulkClose } from '../queryEditorResultSort';
+import { isQueryEditorStatementSummary } from '../run/queryEditorRunStatementSummary';
 import { openNativeQueryResultWindow } from '../../../utils/nativeDetachedWindowHost';
 import { NATIVE_DETACHED_QUERY_RESULT_REDETACH_EVENT } from '../../../utils/nativeDetachedWindowClient';
 import { getShortcutDisplayLabel } from '../../../utils/shortcuts';
@@ -220,7 +221,9 @@ export const useQueryEditorResultTabs = ({
         if (!target) return;
         const index = resultSets.findIndex((result) => result.key === key);
         const title = target.resultType === 'message'
-            ? translate('query_editor.results_panel.tab.message', { index: index + 1 })
+            ? translate(isQueryEditorStatementSummary(target)
+                ? 'query_editor.results_panel.summary.title'
+                : 'query_editor.results_panel.tab.message', { index: index + 1 })
             : translate('query_editor.results_panel.detached.title', { index: index + 1 });
         const windowId = `query-result:${tab.id}:${target.key}`;
         const detachedWindow = {
@@ -246,6 +249,7 @@ export const useQueryEditorResultTabs = ({
                 resultType: target.resultType,
                 summaryKind: target.summaryKind,
                 summaryStatementCount: target.summaryStatementCount,
+                summaryEntries: target.summaryEntries,
                 requestLabel: target.requestLabel,
                 httpStatus: target.httpStatus,
                 rawResponse: target.rawResponse,
@@ -304,6 +308,9 @@ export const useQueryEditorResultTabs = ({
                             : 'grid',
                     summaryKind: restored.summaryKind,
                     summaryStatementCount: restored.summaryStatementCount,
+                    summaryEntries: Array.isArray(restored.summaryEntries)
+                        ? restored.summaryEntries
+                        : undefined,
                     requestLabel: restored.requestLabel,
                     httpStatus: restored.httpStatus,
                     rawResponse: restored.rawResponse,

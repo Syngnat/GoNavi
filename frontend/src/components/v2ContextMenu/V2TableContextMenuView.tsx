@@ -157,9 +157,9 @@ export const V2TableContextMenuView: React.FC<{
 
         <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.copy_section')}</div>
         {renderItems([
-          { action: 'copy-table-name', icon: <CopyOutlined />, title: t('sidebar.v2_table_menu.copy_table_name'), kbd: primaryShortcut('C', shortcutPlatform) },
+          { action: 'copy-table-name', icon: <CopyOutlined />, title: t('sidebar.v2_table_menu.copy_table_name'), kbd: primaryShortcut('Shift+C', shortcutPlatform) },
           { action: 'copy-structure', icon: <CopyOutlined />, title: `${t('sidebar.menu.copy_table_structure')} · DDL` },
-          ...(supportsCopyTable ? [{ action: 'copy-table' as const, icon: <CopyOutlined />, title: t('table_copy.action.label') }] : []),
+          ...(supportsCopyTable ? [{ action: 'copy-table' as const, icon: <CopyOutlined />, title: t('table_copy.action.label'), kbd: primaryShortcut('C', shortcutPlatform) }] : []),
           ...(supportsSqlExport ? [{ action: 'copy-insert' as const, icon: <CopyOutlined />, title: t('sidebar.v2_table_menu.copy_table_as_insert', { keyword: 'INSERT' }) }] : []),
         ])}
 

@@ -67,21 +67,22 @@ func executeManagedSQLTransactionStatementsWithObserver(
 		}
 		statementIndex++
 		statementStartedAt := time.Now()
-		emitObservation := func(rowsAffected, rowsReturned int64, err error) {
+		emitObservation := func(rowsAffected, rowsReturned int64, err error, affectedRowsKnown bool) {
 			if observer == nil {
 				return
 			}
 			completedAt := time.Now()
 			observer(managedSQLStatementObservation{
-				Statement:      stmt,
-				StatementIndex: statementIndex,
-				StatementCount: statementCount,
-				StartedAt:      statementStartedAt,
-				CompletedAt:    completedAt,
-				Duration:       completedAt.Sub(statementStartedAt),
-				RowsAffected:   rowsAffected,
-				RowsReturned:   rowsReturned,
-				Err:            err,
+				Statement:         stmt,
+				StatementIndex:    statementIndex,
+				StatementCount:    statementCount,
+				StartedAt:         statementStartedAt,
+				CompletedAt:       completedAt,
+				Duration:          completedAt.Sub(statementStartedAt),
+				RowsAffected:      rowsAffected,
+				AffectedRowsKnown: affectedRowsKnown,
+				RowsReturned:      rowsReturned,
+				Err:               err,
 			})
 		}
 
@@ -149,6 +150,7 @@ func executeManagedSQLTransactionStatementsWithObserver(
 			if err == nil {
 				if usedMultiResult {
 					var rowsAffected, rowsReturned int64
+					affectedRowsKnown := false
 					if len(statementResults) == 0 && len(messages) > 0 {
 						statementResults = []connection.ResultSetData{{
 							Rows:     []map[string]interface{}{},
@@ -167,10 +169,11 @@ func executeManagedSQLTransactionStatementsWithObserver(
 						affected, returned := summarizeManagedSQLResultSet(statementResult)
 						rowsAffected += affected
 						rowsReturned += returned
+						affectedRowsKnown = affectedRowsKnown || isAffectedRowsResultSet(statementResult)
 						resultSets = append(resultSets, statementResult)
 					}
 					applyRowBudgetTruncation(resultSets, rowBudget)
-					emitObservation(rowsAffected, rowsReturned, nil)
+					emitObservation(rowsAffected, rowsReturned, nil, affectedRowsKnown)
 					continue
 				}
 				if data == nil {
@@ -186,18 +189,18 @@ func executeManagedSQLTransactionStatementsWithObserver(
 					StatementIndex: statementIndex,
 				})
 				applyRowBudgetTruncation(resultSets, rowBudget)
-				emitObservation(0, int64(len(data)), nil)
+				emitObservation(0, int64(len(data)), nil, false)
 				continue
 			}
 			if isReadStmt {
 				statementErr := buildStatementExecutionFailedError(statementIndex, err)
-				emitObservation(0, 0, statementErr)
+				emitObservation(0, 0, statementErr, false)
 				return nil, statementErr
 			}
 			// Query-first writes may already have reached the server. Falling
 			// through to Exec would replay the same statement in this transaction.
 			statementErr := buildStatementExecutionFailedError(statementIndex, classifyDispatchedWriteError(err))
-			emitObservation(0, 0, statementErr)
+			emitObservation(0, 0, statementErr, false)
 			return nil, statementErr
 		}
 
@@ -214,7 +217,7 @@ func executeManagedSQLTransactionStatementsWithObserver(
 		}
 		if err != nil {
 			statementErr := buildStatementExecutionFailedError(statementIndex, err)
-			emitObservation(0, 0, statementErr)
+			emitObservation(0, 0, statementErr, false)
 			return nil, statementErr
 		}
 		resultSets = append(resultSets, connection.ResultSetData{
@@ -222,7 +225,7 @@ func executeManagedSQLTransactionStatementsWithObserver(
 			Columns:        []string{"affectedRows"},
 			StatementIndex: statementIndex,
 		})
-		emitObservation(affected, 0, nil)
+		emitObservation(affected, 0, nil, true)
 	}
 
 	if resultSets == nil {

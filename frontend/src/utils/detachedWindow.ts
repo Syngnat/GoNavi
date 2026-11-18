@@ -1,6 +1,7 @@
 import type { Key } from 'react';
 import { APP_DETACHED_WINDOW_Z_INDEX_BASE } from './overlayZIndex';
 import type { FilterCondition } from './sql';
+import type { QueryEditorStatementSummaryEntry } from '../components/queryEditor/run/queryEditorRunStatementSummary';
 
 export type DetachedWindowBounds = {
   x: number;
@@ -27,6 +28,7 @@ export type DetachedQueryResultSnapshot = {
   /** 批量写语句汇总（见 queryEditorRunStatementSummary），独立窗口沿用同一标题口径。 */
   summaryKind?: string;
   summaryStatementCount?: number;
+  summaryEntries?: QueryEditorStatementSummaryEntry[];
   requestLabel?: string;
   httpStatus?: number;
   rawResponse?: string;
