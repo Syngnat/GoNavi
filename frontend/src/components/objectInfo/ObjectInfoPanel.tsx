@@ -3,22 +3,35 @@ import React from 'react';
 import { t } from '../../i18n';
 import { formatBytes } from '../../utils/jvmMonitoringPresentation';
 import { useObjectInfo } from './hooks/useObjectInfo';
+import { ObjectInfoDdlBlock } from './ObjectInfoDdlBlock';
 import './ObjectInfoPanel.css';
 
-// 「信息」页签内容（侧栏底部面板）：跟随当前选中表展示
-// 名称/注释/引擎/编码/行格式/行数/大小/DDL。驱动不支持的
-// 字段逐项隐藏，方言完全不支持时降级为仅 DDL。
+// 「信息」页签内容（侧栏底部面板）：跟随当前选中表或数据库展示
+// 名称/元数据/DDL。表与库共用 DDL 区域，库显示建库 SQL。
 // 面板外壳（页签/高度/显隐）由 SidebarInfoTabs 负责。
 export const ObjectInfoContent: React.FC = () => {
-  const { target, details, unsupported, ddl, loadState, reload, connectionName } = useObjectInfo();
+  const {
+    target, details, unsupported, ddl, loadState, reload, connectionName,
+    databaseDdlUnsupported, loadError,
+  } = useObjectInfo();
 
   if (!target) {
     return (
       <div className="gn-object-info-empty">
-        {t('object_info.empty.no_table')}
+        {t('object_info.empty.no_object')}
       </div>
     );
   }
+  const isDatabase = target.kind === 'database';
+  const objectName = isDatabase ? target.dbName : target.tableName;
+  const metaParts = isDatabase
+    ? [connectionName, target.schemaName].filter(Boolean)
+    : [connectionName, target.dbName, target.schemaName].filter(Boolean);
+  const databaseDdlEmpty = isDatabase
+    && loadState === 'ready'
+    && !ddl
+    && !databaseDdlUnsupported
+    && !loadError;
 
   const formatRows = (value?: number) => (
     value === undefined ? '' : value.toLocaleString()
@@ -35,7 +48,7 @@ export const ObjectInfoContent: React.FC = () => {
       + `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
   };
 
-  const rows = details ? ([
+  const rows = !isDatabase && details ? ([
     details.engine && { key: 'engine', label: t('object_info.field.engine'), value: details.engine },
     details.comment && { key: 'comment', label: t('object_info.field.comment'), value: details.comment },
     details.collation && { key: 'collation', label: t('object_info.field.collation'), value: details.collation },
@@ -52,7 +65,7 @@ export const ObjectInfoContent: React.FC = () => {
     <div className="gn-object-info" data-object-info-loading={loadState === 'loading' ? 'true' : 'false'}>
       {loadState === 'loading' && <div className="gn-object-info-loading-dot" aria-hidden="true" />}
       <div className="gn-object-info-head">
-        <div className="gn-object-info-head-name" title={target.tableName}>{target.tableName}</div>
+        <div className="gn-object-info-head-name" title={objectName}>{objectName}</div>
         <button
           type="button"
           className="gn-object-info-reload"
@@ -62,9 +75,11 @@ export const ObjectInfoContent: React.FC = () => {
         >⟳</button>
       </div>
       <div className="gn-object-info-meta">
-        {[connectionName, target.dbName, target.schemaName].filter(Boolean).join(' · ')}
+        {metaParts.join(' · ')}
       </div>
-      {unsupported ? (
+      {isDatabase && databaseDdlUnsupported ? (
+        <div className="gn-object-info-unsupported">{t('object_info.message.database_ddl_unsupported')}</div>
+      ) : !isDatabase && unsupported ? (
         <div className="gn-object-info-unsupported">{t('object_info.message.unsupported')}</div>
       ) : rows.length > 0 && (
         <div className="gn-object-info-rows">
@@ -76,11 +91,18 @@ export const ObjectInfoContent: React.FC = () => {
           ))}
         </div>
       )}
-      {ddl && (
-        <div className="gn-object-info-ddl">
-          <div className="gn-object-info-ddl-title">{t('object_info.section.ddl')}</div>
-          <pre className="gn-object-info-ddl-body">{ddl}</pre>
+      {isDatabase && loadError && (
+        <div className="gn-object-info-unsupported">
+          {t('object_info.message.database_ddl_failed', { error: loadError })}
         </div>
+      )}
+      {databaseDdlEmpty && (
+        <div className="gn-object-info-unsupported">
+          {t('object_info.message.database_ddl_empty')}
+        </div>
+      )}
+      {ddl && (
+        <ObjectInfoDdlBlock ddl={ddl} database={isDatabase} />
       )}
     </div>
   );

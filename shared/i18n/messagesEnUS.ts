@@ -777,4 +777,9 @@ export const enUSMessages: Record<string, string> = {
   "connection.modal.driver.updateAlert":
     "Driver agent reinstall is recommended for this data source",
   "connection.modal.driver.reinstallAction": "Reinstall in Driver Manager",
+  "object_info.empty.no_object": "Select a database or table on the left to see its info",
+  "object_info.message.database_ddl_unsupported": "No usable CREATE DATABASE SQL is available for this data source.",
+  "object_info.message.database_ddl_failed": "Failed to load CREATE DATABASE SQL.",
+  "object_info.message.database_ddl_empty": "No usable CREATE DATABASE SQL was returned.",
+  "object_info.section.database_ddl": "CREATE DATABASE SQL",
 };

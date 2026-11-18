@@ -734,4 +734,9 @@ export const zhCNMessages: Record<string, string> = {
   "connection.modal.driver.installAction": "去驱动管理安装",
   "connection.modal.driver.updateAlert": "当前数据源驱动代理建议重装",
   "connection.modal.driver.reinstallAction": "去驱动管理重装",
+  "object_info.empty.no_object": "在左侧选择一个数据库或表以查看信息",
+  "object_info.message.database_ddl_unsupported": "当前数据源没有可用的建库 SQL。",
+  "object_info.message.database_ddl_failed": "读取建库 SQL 失败。",
+  "object_info.message.database_ddl_empty": "未获取到可用的建库 SQL。",
+  "object_info.section.database_ddl": "建库 SQL",
 };

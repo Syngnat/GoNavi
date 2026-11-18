@@ -130,8 +130,7 @@ body[data-ui-version='v2'] .gn-object-info-ddl-title {
 body[data-ui-version='v2'] .gn-object-info-ddl-body {
   margin: 0;
   padding: 8px 10px;
-  max-height: 220px;
-  overflow: auto;
+  overflow: visible;
   border: 0.5px solid var(--gn-br-1, rgba(15, 23, 42, 0.06));
   border-radius: 6px;
   background: var(--gn-monaco-bg, var(--gn-bg-panel-2, transparent));
@@ -140,4 +139,14 @@ body[data-ui-version='v2'] .gn-object-info-ddl-body {
   line-height: 1.65;
   color: var(--gn-fg-2, inherit);
   white-space: pre;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl-body:focus-visible {
+  outline: 2px solid var(--gn-accent, #15803d);
+  outline-offset: 2px;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl-body pre {
+  margin: 0;
+  overflow: visible;
 }
