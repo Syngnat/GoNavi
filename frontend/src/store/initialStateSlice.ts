@@ -9,6 +9,7 @@ import {
   DEFAULT_AUTO_CHECK_FOR_UPDATES_INTERVAL_MINUTES,
   DEFAULT_GLOBAL_PROXY,
 } from "./storeConstants";
+import { DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS } from "../utils/tableOverviewCompactColumns";
 import { DEFAULT_SIDEBAR_TABLE_METADATA_FIELDS } from "../utils/sidebarTableMetadata";
 import { DEFAULT_QUERY_EDITOR_EDITOR_HEIGHT_RATIO } from "../utils/queryEditorSplitLayout";
 import { cloneShortcutOptions, DEFAULT_SHORTCUT_OPTIONS } from "../utils/shortcuts";
@@ -124,6 +125,7 @@ export const createInitialStateSlice = (_set: StoreSet, _get: StoreGet): Initial
   sqlFormatOptions: { keywordCase: "upper" },
   queryOptions: {
     wordWrap: false,
+    tableOverviewCompactColumns: [...DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS],
     showColumnComment: true,
     showSidebarTableComment: false,
     sidebarTableMetadataFields: ["rows"],

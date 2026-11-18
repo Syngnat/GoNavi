@@ -1,5 +1,4 @@
 import React, { useCallback } from 'react';
-import { Tooltip } from 'antd';
 import { TableOutlined, CaretUpFilled, CaretDownFilled } from '@ant-design/icons';
 import {
   type OverviewTableSection,
@@ -14,6 +13,17 @@ import { formatSidebarTableTimestamp } from '../../sidebar/sidebarHelpers';
 import type { TableOverviewTableActionsApi } from './useTableOverviewTableActions';
 import type { TableOverviewStateApi } from './useTableOverviewState';
 import { TableOverviewCard } from '../TableOverviewCard';
+import { MetadataHoverCard, MetadataHoverTooltip } from '../../common/MetadataHoverCard';
+import {
+  buildTableOverviewCompactGridStyle,
+  resolveTableOverviewCompactColumnDefinitions,
+  type TableOverviewCompactColumnDefinition,
+} from '../tableOverviewCompactColumns';
+import {
+  DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
+  type TableOverviewCompactColumn,
+} from '../../../utils/tableOverviewCompactColumns';
+import { buildTableOverviewHoverModel } from '../tableOverviewMetadata';
 
 const renderTableOverviewName = (
   _table: TableStatRow,
@@ -36,6 +46,11 @@ export interface UseTableOverviewRenderersInput {
   sortField: TableOverviewStateApi['sortField'];
   toggleSort: TableOverviewTableActionsApi['toggleSort'];
   sortOrder: TableOverviewStateApi['sortOrder'];
+  compactColumns?: TableOverviewCompactColumn[];
+  connectionName?: string;
+  hostSummary?: string;
+  dbName?: string;
+  schemaName?: string;
   /** 行是否处于选中态（卡片 / 列表 / 紧凑表三种视图共用）。 */
   isOverviewTableSelected: (name: string) => boolean;
 }
@@ -44,6 +59,7 @@ export const useTableOverviewRenderers = ({
   textMuted, textSecondary, textPrimary, darkMode, openTableByDefaultAction,
   openV2OverviewContextMenu, accentColor, metadataDialect, maxCombinedSize, hasKnownTableSize,
   getCombinedTableSize, sortField, toggleSort, sortOrder, isOverviewTableSelected,
+  compactColumns, connectionName, hostSummary, dbName, schemaName,
 }: UseTableOverviewRenderersInput) => {
   // 三种视图的行都带同一个选中标记，拖选 / Shift 区间只按它解析，不区分视图。
   // tabIndex=-1 让点击后行可聚焦，键盘交互以当前焦点行判定。
@@ -83,6 +99,50 @@ export const useTableOverviewRenderers = ({
       if (!value) return '';
       return formatSidebarTableTimestamp(value) || value;
   }, []);
+  const resolvedCompactColumns = React.useMemo(
+      () => compactColumns ?? DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
+      [compactColumns],
+  );
+  const compactColumnDefinitions = React.useMemo(
+      () => resolveTableOverviewCompactColumnDefinitions(resolvedCompactColumns),
+      [resolvedCompactColumns],
+  );
+  const compactGridStyle = React.useMemo(
+      () => buildTableOverviewCompactGridStyle(resolvedCompactColumns),
+      [resolvedCompactColumns],
+  );
+  const renderMetadataHover = useCallback((
+      table: TableStatRow,
+      displayName: string,
+      child: React.ReactElement,
+  ) => {
+      return (
+          <MetadataHoverTooltip
+              content={() => {
+                  const hoverModel = buildTableOverviewHoverModel({
+                      table,
+                      displayName,
+                      connectionName,
+                      hostSummary,
+                      dbName,
+                      schemaName,
+                  });
+                  return (
+                      <MetadataHoverCard
+                          badge={hoverModel.badge}
+                          title={hoverModel.title}
+                          rows={hoverModel.rows}
+                          dataKind={hoverModel.dataKind}
+                      />
+                  );
+              }}
+              mouseEnterDelay={0.8}
+              rootClassName="gn-v2-tab-hover-tooltip gn-v2-table-overview-hover-tooltip"
+          >
+              {child}
+          </MetadataHoverTooltip>
+      );
+  }, [connectionName, dbName, hostSummary, schemaName]);
 
   const renderTableOverviewMetaBadges = useCallback((
       table: TableStatRow,
@@ -121,57 +181,61 @@ export const useTableOverviewRenderers = ({
               }}
           >
               {items.map((item) => (
-                  <Tooltip
+                  <span
                       key={item.key}
-                      title={item.raw ? `${item.label}: ${item.raw}` : undefined}
-                      mouseEnterDelay={0.4}
+                      data-table-overview-card-field={item.key}
+                      aria-label={`${item.label}: ${item.raw || item.value}`}
+                      style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          maxWidth: '100%',
+                          padding: compact ? '1px 7px' : '2px 8px',
+                          borderRadius: 999,
+                          background: 'var(--gn-bg-active)',
+                          color: textSecondary,
+                          fontSize: compact ? 10 : 11,
+                          lineHeight: compact ? '16px' : '18px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                      }}
                   >
-                      <span
-                          data-table-overview-card-field={item.key}
-                          style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              maxWidth: '100%',
-                              padding: compact ? '1px 7px' : '2px 8px',
-                              borderRadius: 999,
-                              background: 'var(--gn-bg-active)',
-                              color: textSecondary,
-                              fontSize: compact ? 10 : 11,
-                              lineHeight: compact ? '16px' : '18px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                          }}
-                      >
-                          <span style={{ opacity: 0.72 }}>{item.label}</span>
-                          <span style={{ color: textPrimary, fontVariantNumeric: 'tabular-nums' }}>{item.value}</span>
-                      </span>
-                  </Tooltip>
+                      <span style={{ opacity: 0.72 }}>{item.label}</span>
+                      <span style={{ color: textPrimary, fontVariantNumeric: 'tabular-nums' }}>{item.value}</span>
+                  </span>
               ))}
           </div>
       );
   }, [darkMode, formatOverviewTimestamp, t, textPrimary, textSecondary]);
 
-  const renderCardTable = (table: TableStatRow) => (
-      <TableOverviewCard
-          key={table.name}
-          table={table}
-          displayName={getTableOverviewDisplayName(metadataDialect, table.name)}
-          isSelected={isOverviewTableSelected(table.name)}
-          accentColor={accentColor}
-          textPrimary={textPrimary}
-          textSecondary={textSecondary}
-          textMuted={textMuted}
-          maxCombinedSize={maxCombinedSize}
-          hasKnownTableSize={hasKnownTableSize}
-          getCombinedTableSize={getCombinedTableSize}
-          openTableByDefaultAction={openTableByDefaultAction}
-          openV2OverviewContextMenu={openV2OverviewContextMenu}
-          renderNameNode={renderTableOverviewName}
-          renderMetaBadges={renderTableOverviewMetaBadges}
-      />
-  );
+  const renderCardTable = (table: TableStatRow) => {
+      const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
+      return (
+          <React.Fragment key={table.name}>
+              {renderMetadataHover(
+                  table,
+                  displayName,
+                  <TableOverviewCard
+                      table={table}
+                      displayName={displayName}
+                      isSelected={isOverviewTableSelected(table.name)}
+                      accentColor={accentColor}
+                      textPrimary={textPrimary}
+                      textSecondary={textSecondary}
+                      textMuted={textMuted}
+                      maxCombinedSize={maxCombinedSize}
+                      hasKnownTableSize={hasKnownTableSize}
+                      getCombinedTableSize={getCombinedTableSize}
+                      openTableByDefaultAction={openTableByDefaultAction}
+                      openV2OverviewContextMenu={openV2OverviewContextMenu}
+                      renderNameNode={renderTableOverviewName}
+                      renderMetaBadges={renderTableOverviewMetaBadges}
+                  />,
+              )}
+          </React.Fragment>
+      );
+  };
 
   const renderListTable = (table: TableStatRow) => {
       const combinedSize = getCombinedTableSize(table);
@@ -222,9 +286,7 @@ export const useTableOverviewRenderers = ({
                       <div style={{ minWidth: 0, flex: '1 1 320px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                               <TableOutlined style={{ fontSize: 13, color: accentColor, flexShrink: 0 }} />
-                              <Tooltip title={displayName} mouseEnterDelay={0.4}>
-                  {renderTableOverviewName(table, displayName, { color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
-                              </Tooltip>
+                              {renderTableOverviewName(table, displayName, { color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                               {table.engine && (
                                   <span
                                       style={{
@@ -240,11 +302,9 @@ export const useTableOverviewRenderers = ({
                                   </span>
                               )}
                           </div>
-                          <Tooltip title={rowSecondary} mouseEnterDelay={0.4}>
-                              <div style={{ marginTop: 6, color: textSecondary, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {rowSecondary}
-                              </div>
-                          </Tooltip>
+                          <div style={{ marginTop: 6, color: textSecondary, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {rowSecondary}
+                          </div>
                           {renderTableOverviewMetaBadges(table, true)}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
@@ -271,7 +331,11 @@ export const useTableOverviewRenderers = ({
               </div>
       );
 
-      return <React.Fragment key={table.name}>{content}</React.Fragment>;
+      return (
+          <React.Fragment key={table.name}>
+              {renderMetadataHover(table, displayName, content)}
+          </React.Fragment>
+      );
   };
 
   const renderCompactSortHeader = (
@@ -314,34 +378,84 @@ export const useTableOverviewRenderers = ({
       );
   };
 
+  const renderCompactColumnHeader = (column: TableOverviewCompactColumnDefinition) => {
+      const sortState = sortField === column.sortField
+          ? (sortOrder === 'asc' ? 'ascending' : 'descending')
+          : 'none';
+      return (
+          <div
+              key={column.key}
+              role="columnheader"
+              aria-sort={column.sortField ? sortState : undefined}
+          >
+              {column.sortField
+                  ? renderCompactSortHeader(column.sortField, column.labelKey, column.align)
+                  : <span className="gn-table-overview-compact-plain-header">{t(column.labelKey)}</span>}
+          </div>
+      );
+  };
+
   const renderCompactTableHeader = () => (
-      <div className="gn-table-overview-compact-header" role="row">
-          <div role="columnheader" aria-sort={sortField === 'name' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('name', 'table_overview.sort.name')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'comment' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('comment', 'table_overview.metric.comment')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'rows' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('rows', 'table_overview.sort.rows', 'right')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'dataSize' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('dataSize', 'table_overview.metric.data_size', 'right')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'indexSize' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('indexSize', 'table_overview.metric.index_size', 'right')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'engine' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('engine', 'table_overview.metric.engine')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'updateTime' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('updateTime', 'table_overview.metric.updated_at')}
-          </div>
-          <div role="columnheader" aria-sort={sortField === 'createTime' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              {renderCompactSortHeader('createTime', 'table_overview.metric.created_at')}
-          </div>
+      <div className="gn-table-overview-compact-header" role="row" style={compactGridStyle}>
+          {compactColumnDefinitions.map(renderCompactColumnHeader)}
       </div>
   );
+
+  const renderCompactCell = (
+      table: TableStatRow,
+      displayName: string,
+      column: TableOverviewCompactColumnDefinition,
+  ) => {
+      if (column.key === 'name') {
+          return (
+              <div key={column.key} className="gn-table-overview-compact-name" role="cell">
+                  <TableOutlined aria-hidden="true" />
+                  {renderTableOverviewName(table, displayName)}
+              </div>
+          );
+      }
+      let text = '—';
+      switch (column.key) {
+          case 'comment':
+              text = table.comment || '—';
+              break;
+          case 'rows':
+              text = formatRows(table.rows);
+              break;
+          case 'dataSize':
+              text = formatSize(table.dataSize);
+              break;
+          case 'indexSize':
+              text = formatSize(table.indexSize);
+              break;
+          case 'engine':
+              text = table.engine || '—';
+              break;
+          case 'charset':
+              text = table.charset || '—';
+              break;
+          case 'collation':
+              text = table.collation || '—';
+              break;
+          case 'updateTime':
+              text = table.updateTime ? formatOverviewTimestamp(table.updateTime) : '—';
+              break;
+          case 'createTime':
+              text = table.createTime ? formatOverviewTimestamp(table.createTime) : '—';
+              break;
+          default:
+              break;
+      }
+      return (
+          <div
+              key={column.key}
+              className={`gn-table-overview-compact-cell${column.align === 'right' ? ' gn-table-overview-compact-number' : ''}`}
+              role="cell"
+          >
+              {text}
+          </div>
+      );
+  };
 
   const renderCompactTableRow = (table: TableStatRow) => {
       const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
@@ -356,43 +470,23 @@ export const useTableOverviewRenderers = ({
               style={{
                   display: 'grid',
                   alignItems: 'center',
-                  minWidth: 1120,
                   minHeight: 32,
+                  ...compactGridStyle,
                   ...({
                       cursor: 'pointer',
                       userSelect: 'none',
                   }),
               }}
           >
-              <div className="gn-table-overview-compact-name" role="cell" title={displayName}>
-                  <TableOutlined aria-hidden="true" />
-                  {renderTableOverviewName(table, displayName)}
-              </div>
-              <div className="gn-table-overview-compact-cell" role="cell" title={table.comment || undefined}>{table.comment || '—'}</div>
-              <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.rows >= 0 ? String(table.rows) : undefined}>{formatRows(table.rows)}</div>
-              <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.dataSize >= 0 ? String(table.dataSize) : undefined}>{formatSize(table.dataSize)}</div>
-              <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.indexSize >= 0 ? String(table.indexSize) : undefined}>{formatSize(table.indexSize)}</div>
-              <div className="gn-table-overview-compact-cell" role="cell" title={table.engine || undefined}>{table.engine || '—'}</div>
-              <div
-                  className="gn-table-overview-compact-cell"
-                  role="cell"
-                  title={table.updateTime
-                      ? `${t('table_overview.metric.updated_at')}: ${table.updateTime}`
-                      : undefined}
-              >
-                  {table.updateTime ? formatOverviewTimestamp(table.updateTime) : '—'}
-              </div>
-              <div
-                  className="gn-table-overview-compact-cell"
-                  role="cell"
-                  title={table.createTime || undefined}
-              >
-                  {table.createTime ? formatOverviewTimestamp(table.createTime) : '—'}
-              </div>
+              {compactColumnDefinitions.map((column) => renderCompactCell(table, displayName, column))}
           </div>
       );
 
-      return <React.Fragment key={table.name}>{content}</React.Fragment>;
+      return (
+          <React.Fragment key={table.name}>
+              {renderMetadataHover(table, displayName, content)}
+          </React.Fragment>
+      );
   };
   return {
     renderOverviewSectionTitle, renderCardTable, renderListTable, renderCompactTableHeader,

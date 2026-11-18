@@ -317,7 +317,15 @@ export const useTableOverviewTableActions = ({
           setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
       } else {
           setSortField(field);
-          setSortOrder(field === 'name' || field === 'comment' || field === 'engine' ? 'asc' : 'desc');
+      setSortOrder(
+          field === 'name'
+          || field === 'comment'
+          || field === 'engine'
+          || field === 'charset'
+          || field === 'collation'
+              ? 'asc'
+              : 'desc',
+      );
       }
   }, [setSortField, setSortOrder, sortField]);
 
@@ -333,6 +341,8 @@ export const useTableOverviewTableActions = ({
       { key: 'dataSize', label: getSortMenuLabel('dataSize', 'table_overview.sort.size'), onClick: () => toggleSort('dataSize') },
       { key: 'indexSize', label: getSortMenuLabel('indexSize', 'table_overview.metric.index_size'), onClick: () => toggleSort('indexSize') },
       { key: 'engine', label: getSortMenuLabel('engine', 'table_overview.metric.engine'), onClick: () => toggleSort('engine') },
+      { key: 'charset', label: getSortMenuLabel('charset', 'table_overview.metric.charset'), onClick: () => toggleSort('charset') },
+      { key: 'collation', label: getSortMenuLabel('collation', 'table_overview.metric.collation'), onClick: () => toggleSort('collation') },
       { key: 'updateTime', label: getSortMenuLabel('updateTime', 'table_overview.metric.updated_at'), onClick: () => toggleSort('updateTime') },
       { key: 'createTime', label: getSortMenuLabel('createTime', 'table_overview.metric.created_at'), onClick: () => toggleSort('createTime') },
   ];

@@ -131,6 +131,7 @@ vi.mock('@ant-design/icons', () => {
     ExportOutlined: Icon,
     AppstoreOutlined: Icon,
     UnorderedListOutlined: Icon,
+    SettingOutlined: Icon,
     WarningOutlined: Icon,
     CaretUpFilled: Icon,
     CaretDownFilled: Icon,
@@ -147,6 +148,18 @@ vi.mock('antd', () => {
     renderedDropdownMenus.push(menu);
     return <div>{children}</div>;
   };
+  const Popover = ({ children }: any) => <div>{children}</div>;
+  const Checkbox = ({ children, checked, onChange, disabled }: any) => (
+    <label>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      {children}
+    </label>
+  );
   const Tooltip = ({ children }: any) => <div>{children}</div>;
   const Modal: any = ({ children }: any) => <div>{children}</div>;
   Modal.confirm = vi.fn();
@@ -154,10 +167,12 @@ vi.mock('antd', () => {
   const Paragraph = ({ children }: any) => <p>{children}</p>;
   return {
     Button,
+    Checkbox,
     Dropdown,
     Empty,
     Input,
     Modal,
+    Popover,
     Spin,
     Tooltip,
     Typography: { Text, Paragraph },
@@ -980,7 +995,7 @@ describe('TableOverview metadata compatibility', () => {
 
     expect(rowNames()).toEqual(['large_table', 'small_table', 'unknown_stats']);
     expect(renderer!.root.findByProps({ role: 'table' })).toBeTruthy();
-    expect(renderer!.root.findAllByProps({ role: 'columnheader' })).toHaveLength(8);
+    expect(renderer!.root.findAllByProps({ role: 'columnheader' })).toHaveLength(10);
 
     await act(async () => {
       renderer!.root.findByProps({ 'data-table-overview-sort': 'rows' }).props.onClick();

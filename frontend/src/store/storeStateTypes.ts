@@ -27,6 +27,7 @@ import type { DataGridDisplaySettings } from "../utils/dataGridDisplay";
 import type { SqlEditorTypographySettings } from "../utils/sqlEditorTypography";
 import type { TitlebarActionsPlacementSettings } from "../utils/titlebarActionsPlacement";
 import type { TabAppearanceStyle, TabCloseButtonPosition } from "../utils/tabAppearance";
+import type { TableOverviewCompactColumn } from "../utils/tableOverviewCompactColumns";
 import type {
   DetachedWorkbenchWindow,
   DetachedQueryResultWindow,
@@ -145,6 +146,7 @@ export type TableOverviewViewMode = "card" | "list" | "table";
 export interface QueryOptions {
   wordWrap: boolean;
   tableOverviewViewMode?: TableOverviewViewMode;
+  tableOverviewCompactColumns?: TableOverviewCompactColumn[];
   showColumnComment: boolean;
   showSidebarTableComment?: boolean;
   sidebarTableMetadataFields?: SidebarTableMetadataField[];

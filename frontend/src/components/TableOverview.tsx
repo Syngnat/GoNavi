@@ -31,7 +31,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     return (
         <div className="gn-table-overview gn-v2-table-overview" aria-busy={state.loading} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: actions.containerBg, overflow: 'hidden' }}>
             <TableOverviewToolbar tab={tab} state={state} actions={actions} />
-            <TableOverviewContent state={state} actions={actions} interaction={interaction} />
+            <TableOverviewContent tab={tab} state={state} actions={actions} interaction={interaction} />
             {state.v2ContextMenu && state.v2ContextMenuTable && typeof document !== 'undefined' && createPortal(
                 <div
                     ref={state.v2ContextMenuPortalRef}

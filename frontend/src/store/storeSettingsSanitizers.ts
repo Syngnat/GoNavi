@@ -93,6 +93,7 @@ import {
   unwrapPersistedAppState,
 } from "./storeConnectionSanitizers";
 import { isLegacyDefaultAppearance } from "./storeConnectionTagTree";
+import { sanitizeTableOverviewCompactColumns } from "../utils/tableOverviewCompactColumns";
 
 type SqlLogSanitizeOptions = {
   limit: number;
@@ -286,6 +287,9 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
     raw.tableOverviewViewMode === "table"
       ? raw.tableOverviewViewMode
       : undefined;
+  const tableOverviewCompactColumns = sanitizeTableOverviewCompactColumns(
+    raw.tableOverviewCompactColumns,
+  );
   const showColumnComment =
     typeof raw.showColumnComment === "boolean" ? raw.showColumnComment : true;
   const showSidebarTableComment =
@@ -324,6 +328,7 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   return {
     wordWrap,
     tableOverviewViewMode,
+    tableOverviewCompactColumns,
     showColumnComment,
     showSidebarTableComment: derivedShowSidebarTableComment,
     sidebarTableMetadataFields: orderedSidebarTableMetadataFields,

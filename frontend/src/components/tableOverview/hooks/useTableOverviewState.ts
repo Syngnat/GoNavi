@@ -49,6 +49,11 @@ import { resolveTableSelectQuery } from '../../../utils/objectQueryTemplates';
 import { confirmProductionMutation } from '../../../utils/productionRiskConfirm';
 import { confirmCopyTable } from '../../tableCopyAction';
 import type { TableOverviewProps } from '../../TableOverview';
+import {
+  sanitizeTableOverviewCompactColumns,
+  type TableOverviewCompactColumn,
+} from '../../../utils/tableOverviewCompactColumns';
+import { resolveConnectionHostSummary } from '../../../utils/tabDisplay';
 
 export interface UseTableOverviewStateInput {
   tab: TableOverviewProps['tab'];
@@ -81,6 +86,15 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
       setQueryOptions({ tableOverviewViewMode: nextViewMode });
   }, [setQueryOptions]);
   const [v2ContextMenu, setV2ContextMenu] = useState<OverviewContextMenuState | null>(null);
+  const compactColumns = useMemo(
+      () => sanitizeTableOverviewCompactColumns(queryOptions.tableOverviewCompactColumns),
+      [queryOptions.tableOverviewCompactColumns],
+  );
+  const setCompactColumns = useCallback((columns: TableOverviewCompactColumn[]) => {
+      setQueryOptions({
+          tableOverviewCompactColumns: sanitizeTableOverviewCompactColumns(columns),
+      });
+  }, [setQueryOptions]);
   const v2ContextMenuPortalRef = useRef<HTMLDivElement | null>(null);
   const [visibleTableLimit, setVisibleTableLimit] = useState(TABLE_OVERVIEW_RENDER_BATCH_SIZE);
   const deferredSearchText = useDeferredValue(searchText);
@@ -90,6 +104,10 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
   const metadataDialect = useMemo(
       () => getMetadataDialect(connection?.config?.type || '', connection?.config?.driver, connection?.config?.oceanBaseProtocol),
       [connection?.config?.driver, connection?.config?.oceanBaseProtocol, connection?.config?.type]
+  );
+  const connectionHostSummary = useMemo(
+      () => resolveConnectionHostSummary(connection?.config),
+      [connection?.config],
   );
   const schemaName = String((tab as any).schemaName || '').trim();
   const overviewSchemaName = isSchemaScopedTableOverviewDialect(metadataDialect)
@@ -488,9 +506,10 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
   return {
     addTab, setAIPanelVisible, addAIContext, pinnedSidebarTables, setSidebarTablePinned, darkMode,
     activeShortcutPlatform, tables, loading, searchText, setSearchText, sortField, setSortField,
-    sortOrder, setSortOrder, viewMode, setViewMode, v2ContextMenu, setV2ContextMenu,
+    sortOrder, setSortOrder, viewMode, setViewMode, compactColumns, setCompactColumns,
+    v2ContextMenu, setV2ContextMenu,
     v2ContextMenuPortalRef, setVisibleTableLimit, deferredSearchText, isSearchPending, connection,
-    metadataDialect, schemaName, overviewSchemaName, supportsCopyTable, allowClear, loadData,
+    metadataDialect, connectionHostSummary, schemaName, overviewSchemaName, supportsCopyTable, allowClear, loadData,
     sortedFiltered, pinnedOverview, visibleOverview, visibleTables, visibleTableSections,
     v2ContextMenuTable, openV2OverviewContextMenu, openTable, openDesign, openTableByDefaultAction,
     openTableDdl, openQueryForTable, openTableInER, buildConfig, handleCopyStructure,

@@ -1,8 +1,8 @@
 import React from 'react';
-import { Dropdown, Tooltip } from 'antd';
+import { Checkbox, Dropdown, Popover, Tooltip } from 'antd';
 import {
   TableOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined,
-  AppstoreOutlined, UnorderedListOutlined,
+  AppstoreOutlined, UnorderedListOutlined, SettingOutlined,
 } from '@ant-design/icons';
 
 import { t } from '../../i18n';
@@ -11,6 +11,7 @@ import type { ViewMode } from './tableOverviewModel';
 import type { TableOverviewStateApi } from './hooks/useTableOverviewState';
 import type { TableOverviewTableActionsApi } from './hooks/useTableOverviewTableActions';
 import { TableOverviewSearchInput } from './TableOverviewSearchInput';
+import { TABLE_OVERVIEW_COMPACT_COLUMN_OPTIONS } from './tableOverviewCompactColumns';
 
 type TableOverviewToolbarProps = {
   tab: TabData;
@@ -19,8 +20,38 @@ type TableOverviewToolbarProps = {
 };
 
 const TableOverviewToolbar: React.FC<TableOverviewToolbarProps> = ({ tab, state, actions }) => {
+  const [columnPickerOpen, setColumnPickerOpen] = React.useState(false);
+  const columnPickerId = React.useId();
   const viewSwitchClass = (mode: ViewMode) => (
     `gn-v2-table-overview-view-switch-btn${state.viewMode === mode ? ' is-active' : ''}`
+  );
+  const columnPicker = (
+    <div
+      id={columnPickerId}
+      className="gn-v2-table-overview-column-picker"
+      role="group"
+      aria-label={t('table_overview.toolbar.columns_title')}
+    >
+      <div className="gn-v2-table-overview-column-picker-hint">
+        {t('table_overview.toolbar.columns_hint')}
+      </div>
+      {TABLE_OVERVIEW_COMPACT_COLUMN_OPTIONS.map((column) => (
+        <Checkbox
+          key={column.key}
+          data-table-overview-column={column.key}
+          checked={state.compactColumns.includes(column.key)}
+          disabled={column.key === 'name'}
+          onChange={(event) => {
+            const nextColumns = event.target.checked
+              ? [...state.compactColumns, column.key]
+              : state.compactColumns.filter((key) => key !== column.key);
+            state.setCompactColumns(nextColumns);
+          }}
+        >
+          {t(column.labelKey)}
+        </Checkbox>
+      ))}
+    </div>
   );
 
   return (
@@ -45,6 +76,29 @@ const TableOverviewToolbar: React.FC<TableOverviewToolbarProps> = ({ tab, state,
           <SortAscendingOutlined style={{ fontSize: 16, color: actions.textSecondary, cursor: 'pointer' }} />
         </Tooltip>
       </Dropdown>
+      {state.viewMode === 'table' && (
+        <Popover
+          content={columnPicker}
+          title={t('table_overview.toolbar.columns_title')}
+          trigger="click"
+          placement="bottomRight"
+          open={columnPickerOpen}
+          onOpenChange={setColumnPickerOpen}
+          rootClassName="gn-v2-table-overview-column-picker-popover"
+        >
+          <Tooltip title={t('table_overview.toolbar.columns')}>
+            <button
+              type="button"
+              className="gn-v2-table-overview-column-picker-trigger"
+              aria-label={t('table_overview.toolbar.columns')}
+              aria-controls={columnPickerId}
+              aria-expanded={columnPickerOpen}
+            >
+              <SettingOutlined style={{ fontSize: 15 }} />
+            </button>
+          </Tooltip>
+        </Popover>
+      )}
       <div className="gn-v2-table-overview-view-switch">
         <Tooltip title={t('table_overview.tooltip.card_view')}>
           <button type="button" className={viewSwitchClass('card')} data-table-overview-view-mode="card"

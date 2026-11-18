@@ -4,6 +4,8 @@ import { t } from '../../i18n';
 import { useOptionalI18n } from '../../i18n/provider';
 import { TABLE_OVERVIEW_CARD_HEIGHT, type OverviewTableSection, type ViewMode } from './tableOverviewModel';
 import { useTableOverviewRenderers, type UseTableOverviewRenderersInput } from './hooks/useTableOverviewRenderers';
+import { buildTableOverviewCompactGridStyle } from './tableOverviewCompactColumns';
+import { DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS } from '../../utils/tableOverviewCompactColumns';
 
 type TableOverviewRowsProps = UseTableOverviewRenderersInput & {
   sections: OverviewTableSection[];
@@ -20,7 +22,14 @@ const TableOverviewRows: React.FC<TableOverviewRowsProps> = ({ sections, showSec
 
   if (viewMode === 'table') {
     return (
-      <div className="gn-table-overview-compact-scroll" role="table" aria-label={t('table_overview.tooltip.table_view')}>
+      <div
+        className="gn-table-overview-compact-scroll"
+        role="table"
+        aria-label={t('table_overview.tooltip.table_view')}
+        style={buildTableOverviewCompactGridStyle(
+          rendererProps.compactColumns ?? DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
+        )}
+      >
         {renderCompactTableHeader()}
         {sections.map((section) => (
           <React.Fragment key={section.key}>

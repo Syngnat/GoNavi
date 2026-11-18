@@ -7,6 +7,8 @@ export type TableOverviewSortField =
   | 'dataSize'
   | 'indexSize'
   | 'engine'
+  | 'charset'
+  | 'collation'
   | 'createTime'
   | 'updateTime';
 export type TableOverviewSortOrder = 'asc' | 'desc';
@@ -18,6 +20,8 @@ export interface TableOverviewFilterRow {
   dataSize: number;
   indexSize: number;
   engine?: string;
+  charset?: string;
+  collation?: string;
   createTime?: string;
   updateTime?: string;
 }

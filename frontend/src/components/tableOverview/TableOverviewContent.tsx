@@ -7,14 +7,16 @@ import type { TableOverviewStateApi } from './hooks/useTableOverviewState';
 import type { TableOverviewTableActionsApi } from './hooks/useTableOverviewTableActions';
 import type { useTableOverviewInteraction } from './hooks/useTableOverviewInteraction';
 import TableOverviewRows from './TableOverviewRows';
+import type { TabData } from '../../types';
 
 type TableOverviewContentProps = {
+  tab: TabData;
   state: TableOverviewStateApi;
   actions: TableOverviewTableActionsApi;
   interaction: ReturnType<typeof useTableOverviewInteraction>;
 };
 
-const TableOverviewContent: React.FC<TableOverviewContentProps> = ({ state, actions, interaction }) => {
+const TableOverviewContent: React.FC<TableOverviewContentProps> = ({ tab, state, actions, interaction }) => {
   const { contentRef, selection, openTableByDefaultAction } = interaction;
 
   return (
@@ -52,6 +54,11 @@ const TableOverviewContent: React.FC<TableOverviewContentProps> = ({ state, acti
           sortField={state.sortField}
           toggleSort={actions.toggleSort}
           sortOrder={state.sortOrder}
+          compactColumns={state.compactColumns}
+          connectionName={state.connection?.name}
+          hostSummary={state.connectionHostSummary}
+          dbName={tab.dbName}
+          schemaName={state.schemaName}
           isOverviewTableSelected={selection.isSelected}
         />
       )}
