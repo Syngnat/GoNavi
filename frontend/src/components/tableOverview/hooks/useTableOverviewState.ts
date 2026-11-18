@@ -13,6 +13,9 @@ import {
   isSchemaScopedTableOverviewDialect,
   parseTableStats,
   buildTableStatusSQL,
+  buildMySQLTableUpdateTimesSQL,
+  mergeMySQLTableUpdateTimes,
+  parseMySQLTableUpdateTimes,
   usesTableListOverview,
   getTableOverviewDisplayName,
   isOverviewTablePinned,
@@ -120,6 +123,28 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
               useSSH: connection.config.useSSH || false,
               ssh: connection.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
           };
+          const enrichMySQLUpdateTimes = (rows: TableStatRow[]) => {
+              if (
+                  metadataDialect !== 'mysql'
+                  || connection.config.type !== 'mysql'
+                  || !tab.dbName
+                  || !rows.some((row) => !row.updateTime)
+              ) {
+                  return;
+              }
+              void DBQuery(
+                  buildRpcConnectionConfig(config) as any,
+                  tab.dbName,
+                  buildMySQLTableUpdateTimesSQL(tab.dbName),
+              ).then((res) => {
+                  if (!isLatestRequest() || !res.success || !Array.isArray(res.data)) return;
+                  const updates = parseMySQLTableUpdateTimes(res.data);
+                  if (Object.keys(updates).length === 0) return;
+                  setTables((current) => mergeMySQLTableUpdateTimes(current, updates));
+              }).catch(() => {
+                  // innodb_table_stats may be unavailable or require mysql schema access.
+              });
+          };
           if (usesTableListOverview(metadataDialect, connection?.config?.type)) {
               const res = await DBGetTables(buildRpcConnectionConfig(config) as any, tab.dbName || '');
               if (!isLatestRequest()) return;
@@ -151,7 +176,9 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
           const res = await DBQuery(buildRpcConnectionConfig(config) as any, tab.dbName || '', sql);
           if (!isLatestRequest()) return;
           if (res.success && Array.isArray(res.data)) {
-              setTables(parseTableStats(metadataDialect, res.data));
+              const rows = parseTableStats(metadataDialect, res.data);
+              setTables(rows);
+              enrichMySQLUpdateTimes(rows);
           } else {
               message.error(t('table_overview.message.load_tables_failed', {
                   detail: res.message || t('table_overview.message.unknown_error'),

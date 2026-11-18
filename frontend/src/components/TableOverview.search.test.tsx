@@ -71,6 +71,9 @@ describe('table overview search rendering', () => {
   });
 
   const cards = () => renderer.root.findAll((node) => node.type === 'div' && Boolean(node.props['data-table-overview-card']));
+  const mainQueries = () => mocks.query.mock.calls.filter(
+    (call) => !String(call[2] || '').includes('mysql.innodb_table_stats'),
+  );
   const search = async (text: string) => {
     await act(async () => {
       renderer.root.findByType(Input).props.onChange({ target: { value: text } });
@@ -93,7 +96,10 @@ describe('table overview search rendering', () => {
       'table_1583_account', 'table_1584_account', 'table_1585_account',
     ]);
     expect(mocks.renderRows).toHaveBeenCalledTimes(1);
-    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mainQueries()).toHaveLength(1);
+    expect(mocks.query.mock.calls.some(
+      (call) => String(call[2] || '').includes('mysql.innodb_table_stats'),
+    )).toBe(true);
   });
 
   it('restores the original render limit after clearing search', async () => {
@@ -101,7 +107,7 @@ describe('table overview search rendering', () => {
     await search('');
 
     expect(cards()).toHaveLength(300);
-    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mainQueries()).toHaveLength(1);
   });
 
   it('keeps the controlled search value immediate while row filtering is debounced', async () => {
@@ -125,7 +131,7 @@ describe('table overview search rendering', () => {
 
     await act(async () => { await renderer.root.findByType(ReloadOutlined).props.onClick(); });
 
-    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(mainQueries()).toHaveLength(2);
     expect(cards()[0] === originalCard).toBe(true);
   });
 });

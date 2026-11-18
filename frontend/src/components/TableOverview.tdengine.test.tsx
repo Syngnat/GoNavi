@@ -182,6 +182,10 @@ const flushSearchDebounce = async () => {
   });
 };
 
+const mainTableStatusQueries = () => backendApp.DBQuery.mock.calls.filter(
+  (call) => !String(call[2] || '').includes('mysql.innodb_table_stats'),
+);
+
 const collectText = (node: any): string => {
   if (!node) {
     return '';
@@ -434,7 +438,7 @@ describe('TableOverview metadata compatibility', () => {
     });
 
     expect(backendApp.ClearTables).toHaveBeenCalledWith(expect.any(Object), 'app_db', ['orders']);
-    expect(backendApp.DBQuery).toHaveBeenCalledTimes(2);
+    expect(mainTableStatusQueries()).toHaveLength(2);
     expect(messageApi.success).toHaveBeenCalled();
   });
 
@@ -1050,6 +1054,61 @@ describe('TableOverview metadata compatibility', () => {
     // 展示统一为 YYYY-MM-DD HH:mm:ss（有小数秒时保留，与侧栏 formatSidebarTableTimestamp 一致）
     expect(renderedText).toContain('2026-06-02 10:30:00');
     expect(renderedText).toContain('2026-05-01 09:00:00');
+  });
+
+  it('fills a missing MySQL update time from innodb_table_stats', async () => {
+    storeState.connections = [{
+      id: 'conn-1',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+        password: 'secret',
+        database: 'app_db',
+        useSSH: false,
+        ssh: { host: '', port: 22, user: '', password: '', keyPath: '' },
+      },
+    }];
+    backendApp.DBQuery
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{
+          TABLE_NAME: 'orders',
+          TABLE_COMMENT: '订单表',
+          TABLE_ROWS: 128,
+          DATA_LENGTH: 2048,
+          INDEX_LENGTH: 1024,
+          ENGINE: 'InnoDB',
+          CREATE_TIME: '2026-05-01 09:00:00',
+          UPDATE_TIME: null,
+        }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ table_name: 'orders', update_time: '2026-06-05 12:00:00' }],
+      });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableOverview tab={{
+        id: 'tab-1',
+        title: '表概览 - app_db',
+        type: 'table-overview',
+        connectionId: 'conn-1',
+        dbName: 'app_db',
+      } as any} />);
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(backendApp.DBQuery.mock.calls.some(
+      (call) => String(call[2] || '').includes('mysql.innodb_table_stats'),
+    )).toBe(true);
+    const renderedText = collectText(renderer!.toJSON());
+    expect(renderedText).toContain('2026-06-05 12:00:00');
+    expect(renderedText).toContain('Last updated');
+    expect(messageApi.error).not.toHaveBeenCalled();
   });
 
   it('loads MongoDB collections through DBGetTables instead of information_schema SQL', async () => {
