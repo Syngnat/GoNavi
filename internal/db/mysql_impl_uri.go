@@ -121,10 +121,9 @@ func applyMySQLURI(config connection.ConnectionConfig) connection.ConnectionConf
 		}
 	}
 
-	if len(config.Hosts) == 0 && len(hostsFromURI) > 0 {
+	// 显式地址优先：Host/Hosts 都为空时才用 URI 里的主机，避免存量的隐藏 URI 覆盖界面地址。
+	if strings.TrimSpace(config.Host) == "" && len(config.Hosts) == 0 && len(hostsFromURI) > 0 {
 		config.Hosts = hostsFromURI
-	}
-	if strings.TrimSpace(config.Host) == "" && len(hostsFromURI) > 0 {
 		host, port, ok := parseHostPortWithDefault(hostsFromURI[0], defaultPort)
 		if ok {
 			config.Host = host
