@@ -26,6 +26,10 @@ import { registerWorkbenchTabCloseGuard } from '../../../../utils/workbenchTabCl
 import type { DataSyncWorkbenchStateApi } from './useDataSyncWorkbenchState';
 import type { DataSyncWorkbenchShellProps } from '../../DataSyncWorkbenchShell';
 import { formatSavedTaskPreflightFailure } from '../../../../utils/dataSyncWorkbenchPersistenceText';
+import {
+  dataSyncTaskPatchHasChanges,
+  type DataSyncTaskPatchUpdater,
+} from '../../dataSyncTaskPatch';
 
 export interface UseDataSyncWorkbenchTaskPersistenceInput {
   workbenchFamily: DataSyncWorkbenchShellProps['workbenchFamily'];
@@ -276,34 +280,19 @@ export const useDataSyncWorkbenchTaskPersistence = ({
   }, [runs, tasks]);
 
   const patchSelectedTask = (
-    patch:
-      | Partial<
-          Omit<
-            DataSyncTaskDefinition,
-            'id' | 'schemaVersion' | 'revision' | 'editEpoch' | 'createdAt'
-          >
-        >
-      | ((currentTask: DataSyncTaskDefinition) => Partial<
-          Omit<
-            DataSyncTaskDefinition,
-            'id' | 'schemaVersion' | 'revision' | 'editEpoch' | 'createdAt'
-          >
-        >),
+    patch: DataSyncTaskPatchUpdater,
   ) => {
-    const taskId = selectedTask?.id;
-    if (!taskId) return;
-    setTasks((current) => {
-      const next = current.map((task) =>
-        task.id === taskId
-          ? reviseDataSyncTask(
-              task,
-              typeof patch === 'function' ? patch(task) : patch,
-            )
-          : task,
-      );
-      tasksRef.current = next;
-      return next;
-    });
+    if (!selectedTask) return;
+    const taskId = selectedTask.id;
+    const currentTask = tasksRef.current.find((task) => task.id === taskId);
+    if (!currentTask) return;
+    const nextPatch = typeof patch === 'function' ? patch(currentTask) : patch;
+    if (!dataSyncTaskPatchHasChanges(currentTask, nextPatch)) return;
+    const next = tasksRef.current.map((task) =>
+      task.id === taskId ? reviseDataSyncTask(task, nextPatch) : task,
+    );
+    tasksRef.current = next;
+    setTasks(next);
     markTaskDirty(taskId);
     setApprovalError('');
     setApprovalChallenges((current) => {

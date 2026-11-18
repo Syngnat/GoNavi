@@ -138,10 +138,14 @@ export const decodeDataSyncPreflight = (
         payload.approvalRequired,
         'DataSyncJobPreflight.data.approvalRequired',
       ),
-      // Approval evidence is intentionally backend-only. List/Get/Preflight
-      // responses never expose it, so the UI can only trust a token minted in
-      // this process for this exact definition hash.
-      approvalSatisfied: false,
+      // Approval evidence is intentionally backend-only. This boolean only
+      // states that the current persisted revision already carries a valid
+      // approval; the backend revalidates it again before run/save.
+      approvalSatisfied: optionalBoolean(
+        payload.approvalSatisfied,
+        'DataSyncJobPreflight.data.approvalSatisfied',
+        false,
+      ),
       checkedAt: fromMillis(payload.checkedAt, 'DataSyncJobPreflight.data.checkedAt'),
     },
     definition,

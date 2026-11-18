@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime';
 
@@ -80,13 +80,15 @@ export const DataSyncPreflightPanel: React.FC<{
 }) => {
   const [clock, setClock] = useState(Date.now());
   const [copyError, setCopyError] = useState(false);
+  const autoApprovalKeyRef = useRef('');
   const effectiveIssues = stale ? [] : snapshot?.issues || [];
   const approvalRequired = Boolean(snapshot && snapshot.approvalRequired !== false);
   const approvalCurrent = Boolean(
     snapshot &&
-      approval &&
-      approval.definitionHash === snapshot.definitionHash &&
-      Date.parse(approval.expiresAt) > clock,
+      (snapshot.approvalSatisfied ||
+        (approval &&
+          approval.definitionHash === snapshot.definitionHash &&
+          Date.parse(approval.expiresAt) > clock)),
   );
   const challengeCurrent = Boolean(
     snapshot &&
@@ -149,6 +151,28 @@ export const DataSyncPreflightPanel: React.FC<{
     const timer = globalThis.setInterval(() => setClock(Date.now()), 250);
     return () => globalThis.clearInterval(timer);
   }, [challengeCurrent, remainingSeconds]);
+
+  useEffect(() => {
+    if (!challengeCurrent || remainingSeconds > 0 || approving || !onApprove) {
+      return;
+    }
+    const approvalKey = [
+      approvalChallenge?.definitionHash || '',
+      approvalChallenge?.notBefore || '',
+      approvalChallenge?.expiresAt || '',
+    ].join(':');
+    if (!approvalKey || autoApprovalKeyRef.current === approvalKey) return;
+    autoApprovalKeyRef.current = approvalKey;
+    onApprove();
+  }, [
+    approvalChallenge?.definitionHash,
+    approvalChallenge?.expiresAt,
+    approvalChallenge?.notBefore,
+    approving,
+    challengeCurrent,
+    onApprove,
+    remainingSeconds,
+  ]);
 
   return (
     <aside

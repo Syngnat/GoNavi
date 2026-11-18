@@ -88,3 +88,38 @@ func TestApprovalScopeHashTracksTaskAndUnattendedExecutionPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestApprovalScopeHashIgnoresDerivedIntervalAnchor(t *testing.T) {
+	definition := validValidationTestDefinition()
+	definition.ID = "job-1"
+	definition.Lifecycle = JobLifecycleReady
+	definition.Schedule = ScheduleSpec{
+		Kind:            ScheduleInterval,
+		IntervalSeconds: 900,
+		Timezone:        "Asia/Shanghai",
+	}
+	base, err := ApprovalScopeHash(definition)
+	if err != nil {
+		t.Fatalf("hash interval approval scope: %v", err)
+	}
+
+	withAnchor := definition
+	withAnchor.Schedule.AnchorAt = 1_800_000_000_000
+	got, err := ApprovalScopeHash(withAnchor)
+	if err != nil {
+		t.Fatalf("hash anchored approval scope: %v", err)
+	}
+	if got != base {
+		t.Fatal("store-assigned interval anchor unexpectedly invalidated approval")
+	}
+
+	changedInterval := withAnchor
+	changedInterval.Schedule.IntervalSeconds = 1_800
+	got, err = ApprovalScopeHash(changedInterval)
+	if err != nil {
+		t.Fatalf("hash changed interval approval scope: %v", err)
+	}
+	if got == base {
+		t.Fatal("interval cadence change did not invalidate approval")
+	}
+}

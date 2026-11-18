@@ -63,6 +63,7 @@ type CachedPreflight = {
   taskSignature: string;
   definitionHash: string;
   approvalRequired: boolean;
+  approvalSatisfied: boolean;
   canExecute: boolean;
   definition: WailsDataSyncJobDefinition;
 };
@@ -385,7 +386,7 @@ export const createWailsDataSyncWorkbenchGateway = (
       if (task.lifecycle === 'ready' || task.lifecycle === 'enabled') {
         const preflight = requireCurrentPreflight(task);
         definition = preflight.definition;
-        if (preflight.approvalRequired) {
+        if (preflight.approvalRequired && !preflight.approvalSatisfied) {
           token = takeApprovalToken(task, preflight);
           if (!token) {
             throw new DataSyncGatewayProtocolError(
@@ -540,6 +541,7 @@ export const createWailsDataSyncWorkbenchGateway = (
         taskSignature: JSON.stringify(input),
         definitionHash: decoded.snapshot.definitionHash,
         approvalRequired: decoded.snapshot.approvalRequired,
+        approvalSatisfied: decoded.snapshot.approvalSatisfied,
         canExecute: decoded.capability.canExecute,
         definition,
       });
@@ -653,7 +655,7 @@ export const createWailsDataSyncWorkbenchGateway = (
         );
       }
       let token = '';
-      if (cached.approvalRequired) {
+      if (cached.approvalRequired && preflight.approvalSatisfied !== true) {
         token = takeApprovalToken(task, cached);
         if (!token) {
           throw new DataSyncGatewayProtocolError(
@@ -986,6 +988,7 @@ export const createWailsDataSyncWorkbenchGateway = (
         cached &&
         isCurrentPersistedPreflight(cached, task, previous) &&
         cached.approvalRequired &&
+        cached.approvalSatisfied !== true &&
         approvalTokens.has(task.id)
       ) {
         token = takeApprovalToken(task, cached);

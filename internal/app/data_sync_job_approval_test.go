@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +80,54 @@ func TestStoredDataSyncJobApprovalSurvivesPersistenceMetadataChanges(t *testing.
 	}
 }
 
+func TestStoredDataSyncJobApprovalSatisfiedIgnoresFrontendIntervalAnchor(t *testing.T) {
+	application := NewApp()
+	application.configDir = t.TempDir()
+	t.Cleanup(application.shutdownDataSyncJobs)
+	manager, err := application.ensureDataSyncJobManager()
+	if err != nil {
+		t.Fatalf("create manager: %v", err)
+	}
+	definition := approvalTestDefinition()
+	definition.ID = "interval-job"
+	definition.Lifecycle = syncjob.JobLifecycleReady
+	definition.Enabled = false
+	definition.Schedule = syncjob.ScheduleSpec{
+		Kind:            syncjob.ScheduleInterval,
+		IntervalSeconds: 900,
+		Timezone:        "Asia/Shanghai",
+	}
+	saved, err := manager.PutJob(context.Background(), definition)
+	if err != nil {
+		t.Fatalf("persist interval job: %v", err)
+	}
+	if saved.Schedule.AnchorAt == 0 {
+		t.Fatal("store did not assign an interval anchor")
+	}
+	now := time.Now()
+	token, approval, err := application.issueDataSyncJobApproval(saved, "target-fingerprint", now)
+	if err != nil || token == "" {
+		t.Fatalf("issue approval: token=%q err=%v", token, err)
+	}
+	saved.Approval = &approval
+	stored, err := manager.PutJob(context.Background(), saved)
+	if err != nil {
+		t.Fatalf("persist approved interval job: %v", err)
+	}
+
+	frontendDefinition := stored
+	frontendDefinition.Approval = nil
+	frontendDefinition.Schedule.AnchorAt = 0
+	if !application.dataSyncJobStoredApprovalSatisfied(frontendDefinition, "target-fingerprint") {
+		t.Fatal("valid stored approval was hidden from the frontend preflight")
+	}
+	changed := frontendDefinition
+	changed.Mappings[0].TargetTable = "other_table"
+	if application.dataSyncJobStoredApprovalSatisfied(changed, "target-fingerprint") {
+		t.Fatal("changed definition reused the stored approval")
+	}
+}
+
 func TestStoredDataSyncJobApprovalCannotCrossRuntimeBoundary(t *testing.T) {
 	desktop := NewApp()
 	now := time.Unix(1_800_000_000, 0)
@@ -148,6 +197,24 @@ func TestDataSyncJobApprovalChallengeEnforcesBackendCountdown(t *testing.T) {
 	}
 	if token, approval, err := application.confirmDataSyncJobApproval(challenge, definition, "target-fingerprint", notBefore); err != nil || token == "" || approval.DefinitionHash == "" {
 		t.Fatalf("confirm elapsed approval: token=%q approval=%#v err=%v", token, approval, err)
+	}
+}
+
+func TestDataSyncJobApprovalChallengeWindowStartsAtApprovalTime(t *testing.T) {
+	application := NewApp()
+	now := time.Unix(1_800_000_000, 0)
+	definition := approvalTestDefinition()
+	definition.ID = "job-1"
+
+	_, notBefore, expiresAt, err := application.beginDataSyncJobApproval(definition, "target-fingerprint", now)
+	if err != nil {
+		t.Fatalf("begin approval: %v", err)
+	}
+	if got := notBefore.Sub(now); got != defaultDataSyncJobApprovalDelay {
+		t.Fatalf("countdown start = %s after approval time, want %s", got, defaultDataSyncJobApprovalDelay)
+	}
+	if got := expiresAt.Sub(now); got != defaultDataSyncJobChallengeTTL {
+		t.Fatalf("challenge expiry = %s after approval time, want %s", got, defaultDataSyncJobChallengeTTL)
 	}
 }
 

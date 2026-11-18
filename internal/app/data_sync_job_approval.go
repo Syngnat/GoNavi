@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
@@ -233,4 +234,23 @@ func (a *App) validateStoredDataSyncJobApproval(definition syncjob.JobDefinition
 		return errors.New("data sync production approval is stale; run preflight again")
 	}
 	return nil
+}
+
+func (a *App) dataSyncJobStoredApprovalSatisfied(definition syncjob.JobDefinition, targetFingerprint string) bool {
+	if strings.TrimSpace(definition.ID) == "" {
+		return false
+	}
+	manager, err := a.ensureDataSyncJobManager()
+	if err != nil {
+		return false
+	}
+	stored, err := manager.GetJob(context.Background(), definition.ID)
+	if err != nil || stored.Revision != definition.Revision || stored.Approval == nil {
+		return false
+	}
+	definitionHash, err := dataSyncJobApprovalScopeHash(definition)
+	if err != nil || !secureTextEqual(stored.Approval.DefinitionHash, definitionHash) {
+		return false
+	}
+	return a.validateStoredDataSyncJobApproval(stored, targetFingerprint) == nil
 }

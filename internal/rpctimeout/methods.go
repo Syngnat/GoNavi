@@ -40,6 +40,10 @@ func IsLongRunningAppMethod(method string) bool {
 		"FontGalleryRefresh",
 		"FontGalleryDownload",
 		"FontGalleryPreview",
+		"DataSyncJobPreflight",
+		"DataSyncJobApprovalBegin",
+		"DataSyncJobApprove",
+		"DataSyncJobSave",
 		"DataSync":
 		return true
 	default:
