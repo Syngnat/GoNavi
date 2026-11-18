@@ -43,4 +43,37 @@ describe('Sidebar legacy database menu order', () => {
 
     expect(handleV2DatabaseContextMenuAction).toHaveBeenCalledWith(node, 'copy-database-name');
   });
+
+  it('offers the database definition action only for dialects with database DDL support', () => {
+    const supportedHandler = vi.fn();
+    const supportedNode = {
+      type: 'database',
+      title: 'main_db',
+      dataRef: { id: 'mysql-1', dbName: 'main_db', config: { type: 'mysql' } },
+    };
+    const supportedItems = buildSidebarNodeMenuItems(supportedNode, {
+      getMetadataDialect: () => 'mysql',
+      isPostgresSchemaDialect: () => false,
+      shouldHideSchemaPrefix: () => false,
+      isStructureOnlyDbType: () => false,
+      handleV2DatabaseContextMenuAction: supportedHandler,
+    }) as Array<{ key?: string; onClick?: () => void }>;
+
+    const definitionItem = supportedItems.find((item) => item?.key === 'view-create-database');
+    expect(definitionItem).toBeTruthy();
+    definitionItem?.onClick?.();
+    expect(supportedHandler).toHaveBeenCalledWith(supportedNode, 'view-create-database');
+
+    const unsupportedItems = buildSidebarNodeMenuItems({
+      ...supportedNode,
+      dataRef: { ...supportedNode.dataRef, config: { type: 'oracle' } },
+    }, {
+      getMetadataDialect: () => 'oracle',
+      isPostgresSchemaDialect: () => false,
+      shouldHideSchemaPrefix: () => false,
+      isStructureOnlyDbType: () => false,
+      handleV2DatabaseContextMenuAction: vi.fn(),
+    }) as Array<{ key?: string }>;
+    expect(unsupportedItems.some((item) => item?.key === 'view-create-database')).toBe(false);
+  });
 });

@@ -44,6 +44,7 @@ import {
 import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
 import { supportsTableClearAction } from '../tableDataDangerActions';
 import { isElasticsearchFamilyType } from '../../utils/elasticsearchFamily';
+import { buildSidebarDatabaseDefinitionTab } from './sidebarDatabaseDefinitionTab';
 
 type UseSidebarV2ActionHandlersArgs = {
   connections: SavedConnection[];
@@ -450,6 +451,17 @@ export const useSidebarV2ActionHandlers = ({
     });
   };
 
+  const openDatabaseDefinition = (node: any) => {
+    const dbName = String(node?.dataRef?.dbName || node?.title || '').trim();
+    const tab = buildSidebarDatabaseDefinitionTab({
+      connectionId: String(node?.dataRef?.id || node?.key || '').trim(),
+      dbName,
+      nodeKey: String(node?.key || ''),
+      title: t('sidebar.tab.database_definition', { name: dbName }),
+    });
+    if (tab) addTab(tab);
+  };
+
   const handleV2DatabaseContextMenuAction = (node: any, action: V2DatabaseContextMenuActionKey) => {
     switch (action) {
       case 'pin-database':
@@ -461,6 +473,9 @@ export const useSidebarV2ActionHandlers = ({
         return;
       case 'copy-database':
         void handleCopyDatabase(node);
+        return;
+      case 'view-create-database':
+        openDatabaseDefinition(node);
         return;
       case 'new-table':
         openNewTableDesign(node);

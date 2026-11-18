@@ -46,6 +46,13 @@ export const resolveDefinitionViewerObjectMeta = (tab: TabData, translate: Trans
       loadingTip: translate('definition_viewer.loading.database_link_definition'),
     };
   }
+  if (tab.type === 'database-def') {
+    return {
+      label: translate('definition_viewer.object.database'),
+      name: tab.dbName,
+      loadingTip: translate('definition_viewer.loading.database_definition'),
+    };
+  }
   return {
     label: translate('definition_viewer.object.routine'),
     name: tab.routineName,

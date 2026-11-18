@@ -29,6 +29,7 @@ import { registryAllowsImport } from '../../utils/dataSourceRegistry';
 import { isConnectionDataEditRestricted } from '../../utils/connectionReadOnly';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { resolveConnectionIconType } from '../../utils/connectionVisual';
+import { supportsDatabaseDefinition } from '../../utils/databaseDefinition';
 import { resolveSidebarTreeMetaText } from './sidebarTreeMetaText';
 import { formatSidebarRowCount } from './sidebarHelpers';
 import { resolveMultiTableSelection } from './sidebarTableMultiSelect';
@@ -485,6 +486,7 @@ export const useSidebarV2ContextMenu = ({
               supportsDropDatabase={capabilities.supportsDropDatabase}
               supportsBatchWorkbench={capabilities.supportsSqlQueryExport}
               supportsRunSqlFile={registryAllowsImport((node.dataRef as SavedConnection)?.config?.type, 'sqlFile')}
+              supportsCreateDatabaseDdl={supportsDatabaseDefinition(dialect)}
               isPinned={isPinned}
               pluginActions={buildPluginActions(node, 'database')}
               onAction={(action) => {

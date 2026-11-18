@@ -6,6 +6,11 @@ import {
 } from '../../databaseLinkDefinition';
 import { DBShowCreateTable } from '../../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
+import {
+  buildDatabaseDefinitionQueries,
+  buildStaticDatabaseDefinition,
+  extractDatabaseDefinition,
+} from '../../../utils/databaseDefinition';
 import { buildDisplayDefinitionSql } from '../definitionViewerSql';
 import { formatDdlForDisplay } from '../../../utils/ddlFormat';
 import { resolveDefinitionViewerObjectMeta } from '../../definitionViewerObjectMeta';
@@ -214,7 +219,23 @@ export const useDefinitionViewerLoader = ({
       let resolvedObjectName = '';
       let backendRoutine = false;
 
-      if (tab.type === 'view-def') {
+      if (tab.type === 'database-def') {
+          if (!dbName.trim()) {
+              return { success: false, error: t('definition_viewer.error.database_name_empty') };
+          }
+          const staticDefinition = buildStaticDatabaseDefinition(dialect, dbName);
+          if (staticDefinition) {
+              return { success: true, definition: staticDefinition };
+          }
+          queries = buildDatabaseDefinitionQueries(dialect, dbName);
+          extractFn = (definitionDialect, data) => extractDatabaseDefinition(
+              definitionDialect,
+              data as Record<string, unknown>[],
+              dbName,
+          );
+          resolvedObjectLabel = t('definition_viewer.object.database');
+          resolvedObjectName = dbName;
+      } else if (tab.type === 'view-def') {
           const viewName = tab.viewName || '';
           if (!viewName) {
               return { success: false, error: t('definition_viewer.error.view_name_empty') };
@@ -340,6 +361,12 @@ export const useDefinitionViewerLoader = ({
 
           if (result.success && Array.isArray(result.data) && result.data.length > 0) {
               const rawDefinition = extractFn(dialect, result.data);
+              if (tab.type === 'database-def' && !String(rawDefinition || '').trim()) {
+                  return {
+                      success: false,
+                      error: t('definition_viewer.error.database_definition_empty'),
+                  };
+              }
               const displayDefinition = buildDisplayDefinitionSql(tab, rawDefinition, resolvedObjectName);
               return {
                   success: true,

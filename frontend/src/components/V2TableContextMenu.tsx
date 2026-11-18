@@ -137,6 +137,7 @@ export type V2DatabaseContextMenuActionKey =
   | 'unpin-database'
   | 'copy-database-name'
   | 'copy-database'
+  | 'view-create-database'
   | 'new-table'
   | 'new-schema'
   | 'new-materialized-view'
@@ -172,6 +173,7 @@ export const V2DatabaseContextMenuView: React.FC<{
   supportsDropDatabase?: boolean;
   supportsBatchWorkbench?: boolean;
   supportsRunSqlFile?: boolean;
+  supportsCreateDatabaseDdl?: boolean;
   isPinned?: boolean;
   pluginActions?: { key: string; title: string; onSelect: () => void }[];
   onAction?: (action: V2DatabaseContextMenuActionKey) => void;
@@ -186,6 +188,7 @@ export const V2DatabaseContextMenuView: React.FC<{
   supportsDropDatabase = true,
   supportsBatchWorkbench = true,
   supportsRunSqlFile = true,
+  supportsCreateDatabaseDdl = false,
   isPinned = false,
   pluginActions = [],
   onAction,
@@ -215,6 +218,13 @@ export const V2DatabaseContextMenuView: React.FC<{
           { action: 'new-query', icon: <GnNewQueryIcon />, title: t('sidebar.menu.new_query') },
           ...(supportsRunSqlFile ? [{ action: 'run-sql' as const, icon: <FileAddOutlined />, title: t('sidebar.sql_file_exec.title') }] : []),
         ])}
+
+        {supportsCreateDatabaseDdl && <>
+          <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.metadata_section')}</div>
+          {renderItems([
+            { action: 'view-create-database', icon: <CodeOutlined />, title: t('sidebar.v2_database_menu.view_create_database_sql') },
+          ])}
+        </>}
 
         {pluginActions.length > 0 && <>
           <div className="gn-v2-context-menu-section-title">{t('plugin.connection_actions.menu')}</div>

@@ -35,6 +35,7 @@ export type WorkbenchTabType =
   | "sequence-def"
   | "package-def"
   | "database-link-def"
+  | "database-def"
   | "table-overview"
   | "object-overview"
   | "table-export"

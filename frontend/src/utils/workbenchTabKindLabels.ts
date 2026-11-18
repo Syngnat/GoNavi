@@ -42,6 +42,7 @@ export const getWorkbenchTabKindLabel = (tab: TabData): string => {
   if (tab.type === 'sequence-def') return t('tab_manager.kind_badge.sequence');
   if (tab.type === 'package-def') return t('tab_manager.kind_badge.package');
   if (tab.type === 'database-link-def') return t('tab_manager.kind_badge.database_link');
+  if (tab.type === 'database-def') return t('tab_manager.kind_badge.database_definition');
   return t('tab_manager.kind_badge.fallback');
 };
 
@@ -97,5 +98,6 @@ export const getWorkbenchTabKindTooltipLabel = (tab: TabData): string => {
   if (tab.type === 'sequence-def') return t('tab_manager.hover.kind.sequence');
   if (tab.type === 'package-def') return t('tab_manager.hover.kind.package');
   if (tab.type === 'database-link-def') return t('tab_manager.hover.kind.database_link');
+  if (tab.type === 'database-def') return t('tab_manager.hover.kind.database_definition');
   return t('tab_manager.hover.kind.fallback');
 };
