@@ -96,6 +96,26 @@ describe('showCountdownDangerConfirm', () => {
     });
   });
 
+  it('renders only the explicit confirmation when the countdown is disabled', async () => {
+    const onOk = vi.fn().mockResolvedValue(undefined);
+
+    showCountdownDangerConfirm({
+      title: 'Delete table',
+      content: 'Delete users?',
+      countdownSeconds: 0,
+      onOk,
+    });
+
+    const initialConfig = vi.mocked(Modal.confirm).mock.calls[0][0] as ModalFuncProps;
+    expect(initialConfig.okText).toBe('Delete');
+    expect(initialConfig.okButtonProps).toMatchObject({ danger: true, disabled: false });
+    expect(JSON.stringify(initialConfig.content)).not.toContain('Review the warning carefully');
+    expect(vi.getTimerCount()).toBe(0);
+
+    await initialConfig.onOk?.();
+    expect(onOk).toHaveBeenCalledTimes(1);
+  });
+
   it('stops updating after cancellation or after the modal closes', () => {
     const onCancel = vi.fn();
     const afterClose = vi.fn();

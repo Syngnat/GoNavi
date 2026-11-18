@@ -108,6 +108,8 @@ export const useTableOverviewTableActions = ({
       showCountdownDangerConfirm({
           title: t('table_overview.modal.delete_table.title'),
           content: t('table_overview.modal.delete_table.content', { table: tableName }),
+          // 删除表只保留危险操作的二次确认，不再重复倒计时。
+          countdownSeconds: 0,
           onOk: async () => {
               if (!await confirmProductionMutation(
                   connection,

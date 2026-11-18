@@ -330,6 +330,7 @@ describe('TableOverview metadata compatibility', () => {
     });
     const initialConfirm = countdownConfirm.mock.calls[0]?.[0];
     expect(initialConfirm).toBeTruthy();
+    expect(initialConfirm.countdownSeconds).toBe(0);
 
     let deleteOperation!: Promise<void>;
     act(() => {

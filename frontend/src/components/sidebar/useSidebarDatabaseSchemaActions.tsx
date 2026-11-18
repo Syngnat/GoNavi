@@ -395,6 +395,7 @@ export const useSidebarDatabaseSchemaActions = ({
     showCountdownDangerConfirm({
       title: t('sidebar.modal.confirm_delete_table.title'),
       content: t('sidebar.modal.confirm_delete_table.content', { name: tableName }),
+      countdownSeconds: 0,
       onOk: async () => {
         if (!await confirmSidebarMutation(conn, [conn.dbName, tableName].filter(Boolean).join(' / '))) return;
         const config = buildRuntimeConfig(conn, conn.dbName);

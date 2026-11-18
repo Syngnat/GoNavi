@@ -59,4 +59,27 @@ describe('production countdown confirmation DOM flow', () => {
     expect(onOk).toHaveBeenCalledTimes(1);
   });
 
+  it('renders an immediately usable confirmation without countdown copy', async () => {
+    const onOk = vi.fn(async () => undefined);
+    act(() => {
+      showCountdownDangerConfirm({
+        title: 'Delete table',
+        content: 'Delete users?',
+        confirmText: 'Delete',
+        countdownSeconds: 0,
+        maskClosable: false,
+        onOk,
+      });
+    });
+    await flush(50);
+
+    expect(document.querySelector('.ant-modal-confirm [role="status"]')).toBeNull();
+    const okButton = document.querySelector<HTMLButtonElement>('.ant-modal-confirm .ant-btn-primary')!;
+    expect(okButton.disabled).toBe(false);
+    expect(okButton.textContent).toBe('Delete');
+
+    await clickElement(okButton);
+    expect(onOk).toHaveBeenCalledTimes(1);
+  });
+
 });

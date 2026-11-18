@@ -62,11 +62,13 @@ export const showCountdownDangerConfirm = ({
   const renderContent = () => (
     <div>
       <div>{content}</div>
-      <div role="status" aria-live="polite" aria-atomic="true" style={countdownStatusStyle}>
-        {remainingSeconds > 0
-          ? t('common.destructive_confirm.countdown', { seconds: remainingSeconds })
-          : t('common.destructive_confirm.ready')}
-      </div>
+      {normalizedSeconds > 0 ? (
+        <div role="status" aria-live="polite" aria-atomic="true" style={countdownStatusStyle}>
+          {remainingSeconds > 0
+            ? t('common.destructive_confirm.countdown', { seconds: remainingSeconds })
+            : t('common.destructive_confirm.ready')}
+        </div>
+      ) : null}
     </div>
   );
 
