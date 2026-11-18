@@ -202,7 +202,7 @@ export const useTableOverviewTableActions = ({
       message.success(shouldPin ? t('table_overview.message.pinned') : t('table_overview.message.unpinned'));
   }, [connection?.id, pinnedSidebarTables, schemaName, setSidebarTablePinned, t, tab.dbName]);
 
-  // 改名提交（校验 + 生产库确认 + 调用 + 刷新），Modal 流程与表名就地编辑共用。
+  // 改名提交（校验 + 生产库确认 + 调用 + 刷新），供右键菜单的改名弹窗使用。
   const commitTableRename = useCallback(async (tableName: string, rawNewName: string): Promise<boolean> => {
       const trimmed = rawNewName.trim();
       if (!trimmed) { message.error(t('table_overview.validation.table_name_required')); return false; }
@@ -503,7 +503,7 @@ export const useTableOverviewTableActions = ({
   return {
     textPrimary, textSecondary, textMuted, accentColor, containerBg, toggleSort, sortMenuItems,
     hasKnownTableSize, getCombinedTableSize, maxCombinedSize, renderToolbarSummary,
-    renderV2OverviewTableContextMenu, commitTableRename,
+    renderV2OverviewTableContextMenu,
   };
 };
 

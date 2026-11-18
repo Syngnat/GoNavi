@@ -2,18 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   collectOverviewRangeNames,
-  isOverviewNameTarget,
-  isRenameHotkeyTarget,
-  resolveOverviewClickSelection,
   resolveOverviewRowElement,
+  resolveOverviewClickSelection,
   resolveOverviewRowNameFromElement,
 } from '../tableOverviewSelection';
 
 type UseTableOverviewSelectionArgs = {
   /** 表概览内容区（三种视图共同的祖先），选中手势只在这里生效。 */
   contentRef: React.MutableRefObject<HTMLDivElement | null>;
-  /** 单选状态下再次单击表名时触发（就地改名入口）。 */
-  onActivateName?: (name: string) => void;
 };
 
 // 按下后位移超过该阈值才视为拖选，避免把单击误判成拖动。
@@ -36,7 +32,7 @@ const rowNameFromPoint = (x: number, y: number): string => (
  * 行的选中状态通过 class 渲染，事件全部在捕获阶段自行判定，
  * 不影响既有的双击打开表与右键菜单。
  */
-export const useTableOverviewSelection = ({ contentRef, onActivateName }: UseTableOverviewSelectionArgs) => {
+export const useTableOverviewSelection = ({ contentRef }: UseTableOverviewSelectionArgs) => {
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const selectedNamesRef = useRef<string[]>([]);
   const anchorRef = useRef<string | null>(null);
@@ -44,10 +40,6 @@ export const useTableOverviewSelection = ({ contentRef, onActivateName }: UseTab
   const draggingRef = useRef(false);
   const frameRef = useRef<number | null>(null);
   const suppressClickUntilRef = useRef(0);
-  // 回调放 ref，避免它变化时重新挂一遍 document 监听。
-  const activateNameRef = useRef(onActivateName);
-  activateNameRef.current = onActivateName;
-
   const commitSelection = useCallback((next: string[]) => {
     const current = selectedNamesRef.current;
     if (current.length === next.length && current.every((name, index) => name === next[index])) return;
@@ -125,14 +117,6 @@ export const useTableOverviewSelection = ({ contentRef, onActivateName }: UseTab
       const name = resolveOverviewRowNameFromElement(target as Element | null);
       if (!name) return;
       const current = selectedNamesRef.current;
-      const onlyThisSelected = current.length === 1 && current[0] === name;
-      // 已单选该表、且点在表名上 → 进入就地改名，不改选中集。
-      if (onlyThisSelected && !event.shiftKey && !event.metaKey && !event.ctrlKey
-          && isOverviewNameTarget(target as Element | null)) {
-        anchorRef.current = name;
-        activateNameRef.current?.(name);
-        return;
-      }
       const next = resolveOverviewClickSelection(
         container,
         current,
@@ -142,33 +126,17 @@ export const useTableOverviewSelection = ({ contentRef, onActivateName }: UseTab
       );
       commitSelection(next);
       anchorRef.current = name;
-      // 让被点中的行拿到焦点，回车改名据此判定作用范围。
+      // 让被点中的行拿到焦点，键盘交互仍以该行为当前行。
       resolveOverviewRowElement(target as Element | null)?.focus?.({ preventScroll: true });
-    };
-
-    // 单选某张表时按回车 → 进入改名（与「再次单击表名」同一入口）。
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
-      const container = resolveContainer();
-      const target = event.target as Node | null;
-      if (!container || !target || !container.contains(target)) return;
-      if (!isRenameHotkeyTarget(target as Element | null)) return;
-      const current = selectedNamesRef.current;
-      if (current.length !== 1) return;
-      event.preventDefault();
-      anchorRef.current = current[0];
-      activateNameRef.current?.(current[0]);
     };
 
     document.addEventListener('mousedown', handleMouseDown, true);
     document.addEventListener('click', handleClick, true);
-    document.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     return () => {
       document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('click', handleClick, true);
-      document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);

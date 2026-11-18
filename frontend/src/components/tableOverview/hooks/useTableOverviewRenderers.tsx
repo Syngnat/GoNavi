@@ -13,7 +13,13 @@ import { t } from '../../../i18n';
 import { formatSidebarTableTimestamp } from '../../sidebar/sidebarHelpers';
 import type { TableOverviewTableActionsApi } from './useTableOverviewTableActions';
 import type { TableOverviewStateApi } from './useTableOverviewState';
-import { TableOverviewNameEditor } from '../TableOverviewNameEditor';
+import { TableOverviewCard } from '../TableOverviewCard';
+
+const renderTableOverviewName = (
+  _table: TableStatRow,
+  displayName: string,
+  style?: React.CSSProperties,
+) => <span style={style}>{displayName}</span>;
 
 export interface UseTableOverviewRenderersInput {
   textMuted: TableOverviewTableActionsApi['textMuted'];
@@ -32,23 +38,15 @@ export interface UseTableOverviewRenderersInput {
   sortOrder: TableOverviewStateApi['sortOrder'];
   /** 行是否处于选中态（卡片 / 列表 / 紧凑表三种视图共用）。 */
   isOverviewTableSelected: (name: string) => boolean;
-  /** 正在就地改名的表（null 表示没有）。 */
-  renamingTable: string | null;
-  renameDraft: string;
-  renameEditorRef: React.MutableRefObject<HTMLSpanElement | null>;
-  onRenameDraftChange: (value: string) => void;
-  onRenameCommit: () => void;
-  onRenameCancel: () => void;
 }
 
 export const useTableOverviewRenderers = ({
   textMuted, textSecondary, textPrimary, darkMode, openTableByDefaultAction,
   openV2OverviewContextMenu, accentColor, metadataDialect, maxCombinedSize, hasKnownTableSize,
   getCombinedTableSize, sortField, toggleSort, sortOrder, isOverviewTableSelected,
-  renamingTable, renameDraft, renameEditorRef, onRenameDraftChange, onRenameCommit, onRenameCancel,
 }: UseTableOverviewRenderersInput) => {
   // 三种视图的行都带同一个选中标记，拖选 / Shift 区间只按它解析，不区分视图。
-  // tabIndex=-1 让点击后行可聚焦，回车改名按焦点判定（避免全局抢 Enter）。
+  // tabIndex=-1 让点击后行可聚焦，键盘交互以当前焦点行判定。
   const overviewRowProps = (name: string) => ({
       'data-table-overview-select': name,
       'aria-selected': isOverviewTableSelected(name),
@@ -56,25 +54,6 @@ export const useTableOverviewRenderers = ({
   });
   const selectedClass = (name: string) => (isOverviewTableSelected(name) ? ' is-selected' : '');
 
-  // 表名节点：编辑态换成输入框，静态态带 data-table-overview-rename 供「再次单击」识别。
-  const renderNameNode = (
-      table: TableStatRow,
-      displayName: string,
-      style?: React.CSSProperties,
-  ) => (
-      renamingTable === table.name
-          ? (
-              <TableOverviewNameEditor
-                  value={renameDraft}
-                  onChange={onRenameDraftChange}
-                  onCommit={onRenameCommit}
-                  onCancel={onRenameCancel}
-                  editorRef={renameEditorRef}
-                  ariaLabel={displayName}
-              />
-          )
-          : <span data-table-overview-rename={table.name} style={style}>{displayName}</span>
-  );
   const renderOverviewSectionTitle = (section: OverviewTableSection) => {
       const sectionTitle = section.kind === 'pinned'
           ? t('table_overview.section.pinned')
@@ -174,93 +153,24 @@ export const useTableOverviewRenderers = ({
       );
   }, [darkMode, formatOverviewTimestamp, t, textPrimary, textSecondary]);
 
-  const renderCardTableContent = (table: TableStatRow) => (
-      <div
-          className={`gn-v2-table-card${selectedClass(table.name)}`}
-          data-table-overview-card={table.name}
-          {...overviewRowProps(table.name)}
-          onDoubleClick={() => openTableByDefaultAction(table.name)}
-          onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
-          style={{
-              borderRadius: 10,
-              padding: '14px 16px',
-              height: '100%',
-              minHeight: 0,
-              maxHeight: '100%',
-              boxSizing: 'border-box',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              cursor: 'pointer',
-              userSelect: 'none',
-          }}
-      >
-          <div className="gn-v2-table-card-name" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
-              <TableOutlined style={{ fontSize: 14, color: accentColor }} />
-              <Tooltip title={getTableOverviewDisplayName(metadataDialect, table.name)} mouseEnterDelay={0.4}>
-                  {renderNameNode(table, getTableOverviewDisplayName(metadataDialect, table.name), { fontSize: 13, fontWeight: 600, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'block' })}
-              </Tooltip>
-          </div>
-          <Tooltip title={table.comment || undefined} mouseEnterDelay={0.4}>
-                  <div
-                      className="gn-v2-table-card-comment"
-                      data-table-overview-card-field="comment"
-                      style={{
-                          minHeight: 19,
-                          flexShrink: 0,
-                          fontSize: 12,
-                          color: textSecondary,
-                          marginBottom: 10,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                      }}
-                  >
-                      {table.comment || '—'}
-                  </div>
-          </Tooltip>
-          {renderTableOverviewMetaBadges(table, false, true)}
-          <div className="gn-v2-table-card-meta" style={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 16, marginTop: 'auto', flexShrink: 0, fontSize: 12, color: textMuted }}>
-              <span title={t('table_overview.sort.rows')} style={{ minWidth: 52, flexShrink: 0, whiteSpace: 'nowrap' }}>📊 {formatRows(table.rows)}</span>
-              <span title={t('table_overview.metric.data_size')} style={{ minWidth: 72, flexShrink: 0, whiteSpace: 'nowrap' }}>💾 {formatSize(table.dataSize)}</span>
-              {table.charset ? (
-                  <span
-                      data-table-overview-card-field="charset"
-                      title={`${t('table_overview.metric.charset')}: ${table.charset}${table.collation ? ` / ${table.collation}` : ''}`}
-                      style={{
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          opacity: 0.7,
-                      }}
-                  >
-                      {table.charset}
-                  </span>
-              ) : null}
-              <span
-                      data-table-overview-card-field="engine"
-                      title={`${t('table_overview.metric.engine')}: ${table.engine || '—'}`}
-                      style={{
-                          marginLeft: 'auto',
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          opacity: 0.7,
-                      }}
-                  >
-                      {table.engine || '—'}
-              </span>
-          </div>
-          <div className="gn-v2-table-size-bar">
-                  <span style={{ width: `${Math.min(100, Math.max(4, maxCombinedSize > 0 && hasKnownTableSize(table) ? Math.round((getCombinedTableSize(table) / maxCombinedSize) * 100) : 4))}%` }} />
-          </div>
-      </div>
-  );
-
   const renderCardTable = (table: TableStatRow) => (
-      <React.Fragment key={table.name}>{renderCardTableContent(table)}</React.Fragment>
+      <TableOverviewCard
+          key={table.name}
+          table={table}
+          displayName={getTableOverviewDisplayName(metadataDialect, table.name)}
+          isSelected={isOverviewTableSelected(table.name)}
+          accentColor={accentColor}
+          textPrimary={textPrimary}
+          textSecondary={textSecondary}
+          textMuted={textMuted}
+          maxCombinedSize={maxCombinedSize}
+          hasKnownTableSize={hasKnownTableSize}
+          getCombinedTableSize={getCombinedTableSize}
+          openTableByDefaultAction={openTableByDefaultAction}
+          openV2OverviewContextMenu={openV2OverviewContextMenu}
+          renderNameNode={renderTableOverviewName}
+          renderMetaBadges={renderTableOverviewMetaBadges}
+      />
   );
 
   const renderListTable = (table: TableStatRow) => {
@@ -313,7 +223,7 @@ export const useTableOverviewRenderers = ({
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                               <TableOutlined style={{ fontSize: 13, color: accentColor, flexShrink: 0 }} />
                               <Tooltip title={displayName} mouseEnterDelay={0.4}>
-                                  {renderNameNode(table, displayName, { color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                  {renderTableOverviewName(table, displayName, { color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                               </Tooltip>
                               {table.engine && (
                                   <span
@@ -456,7 +366,7 @@ export const useTableOverviewRenderers = ({
           >
               <div className="gn-table-overview-compact-name" role="cell" title={displayName}>
                   <TableOutlined aria-hidden="true" />
-                  {renderNameNode(table, displayName)}
+                  {renderTableOverviewName(table, displayName)}
               </div>
               <div className="gn-table-overview-compact-cell" role="cell" title={table.comment || undefined}>{table.comment || '—'}</div>
               <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.rows >= 0 ? String(table.rows) : undefined}>{formatRows(table.rows)}</div>
@@ -466,7 +376,9 @@ export const useTableOverviewRenderers = ({
               <div
                   className="gn-table-overview-compact-cell"
                   role="cell"
-                  title={table.updateTime || undefined}
+                  title={table.updateTime
+                      ? `${t('table_overview.metric.updated_at')}: ${table.updateTime}`
+                      : undefined}
               >
                   {table.updateTime ? formatOverviewTimestamp(table.updateTime) : '—'}
               </div>

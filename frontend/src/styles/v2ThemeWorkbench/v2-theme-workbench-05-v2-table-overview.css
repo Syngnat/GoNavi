@@ -182,6 +182,16 @@ body[data-ui-version="v2"] .gn-v2-table-row {
   transition: background 0.08s, border-color 0.08s, box-shadow 0.08s;
 }
 
+body[data-ui-version="v2"] .gn-v2-table-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
+}
+
+body[data-ui-version="v2"] .gn-v2-table-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+
 body[data-ui-version="v2"] .gn-v2-table-card:hover,
 body[data-ui-version="v2"] .gn-v2-table-row:hover {
   background: var(--gn-bg-hover) !important;
@@ -432,21 +442,9 @@ body[data-ui-version="v2"] .gn-table-overview-compact-row.is-selected {
   box-shadow: inset 2px 0 0 var(--gn-accent);
 }
 
-/* 点击后行会被程序化聚焦（供回车改名），鼠标操作不需要焦点框。 */
+/* 点击后行会被程序化聚焦，鼠标操作不需要焦点框。 */
 body[data-ui-version="v2"] [data-table-overview-select]:focus {
   outline: none;
-}
-
-/* 表名就地编辑：撑满名字所在的行内位置，输入框内仍可正常选择文字。 */
-body[data-ui-version="v2"] .gn-table-overview-name-editor {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-body[data-ui-version="v2"] .gn-table-overview-name-editor .ant-input {
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 body[data-ui-version="v2"] .gn-v2-table-card.is-selected:hover,

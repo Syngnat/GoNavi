@@ -31,8 +31,6 @@ const Harness = ({ selected }: { selected: boolean }) => {
     maxCombinedSize: 2048, hasKnownTableSize: () => true, getCombinedTableSize: () => 1536,
     sortField: 'name', toggleSort: () => {}, sortOrder: 'asc',
     isOverviewTableSelected: () => selected,
-    renamingTable: null, renameDraft: '', renameEditorRef: React.createRef<HTMLSpanElement>(),
-    onRenameDraftChange: () => {}, onRenameCommit: () => {}, onRenameCancel: () => {},
   });
   return (
     <div>

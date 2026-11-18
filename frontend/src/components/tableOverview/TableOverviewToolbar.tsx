@@ -1,16 +1,16 @@
 import React from 'react';
-import { Input, Dropdown, Tooltip } from 'antd';
+import { Dropdown, Tooltip } from 'antd';
 import {
-  TableOutlined, SearchOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined,
+  TableOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined,
   AppstoreOutlined, UnorderedListOutlined,
 } from '@ant-design/icons';
 
 import { t } from '../../i18n';
-import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import type { TabData } from '../../types';
 import type { ViewMode } from './tableOverviewModel';
 import type { TableOverviewStateApi } from './hooks/useTableOverviewState';
 import type { TableOverviewTableActionsApi } from './hooks/useTableOverviewTableActions';
+import { TableOverviewSearchInput } from './TableOverviewSearchInput';
 
 type TableOverviewToolbarProps = {
   tab: TabData;
@@ -33,16 +33,12 @@ const TableOverviewToolbar: React.FC<TableOverviewToolbarProps> = ({ tab, state,
         {actions.renderToolbarSummary()}
       </span>
       <div style={{ flex: 1 }} />
-      <Input
-        {...noAutoCapInputProps}
-        placeholder={t('table_overview.placeholder.search')}
-        aria-label={t('table_overview.placeholder.search')}
-        prefix={<SearchOutlined style={{ color: actions.textMuted }} />}
+      <TableOverviewSearchInput
         value={state.searchText}
-        onChange={(event) => state.setSearchText(event.target.value)}
-        allowClear
-        style={{ width: 240 }}
-        size="small"
+        onChange={state.setSearchText}
+        placeholder={t('table_overview.placeholder.search')}
+        ariaLabel={t('table_overview.placeholder.search')}
+        iconColor={actions.textMuted}
       />
       <Dropdown menu={{ items: actions.sortMenuItems }} trigger={['click']}>
         <Tooltip title={t('table_overview.tooltip.sort')}>

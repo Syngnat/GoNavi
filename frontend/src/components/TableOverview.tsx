@@ -18,7 +18,7 @@ export interface TableOverviewProps {
 const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const state = useTableOverviewState({ tab });
     const actions = useTableOverviewTableActions({ tab, ...state });
-    const interaction = useTableOverviewInteraction({ tab, state, actions });
+    const interaction = useTableOverviewInteraction({ tab, state });
 
     if (state.loading && state.tables.length === 0) {
         return (

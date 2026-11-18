@@ -15,7 +15,7 @@ type TableOverviewContentProps = {
 };
 
 const TableOverviewContent: React.FC<TableOverviewContentProps> = ({ state, actions, interaction }) => {
-  const { contentRef, rename, selection, openTableByDefaultAction } = interaction;
+  const { contentRef, selection, openTableByDefaultAction } = interaction;
 
   return (
     <div ref={contentRef} className="gn-v2-table-overview-content" tabIndex={-1} data-view-mode={state.viewMode} style={{ flex: 1, minHeight: 0 }}>
@@ -53,12 +53,6 @@ const TableOverviewContent: React.FC<TableOverviewContentProps> = ({ state, acti
           toggleSort={actions.toggleSort}
           sortOrder={state.sortOrder}
           isOverviewTableSelected={selection.isSelected}
-          renamingTable={rename.renamingTable}
-          renameDraft={rename.renameDraft}
-          renameEditorRef={rename.editorRef}
-          onRenameDraftChange={rename.setRenameDraft}
-          onRenameCommit={rename.commitRename}
-          onRenameCancel={rename.cancelRename}
         />
       )}
       {state.sortedFiltered.length > 0 && state.visibleOverview.hiddenCount > 0 && (

@@ -7,6 +7,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TableOverview from './TableOverview';
+import { TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS } from './tableOverview/TableOverviewSearchInput';
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), renderRows: vi.fn() }));
 const storeState = vi.hoisted(() => ({
@@ -74,6 +75,12 @@ describe('table overview search rendering', () => {
     await act(async () => {
       renderer.root.findByType(Input).props.onChange({ target: { value: text } });
     });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS + 30,
+      ));
+    });
   };
 
   it('updates rows only for the deferred filter and does not query the database again', async () => {
@@ -95,6 +102,22 @@ describe('table overview search rendering', () => {
 
     expect(cards()).toHaveLength(300);
     expect(mocks.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the controlled search value immediate while row filtering is debounced', async () => {
+    await act(async () => {
+      renderer.root.findByType(Input).props.onChange({ target: { value: 'account' } });
+    });
+    expect(renderer.root.findByType(Input).props.value).toBe('account');
+    expect(cards()).toHaveLength(300);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS + 30,
+      ));
+    });
+    expect(cards()).toHaveLength(3);
   });
 
   it('keeps table elements mounted while refreshing so clipboard focus can be restored', async () => {

@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TableOverview from './TableOverview';
+import { TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS } from './tableOverview/TableOverviewSearchInput';
 
 const storeSubscribers = vi.hoisted(() => new Set<() => void>());
 const renderedDropdownMenus = vi.hoisted(() => [] as Array<{ items?: any[] }>);
@@ -169,6 +170,15 @@ const flushPromises = async () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+  });
+};
+
+const flushSearchDebounce = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(
+      resolve,
+      TABLE_OVERVIEW_SEARCH_DEBOUNCE_MS + 30,
+    ));
   });
 };
 
@@ -651,16 +661,16 @@ describe('TableOverview metadata compatibility', () => {
     assertBareTableName();
     await act(async () => {
       renderer!.root.findByType('input').props.onChange({ target: { value: 'reporting' } });
-      await Promise.resolve();
     });
+    await flushSearchDebounce();
     const filteredText = collectText(renderer!.toJSON());
     expect(filteredText).toContain('reporting_summary');
     expect(filteredText).not.toContain('orders');
 
     await act(async () => {
       renderer!.root.findByType('input').props.onChange({ target: { value: '' } });
-      await Promise.resolve();
     });
+    await flushSearchDebounce();
     assertBareTableName();
     await act(async () => {
       renderer!.root.findByProps({ 'data-table-overview-view-mode': 'list' }).props.onClick();
