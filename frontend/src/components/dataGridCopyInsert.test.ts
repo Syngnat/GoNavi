@@ -78,6 +78,75 @@ describe('buildCopyInsertSQL', () => {
     expect(sql).toBe("INSERT INTO `users` (`name`, `id`) VALUES ('Ada', '7');");
   });
 
+  it('prefers the actual SQL Server connection config over a stale dbType and formats Unicode and bit values', () => {
+    const sql = buildCopyInsertSQL({
+      dbType: 'mysql',
+      connectionConfig: {
+        type: 'sqlserver',
+        driver: 'mssql',
+      },
+      tableName: 'dbo.Users',
+      orderedCols: ['ID', 'CTMID', 'Enabled', 'Name'],
+      record: {
+        ID: 7,
+        CTMID: '中文',
+        Enabled: true,
+        Name: "O'Brien",
+      },
+      columnTypesByLowerName: {
+        id: 'int',
+        ctmid: 'nvarchar(64)',
+        enabled: 'bit',
+        name: 'nvarchar(128)',
+      },
+    });
+
+    expect(sql).toBe(
+      "INSERT INTO [dbo].[Users] ([ID], [CTMID], [Enabled], [Name]) VALUES ('7', N'中文', 1, N'O''Brien');",
+    );
+  });
+
+  it('normalizes SQL Server aliases before quoting identifiers', () => {
+    const sql = buildCopyInsertSQL({
+      dbType: 'sql_server',
+      tableName: 'dbo.Users',
+      orderedCols: ['ID', 'CTMID'],
+      record: {
+        ID: 7,
+        CTMID: 'C-1',
+      },
+    });
+
+    expect(sql).toBe("INSERT INTO [dbo].[Users] ([ID], [CTMID]) VALUES ('7', 'C-1');");
+  });
+
+  it('uses the actual SQL Server connection config for copied UPDATE and DELETE statements', () => {
+    const params = {
+      dbType: 'mysql',
+      connectionConfig: { type: 'sqlserver', driver: 'mssql' },
+      tableName: 'dbo.Users',
+      orderedCols: ['ID', 'CTMID'],
+      record: { ID: 7, CTMID: '中文' },
+      pkColumns: ['ID'],
+      allTableColumns: ['ID', 'CTMID'],
+      columnTypesByLowerName: {
+        id: 'int',
+        ctmid: 'nvarchar(64)',
+      },
+    };
+
+    expect(buildCopyUpdateSQL(params)).toEqual({
+      ok: true,
+      whereStrategy: 'primary-key',
+      sql: "UPDATE [dbo].[Users] SET [ID] = '7', [CTMID] = N'中文' WHERE ([ID] = '7');",
+    });
+    expect(buildCopyDeleteSQL(params)).toEqual({
+      ok: true,
+      whereStrategy: 'primary-key',
+      sql: "DELETE FROM [dbo].[Users] WHERE ([ID] = '7');",
+    });
+  });
+
   it('emits unquoted MySQL bit literals while keeping ordinary values quoted', () => {
     const sql = buildCopyInsertSQL({
       dbType: 'mysql',

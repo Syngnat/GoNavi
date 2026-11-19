@@ -89,6 +89,7 @@ export const useDataGridV2CopyExport = ({
       if (mode === 'insert') {
           return records.map((row: any) => buildCopyInsertSQL({
               dbType,
+              connectionConfig: currentConnConfig,
               tableName,
               orderedCols,
               record: row,
@@ -100,6 +101,7 @@ export const useDataGridV2CopyExport = ({
           mode === 'update'
               ? buildCopyUpdateSQL({
                   dbType,
+                  connectionConfig: currentConnConfig,
                   tableName,
                   orderedCols,
                   record: row,
@@ -110,6 +112,7 @@ export const useDataGridV2CopyExport = ({
               })
               : buildCopyDeleteSQL({
                   dbType,
+                  connectionConfig: currentConnConfig,
                   tableName,
                   orderedCols,
                   record: row,
@@ -136,6 +139,7 @@ export const useDataGridV2CopyExport = ({
       getTargets,
       displayOutputColumnNames,
       dbType,
+      currentConnConfig,
       tableName,
       columnTypeMapByLowerName,
       pkColumns,

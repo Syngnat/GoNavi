@@ -1,9 +1,15 @@
-import type { IndexDefinition } from '../types';
+import type { ConnectionConfig, IndexDefinition } from '../types';
 import { escapeLiteral, quoteIdentPart, quoteQualifiedIdent } from '../utils/sql';
-import { isMysqlFamilyDialect, isOracleLikeDialect } from '../utils/sqlDialect';
+import {
+  isMysqlFamilyDialect,
+  isOracleLikeDialect,
+  isSqlServerDialect,
+  resolveSqlDialect,
+} from '../utils/sqlDialect';
 
 type BuildCopyInsertSQLParams = {
   dbType: string;
+  connectionConfig?: Pick<ConnectionConfig, 'type' | 'driver' | 'oceanBaseProtocol'>;
   tableName?: string;
   orderedCols: string[];
   record: Record<string, any>;
@@ -212,9 +218,50 @@ const formatOracleTemporalLiteral = (value: any, columnType?: string): string | 
   return `TO_DATE('${escaped}', 'YYYY-MM-DD HH24:MI:SS')`;
 };
 
-const isMySQLBitColumnType = (columnType?: string): boolean => {
+const isBitColumnType = (columnType?: string): boolean => {
   const normalized = String(columnType || '').trim().toLowerCase();
   return /^bit(?:\s*\(\s*\d+\s*\))?$/.test(normalized);
+};
+
+const isSQLServerUnicodeTextColumnType = (columnType?: string): boolean => {
+  const baseType = String(columnType || '').trim().toLowerCase().split(/[ (]/)[0];
+  return ['nchar', 'nvarchar', 'ntext', 'sysname'].includes(baseType);
+};
+
+const formatSQLServerBitLiteral = (value: any): string | null => {
+  if (typeof value === 'boolean') {
+    return value ? '1' : '0';
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return value === 0 ? '0' : '1';
+  }
+  if (typeof value === 'bigint') {
+    return value === 0n ? '0' : '1';
+  }
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (['true', 't', 'yes', 'y'].includes(normalized)) return '1';
+  if (['false', 'f', 'no', 'n'].includes(normalized)) return '0';
+  if (!/^[+-]?\d+$/.test(normalized)) return null;
+  try {
+    return BigInt(normalized) === 0n ? '0' : '1';
+  } catch {
+    return null;
+  }
+};
+
+const resolveCopySqlDialect = (
+  dbType: string,
+  connectionConfig?: BuildCopyInsertSQLParams['connectionConfig'],
+): string => {
+  const configuredDialect = resolveSqlDialect(
+    String(connectionConfig?.type || dbType || '').trim(),
+    String(connectionConfig?.driver || '').trim(),
+    { oceanBaseProtocol: connectionConfig?.oceanBaseProtocol },
+  );
+  return configuredDialect === 'unknown' ? resolveSqlDialect(dbType) : configuredDialect;
 };
 
 const formatMySQLBitLiteral = (value: any): string | null => {
@@ -271,7 +318,13 @@ const formatCopySqlLiteral = (value: any, columnType?: string, dbType = ''): str
   if (value === null || value === undefined) {
     return 'NULL';
   }
-  if (isMysqlFamilyDialect(dbType) && isMySQLBitColumnType(columnType)) {
+  if (isSqlServerDialect(dbType) && isBitColumnType(columnType)) {
+    const sqlServerBitLiteral = formatSQLServerBitLiteral(value);
+    if (sqlServerBitLiteral) {
+      return sqlServerBitLiteral;
+    }
+  }
+  if (isMysqlFamilyDialect(dbType) && isBitColumnType(columnType)) {
     const mysqlBitLiteral = formatMySQLBitLiteral(value);
     if (mysqlBitLiteral) {
       return mysqlBitLiteral;
@@ -282,6 +335,9 @@ const formatCopySqlLiteral = (value: any, columnType?: string, dbType = ''): str
     if (oracleTemporalLiteral) {
       return oracleTemporalLiteral;
     }
+  }
+  if (isSqlServerDialect(dbType) && isSQLServerUnicodeTextColumnType(columnType)) {
+    return `N'${escapeLiteral(toNormalizedLiteralText(value, columnType))}'`;
   }
   return `'${escapeLiteral(toNormalizedLiteralText(value, columnType))}'`;
 };
@@ -391,16 +447,18 @@ const resolveMutationWhereClause = ({
 
 export const buildCopyInsertSQL = ({
   dbType,
+  connectionConfig,
   tableName,
   orderedCols,
   record,
   columnTypesByLowerName = {},
 }: BuildCopyInsertSQLParams): string => {
-  const targetTable = quoteQualifiedIdent(dbType, tableName || 'table');
-  const quotedCols = orderedCols.map((col) => quoteIdentPart(dbType, col));
+  const dialect = resolveCopySqlDialect(dbType, connectionConfig);
+  const targetTable = quoteQualifiedIdent(dialect, tableName || 'table');
+  const quotedCols = orderedCols.map((col) => quoteIdentPart(dialect, col));
   const values = orderedCols.map((col) => {
     const { value } = getRecordValue(record, col);
-    return formatCopySqlLiteral(value, getColumnType(columnTypesByLowerName, col), dbType);
+    return formatCopySqlLiteral(value, getColumnType(columnTypesByLowerName, col), dialect);
   });
 
   return `INSERT INTO ${targetTable} (${quotedCols.join(', ')}) VALUES (${values.join(', ')});`;
@@ -410,6 +468,7 @@ const buildCopyMutationSQL = (
   mode: 'update' | 'delete',
   {
     dbType,
+    connectionConfig,
     tableName,
     orderedCols,
     record,
@@ -419,6 +478,7 @@ const buildCopyMutationSQL = (
     columnTypesByLowerName = {},
   }: BuildCopyMutationSQLParams,
 ): CopyMutationSQLResult => {
+  const dialect = resolveCopySqlDialect(dbType, connectionConfig);
   const normalizedTableName = String(tableName || '').trim();
   const normalizedOrderedCols = normalizeColumnList(orderedCols);
   if (!normalizedTableName) {
@@ -442,7 +502,7 @@ const buildCopyMutationSQL = (
   }
 
   const whereClause = resolveMutationWhereClause({
-    dbType,
+    dbType: dialect,
     orderedCols: normalizedOrderedCols,
     record,
     pkColumns,
@@ -454,7 +514,7 @@ const buildCopyMutationSQL = (
     return { ok: false, error: whereClause.error };
   }
 
-  const targetTable = quoteQualifiedIdent(dbType, normalizedTableName);
+  const targetTable = quoteQualifiedIdent(dialect, normalizedTableName);
   if (mode === 'delete') {
     return {
       ok: true,
@@ -465,7 +525,7 @@ const buildCopyMutationSQL = (
 
   const assignments = normalizedOrderedCols.map((columnName) => {
     const { value } = getRecordValue(record, columnName);
-    return `${quoteIdentPart(dbType, columnName)} = ${formatCopySqlLiteral(value, getColumnType(columnTypesByLowerName, columnName), dbType)}`;
+    return `${quoteIdentPart(dialect, columnName)} = ${formatCopySqlLiteral(value, getColumnType(columnTypesByLowerName, columnName), dialect)}`;
   });
 
   return {
