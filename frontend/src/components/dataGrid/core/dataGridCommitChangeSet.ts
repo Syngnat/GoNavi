@@ -96,6 +96,18 @@ export const buildDataGridCommitChangeSet = ({
         return { values: normalizedValues, previous: previousValues };
     };
 
+    // 定位值来自查询结果原文，时间列常是 RFC3339 文本（如 ...T...+08:00）。
+    // 写入值此前已做类型归一化，定位条件也必须走同一套规则，否则 WHERE/UPDATE
+    // 会把查询展示格式直接当作数据库参数提交。
+    const normalizeLocatorValues = (values: Record<string, any>): Record<string, any> => {
+        const normalizedValues: Record<string, any> = {};
+        Object.entries(values).forEach(([column, value]) => {
+            const normalizedValue = normalizeCommitCellValue(column, value, 'update');
+            normalizedValues[column] = normalizedValue === undefined ? value : normalizedValue;
+        });
+        return normalizedValues;
+    };
+
     const originalRowsByKey = new Map<string, any>();
     data.forEach((row) => {
         const key = row?.[GONAVI_ROW_KEY];
@@ -121,7 +133,7 @@ export const buildDataGridCommitChangeSet = ({
         if (!originalRow) continue;
         const locatorValues = resolveRowLocatorValues(editLocator, originalRow, rowLocatorMessages);
         if (!locatorValues.ok) return { ok: false, error: locatorValues.error };
-        deletes.push(locatorValues.values);
+        deletes.push(normalizeLocatorValues(locatorValues.values));
 
         // 删除前整行快照，供后端生成反向 INSERT。列名必须是**表列名**（反向语句直接写回列名），
         // 因此与 Values 走同一套 resolveWritableColumnName 映射；隐藏的定位伪列在此被过滤掉。
@@ -164,7 +176,7 @@ export const buildDataGridCommitChangeSet = ({
         if (Object.keys(normalized.values).length === 0) continue;
         // 无定位值可还原的列（原始值为 undefined）会被后端跳过并如实告知，不在此处补齐。
         updates.push({
-            keys: locatorValues.values,
+            keys: normalizeLocatorValues(locatorValues.values),
             values: normalized.values,
             previousValues: normalized.previous,
         });

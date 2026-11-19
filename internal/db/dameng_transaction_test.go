@@ -22,6 +22,7 @@ type damengTransactionRecordingState struct {
 	commitCalls   int
 	rollbackCalls int
 	execQueries   []string
+	execArgs      [][]driver.NamedValue
 	execStarted   chan struct{}
 	execRelease   chan struct{}
 	blockExec     bool
@@ -66,9 +67,10 @@ func (c *damengTransactionConn) BeginTx(context.Context, driver.TxOptions) (driv
 	return c.Begin()
 }
 
-func (c *damengTransactionConn) ExecContext(ctx context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+func (c *damengTransactionConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	c.state.mu.Lock()
 	c.state.execQueries = append(c.state.execQueries, query)
+	c.state.execArgs = append(c.state.execArgs, append([]driver.NamedValue(nil), args...))
 	blockExec := c.state.blockExec
 	execStarted := c.state.execStarted
 	execRelease := c.state.execRelease
@@ -110,6 +112,16 @@ func (s *damengTransactionRecordingState) snapshot() (int, int, int, []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.beginCalls, s.commitCalls, s.rollbackCalls, append([]string(nil), s.execQueries...)
+}
+
+func (s *damengTransactionRecordingState) snapshotExecArgs() [][]driver.NamedValue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	args := make([][]driver.NamedValue, len(s.execArgs))
+	for i := range s.execArgs {
+		args[i] = append([]driver.NamedValue(nil), s.execArgs[i]...)
+	}
+	return args
 }
 
 func TestDamengOpenTransactionExecerUsesDriverTransaction(t *testing.T) {

@@ -472,16 +472,17 @@ func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, ch
 		qualifiedTable = quoteIdent(table)
 	}
 
-	identityColumns, identityColumnsErr := d.identityColumnsForApply(schema, table)
-	if identityColumnsErr != nil {
+	identityColumns, columnTypes, metadataErr := d.applyColumnMetadata(schema, table)
+	if metadataErr != nil {
 		// 旧版达梦或受限账号可能无法访问 SYS.SYSCOLUMNS。元数据只用于
-		// 决定是否开启显式 identity 写入，不能因此阻断本来合法的普通 DML；
-		// 若调用方确实写入了 identity 值，数据库仍会返回明确的原始错误。
-		logger.Warnf("达梦 ApplyChanges 自增列元数据查询失败，将按普通 DML 继续：%v", identityColumnsErr)
+		// 自增写入开关与时间参数归一化，不能因此阻断本来合法的普通 DML；
+		// 若调用方确实写入了自增值，数据库仍会返回明确的原始错误。
+		logger.Warnf("达梦 ApplyChanges 列元数据查询失败，将按普通 DML 继续：%v", metadataErr)
 		identityColumns = nil
+		columnTypes = nil
 	}
 	identityInsertNeeded := changesWriteDamengIdentityColumns(changes, identityColumns)
-	err = d.applyDamengChangesTransaction(ctx, qualifiedTable, changes, identityInsertNeeded)
+	err = d.applyDamengChangesTransaction(ctx, qualifiedTable, changes, identityInsertNeeded, columnTypes)
 	if err == nil || identityInsertNeeded || IsWriteOutcomeUnknown(err) || !isDamengIdentityInsertError(err) {
 		return err
 	}
@@ -489,10 +490,16 @@ func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, ch
 	// 显式写入因此可能漏开关；此时首个事务已回滚，针对明确的 identity
 	// 错误用新事务重放一次并强制开启开关。普通约束/网络错误不会走这里。
 	logger.Warnf("达梦检测到显式写入自增列但未识别到 identity 元数据，将回滚后重试并开启 IDENTITY_INSERT：%v", err)
-	return d.applyDamengChangesTransaction(ctx, qualifiedTable, changes, true)
+	return d.applyDamengChangesTransaction(ctx, qualifiedTable, changes, true, columnTypes)
 }
 
-func (d *DamengDB) applyDamengChangesTransaction(ctx context.Context, qualifiedTable string, changes connection.ChangeSet, identityInsertNeeded bool) (err error) {
+func (d *DamengDB) applyDamengChangesTransaction(
+	ctx context.Context,
+	qualifiedTable string,
+	changes connection.ChangeSet,
+	identityInsertNeeded bool,
+	columnTypes map[string]string,
+) (err error) {
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
 		n = strings.Trim(n, "\"")
@@ -541,7 +548,7 @@ func (d *DamengDB) applyDamengChangesTransaction(ctx context.Context, qualifiedT
 		for k, v := range pk {
 			idx++
 			wheres = append(wheres, fmt.Sprintf("%s = :%d", quoteIdent(k), idx))
-			args = append(args, v)
+			args = append(args, normalizeDamengWriteValue(k, v, columnTypes))
 		}
 		if len(wheres) == 0 {
 			continue
@@ -561,7 +568,7 @@ func (d *DamengDB) applyDamengChangesTransaction(ctx context.Context, qualifiedT
 		for k, v := range update.Values {
 			idx++
 			sets = append(sets, fmt.Sprintf("%s = :%d", quoteIdent(k), idx))
-			args = append(args, v)
+			args = append(args, normalizeDamengWriteValue(k, v, columnTypes))
 		}
 
 		if len(sets) == 0 {
@@ -572,7 +579,7 @@ func (d *DamengDB) applyDamengChangesTransaction(ctx context.Context, qualifiedT
 		for k, v := range update.Keys {
 			idx++
 			wheres = append(wheres, fmt.Sprintf("%s = :%d", quoteIdent(k), idx))
-			args = append(args, v)
+			args = append(args, normalizeDamengWriteValue(k, v, columnTypes))
 		}
 
 		if len(wheres) == 0 {
@@ -596,7 +603,7 @@ func (d *DamengDB) applyDamengChangesTransaction(ctx context.Context, qualifiedT
 			idx++
 			cols = append(cols, quoteIdent(k))
 			placeholders = append(placeholders, fmt.Sprintf(":%d", idx))
-			args = append(args, v)
+			args = append(args, normalizeDamengWriteValue(k, v, columnTypes))
 		}
 
 		if len(cols) == 0 {
@@ -628,24 +635,6 @@ func isDamengIdentityInsertError(err error) bool {
 		return true
 	}
 	return strings.Contains(text, "自增列") && strings.Contains(text, "指定列列表")
-}
-
-// identityColumnsForApply returns the target columns that require
-// IDENTITY_INSERT for explicit values. The metadata lookup happens before the
-// write transaction so its query cannot be scheduled onto the transaction's
-// pinned connection.
-func (d *DamengDB) identityColumnsForApply(schema, table string) (map[string]struct{}, error) {
-	columns, err := d.GetColumns(schema, table)
-	if err != nil {
-		return nil, err
-	}
-	identityColumns := make(map[string]struct{})
-	for _, column := range columns {
-		if strings.Contains(strings.ToLower(strings.TrimSpace(column.Extra)), "auto_increment") {
-			identityColumns[strings.ToLower(strings.TrimSpace(column.Name))] = struct{}{}
-		}
-	}
-	return identityColumns, nil
 }
 
 // changesWriteDamengIdentityColumns checks only written values. Identity keys

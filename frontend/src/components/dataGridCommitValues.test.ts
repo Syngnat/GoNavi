@@ -88,4 +88,66 @@ describe('normalizeDataGridCommitCellValue', () => {
     expect(result.changes.updates).toHaveLength(1);
     expect(result.changes.updates[0].values.INSTCODE).toBe(1192);
   });
+
+  it('normalizes temporal values used by delete and update locators', () => {
+    const result = buildDataGridCommitChangeSet({
+      addedRows: [],
+      modifiedRows: {
+        '2': {
+          [GONAVI_ROW_KEY]: 2,
+          ID: 2,
+          INDATE: '2026-11-11T15:00:00+08:00',
+          NAME: 'changed',
+        },
+      },
+      deletedRowKeys: new Set<string>(['1']),
+      data: [
+        {
+          [GONAVI_ROW_KEY]: 1,
+          ID: 1,
+          INDATE: '2026-11-11T14:36:20+08:00',
+          NAME: 'deleted',
+        },
+        {
+          [GONAVI_ROW_KEY]: 2,
+          ID: 2,
+          INDATE: '2026-11-11T15:00:00+08:00',
+          NAME: 'before',
+        },
+      ],
+      editLocator: {
+        strategy: 'all-columns',
+        columns: ['ID', 'INDATE', 'NAME'],
+        valueColumns: ['ID', 'INDATE', 'NAME'],
+        readOnly: false,
+      },
+      visibleColumnNames: ['ID', 'INDATE', 'NAME'],
+      rowKeyToString: String,
+      normalizeCommitCellValue: (columnName, value, mode) => normalizeDataGridCommitCellValue({
+        columnName,
+        value,
+        mode,
+        dbType: 'dameng',
+        meta: {
+          type: columnName === 'INDATE' ? 'TIMESTAMP' : columnName === 'ID' ? 'INTEGER' : 'VARCHAR2(64)',
+        },
+      }),
+      shouldCommitColumn: () => true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.changes.deletes).toEqual([{
+      ID: 1,
+      INDATE: '2026-11-11 14:36:20',
+      NAME: 'deleted',
+    }]);
+    expect(result.changes.updates).toHaveLength(1);
+    expect(result.changes.updates[0].keys).toEqual({
+      ID: 2,
+      INDATE: '2026-11-11 15:00:00',
+      NAME: 'before',
+    });
+    expect(result.changes.updates[0].values).toEqual({ NAME: 'changed' });
+  });
 });
