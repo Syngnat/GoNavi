@@ -10,6 +10,7 @@ declare module 'monaco-editor/esm/vs/editor/editor.all.js';
 declare module 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js';
 declare module 'monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution.js';
 declare module 'monaco-editor/esm/vs/basic-languages/redis/redis.contribution.js';
+declare module 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js';
 declare module 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js';
 declare module 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js';
 declare module 'monaco-editor/esm/vs/basic-languages/ini/ini.contribution.js';

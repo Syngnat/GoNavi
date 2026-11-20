@@ -45,10 +45,11 @@ const loadAppLanguages = async () => {
 };
 
 // 这些语言 id 由界面按 Nacos 配置 type 请求（见 NacosViewer.resolveEditorLanguage）。
-const REQUESTED_LANGUAGE_IDS = ['sql', 'mysql', 'redis', 'json', 'yaml', 'xml', 'ini'];
+const REQUESTED_LANGUAGE_IDS = ['sql', 'mysql', 'redis', 'javascript', 'json', 'yaml', 'xml', 'ini'];
 
 // 分词器纯本地，无需 worker 即可验证着色效果；样例取自真实配置形态。
 const CONFIG_SAMPLES_WITHOUT_WORKER: Array<[languageId: string, sample: string, minColors: number]> = [
+  ['javascript', 'const answer = 42;\nfunction run() { return "ok"; }\n', 3],
   ['yaml', 'server:\n  port: 8080\n  enabled: true\n# note\n', 3],
   ['yaml', 'spring:\n  datasource:\n    url: jdbc:mysql://db:3306/app\n', 2],
   ['ini', 'spring.datasource.username=root\nspring.datasource.driver=com.mysql.jdbc.Driver\n', 2],

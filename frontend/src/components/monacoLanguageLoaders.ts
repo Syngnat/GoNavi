@@ -7,6 +7,7 @@
  *
  * 覆盖范围为界面实际可请求的语言 id：
  * - sql/mysql/redis：查询编辑器、Redis 命令编辑器
+ * - javascript：脚本工作台
  * - json：JSON 数据格、JVM 资源、Nacos json 配置
  * - yaml/xml/ini：Nacos 配置正文（yaml/yml、xml/html、properties）
  */
@@ -14,6 +15,7 @@ export const GONAVI_MONACO_LANGUAGE_LOADERS: ReadonlyArray<() => Promise<unknown
   () => import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js'),
   () => import('monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution.js'),
   () => import('monaco-editor/esm/vs/basic-languages/redis/redis.contribution.js'),
+  () => import('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js'),
   () => import('monaco-editor/esm/vs/language/json/monaco.contribution.js'),
   () => import('monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js'),
   () => import('monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js'),
