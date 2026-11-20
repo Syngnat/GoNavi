@@ -288,7 +288,7 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
   } = useQueryEditorObjectEditTabs({ tab, connectionsRef, addTab });
 
   const { handleEditorBeforeMount, handleEditorDidMount } = useQueryEditorMonacoMount({
-      tab, isActive, editorRef, monacoRef, restoredResultSessionRef, lastEditorCursorPositionRef,
+      tab, isActive, editorRef, editorStageRef, editorShellRef, monacoRef, restoredResultSessionRef, lastEditorCursorPositionRef,
       queryEditorMonacoLanguage, isObjectEditQueryTab, wordWrapEnabled, isElasticsearchMode,
       aiInlineGhostVisibleContextKeyRef, aiInlineGhostTimerRef, aiInlineGhostDecorationIdsRef,
       aiInlineGhostRequestSeqRef, aiInlineGhostRef, aiInlineGhostOverlayRef, connectionsRef,

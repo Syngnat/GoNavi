@@ -33,11 +33,14 @@ import type { QueryEditorAiAssistActionsApi } from './useQueryEditorAiAssistActi
 import type { QueryEditorAiCompletionTriggersApi } from './useQueryEditorAiCompletionTriggers';
 import type { QueryEditorExecutionStatusApi } from './useQueryEditorExecutionStatus';
 import type { QueryEditorProps } from '../../QueryEditor';
+import { useQueryEditorViewportStabilizer } from './useQueryEditorViewportStabilizer';
 
 export interface UseQueryEditorMonacoMountInput {
     tab: QueryEditorProps['tab'];
     isActive: Exclude<QueryEditorProps['isActive'], undefined>;
     editorRef: QueryEditorCoreStateApi['editorRef'];
+    editorStageRef: QueryEditorCoreStateApi['editorStageRef'];
+    editorShellRef: QueryEditorCoreStateApi['editorShellRef'];
     monacoRef: QueryEditorCoreStateApi['monacoRef'];
     restoredResultSessionRef: QueryEditorCoreStateApi['restoredResultSessionRef'];
     lastEditorCursorPositionRef: QueryEditorCoreStateApi['lastEditorCursorPositionRef'];
@@ -150,7 +153,7 @@ export interface UseQueryEditorMonacoMountInput {
 }
 
 export const useQueryEditorMonacoMount = ({
-    tab, isActive, editorRef, monacoRef, restoredResultSessionRef, lastEditorCursorPositionRef,
+    tab, isActive, editorRef, editorStageRef, editorShellRef, monacoRef, restoredResultSessionRef, lastEditorCursorPositionRef,
     queryEditorMonacoLanguage, isObjectEditQueryTab, wordWrapEnabled, isElasticsearchMode,
     aiInlineGhostVisibleContextKeyRef, aiInlineGhostTimerRef, aiInlineGhostDecorationIdsRef,
     aiInlineGhostRequestSeqRef, aiInlineGhostRef, aiInlineGhostOverlayRef, connectionsRef,
@@ -187,6 +190,12 @@ export const useQueryEditorMonacoMount = ({
     toggleQueryResultsPanelShortcutBinding, toggleQueryResultsPanelActionRef,
     toggleResultPanelVisibility, currentDb, getCurrentQuery,
 }: UseQueryEditorMonacoMountInput) => {
+    const notifyEditorMounted = useQueryEditorViewportStabilizer({
+        isActive,
+        editorRef,
+        editorStageRef,
+        editorShellRef,
+    });
     const handleEditorBeforeMount: BeforeMount = (monaco) => {
         const languageId = 'elasticsearch-console';
         const isRegistered = monaco.languages.getLanguages?.().some((language: any) => language.id === languageId);
@@ -382,6 +391,7 @@ export const useQueryEditorMonacoMount = ({
         bindQueryEditorSlashCommands({
             editor, connectionsRef, currentConnectionIdRef, getCurrentQuery, currentDbRef,
         });
+        notifyEditorMounted();
     };
     useEffect(() => {
         applyQueryEditorAutomaticLayout(editorRef.current, isActive);
