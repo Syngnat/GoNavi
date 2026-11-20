@@ -12,6 +12,7 @@ import {
 import { DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS } from "../utils/tableOverviewCompactColumns";
 import { DEFAULT_SIDEBAR_TABLE_METADATA_FIELDS } from "../utils/sidebarTableMetadata";
 import { DEFAULT_QUERY_EDITOR_EDITOR_HEIGHT_RATIO } from "../utils/queryEditorSplitLayout";
+import { DEFAULT_QUERY_RESULT_TAB_RETENTION } from "../utils/queryResultTabRetention";
 import { cloneShortcutOptions, DEFAULT_SHORTCUT_OPTIONS } from "../utils/shortcuts";
 import { DEFAULT_SQL_SNIPPETS } from "../utils/sqlSnippetDefaults";
 import { DEFAULT_AI_PANEL_WIDTH } from "../utils/aiPanelLayout";
@@ -125,6 +126,7 @@ export const createInitialStateSlice = (_set: StoreSet, _get: StoreGet): Initial
   sqlFormatOptions: { keywordCase: "upper" },
   queryOptions: {
     wordWrap: false,
+    resultTabRetention: DEFAULT_QUERY_RESULT_TAB_RETENTION,
     tableOverviewCompactColumns: [...DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS],
     showColumnComment: true,
     showSidebarTableComment: false,

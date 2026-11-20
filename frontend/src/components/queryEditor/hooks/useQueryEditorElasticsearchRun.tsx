@@ -35,6 +35,7 @@ import type { QueryEditorExecutionStatusApi } from './useQueryEditorExecutionSta
 import type { QueryEditorResultSetModelApi } from './useQueryEditorResultSetModel';
 import type { QueryEditorAiContextApi } from './useQueryEditorAiContext';
 import type { QueryEditorProps } from '../../QueryEditor';
+import type { QueryOptions } from '../../../store/storeStateTypes';
 
 export interface UseQueryEditorElasticsearchRunInput {
     isActive: Exclude<QueryEditorProps['isActive'], undefined>;
@@ -55,6 +56,7 @@ export interface UseQueryEditorElasticsearchRunInput {
     finishQueryEditorSqlClock: QueryEditorCoreStateApi['finishQueryEditorSqlClock'];
     updateResultPanelVisibility: QueryEditorExecutionStatusApi['updateResultPanelVisibility'];
     mergeResultSets: QueryEditorResultSetModelApi['mergeResultSets'];
+    queryOptions: QueryOptions;
     resultSetsRef: QueryEditorCoreStateApi['resultSetsRef'];
     setResultSets: QueryEditorCoreStateApi['setResultSets'];
     activateExecutedResult: QueryEditorResultSetModelApi['activateExecutedResult'];
@@ -69,7 +71,7 @@ export const useQueryEditorElasticsearchRun = ({
     isActive, getCurrentQuery, connections, currentConnectionId, currentDb, editorRef, runSeqRef,
     currentQueryIdRef, clearQueryId, setElasticsearchServerMajor, beginQueryEditorRunClock,
     setLoading, setExecutionError, setQueryId, setExecutionTimingActive, finishQueryEditorSqlClock,
-    updateResultPanelVisibility, mergeResultSets, resultSetsRef, setResultSets,
+    updateResultPanelVisibility, mergeResultSets, queryOptions, resultSetsRef, setResultSets,
     activateExecutedResult, currentConnectionIdRef, visibleDbsRef, setDbList, currentDbRef,
     handleDatabaseChange,
 }: UseQueryEditorElasticsearchRunInput) => {
@@ -276,7 +278,11 @@ export const useQueryEditorElasticsearchRun = ({
             });
             if (nextResultSets.length > 0) {
                 updateResultPanelVisibility(true);
-                const merged = mergeResultSets(resultSetsRef.current, nextResultSets, runAll);
+                const merged = mergeResultSets(
+                    resultSetsRef.current,
+                    nextResultSets,
+                    queryOptions?.resultTabRetention,
+                );
                 setResultSets(merged);
                 activateExecutedResult(merged, nextResultSets, runSeq);
             }

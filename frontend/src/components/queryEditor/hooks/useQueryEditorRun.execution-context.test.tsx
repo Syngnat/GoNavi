@@ -57,7 +57,7 @@ function createRunInput(sql: string): UseQueryEditorRunInput {
         getCurrentQuery: () => sql,
         getSelectedSQL: () => sql,
         getExecutableSQL: () => sql,
-        clearUnpinnedResultSets: vi.fn(() => []),
+        prepareResultSetsForNewResult: vi.fn(() => []),
         currentConnection: savedConnection,
         currentDbRef,
         currentSchemaRef: { current: '' },
@@ -97,7 +97,8 @@ function createRunInput(sql: string): UseQueryEditorRunInput {
         lastExecutedEditorQueryRef: { current: '' },
         normalizeExecutableStatementList: (statements, dialect) => statements.map(text => stripLeadingSqlTrivia(text, dialect)),
         queryOptions: {
-            wordWrap: false, showColumnComment: false, showColumnType: false,
+            wordWrap: false, resultTabRetention: 'latest',
+            showColumnComment: false, showColumnType: false,
             alignNumericTemporalCellsRight: false, showQueryResultsPanel: true,
             showSqlExecutionLog: true, queryEditorEditorHeightRatio: 0.5,
         },

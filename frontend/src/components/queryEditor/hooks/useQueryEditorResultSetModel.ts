@@ -30,6 +30,12 @@ import {
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
 import { invokeBudgetedDBQueryMulti, expandCompactQueryResult } from '../queryResultTransport';
 import { capResultSets } from '../../../utils/boundedResultSets';
+import {
+    isQueryResultTabProtected,
+    sanitizeQueryResultTabRetention,
+    shouldReplaceQueryResultTabs,
+    type QueryResultTabRetention,
+} from '../../../utils/queryResultTabRetention';
 import type { QueryEditorCoreStateApi } from './useQueryEditorCoreState';
 import type { QueryEditorDraftSyncApi } from './useQueryEditorDraftSync';
 import type { QueryEditorConnectionContextApi } from './useQueryEditorConnectionContext';
@@ -114,15 +120,21 @@ export const useQueryEditorResultSetModel = ({
         buildQueryEditorResultSetMergeKey(result)
     );
 
-    const mergeResultSets = (previous: QueryEditorResultSet[], next: QueryEditorResultSet[], replaceAll: boolean): QueryEditorResultSet[] => {
-        const merged = replaceAll ? previous.filter((result) => result.pinned) : [...previous];
+    const mergeResultSets = (
+        previous: QueryEditorResultSet[],
+        next: QueryEditorResultSet[],
+        retention: QueryResultTabRetention = sanitizeQueryResultTabRetention(queryOptions?.resultTabRetention),
+    ): QueryEditorResultSet[] => {
+        const merged = shouldReplaceQueryResultTabs(retention)
+            ? previous.filter(isQueryResultTabProtected)
+            : [...previous];
         // 本次执行产出/复用的 key：作为裁剪豁免，保证 activateExecutedResult 仍能在结果里
         // 找到刚跑完的那条（否则刚执行完的结果会被当最旧项裁掉，激活 key 悬空）。
         const touchedKeys: string[] = [];
         next.forEach((result) => {
             const incomingKey = buildResultSetMergeKey(result);
             const existingIndex = merged.findIndex(
-                (item) => !item.pinned && buildResultSetMergeKey(item) === incomingKey,
+                (item) => !isQueryResultTabProtected(item) && buildResultSetMergeKey(item) === incomingKey,
             );
             if (existingIndex >= 0) {
                 const reusedKey = merged[existingIndex].key;
@@ -141,8 +153,8 @@ export const useQueryEditorResultSetModel = ({
         return capResultSets(merged, { protectedKeys }).items;
     };
 
-    const clearUnpinnedResultSets = (fallbackActiveKey = ''): QueryEditorResultSet[] => {
-        const nextResultSets = resultSetsRef.current.filter((result) => result.pinned);
+    const clearUnprotectedResultSets = (fallbackActiveKey = ''): QueryEditorResultSet[] => {
+        const nextResultSets = resultSetsRef.current.filter(isQueryResultTabProtected);
         const nextActiveKey = nextResultSets.some((result) => result.key === activeResultKeyRef.current)
             ? activeResultKeyRef.current
             : nextResultSets[0]?.key || fallbackActiveKey;
@@ -152,6 +164,15 @@ export const useQueryEditorResultSetModel = ({
         setActiveResultKey(nextActiveKey);
         return nextResultSets;
     };
+
+    const prepareResultSetsForNewResult = (
+        fallbackActiveKey = '',
+        retention: QueryResultTabRetention = sanitizeQueryResultTabRetention(queryOptions?.resultTabRetention),
+    ): QueryEditorResultSet[] => (
+        shouldReplaceQueryResultTabs(retention)
+            ? clearUnprotectedResultSets(fallbackActiveKey)
+            : resultSetsRef.current
+    );
 
     const isDisplayableResultSet = (result?: QueryEditorResultSet | null): boolean => {
         if (!result) {
@@ -397,7 +418,8 @@ export const useQueryEditorResultSetModel = ({
     return {
         splitSQLStatements, normalizeExecutableStatementList, containsOraclePlsqlDefinition,
         normalizeOracleSqlPlusSlashTerminators, getSelectedSQL, mergeResultSets,
-        clearUnpinnedResultSets, isAffectedRowsResultSetData, hasConcreteQueryResultSetData,
+        clearUnprotectedResultSets, prepareResultSetsForNewResult,
+        isAffectedRowsResultSetData, hasConcreteQueryResultSetData,
         activateExecutedResult, getExecutableSQL, captureEditorCursorPosition,
         buildSqlExecutionConnectionConfig, executeSqlEditorMultiQuery,
     };

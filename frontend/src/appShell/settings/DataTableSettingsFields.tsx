@@ -12,6 +12,10 @@ import {
   MIN_SQL_EDITOR_FONT_SIZE,
   MAX_SQL_EDITOR_FONT_SIZE,
 } from '../../utils/sqlEditorTypography';
+import {
+  sanitizeQueryResultTabRetention,
+  type QueryResultTabRetention,
+} from '../../utils/queryResultTabRetention';
 import { ThemeSettingsSlider } from '../ThemeSettingsSlider';
 import {
   SQL_EDITOR_FONT_SLIDER_MARKS,
@@ -26,6 +30,8 @@ export interface DataTableSettingsFieldsProps {
   setAppearance: UseAppThemeSettingsRenderInput['setAppearance'];
   showSqlExecutionLog: boolean;
   setShowSqlExecutionLog: (enabled: boolean) => void;
+  resultTabRetention: QueryResultTabRetention;
+  setResultTabRetention: (value: QueryResultTabRetention) => void;
   tableDoubleClickAction: UseAppThemeSettingsRenderInput['tableDoubleClickAction'];
   queryTableCtrlClickAction: UseAppThemeSettingsRenderInput['queryTableCtrlClickAction'];
   sqlEditorFontSizeFollowsGlobal: UseAppThemeSettingsRenderInput['sqlEditorFontSizeFollowsGlobal'];
@@ -38,12 +44,32 @@ export interface DataTableSettingsFieldsProps {
 
 export const DataTableSettingsFields = ({
   renderThemeSettingsRow, t, appearance, setAppearance, showSqlExecutionLog,
-  setShowSqlExecutionLog, tableDoubleClickAction,
+  setShowSqlExecutionLog, resultTabRetention, setResultTabRetention, tableDoubleClickAction,
   queryTableCtrlClickAction, sqlEditorFontSizeFollowsGlobal, effectiveSqlEditorFontSize,
   dataTableFontSizeFollowsGlobal, effectiveDataTableFontSize, sidebarTreeFontSizeFollowsGlobal,
   effectiveSidebarTreeFontSize,
 }: DataTableSettingsFieldsProps) => (
   <>
+      {renderThemeSettingsRow({
+          label: t('app.theme.data_table.result_tab_retention'),
+          hint: t('app.theme.data_table.result_tab_retention_hint'),
+          stacked: true,
+          control: (
+              <Segmented
+                  className="gonavi-settings-segmented-choice"
+                  block
+                  aria-label={t('app.theme.data_table.result_tab_retention')}
+                  options={[
+                      { label: t('app.theme.data_table.result_tab_retention.history'), value: 'history' },
+                      { label: t('app.theme.data_table.result_tab_retention.latest'), value: 'latest' },
+                  ]}
+                  value={sanitizeQueryResultTabRetention(resultTabRetention)}
+                  onChange={(value) => setResultTabRetention(
+                      sanitizeQueryResultTabRetention(value),
+                  )}
+              />
+          ),
+      })}
       {renderThemeSettingsRow({
           label: t('app.theme.data_table.show_sql_execution_log'),
           hint: t('app.theme.data_table.show_sql_execution_log_hint'),

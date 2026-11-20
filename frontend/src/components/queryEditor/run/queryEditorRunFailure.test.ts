@@ -20,7 +20,7 @@ describe('handleQueryEditorRunFailure', () => {
 
     it('shows a structured multi-statement summary before clearing unpinned results', async () => {
         const showRunFailureSummary = vi.fn();
-        const clearUnpinnedResultSets = vi.fn(() => [] as QueryEditorResultSet[]);
+        const prepareResultSetsForFailure = vi.fn(() => [] as QueryEditorResultSet[]);
         const setExecutionError = vi.fn();
 
         await handleQueryEditorRunFailure({
@@ -47,7 +47,7 @@ describe('handleQueryEditorRunFailure', () => {
             executionDbName: 'main',
             isCurrentRun: () => true,
             conn: { id: 'conn-1', config: {} } as SavedConnection,
-            clearUnpinnedResultSets,
+            prepareResultSetsForFailure,
             currentQueryIdRef: { current: 'query-1' } as React.MutableRefObject<string>,
             queryId: 'query-1',
             clearQueryId: vi.fn(),
@@ -65,7 +65,7 @@ describe('handleQueryEditorRunFailure', () => {
             'failed',
             'skipped',
         ]);
-        expect(clearUnpinnedResultSets).not.toHaveBeenCalledWith('__gonavi_sql_execution_log__');
+        expect(prepareResultSetsForFailure).not.toHaveBeenCalledWith('__gonavi_sql_execution_log__');
         expect(setExecutionError).toHaveBeenCalledWith(expect.stringContaining('duplicate key'));
     });
 });

@@ -44,6 +44,7 @@ export type QueryEditorResultTabActions = {
     ) => void;
     onRequestResultTotalCount?: (key: string) => void;
     onCancelResultTotalCount?: (key: string) => void;
+    onPendingChangesChange?: (key: string, hasPendingChanges: boolean) => void;
 };
 
 export const resolveVisibleQueryResultColumns = (
@@ -378,6 +379,11 @@ const QueryEditorResultTabContent: React.FC<{
                     ? (() => actionsRef.current.onCancelResultTotalCount?.(rs.key))
                     : undefined}
                 readOnly={rs.readOnly}
+                sessionState={{
+                    onPendingChangesChange: (hasPendingChanges) => (
+                        actionsRef.current.onPendingChangesChange?.(rs.key, hasPendingChanges)
+                    ),
+                }}
                 toolbarExtraActions={isResultActive ? renderHideAction() : null}
             />
         </div>

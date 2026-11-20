@@ -33,7 +33,7 @@ export interface HandleQueryEditorRunFailureInput {
     executionDbName: string;
     isCurrentRun: () => boolean;
     conn: SavedConnection;
-    clearUnpinnedResultSets: (fallbackActiveKey?: string) => QueryEditorResultSet[];
+    prepareResultSetsForFailure: (fallbackActiveKey?: string) => QueryEditorResultSet[];
     currentQueryIdRef: React.MutableRefObject<string>;
     queryId: string;
     clearQueryId: () => void;
@@ -44,7 +44,7 @@ export interface HandleQueryEditorRunFailureInput {
 
 export const handleQueryEditorRunFailure = async ({
     oracleCompileFailureMessage, res, tab, normalizedDbType, sourceStatements, executionConfig,
-    executionDbName, isCurrentRun, conn, clearUnpinnedResultSets, currentQueryIdRef, queryId,
+    executionDbName, isCurrentRun, conn, prepareResultSetsForFailure, currentQueryIdRef, queryId,
     clearQueryId, updateResultPanelVisibility, setExecutionError, showRunFailureSummary,
 }: HandleQueryEditorRunFailureInput) => {
     const executionErrorText = oracleCompileFailureMessage
@@ -137,7 +137,7 @@ export const handleQueryEditorRunFailure = async ({
                            errorMsg.includes('deadline exceeded');
 
     if (isCancelledError && !isTimeoutError) {
-        clearUnpinnedResultSets();
+        prepareResultSetsForFailure();
         if (currentQueryIdRef.current === queryId) {
             clearQueryId();
         }
@@ -188,6 +188,6 @@ export const handleQueryEditorRunFailure = async ({
         showRunFailureSummary(failureSummary);
         return;
     }
-    clearUnpinnedResultSets(QUERY_EDITOR_SQL_LOG_TAB_KEY);
+    prepareResultSetsForFailure(QUERY_EDITOR_SQL_LOG_TAB_KEY);
     return;
 };

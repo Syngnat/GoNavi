@@ -114,11 +114,15 @@ export const buildQueryEditorResultSetMergeKey = (result: {
     exportSql?: string;
     sourceStatementIndex?: number;
     statementResultIndex?: number;
+    resultType?: string;
+    summaryKind?: string;
 }): string => {
     const sqlKey = normalizeExecutedSqlKey(result.exportSql || result.sql || '');
     const sourceStatementIndex = Number(result.sourceStatementIndex ?? 1);
     const statementResultIndex = Number(result.statementResultIndex ?? 1);
-    return `${sqlKey}::${sourceStatementIndex}::${statementResultIndex}`;
+    const resultType = String(result.resultType || 'grid');
+    const summaryKind = String(result.summaryKind || '');
+    return `${resultType}::${summaryKind}::${sqlKey}::${sourceStatementIndex}::${statementResultIndex}`;
 };
 
 export const areSqlStatementListsEqual = (left: string[], right: string[]): boolean => (

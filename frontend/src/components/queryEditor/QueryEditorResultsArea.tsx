@@ -14,6 +14,7 @@ import type { QueryEditorResultPagingApi } from './hooks/useQueryEditorResultPag
 import type { QueryEditorQueryContextApi } from './hooks/useQueryEditorQueryContext';
 import type { QueryEditorRunApi } from './hooks/useQueryEditorRun';
 import type { QueryEditorProps } from '../QueryEditor';
+import type { QueryEditorResultViewState } from '../QueryEditorResultsPanel';
 
 export interface QueryEditorResultsAreaProps {
   editorFullscreen: QueryEditorShortcutsAndSnippetsApi['editorFullscreen'];
@@ -29,6 +30,7 @@ export interface QueryEditorResultsAreaProps {
   currentDb: QueryEditorCoreStateApi['currentDb'];
   currentConnectionId: QueryEditorCoreStateApi['currentConnectionId'];
   queryOptions: QueryEditorCoreStateApi['queryOptions'];
+  onResultViewStateChange?: (key: string, patch: Partial<QueryEditorResultViewState>) => void;
   resultDataPreviewRequest: QueryEditorCoreStateApi['resultDataPreviewRequest'];
   elasticsearchViewModes: QueryEditorCoreStateApi['elasticsearchViewModes'];
   handleElasticsearchViewModeChange: QueryEditorCoreStateApi['handleElasticsearchViewModeChange'];
@@ -62,6 +64,7 @@ export interface QueryEditorResultsAreaProps {
 export const QueryEditorResultsArea = ({
   editorFullscreen, tab, resultSets, activeResultKey, isActive, loading, executionLifecycle,
   executionError, sqlLogCount, darkMode, currentDb, currentConnectionId, queryOptions,
+  onResultViewStateChange,
   resultDataPreviewRequest, elasticsearchViewModes, handleElasticsearchViewModeChange,
   toggleQueryResultsPanelShortcutLabel, setActiveResultKey, updateResultPanelVisibility,
   handleCloseResult, closeOtherResultTabs, closeResultTabsToLeft, closeResultTabsToRight,
@@ -86,6 +89,7 @@ export const QueryEditorResultsArea = ({
         darkMode={darkMode}
         currentDb={currentDb}
         currentConnectionId={currentConnectionId}
+        onResultViewStateChange={onResultViewStateChange}
         dataPreviewRequest={resultDataPreviewRequest}
         elasticsearchViewModes={elasticsearchViewModes}
         onElasticsearchViewModeChange={handleElasticsearchViewModeChange}

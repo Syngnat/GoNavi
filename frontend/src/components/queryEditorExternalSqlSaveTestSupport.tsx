@@ -126,6 +126,7 @@ export const storeState = (() => ({
   setSqlFormatOptions: vi.fn(),
   queryOptions: {
     maxRows: 5000,
+    resultTabRetention: 'latest' as 'history' | 'latest',
     wordWrap: false,
     showColumnComment: true,
     showColumnType: true,

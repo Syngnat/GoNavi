@@ -31,7 +31,16 @@ import {
     createDefaultConnections,
 } from './queryEditorExternalSqlSaveTestSupport';
 
+let performanceNowSpy: ReturnType<typeof vi.spyOn> | null = null;
+let performanceNowValue = 0;
+
 export const setUpQueryEditorExternalSqlSaveTest = () => {
+    performanceNowSpy?.mockRestore();
+    performanceNowValue = 0;
+    performanceNowSpy = vi.spyOn(performance, 'now').mockImplementation(() => {
+      performanceNowValue += 1000;
+      return performanceNowValue;
+    });
     resetQueryEditorTabSplitRatiosForTests();
     resetDatabaseServerVersionCache();
     clearQueryEditorSessionMetadata();
@@ -121,6 +130,7 @@ export const setUpQueryEditorExternalSqlSaveTest = () => {
     storeState.appearance.queryTableCtrlClickAction = 'open-design';
     storeState.queryOptions = {
       maxRows: 5000,
+      resultTabRetention: 'latest',
       wordWrap: false,
       showColumnComment: true,
       showColumnType: true,
@@ -287,4 +297,6 @@ export const tearDownQueryEditorExternalSqlSaveTest = () => {
     clearQueryEditorResultSession('tab-2');
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    performanceNowSpy?.mockRestore();
+    performanceNowSpy = null;
   };

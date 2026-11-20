@@ -285,6 +285,8 @@ export const useAppThemeSettingsRender = ({
                                     renderThemeSettingsRow={renderThemeSettingsRow} t={t}
                                     showSqlExecutionLog={queryOptions.showSqlExecutionLog}
                                     setShowSqlExecutionLog={(enabled) => setQueryOptions({ showSqlExecutionLog: enabled })}
+                                    resultTabRetention={queryOptions.resultTabRetention}
+                                    setResultTabRetention={(value) => setQueryOptions({ resultTabRetention: value })}
                                     appearance={appearance} setAppearance={setAppearance}
                                     tableDoubleClickAction={tableDoubleClickAction}
                                     queryTableCtrlClickAction={queryTableCtrlClickAction}

@@ -94,6 +94,7 @@ import {
 } from "./storeConnectionSanitizers";
 import { isLegacyDefaultAppearance } from "./storeConnectionTagTree";
 import { sanitizeTableOverviewCompactColumns } from "../utils/tableOverviewCompactColumns";
+import { sanitizeQueryResultTabRetention } from "../utils/queryResultTabRetention";
 
 type SqlLogSanitizeOptions = {
   limit: number;
@@ -281,6 +282,7 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
       ? (value as Record<string, unknown>)
       : {};
   const wordWrap = raw.wordWrap === true;
+  const resultTabRetention = sanitizeQueryResultTabRetention(raw.resultTabRetention);
   const tableOverviewViewMode =
     raw.tableOverviewViewMode === "card" ||
     raw.tableOverviewViewMode === "list" ||
@@ -327,6 +329,7 @@ export const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   );
   return {
     wordWrap,
+    resultTabRetention,
     tableOverviewViewMode,
     tableOverviewCompactColumns,
     showColumnComment,

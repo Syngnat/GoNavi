@@ -28,7 +28,8 @@ function createInput(sql: string, saved: boolean, readOnly = false) {
   const input: RunQueryEditorSqlStatementsInput = {
     splitSQLStatements: (text, dialect) => findSqlStatementRanges(text, dialect).map(range => range.text),
     normalizedRawSQL: sql, normalizedDbType: 'kingbase', resultSets: [], lastExecutedEditorQueryRef: { current: '' },
-    currentQuery: sql, normalizeExecutableStatementList: statements => statements, clearUnpinnedResultSets: vi.fn(() => []),
+    currentQuery: sql, normalizeExecutableStatementList: statements => statements,
+    prepareResultSetsForNewResult: vi.fn(() => []),
     tab: { id: saved ? 'saved-query' : 'new-query', title: 'Query', type: 'query', connectionId: 'kingbase',
       query: sql, ...(saved ? { filePath: 'queries/customers.sql', queryMode: 'standard' as const } : {}) },
     config, pendingSqlTransactionRef: { current: null }, connCaps: { forceReadOnlyQueryResult: readOnly } as RunQueryEditorSqlStatementsInput['connCaps'],

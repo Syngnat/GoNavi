@@ -49,7 +49,7 @@ export interface UseQueryEditorRunInput {
     getCurrentQuery: QueryEditorDraftSyncApi['getCurrentQuery'];
     getSelectedSQL: QueryEditorResultSetModelApi['getSelectedSQL'];
     getExecutableSQL: QueryEditorResultSetModelApi['getExecutableSQL'];
-    clearUnpinnedResultSets: QueryEditorResultSetModelApi['clearUnpinnedResultSets'];
+    prepareResultSetsForNewResult: QueryEditorResultSetModelApi['prepareResultSetsForNewResult'];
     currentConnection: QueryEditorConnectionContextApi['currentConnection'];
     currentDbRef: QueryEditorConnectionContextApi['currentDbRef'];
     currentSchemaRef: QueryEditorConnectionContextApi['currentSchemaRef'];
@@ -120,7 +120,7 @@ export interface UseQueryEditorRunInput {
 
 export const useQueryEditorRun = ({
     tab, isActive, isElasticsearchMode, handleElasticsearchRun, canSelectQuerySchema, schemaLoading,
-    getCurrentQuery, getSelectedSQL, getExecutableSQL, clearUnpinnedResultSets, currentConnection,
+    getCurrentQuery, getSelectedSQL, getExecutableSQL, prepareResultSetsForNewResult, currentConnection,
     currentDbRef, currentSchemaRef, visibleDbsRef, pendingSqlTransactionRef,
     activatePendingSqlTransaction, appendPendingSqlTransactionExecution, queryContextLockRunSeqRef,
     switchQueryContext, currentConnectionIdRef, schemaContextKeyRef, latestSelectedSchemaRef,
@@ -157,7 +157,6 @@ export const useQueryEditorRun = ({
               : getExecutableSQL();
       if (!executableSQL.trim()) {
           message.info(translate('query_editor.message.no_executable_sql'));
-          clearUnpinnedResultSets();
           return;
       }
       const executionDialect = resolveSqlDialect(
@@ -293,7 +292,7 @@ export const useQueryEditorRun = ({
               await runQueryEditorMongoStatements({
                   normalizedRawSQL, splitSQLStatements, normalizedDbType, resultSets,
                   lastExecutedEditorQueryRef, currentQuery, normalizeExecutableStatementList,
-                  clearUnpinnedResultSets, queryOptions, setExecutionTimingActive,
+                  prepareResultSetsForNewResult, queryOptions, setExecutionTimingActive,
                   updateResultPanelVisibility, setExecutionError, isCurrentRun, runState, setQueryId,
                   config, invokeRequestScopedApp, executionDbName, currentQueryIdRef, clearQueryId,
                   addSqlLog, finishQueryEditorSqlClock, mergeResultSets, setResultSets,
@@ -304,7 +303,7 @@ export const useQueryEditorRun = ({
               await runQueryEditorSqlStatements({
                   splitSQLStatements, normalizedRawSQL, normalizedDbType, resultSets,
                   lastExecutedEditorQueryRef, currentQuery, normalizeExecutableStatementList,
-                  clearUnpinnedResultSets, tab, config, pendingSqlTransactionRef, connCaps, conn,
+                  prepareResultSetsForNewResult, tab, config, pendingSqlTransactionRef, connCaps, conn,
                   metadataGenerationRef, currentConnectionId, isQueryEditorMetadataRequestCurrent,
                   tablesRef, isActive, executionDbName, isCurrentRun, executionConfig, queryOptions,
                   driver, containsOraclePlsqlDefinition, normalizeOracleSqlPlusSlashTerminators,
@@ -341,7 +340,7 @@ export const useQueryEditorRun = ({
           });
           updateResultPanelVisibility(true);
           setExecutionError(formattedError);
-          clearUnpinnedResultSets(QUERY_EDITOR_SQL_LOG_TAB_KEY);
+          prepareResultSetsForNewResult(QUERY_EDITOR_SQL_LOG_TAB_KEY);
       } finally {
           unlockQueryContextForRun(runSeq);
           const retainRun = isCurrentRun() && shouldRetainQueryEditorRunAfterRpc(

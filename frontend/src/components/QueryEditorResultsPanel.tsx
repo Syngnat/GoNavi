@@ -155,6 +155,7 @@ interface QueryEditorResultsPanelProps {
     onCloseResultTabsToRight: (key: string) => void;
     onCloseAllResultTabs: () => void;
     onResultPinnedChange: (key: string, pinned: boolean) => void;
+    onResultViewStateChange?: (key: string, patch: Partial<QueryEditorResultViewState>) => void;
     onOpenResultInWindow?: (key: string, preferred?: OpenResultInWindowPreferred) => void;
     onReloadResult: (
         key: string,
@@ -227,6 +228,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     onCloseResultTabsToRight,
     onCloseAllResultTabs,
     onResultPinnedChange,
+    onResultViewStateChange,
     onOpenResultInWindow,
     onReloadResult,
     onResultPageChange,
@@ -458,6 +460,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         onReloadResult,
         onRequestResultTotalCount,
         onCancelResultTotalCount,
+        onPendingChangesChange: (key, hasPendingChanges) => onResultViewStateChange?.(key, { hasPendingChanges }),
     });
     resultTabActionsRef.current = {
         onHide,
@@ -466,6 +469,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         onReloadResult,
         onRequestResultTotalCount,
         onCancelResultTotalCount,
+        onPendingChangesChange: (key, hasPendingChanges) => onResultViewStateChange?.(key, { hasPendingChanges }),
     };
 
     const handleElasticsearchViewModeChange = useCallback((key: string, mode: 'table' | 'raw') => {

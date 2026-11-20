@@ -46,6 +46,10 @@ describe('QueryEditor external SQL save', () => {
   afterEach(tearDownQueryEditorExternalSqlSaveTest);
 
   it('runs only appended SQL and keeps existing results after a full editor execution', async () => {
+    storeState.queryOptions = {
+      ...storeState.queryOptions,
+      resultTabRetention: 'history',
+    };
     backendApp.DBQueryMulti
       .mockResolvedValueOnce({
         success: true,
@@ -294,6 +298,10 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('appends a result when running a different cursor SQL after an existing result', async () => {
+    storeState.queryOptions = {
+      ...storeState.queryOptions,
+      resultTabRetention: 'history',
+    };
     backendApp.DBQueryMulti
       .mockResolvedValueOnce({
         success: true,

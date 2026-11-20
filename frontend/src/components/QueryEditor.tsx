@@ -33,6 +33,7 @@ import { useQueryEditorSaveActions } from './queryEditor/hooks/useQueryEditorSav
 import { useQueryEditorToolbarMenus } from './queryEditor/hooks/useQueryEditorToolbarMenus';
 import { useQueryEditorKeyboardShortcuts } from './queryEditor/hooks/useQueryEditorKeyboardShortcuts';
 import { useQueryEditorResultTabs } from './queryEditor/hooks/useQueryEditorResultTabs';
+import { useQueryEditorResultViewState } from './queryEditor/useQueryEditorResultViewState';
 import { useLateBoundCallback } from '../hooks/useLateBoundCallback';
 import { QueryEditorEditorPane } from './queryEditor/QueryEditorEditorPane';
 import { QueryEditorResultsArea } from './queryEditor/QueryEditorResultsArea';
@@ -336,7 +337,8 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
   const {
       splitSQLStatements, normalizeExecutableStatementList, containsOraclePlsqlDefinition,
       normalizeOracleSqlPlusSlashTerminators, getSelectedSQL, mergeResultSets,
-      clearUnpinnedResultSets, isAffectedRowsResultSetData, hasConcreteQueryResultSetData,
+      prepareResultSetsForNewResult,
+      isAffectedRowsResultSetData, hasConcreteQueryResultSetData,
       activateExecutedResult, getExecutableSQL, captureEditorCursorPosition,
       buildSqlExecutionConnectionConfig, executeSqlEditorMultiQuery,
   } = useQueryEditorResultSetModel({
@@ -375,14 +377,15 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
       setLoading, setExecutionError, setQueryId, setExecutionTimingActive,
       finishQueryEditorSqlClock, updateResultPanelVisibility, mergeResultSets, resultSetsRef,
       setResultSets, activateExecutedResult, currentConnectionIdRef, visibleDbsRef, setDbList,
-      currentDbRef, handleDatabaseChange,
+      currentDbRef, handleDatabaseChange, queryOptions,
   });
 
   const {
       handleRun, runAfterQueryContextReady, handleRunSelectedShortcut, handleCancel,
   } = useQueryEditorRun({
       tab, isActive, isElasticsearchMode, handleElasticsearchRun, canSelectQuerySchema,
-      schemaLoading, getCurrentQuery, getSelectedSQL, getExecutableSQL, clearUnpinnedResultSets,
+      schemaLoading, getCurrentQuery, getSelectedSQL, getExecutableSQL,
+      prepareResultSetsForNewResult,
       currentConnection, currentDbRef, currentSchemaRef, visibleDbsRef, pendingSqlTransactionRef,
       activatePendingSqlTransaction, appendPendingSqlTransactionExecution,
       queryContextLockRunSeqRef, switchQueryContext, currentConnectionIdRef, schemaContextKeyRef,
@@ -481,6 +484,12 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
       handleDiagnoseExecutionErrorWithAI, executionError, darkMode, pendingSqlTransaction,
       sqlEditorAutoCommitRemainingSeconds, handleFinishPendingSqlTransaction,
   });
+  const updateResultViewState = useQueryEditorResultViewState({
+      tabId: tab.id,
+      resultSets,
+      resultSetsRef,
+      setResultSets,
+  });
   return (
     <div ref={queryEditorRootRef} className="gn-v2-query-editor" style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <QueryEditorEditorPane
@@ -535,6 +544,7 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
         executionLifecycle={executionLifecycle} executionError={executionError}
         sqlLogCount={sqlLogCount} darkMode={darkMode} currentDb={currentDb}
         currentConnectionId={currentConnectionId} queryOptions={queryOptions}
+        onResultViewStateChange={updateResultViewState}
         resultDataPreviewRequest={resultDataPreviewRequest}
         elasticsearchViewModes={elasticsearchViewModes}
         handleElasticsearchViewModeChange={handleElasticsearchViewModeChange}

@@ -57,6 +57,12 @@ export const PREFERENCES_SEARCH_ENTRIES: ReadonlyArray<SettingsCenterSearchEntry
     'app.theme.tab_display.layout.double',
     ['app.theme.tab_display.environment_accent_thickness', 'app.theme.tab_display.environment_accent_thickness_hint'],
     'app.theme.data_table.title',
+    [
+      'app.theme.data_table.result_tab_retention',
+      'app.theme.data_table.result_tab_retention_hint',
+    ],
+    'app.theme.data_table.result_tab_retention.history',
+    'app.theme.data_table.result_tab_retention.latest',
     ['app.theme.data_table.show_sql_execution_log', 'app.theme.data_table.show_sql_execution_log_hint'],
     ['app.theme.data_table.vertical_borders', 'app.theme.data_table.vertical_borders_hint'],
     ['app.theme.data_table.row_number', 'app.theme.data_table.row_number_hint'],

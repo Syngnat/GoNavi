@@ -13,6 +13,7 @@ import { resolveReportedQueryDurationMs } from '../queryEditorExecutionTimer';
 import { GONAVI_ROW_KEY } from '../../DataGrid';
 import type { ConnectionConfig } from '../../../types';
 import type { QueryOptions, SqlLog } from '../../../store/storeStateTypes';
+import type { QueryResultTabRetention } from '../../../utils/queryResultTabRetention';
 
 export interface RunQueryEditorMongoStatementsInput {
     normalizedRawSQL: string;
@@ -22,7 +23,7 @@ export interface RunQueryEditorMongoStatementsInput {
     lastExecutedEditorQueryRef: React.MutableRefObject<string>;
     currentQuery: string;
     normalizeExecutableStatementList: (statements: string[], dbType?: string) => string[];
-    clearUnpinnedResultSets: (fallbackActiveKey?: string) => QueryEditorResultSet[];
+    prepareResultSetsForNewResult: (fallbackActiveKey?: string) => QueryEditorResultSet[];
     queryOptions: QueryOptions;
     setExecutionTimingActive: React.Dispatch<React.SetStateAction<boolean>>;
     updateResultPanelVisibility: (visible: boolean) => void;
@@ -37,7 +38,7 @@ export interface RunQueryEditorMongoStatementsInput {
     clearQueryId: () => void;
     addSqlLog: (log: SqlLog) => void;
     finishQueryEditorSqlClock: (result: { durationMs?: unknown; } | null | undefined, startedAt: number) => number;
-    mergeResultSets: (previous: QueryEditorResultSet[], next: QueryEditorResultSet[], replaceAll: boolean) => QueryEditorResultSet[];
+    mergeResultSets: (previous: QueryEditorResultSet[], next: QueryEditorResultSet[], retention?: QueryResultTabRetention) => QueryEditorResultSet[];
     setResultSets: React.Dispatch<React.SetStateAction<QueryEditorResultSet[]>>;
     activateExecutedResult: (merged: QueryEditorResultSet[], executed: QueryEditorResultSet[], requestSeq: number) => void;
     runSeq: number;
@@ -45,7 +46,7 @@ export interface RunQueryEditorMongoStatementsInput {
 
 export const runQueryEditorMongoStatements = async ({
     normalizedRawSQL, splitSQLStatements, normalizedDbType, resultSets, lastExecutedEditorQueryRef,
-    currentQuery, normalizeExecutableStatementList, clearUnpinnedResultSets, queryOptions,
+    currentQuery, normalizeExecutableStatementList, prepareResultSetsForNewResult, queryOptions,
     setExecutionTimingActive, updateResultPanelVisibility, setExecutionError, isCurrentRun,
     runState, setQueryId, config, invokeRequestScopedApp, executionDbName, currentQueryIdRef,
     clearQueryId, addSqlLog, finishQueryEditorSqlClock, mergeResultSets, setResultSets,
@@ -69,7 +70,6 @@ export const runQueryEditorMongoStatements = async ({
     );
     if (statements.length === 0) {
         message.info(translate('query_editor.message.no_executable_sql'));
-        clearUnpinnedResultSets();
         return;
     }
 
@@ -88,7 +88,6 @@ export const runQueryEditorMongoStatements = async ({
                     : '';
                 updateResultPanelVisibility(true);
                 setExecutionError(formatSqlExecutionError(shellConvert.error, { prefix, translate }));
-                clearUnpinnedResultSets();
                 return;
             }
             if (shellConvert.command) {
@@ -137,7 +136,7 @@ export const runQueryEditorMongoStatements = async ({
                 : '';
             updateResultPanelVisibility(true);
             setExecutionError(formatSqlExecutionError(res.message, { prefix, translate }));
-            clearUnpinnedResultSets(QUERY_EDITOR_SQL_LOG_TAB_KEY);
+            prepareResultSetsForNewResult(QUERY_EDITOR_SQL_LOG_TAB_KEY);
             return;
         }
         if (Array.isArray(res.data)) {
@@ -205,8 +204,7 @@ export const runQueryEditorMongoStatements = async ({
     if (nextResultSets.length > 0 || queryOptions?.showSqlExecutionLog !== false) {
         updateResultPanelVisibility(true);
     }
-    const shouldReplaceAllResults = didExecuteWholeEditor;
-    const mergedResultSets = mergeResultSets(resultSets, nextResultSets, shouldReplaceAllResults);
+    const mergedResultSets = mergeResultSets(resultSets, nextResultSets, queryOptions?.resultTabRetention);
     setResultSets(mergedResultSets);
     activateExecutedResult(mergedResultSets, nextResultSets, runSeq);
     if (didExecuteAppendedSql || didExecuteWholeEditor) {

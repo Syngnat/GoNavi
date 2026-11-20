@@ -55,6 +55,7 @@ import type { useSqlEditorTransactionController } from '../../useSqlEditorTransa
 import type { DataSourceCapabilities } from '../../../utils/dataSourceCapabilities';
 import type { SavedConnection } from '../../../typeDefs/connectionTypes';
 import type { QueryOptions, SqlLog } from '../../../store/storeStateTypes';
+import type { QueryResultTabRetention } from '../../../utils/queryResultTabRetention';
 import type { useQueryEditorSqlErrorLocator } from '../useQueryEditorSqlErrorLocator';
 import type { QueryEditorParamsState } from '../params/useQueryEditorParams';
 import type { QueryResultLike } from '../../../typeDefs/queryResultTypes';
@@ -67,7 +68,7 @@ export interface RunQueryEditorSqlStatementsInput {
     lastExecutedEditorQueryRef: React.MutableRefObject<string>;
     currentQuery: string;
     normalizeExecutableStatementList: (statements: string[], dbType?: string) => string[];
-    clearUnpinnedResultSets: (fallbackActiveKey?: string) => QueryEditorResultSet[];
+    prepareResultSetsForNewResult: (fallbackActiveKey?: string) => QueryEditorResultSet[];
     tab: TabData;
     config: ConnectionConfig;
     pendingSqlTransactionRef: ReturnType<typeof useSqlEditorTransactionController>['pendingSqlTransactionRef'];
@@ -113,7 +114,7 @@ export interface RunQueryEditorSqlStatementsInput {
     appendPendingSqlTransactionExecution: ReturnType<typeof useSqlEditorTransactionController>['appendPendingSqlTransactionExecution'];
     hasConcreteQueryResultSetData: (result: any, messages: string[]) => boolean;
     isAffectedRowsResultSetData: (result?: any) => boolean;
-    mergeResultSets: (previous: QueryEditorResultSet[], next: QueryEditorResultSet[], replaceAll: boolean) => QueryEditorResultSet[];
+    mergeResultSets: (previous: QueryEditorResultSet[], next: QueryEditorResultSet[], retention?: QueryResultTabRetention) => QueryEditorResultSet[];
     setResultSets: React.Dispatch<React.SetStateAction<QueryEditorResultSet[]>>;
     activateExecutedResult: (merged: QueryEditorResultSet[], executed: QueryEditorResultSet[], requestSeq: number) => void;
     runSeq: number;
@@ -121,7 +122,8 @@ export interface RunQueryEditorSqlStatementsInput {
 
 export const runQueryEditorSqlStatements = async ({
     splitSQLStatements, normalizedRawSQL, normalizedDbType, resultSets, lastExecutedEditorQueryRef,
-    currentQuery, normalizeExecutableStatementList, clearUnpinnedResultSets, tab, config,
+    currentQuery, normalizeExecutableStatementList, prepareResultSetsForNewResult,
+    tab, config,
     pendingSqlTransactionRef, connCaps, conn, metadataGenerationRef, currentConnectionId,
     isQueryEditorMetadataRequestCurrent, tablesRef, isActive, executionDbName, isCurrentRun,
     executionConfig, queryOptions, driver, containsOraclePlsqlDefinition,
@@ -150,7 +152,6 @@ export const runQueryEditorSqlStatements = async ({
     );
     if (sourceStatements.length === 0) {
         message.info(translate('query_editor.message.no_executable_sql'));
-        clearUnpinnedResultSets();
         return;
     }
     const triggerDropStatementIndex = sourceStatements.findIndex(isQueryEditorTriggerDropStatement);
@@ -516,12 +517,13 @@ export const runQueryEditorSqlStatements = async ({
     if (!res.success) {
         await handleQueryEditorRunFailure({
             oracleCompileFailureMessage, res, tab, normalizedDbType, sourceStatements,
-            executionConfig, executionDbName, isCurrentRun, conn, clearUnpinnedResultSets,
+            executionConfig, executionDbName, isCurrentRun, conn,
+            prepareResultSetsForFailure: prepareResultSetsForNewResult,
             currentQueryIdRef, queryId, clearQueryId, updateResultPanelVisibility,
             setExecutionError,
             showRunFailureSummary: (summary) => {
-                const retainedResultSets = clearUnpinnedResultSets();
-                const merged = mergeResultSets(retainedResultSets, [summary], false);
+                const retainedResultSets = prepareResultSetsForNewResult();
+                const merged = mergeResultSets(retainedResultSets, [summary], queryOptions?.resultTabRetention);
                 setResultSets(merged);
                 activateExecutedResult(merged, [summary], runSeq);
             },
@@ -611,8 +613,7 @@ export const runQueryEditorSqlStatements = async ({
     if (visibleResultSets.length > 0 || queryOptions.showSqlExecutionLog !== false) {
         updateResultPanelVisibility(true);
     }
-    const shouldReplaceAllResults = didExecuteWholeEditor;
-    const mergedResultSets = mergeResultSets(resultSets, visibleResultSets, shouldReplaceAllResults);
+    const mergedResultSets = mergeResultSets(resultSets, visibleResultSets, queryOptions?.resultTabRetention);
     setResultSets(mergedResultSets);
     activateExecutedResult(mergedResultSets, visibleResultSets, runSeq);
     if (didExecuteAppendedSql || didExecuteWholeEditor) {

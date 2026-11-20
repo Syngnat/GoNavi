@@ -20,7 +20,16 @@ import {
 } from './queryEditorResultsAndDropTestState';
 import { mountedRenderers, createDefaultConnections } from './queryEditorResultsAndDropTestHelpers';
 
+let performanceNowSpy: ReturnType<typeof vi.spyOn> | null = null;
+let performanceNowValue = 0;
+
 export const setUpQueryEditorResultsAndDropTest = () => {
+    performanceNowSpy?.mockRestore();
+    performanceNowValue = 0;
+    performanceNowSpy = vi.spyOn(performance, 'now').mockImplementation(() => {
+      performanceNowValue += 1000;
+      return performanceNowValue;
+    });
     clearQueryEditorSessionMetadata();
     // 行定位元数据缓存是模块级、跨用例存活的：同文件里的用例经常共用同一张表却 mock 不同的
     // DBGetColumns/DBGetIndexes 结果（用例 fixture 的 config 里没有 id，连接段退化成
@@ -72,6 +81,7 @@ export const setUpQueryEditorResultsAndDropTest = () => {
     storeState.setAIPanelVisible.mockReset();
     storeState.queryOptions = {
       maxRows: 5000,
+      resultTabRetention: 'latest',
       showColumnComment: true,
       showColumnType: true,
       showQueryResultsPanel: false,
@@ -199,4 +209,6 @@ export const tearDownQueryEditorResultsAndDropTest = () => {
     clearQueryEditorResultSession('tab-2');
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    performanceNowSpy?.mockRestore();
+    performanceNowSpy = null;
   };

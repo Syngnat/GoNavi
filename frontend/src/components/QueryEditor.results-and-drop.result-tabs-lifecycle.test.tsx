@@ -332,6 +332,10 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('runs only appended SQL and keeps existing results after a full editor execution', async () => {
+    storeState.queryOptions = {
+      ...storeState.queryOptions,
+      resultTabRetention: 'history',
+    };
     backendApp.DBQueryMulti
       .mockResolvedValueOnce({
         success: true,
