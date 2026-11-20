@@ -11,6 +11,8 @@ import (
 	"GoNavi-Wails/internal/sqlaudit"
 )
 
+const maxSessionBatchActions = 1000
+
 // DBListSessions returns the normalized server-side sessions exposed by one
 // database engine. Unsupported engines return a successful empty payload so
 // the frontend can show an honest capability state without opening a connection.
@@ -123,6 +125,118 @@ func (a *App) DBExecuteSessionAction(
 	)
 }
 
+// DBExecuteSessionActions executes a bounded batch over one isolated
+// connection. Requests run sequentially because concurrent KILL statements
+// increase server pressure exactly when the server is already unhealthy.
+func (a *App) DBExecuteSessionActions(
+	config connection.ConnectionConfig,
+	dbName string,
+	requests []connection.SessionActionRequest,
+) connection.QueryResult {
+	return a.dbExecuteSessionActionsWithAuditContext(
+		a.sessionWorkbenchParentContext(), config, dbName, requests,
+	)
+}
+
+func (a *App) dbExecuteSessionActionsWithAuditContext(
+	parent context.Context,
+	config connection.ConnectionConfig,
+	dbName string,
+	requests []connection.SessionActionRequest,
+) connection.QueryResult {
+	if len(requests) == 0 {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("session_workbench.backend.error.batch_empty", nil),
+		}
+	}
+	if len(requests) > maxSessionBatchActions {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("session_workbench.backend.error.batch_too_large", map[string]any{
+				"max": maxSessionBatchActions,
+			}),
+		}
+	}
+
+	runConfig := normalizeRunConfig(config, dbName)
+	_, capability := db.SessionCapabilityFor(runConfig)
+	checkedProtections := make(map[string]struct{}, 2)
+	for _, request := range requests {
+		if _, supported := sessionWorkbenchActionKey(capability, request.Action); !supported {
+			return connection.QueryResult{
+				Success: false,
+				Message: a.appText("session_workbench.backend.error.unsupported_action", nil),
+			}
+		}
+		protectionActionKey := sessionWorkbenchProtectionActionKey(request.Action)
+		if _, checked := checkedProtections[protectionActionKey]; checked {
+			continue
+		}
+		if err := ensureConnectionAllowsActionWithText(
+			runConfig,
+			connectionProtectionScriptExecution,
+			protectionActionKey,
+			a.appText,
+		); err != nil {
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
+		checkedProtections[protectionActionKey] = struct{}{}
+	}
+
+	database, queryContext, cleanup, err := a.openSessionWorkbenchDatabase(parent, runConfig)
+	if err != nil {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("session_workbench.backend.error.batch_failed", map[string]any{
+				"detail": sessionWorkbenchErrorDetail(err),
+			}),
+		}
+	}
+	defer cleanup()
+
+	operator := db.NewSessionOperator(database, runConfig)
+	payload := connection.SessionBatchActionResult{
+		Total:   len(requests),
+		Results: make([]connection.SessionActionResult, 0, len(requests)),
+	}
+	contextCanceled := false
+	for index, request := range requests {
+		if err := queryContext.Err(); err != nil {
+			contextCanceled = true
+			payload.Results = append(payload.Results, connection.SessionActionResult{
+				Index:   index,
+				Success: false,
+				Message: a.appText("session_workbench.backend.error.batch_canceled", nil),
+			})
+			payload.Failed++
+			continue
+		}
+		result := a.executeSessionActionOnOperator(
+			queryContext, runConfig, operator, request,
+		)
+		item := connection.SessionActionResult{
+			Index:   index,
+			Success: result.Success,
+			Message: result.Message,
+		}
+		if item.Success {
+			payload.Succeeded++
+		} else {
+			payload.Failed++
+		}
+		payload.Results = append(payload.Results, item)
+	}
+	if contextCanceled {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("session_workbench.backend.error.batch_canceled", nil),
+			Data:    payload,
+		}
+	}
+	return connection.QueryResult{Success: true, Data: payload}
+}
+
 func (a *App) dbExecuteSessionActionWithAuditContext(
 	parent context.Context,
 	config connection.ConnectionConfig,
@@ -151,10 +265,7 @@ func (a *App) dbExecuteSessionActionContext(
 			Message: a.appText("session_workbench.backend.error.unsupported_action", nil),
 		}
 	}
-	protectionActionKey := "connection.backend.action.terminate_database_session"
-	if request.Action == connection.SessionActionCancelQuery {
-		protectionActionKey = "connection.backend.action.cancel_database_query"
-	}
+	protectionActionKey := sessionWorkbenchProtectionActionKey(request.Action)
 	if err := ensureConnectionAllowsActionWithText(
 		runConfig,
 		connectionProtectionScriptExecution,
@@ -175,6 +286,37 @@ func (a *App) dbExecuteSessionActionContext(
 			return a.sessionActionRejected(actionKey, runConfig, err)
 		}
 		return a.sessionActionFailure(actionKey, runConfig, err)
+	}
+	return connection.QueryResult{
+		Success: true,
+		Message: a.appText("session_workbench.backend.message.action_succeeded", map[string]any{
+			"action": a.appText(actionKey, nil),
+		}),
+	}
+}
+
+func (a *App) executeSessionActionOnOperator(
+	ctx context.Context,
+	config connection.ConnectionConfig,
+	operator db.SessionOperator,
+	request connection.SessionActionRequest,
+) (result connection.QueryResult) {
+	_, capability := db.SessionCapabilityFor(config)
+	actionKey, supported := sessionWorkbenchActionKey(capability, request.Action)
+	if !supported {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("session_workbench.backend.error.unsupported_action", nil),
+		}
+	}
+	auditSQL := sessionWorkbenchAuditStatement(capability, request)
+	defer a.beginSQLAuditUserAction(config, config.Database, "session_workbench", &auditSQL, &result)()
+
+	if err := operator.ExecuteSessionAction(ctx, request); err != nil {
+		if errors.Is(err, db.ErrSessionActionRejected) {
+			return a.sessionActionRejected(actionKey, config, err)
+		}
+		return a.sessionActionFailure(actionKey, config, err)
 	}
 	return connection.QueryResult{
 		Success: true,
@@ -281,6 +423,13 @@ func (a *App) sessionWorkbenchParentContext() context.Context {
 		return a.ctx
 	}
 	return context.Background()
+}
+
+func sessionWorkbenchProtectionActionKey(action connection.SessionAction) string {
+	if action == connection.SessionActionCancelQuery {
+		return "connection.backend.action.cancel_database_query"
+	}
+	return "connection.backend.action.terminate_database_session"
 }
 
 func sessionWorkbenchActionKey(

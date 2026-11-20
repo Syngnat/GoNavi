@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import type { SavedConnection } from '../../types';
 import {
+  normalizeSessionBatchActionResult,
   readSessionPayload,
   sessionConnections,
   type DatabaseSession,
   type SessionActionRequest,
+  type SessionBatchActionResult,
   type SessionListPayload,
   type SessionQueryResult,
 } from './sessionWorkbenchModel';
 import {
   executeDatabaseSessionAction,
+  executeDatabaseSessionActions,
   listDatabaseSessions,
   listSessionDatabases,
 } from './sessionWorkbenchRpc';
@@ -62,6 +65,7 @@ export interface SessionWorkbenchState {
   scopeRevision: number;
   refresh: (databaseOverride?: string) => Promise<boolean>;
   executeAction: (request: SessionActionRequest) => Promise<SessionQueryResult>;
+  executeActionBatch: (requests: SessionActionRequest[]) => Promise<SessionBatchActionResult>;
 }
 
 interface SessionScopeSnapshot {
@@ -318,6 +322,91 @@ export const useSessionWorkbench = (
     }
   }, [isScopeCurrent, refreshSessions]);
 
+  const executeActionBatch = useCallback(async (
+    requests: SessionActionRequest[],
+  ): Promise<SessionBatchActionResult> => {
+    if (requests.length === 0) {
+      return {
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        results: [],
+        failureMessage: 'session_workbench.batch.no_targets',
+      };
+    }
+    const requestedConnectionId = selectedConnectionIdRef.current;
+    const requestedDatabaseName = appliedDatabaseNameRef.current;
+    const actionScope: SessionScopeSnapshot = {
+      connectionId: requestedConnectionId,
+      databaseName: requestedDatabaseName,
+      revision: scopeRevisionRef.current,
+    };
+    const connection = connectionsRef.current.find(
+      (candidate) => candidate.id === requestedConnectionId,
+    );
+    if (!connection) {
+      return {
+        total: requests.length,
+        succeeded: 0,
+        failed: requests.length,
+        results: [],
+        failureMessage: 'no_connection',
+      };
+    }
+
+    try {
+      const result = await executeDatabaseSessionActions(
+        connection.config,
+        requestedDatabaseName,
+        requests,
+      );
+      if (!isScopeCurrent(actionScope)) {
+        return {
+          ...normalizeSessionBatchActionResult(result.data, requests.length),
+          stale: true,
+        };
+      }
+      const hasBatchData = result.data !== undefined && result.data !== null;
+      if (result.success !== true && !hasBatchData) {
+        return {
+          total: requests.length,
+          succeeded: 0,
+          failed: requests.length,
+          results: [],
+          failureMessage: String(result.message || '').trim() || undefined,
+        };
+      }
+      const batchResult = normalizeSessionBatchActionResult(result.data, requests.length);
+      if (batchResult.succeeded > 0) {
+        await refreshSessions(requestedDatabaseName, false);
+      }
+      if (result.success !== true) {
+        return {
+          ...batchResult,
+          failureMessage: String(result.message || '').trim() || undefined,
+        };
+      }
+      return isScopeCurrent(actionScope) ? batchResult : { ...batchResult, stale: true };
+    } catch (cause) {
+      if (!isScopeCurrent(actionScope)) {
+        return {
+          total: requests.length,
+          succeeded: 0,
+          failed: requests.length,
+          results: [],
+          stale: true,
+        };
+      }
+      return {
+        total: requests.length,
+        succeeded: 0,
+        failed: requests.length,
+        results: [],
+        failureMessage: cause instanceof Error ? cause.message : String(cause),
+      };
+    }
+  }, [isScopeCurrent, refreshSessions]);
+
   return {
     connections,
     selectedConnection,
@@ -338,6 +427,7 @@ export const useSessionWorkbench = (
     scopeRevision: scopeRevisionRef.current,
     refresh,
     executeAction,
+    executeActionBatch,
   };
 };
 

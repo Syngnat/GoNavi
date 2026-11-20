@@ -21,6 +21,11 @@ interface SessionWailsApp {
     dbName: string,
     request: SessionActionRequest,
   ) => Promise<SessionQueryResult>;
+  DBExecuteSessionActions?: (
+    config: unknown,
+    dbName: string,
+    requests: SessionActionRequest[],
+  ) => Promise<SessionQueryResult>;
 }
 
 interface SessionWailsRuntime {
@@ -88,6 +93,22 @@ export const executeDatabaseSessionAction = async (
     'DBExecuteSessionAction',
     [rpcConfig, dbName, request],
     (app) => app.DBExecuteSessionAction(rpcConfig, dbName, request),
+  );
+};
+
+export const executeDatabaseSessionActions = async (
+  config: ConnectionConfig,
+  dbName: string,
+  requests: SessionActionRequest[],
+): Promise<SessionQueryResult> => {
+  const rpcConfig = buildRpcConnectionConfig(config);
+  return invokeSessionMethod(
+    'DBExecuteSessionActions',
+    [rpcConfig, dbName, requests],
+    (app) => {
+      if (!app.DBExecuteSessionActions) throw new Error(SESSION_WORKBENCH_RPC_UNAVAILABLE);
+      return app.DBExecuteSessionActions(rpcConfig, dbName, requests);
+    },
   );
 };
 

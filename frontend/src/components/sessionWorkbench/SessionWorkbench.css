@@ -125,6 +125,16 @@ body[data-ui-version="v2"] .gn-session-workbench .ant-pagination {
   max-width: 420px;
 }
 
+.gn-session-workbench-filter .gn-session-workbench-batch-trigger {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 840px) {
+  .gn-session-workbench-filter .gn-session-workbench-batch-trigger {
+    margin-inline-start: 0;
+  }
+}
+
 /* 全局输入框用 --gn-bg-input，浅色主题里它是纯白，和页面的 panel-2 对不上。 */
 body[data-ui-version="v2"] .gn-session-workbench .ant-select-selector,
 body[data-ui-version="v2"] .gn-session-workbench .ant-input,
@@ -303,6 +313,39 @@ body[data-ui-version="v2"] .gn-session-workbench .gn-session-action-btn.is-cance
   display: flex;
   justify-content: flex-end;
   width: 100%;
+}
+
+.gn-session-workbench-batch-summary {
+  margin: 12px 0 0 !important;
+}
+
+.gn-session-workbench-batch-preview {
+  margin-top: 12px;
+}
+
+.gn-session-workbench-batch-preview ul {
+  display: flex;
+  max-height: 220px;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.gn-session-workbench-batch-preview li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-session-workbench-batch-preview li .ant-typography:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gn-session-workbench-action-chooser {

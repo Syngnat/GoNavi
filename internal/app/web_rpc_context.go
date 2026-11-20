@@ -21,7 +21,7 @@ var requiredIssue1098WebRPCContextMethods = []string{
 	"DBCommitTransaction", "DBRollbackTransaction", "DBCommitTransactionWithTrigger", "DBRollbackTransactionWithTrigger",
 	"DBGetDatabases", "DBGetTables", "DBGetViews", "DBGetObjects", "DBGetAllColumns", "DBGetColumns", "DBGetIndexes",
 	"DBGetForeignKeys", "DBGetDatabaseForeignKeys", "DBGetTriggers", "DBShowCreateTable", "DBTableExists",
-	"DBListSessions", "DBListLockWaits", "DBListLongTransactions", "DBExecuteSessionAction",
+	"DBListSessions", "DBListLockWaits", "DBListLongTransactions", "DBExecuteSessionAction", "DBExecuteSessionActions",
 	"MySQLGetDatabases", "MySQLGetTables", "MySQLShowCreateTable", "MongoDiscoverMembers", "DBRefreshTableStats", "DiagnoseQuery", "DiagnoseQueryWithOptions",
 	"DataSyncDatabaseList", "DataSyncObjectList", "DataSyncFieldList", "DataSyncCapabilityResolve", "DataSyncCDCProbe", "DataSyncJobPreflight",
 	"DataSyncJobList", "DataSyncJobGet", "DataSyncRunGet", "DataSyncRunList", "DataSyncRunPage", "DataSyncRunEventList",
@@ -130,6 +130,9 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		},
 		"DBExecuteSessionAction": func(ctx context.Context, config connection.ConnectionConfig, dbName string, request connection.SessionActionRequest) connection.QueryResult {
 			return a.dbExecuteSessionActionWithAuditContext(ctx, config, dbName, request)
+		},
+		"DBExecuteSessionActions": func(ctx context.Context, config connection.ConnectionConfig, dbName string, requests []connection.SessionActionRequest) connection.QueryResult {
+			return a.dbExecuteSessionActionsWithAuditContext(ctx, config, dbName, requests)
 		},
 
 		"DBGetDatabases": func(ctx context.Context, config connection.ConnectionConfig) connection.QueryResult {

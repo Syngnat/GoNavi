@@ -6,6 +6,7 @@ import { useSessionWorkbench } from './useSessionWorkbench';
 const sessionRpc = vi.hoisted(() => ({
   list: vi.fn(),
   action: vi.fn(),
+  batch: vi.fn(),
   state: { connections: [] as any[] },
 }));
 
@@ -16,6 +17,7 @@ vi.mock('../../store', () => ({
 vi.mock('./sessionWorkbenchRpc', () => ({
   listDatabaseSessions: sessionRpc.list,
   executeDatabaseSessionAction: sessionRpc.action,
+  executeDatabaseSessionActions: sessionRpc.batch,
 }));
 
 const deferred = <T,>() => {
@@ -75,6 +77,7 @@ describe('useSessionWorkbench request scope', () => {
     sessionRpc.state.connections = connections;
     sessionRpc.list.mockReset();
     sessionRpc.action.mockReset();
+    sessionRpc.batch.mockReset();
     renderer = null;
   });
 
@@ -164,5 +167,57 @@ describe('useSessionWorkbench request scope', () => {
     const actionResult = await actionPromise;
     expect(actionResult.stale).not.toBe(true);
     expect(latest.payload?.sessions[0]?.key).toBe('row-a-after');
+  });
+
+  it('executes one batch request and refreshes the list only once', async () => {
+    sessionRpc.list
+      .mockResolvedValueOnce(response('row-a'))
+      .mockResolvedValueOnce(response('row-a-after'));
+    sessionRpc.batch.mockResolvedValue({
+      success: true,
+      data: {
+        total: 2,
+        succeeded: 2,
+        failed: 0,
+        results: [
+          { index: 0, success: true },
+          { index: 1, success: true },
+        ],
+      },
+    });
+
+    await render();
+    const result = await latest.executeActionBatch([
+      { action: 'terminateSession', sessionId: '1' },
+      { action: 'terminateSession', sessionId: '2' },
+    ]);
+
+    expect(sessionRpc.batch).toHaveBeenCalledOnce();
+    expect(sessionRpc.list).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ total: 2, succeeded: 2, failed: 0 });
+    expect(latest.payload?.sessions[0]?.key).toBe('row-a-after');
+  });
+
+  it('marks a batch stale and skips its refresh after a connection switch', async () => {
+    sessionRpc.list.mockResolvedValue(response('row-a'));
+    const pendingBatch = deferred<RpcResult>();
+    sessionRpc.batch.mockReturnValue(pendingBatch.promise);
+
+    await render();
+    const batchPromise = latest.executeActionBatch([
+      { action: 'terminateSession', sessionId: '1' },
+    ]);
+    act(() => latest.setSelectedConnectionId('connection-b'));
+    await act(async () => {});
+    pendingBatch.resolve({
+      success: true,
+      data: { total: 1, succeeded: 1, failed: 0, results: [{ index: 0, success: true }] },
+    });
+
+    await expect(batchPromise).resolves.toMatchObject({ stale: true, succeeded: 1 });
+    expect(sessionRpc.list.mock.calls.map(([config]) => config.id)).toEqual([
+      'connection-a',
+      'connection-b',
+    ]);
   });
 });

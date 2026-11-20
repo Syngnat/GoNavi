@@ -417,3 +417,189 @@ func TestDBExecuteSessionActionExplainsServerRejection(t *testing.T) {
 		t.Fatalf("Close calls = %d, want 1", got)
 	}
 }
+
+func TestDBExecuteSessionActionsRejectsInvalidBatchWithoutOpeningConnection(t *testing.T) {
+	tooMany := make([]connection.SessionActionRequest, maxSessionBatchActions+1)
+	for index := range tooMany {
+		tooMany[index] = connection.SessionActionRequest{
+			Action:    connection.SessionActionTerminateSession,
+			SessionID: "42",
+		}
+	}
+	tests := []struct {
+		name     string
+		config   connection.ConnectionConfig
+		requests []connection.SessionActionRequest
+	}{
+		{
+			name:     "empty",
+			config:   sessionWorkbenchConfig("postgres"),
+			requests: nil,
+		},
+		{
+			name:     "too large",
+			config:   sessionWorkbenchConfig("postgres"),
+			requests: tooMany,
+		},
+		{
+			name:   "unsupported action",
+			config: sessionWorkbenchConfig("clickhouse"),
+			requests: []connection.SessionActionRequest{{
+				Action:    connection.SessionActionTerminateSession,
+				SessionID: "42",
+			}},
+		},
+		{
+			name: "read only protection",
+			config: func() connection.ConnectionConfig {
+				config := sessionWorkbenchConfig("postgres")
+				config.ReadOnly = true
+				return config
+			}(),
+			requests: []connection.SessionActionRequest{{
+				Action:    connection.SessionActionTerminateSession,
+				SessionID: "42",
+			}},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			var factoryCalls atomic.Int32
+			installDatabaseCacheConcurrencyTestHooks(t)
+			newDatabaseFunc = func(string) (db.Database, error) {
+				factoryCalls.Add(1)
+				return &sessionWorkbenchRecordingDB{}, nil
+			}
+			app := newDatabaseCacheConcurrencyTestApp()
+
+			result := app.DBExecuteSessionActions(test.config, "analytics", test.requests)
+			if result.Success {
+				t.Fatalf("invalid batch reported success: %#v", result)
+			}
+			if result.Message == "" {
+				t.Fatal("invalid batch should return a localized reason")
+			}
+			if got := factoryCalls.Load(); got != 0 {
+				t.Fatalf("invalid batch opened %d connections", got)
+			}
+		})
+	}
+}
+
+func TestDBExecuteSessionActionsUsesOneConnectionAndContinuesAfterFailure(t *testing.T) {
+	database := &sessionWorkbenchRecordingDB{
+		execSQL: make(chan string, 3),
+		exec: func(_ context.Context, query string) (int64, error) {
+			if query == "KILL CONNECTION 43" {
+				return 0, errors.New("session already disappeared")
+			}
+			return 0, nil
+		},
+	}
+	app := sessionWorkbenchTestApp(t, database)
+
+	result := app.DBExecuteSessionActions(sessionWorkbenchConfig("mysql"), "analytics", []connection.SessionActionRequest{
+		{Action: connection.SessionActionTerminateSession, SessionID: "42"},
+		{Action: connection.SessionActionTerminateSession, SessionID: "43"},
+		{Action: connection.SessionActionTerminateSession, SessionID: "44"},
+	})
+	if !result.Success {
+		t.Fatalf("partial batch should complete successfully: %q", result.Message)
+	}
+	payload, ok := result.Data.(connection.SessionBatchActionResult)
+	if !ok {
+		t.Fatalf("result.Data type = %T, want connection.SessionBatchActionResult", result.Data)
+	}
+	if payload.Total != 3 || payload.Succeeded != 2 || payload.Failed != 1 {
+		t.Fatalf("unexpected batch summary: %+v", payload)
+	}
+	if len(payload.Results) != 3 {
+		t.Fatalf("batch results = %d, want 3", len(payload.Results))
+	}
+	if !payload.Results[0].Success || payload.Results[1].Success || !payload.Results[2].Success {
+		t.Fatalf("unexpected per-item results: %+v", payload.Results)
+	}
+	if payload.Results[1].Message == "" {
+		t.Fatal("failed item should carry the server error")
+	}
+	if got := database.connectCalls.Load(); got != 1 {
+		t.Fatalf("Connect calls = %d, want 1", got)
+	}
+	if got := database.closeCalls.Load(); got != 1 {
+		t.Fatalf("Close calls = %d, want 1", got)
+	}
+
+	gotQueries := make([]string, 0, 3)
+	for index := 0; index < 3; index++ {
+		select {
+		case query := <-database.execSQL:
+			gotQueries = append(gotQueries, query)
+		case <-time.After(time.Second):
+			t.Fatalf("ExecContext call %d was not observed", index+1)
+		}
+	}
+	if strings.Join(gotQueries, ",") != "KILL CONNECTION 42,KILL CONNECTION 43,KILL CONNECTION 44" {
+		t.Fatalf("batch execution order = %v", gotQueries)
+	}
+}
+
+func TestDBExecuteSessionActionsRecordsEveryAudit(t *testing.T) {
+	database := &sessionWorkbenchRecordingDB{
+		exec: func(_ context.Context, _ string) (int64, error) {
+			return 0, nil
+		},
+	}
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+	app := newSQLAuditTestApp(t)
+
+	result := app.DBExecuteSessionActions(sessionWorkbenchConfig("mysql"), "analytics", []connection.SessionActionRequest{
+		{Action: connection.SessionActionTerminateSession, SessionID: "42"},
+		{Action: connection.SessionActionTerminateSession, SessionID: "43"},
+		{Action: connection.SessionActionTerminateSession, SessionID: "44"},
+	})
+	if !result.Success {
+		t.Fatalf("batch audit setup failed: %q", result.Message)
+	}
+	events := loadSQLAuditEvents(t, app, sqlaudit.Filter{Source: "session_workbench"})
+	if len(events) != 3 {
+		t.Fatalf("session workbench audit events = %#v, want three events", events)
+	}
+	for _, event := range events {
+		if event.Source != "session_workbench" || event.Status != "success" {
+			t.Fatalf("unexpected batch audit event: %#v", event)
+		}
+	}
+}
+
+func TestDBExecuteSessionActionsStopsReportingSuccessAfterContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database := &sessionWorkbenchRecordingDB{
+		exec: func(_ context.Context, _ string) (int64, error) {
+			cancel()
+			return 0, nil
+		},
+	}
+	app := sessionWorkbenchTestApp(t, database)
+
+	result := app.dbExecuteSessionActionsWithAuditContext(ctx, sessionWorkbenchConfig("mysql"), "analytics", []connection.SessionActionRequest{
+		{Action: connection.SessionActionTerminateSession, SessionID: "42"},
+		{Action: connection.SessionActionTerminateSession, SessionID: "43"},
+	})
+	if result.Success {
+		t.Fatal("canceled batch must not report top-level success")
+	}
+	payload, ok := result.Data.(connection.SessionBatchActionResult)
+	if !ok {
+		t.Fatalf("canceled batch data type = %T", result.Data)
+	}
+	if payload.Succeeded != 1 || payload.Failed != 1 {
+		t.Fatalf("canceled batch summary = %+v", payload)
+	}
+	if payload.Results[1].Message == "" {
+		t.Fatal("canceled remaining item should explain why it was not executed")
+	}
+}

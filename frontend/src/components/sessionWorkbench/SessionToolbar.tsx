@@ -1,5 +1,5 @@
-import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Checkbox, Input, Select, Space, Typography } from 'antd';
+import { ReloadOutlined, StopOutlined } from '@ant-design/icons';
+import { Button, Checkbox, Input, Select, Space, Tooltip, Typography } from 'antd';
 import type { SavedConnection } from '../../types';
 import { useI18n } from '../../i18n/provider';
 import SessionConnectionSelect from './SessionConnectionSelect';
@@ -22,10 +22,14 @@ export interface SessionToolbarProps {
   loading: boolean;
   /** The catalog request for the current connection is still running. */
   databaseLoading: boolean;
+  batchTerminateCount: number;
+  batchTerminateDisabled: boolean;
+  batchTerminateHint?: string;
   onConnectionChange: (connectionId: string) => void;
   onDatabaseChange: (databaseName: string) => void;
   onFilterChange: (filter: string) => void;
   onRunningOnlyChange: (runningOnly: boolean) => void;
+  onBatchTerminate: () => void;
   onRefresh: () => void;
 }
 
@@ -39,10 +43,14 @@ export default function SessionToolbar({
   runningOnly,
   showSessionFilters = true,
   loading,
+  batchTerminateCount,
+  batchTerminateDisabled,
+  batchTerminateHint,
   onConnectionChange,
   onDatabaseChange,
   onFilterChange,
   onRunningOnlyChange,
+  onBatchTerminate,
   onRefresh,
 }: SessionToolbarProps) {
   const { t } = useI18n();
@@ -101,6 +109,21 @@ export default function SessionToolbar({
           >
             {t('session_workbench.filter.running_only')}
           </Checkbox>
+          <Tooltip title={batchTerminateHint}>
+            <span>
+              <Button
+                className="gn-session-workbench-batch-trigger"
+                danger
+                type="default"
+                icon={<StopOutlined />}
+                disabled={batchTerminateDisabled}
+                aria-label={t('session_workbench.batch.action')}
+                onClick={onBatchTerminate}
+              >
+                {t('session_workbench.batch.button', { count: batchTerminateCount })}
+              </Button>
+            </span>
+          </Tooltip>
         </Space>
       ) : null}
     </div>

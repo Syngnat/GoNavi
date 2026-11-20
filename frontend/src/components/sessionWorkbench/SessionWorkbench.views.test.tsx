@@ -11,6 +11,8 @@ const harness = vi.hoisted(() => ({
   tableProps: null as any,
   switchProps: null as any,
   lockPanelProps: null as any,
+  batchOptions: null as any,
+  batchOpen: vi.fn(),
 }));
 
 vi.mock('../../i18n/provider', () => ({
@@ -56,6 +58,19 @@ vi.mock('./useSessionWorkbenchDialogs', () => ({
   },
 }));
 
+vi.mock('./useSessionBatchTermination', () => ({
+  useSessionBatchTermination: (options: any) => {
+    harness.batchOptions = options;
+    return {
+      target: null,
+      loading: false,
+      open: harness.batchOpen,
+      close: vi.fn(),
+      confirm: vi.fn(),
+    };
+  },
+}));
+
 vi.mock('./SessionToolbar', () => ({
   default: (props: any) => {
     harness.toolbarProps = props;
@@ -82,6 +97,7 @@ vi.mock('../sessionAlerts/SessionAlertSettingsButton', () => ({ default: () => n
 vi.mock('../sessionAlerts/SessionAlertHistoryPanel', () => ({ default: () => <div>alert-history-panel</div> }));
 vi.mock('./SessionSummary', () => ({ default: () => null }));
 vi.mock('./SessionActionChooser', () => ({ default: () => null }));
+vi.mock('./SessionBatchTerminateModal', () => ({ default: () => null }));
 vi.mock('./SessionConfirmModal', () => ({ default: () => null }));
 
 import SessionWorkbench from './SessionWorkbench';
@@ -91,7 +107,7 @@ const sessions = [
   { key: 'idle', sessionId: '2', state: 'Sleep', statement: '' },
 ];
 
-const buildWorkbench = (runningOnly: boolean) => ({
+const buildWorkbench = (runningOnly: boolean, overrides: Record<string, unknown> = {}) => ({
   connections: [],
   selectedConnection: { id: 'c1', name: 'Local', config: { type: 'mysql' } },
   selectedConnectionId: 'c1',
@@ -107,7 +123,12 @@ const buildWorkbench = (runningOnly: boolean) => ({
   databasesLoading: false,
   payload: {
     engine: 'mysql',
-    capability: { supported: true, canCancelQuery: true, canTerminateSession: true },
+    capability: {
+      supported: true,
+      canCancelQuery: true,
+      canTerminateSession: true,
+      terminateTarget: 'sessionId',
+    },
     sessions,
   },
   loading: false,
@@ -115,6 +136,13 @@ const buildWorkbench = (runningOnly: boolean) => ({
   scopeRevision: 0,
   refresh: vi.fn(async () => true),
   executeAction: vi.fn(async () => ({ success: true })),
+  executeActionBatch: vi.fn(async () => ({
+    total: 0,
+    succeeded: 0,
+    failed: 0,
+    results: [],
+  })),
+  ...overrides,
 });
 
 const buildLockWaits = () => ({
@@ -140,6 +168,7 @@ describe('SessionWorkbench running-only shortcut', () => {
     harness.tableProps = null;
     harness.lockPanelProps = null;
     harness.lockWaits = buildLockWaits();
+    harness.batchOpen.mockReset();
   });
 
   it('drives the shared workbench state from the toolbar checkbox', () => {
@@ -157,6 +186,53 @@ describe('SessionWorkbench running-only shortcut', () => {
 
     expect(harness.toolbarProps.runningOnly).toBe(true);
     expect(harness.tableProps.sessions.map((session: { key: string }) => session.key)).toEqual(['running']);
+  });
+
+  it('enables bulk termination only for an active filter and snapshots eligible rows', () => {
+    harness.workbench = buildWorkbench(false, {
+      filter: 'shop',
+      payload: {
+        engine: 'mysql',
+        capability: {
+          supported: true,
+          canCancelQuery: true,
+          canTerminateSession: true,
+          terminateTarget: 'sessionId',
+        },
+        sessions: [
+          ...sessions.map((item) => ({ ...item, databaseOrTenant: 'shop' })),
+          {
+            key: 'daemon',
+            sessionId: '3',
+            state: 'Daemon',
+            statement: 'SELECT 1',
+            databaseOrTenant: 'shop',
+          },
+        ],
+      },
+    });
+    render();
+
+    expect(harness.toolbarProps.batchTerminateCount).toBe(2);
+    expect(harness.toolbarProps.batchTerminateDisabled).toBe(false);
+    harness.toolbarProps.onBatchTerminate();
+    expect(harness.batchOpen).toHaveBeenCalledWith({
+      sessions: [
+        expect.objectContaining({ key: 'running' }),
+        expect.objectContaining({ key: 'idle' }),
+      ],
+      skippedCount: 1,
+      totalVisible: 3,
+    });
+  });
+
+  it('keeps bulk termination disabled until a filter is active', () => {
+    harness.workbench = buildWorkbench(false);
+    render();
+
+    expect(harness.toolbarProps.batchTerminateCount).toBe(2);
+    expect(harness.toolbarProps.batchTerminateDisabled).toBe(true);
+    expect(harness.toolbarProps.batchTerminateHint).toBe('session_workbench.batch.requires_filter');
   });
 });
 

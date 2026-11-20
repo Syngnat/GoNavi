@@ -55,6 +55,21 @@ export interface SessionQueryResult {
   stale?: boolean;
 }
 
+export interface SessionBatchActionItemResult {
+  index: number;
+  success: boolean;
+  message?: string;
+}
+
+export interface SessionBatchActionResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: SessionBatchActionItemResult[];
+  stale?: boolean;
+  failureMessage?: string;
+}
+
 export const SESSION_ACTIONS: readonly SessionAction[] = [
   'cancelQuery',
   'terminateSession',
@@ -228,6 +243,35 @@ export const availableSessionActions = (
   capability: SessionCapability,
   session: DatabaseSession,
 ): SessionAction[] => SESSION_ACTIONS.filter((action) => canRunSessionAction(capability, action, session));
+
+export const terminableSessions = (
+  capability: SessionCapability,
+  sessions: DatabaseSession[],
+): DatabaseSession[] => sessions.filter((session) => (
+  canRunSessionAction(capability, 'terminateSession', session)
+));
+
+export const normalizeSessionBatchActionResult = (
+  value: unknown,
+  requestedTotal: number,
+): SessionBatchActionResult => {
+  const source = record(value);
+  const rawResults = Array.isArray(source.results) ? source.results : [];
+  const results = rawResults.map((entry, fallbackIndex): SessionBatchActionItemResult => {
+    const item = record(entry);
+    return {
+      index: numberValue(item.index) ?? fallbackIndex,
+      success: booleanValue(item.success),
+      message: text(item.message) || undefined,
+    };
+  });
+  return {
+    total: Math.max(0, numberValue(source.total) ?? requestedTotal),
+    succeeded: Math.max(0, numberValue(source.succeeded) ?? 0),
+    failed: Math.max(0, numberValue(source.failed) ?? 0),
+    results,
+  };
+};
 
 export const buildSessionActionRequest = (
   capability: SessionCapability,

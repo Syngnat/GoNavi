@@ -7,6 +7,7 @@ import SessionAlertHistoryPanel from '../sessionAlerts/SessionAlertHistoryPanel'
 import SessionAlertSettingsButton from '../sessionAlerts/SessionAlertSettingsButton';
 import LockWaitPanel from './LockWaitPanel';
 import SessionActionChooser from './SessionActionChooser';
+import SessionBatchTerminateModal from './SessionBatchTerminateModal';
 import SessionConfirmModal from './SessionConfirmModal';
 import SessionHeader from './SessionHeader';
 import SessionListBody from './SessionListBody';
@@ -16,12 +17,14 @@ import { sessionDatabaseOptions } from './sessionDatabaseFilter';
 import {
   filterSessions,
   sessionStateTone,
+  terminableSessions,
   type SessionActionRequest,
   type SessionQueryResult,
 } from './sessionWorkbenchModel';
 import { useLockWaits } from './useLockWaits';
 import { useSessionWorkbenchDeepLink, type SessionWorkbenchView } from './useSessionWorkbenchDeepLink';
 import { useSessionWorkbench } from './useSessionWorkbench';
+import { useSessionBatchTermination } from './useSessionBatchTermination';
 import { useSessionWorkbenchDialogs } from './useSessionWorkbenchDialogs';
 import './SessionWorkbench.css';
 
@@ -68,6 +71,11 @@ export default function SessionWorkbench({ tab, isActive }: SessionWorkbenchProp
     canCancelQuery: false,
     canTerminateSession: false,
   };
+  const terminableFilteredSessions = useMemo(
+    () => terminableSessions(capability, filteredSessions),
+    [capability, filteredSessions],
+  );
+  const hasActiveSessionFilter = Boolean(workbench.filter.trim()) || workbench.runningOnly;
   const selectedConnectionName = workbench.selectedConnection?.name || '';
   const isProduction = resolveConnectionEnvironmentType(workbench.selectedConnection) === 'production';
 
@@ -91,6 +99,13 @@ export default function SessionWorkbench({ tab, isActive }: SessionWorkbenchProp
     capability,
     workbench: actionRunner,
     contextKey: `${workbench.selectedConnectionId}\u0000${workbench.databaseName}\u0000${workbench.scopeRevision}`,
+    t,
+    messageApi,
+  });
+  const batchTermination = useSessionBatchTermination({
+    capability,
+    workbench,
+    contextKey: `${workbench.selectedConnectionId}\u0000${workbench.databaseName}\u0000${workbench.scopeRevision}\u0000${workbench.filter}\u0000${workbench.runningOnly}`,
     t,
     messageApi,
   });
@@ -137,10 +152,30 @@ export default function SessionWorkbench({ tab, isActive }: SessionWorkbenchProp
         showSessionFilters={!showingLockWaits && !showingAlertHistory}
         loading={showingLockWaits ? lockWaits.loading : workbench.loading}
         databaseLoading={workbench.databasesLoading}
+        batchTerminateCount={terminableFilteredSessions.length}
+        batchTerminateDisabled={
+          workbench.loading
+          || !hasActiveSessionFilter
+          || terminableFilteredSessions.length === 0
+        }
+        batchTerminateHint={
+          !hasActiveSessionFilter
+            ? t('session_workbench.batch.requires_filter')
+            : terminableFilteredSessions.length === 0
+              ? t('session_workbench.batch.no_targets')
+              : t('session_workbench.batch.hint', { count: terminableFilteredSessions.length })
+        }
         onConnectionChange={workbench.setSelectedConnectionId}
         onDatabaseChange={workbench.selectDatabase}
         onFilterChange={workbench.setFilter}
         onRunningOnlyChange={workbench.setRunningOnly}
+        onBatchTerminate={() => {
+          batchTermination.open({
+            sessions: terminableFilteredSessions,
+            skippedCount: filteredSessions.length - terminableFilteredSessions.length,
+            totalVisible: filteredSessions.length,
+          });
+        }}
         onRefresh={() => { void (showingLockWaits ? lockWaits.refresh() : workbench.refresh()); }}
       />
       <div className="gn-session-workbench-body">
@@ -173,6 +208,19 @@ export default function SessionWorkbench({ tab, isActive }: SessionWorkbenchProp
         capability={capability}
         onSelect={dialogs.selectAction}
         onCancel={dialogs.closeChooser}
+      />
+      <SessionBatchTerminateModal
+        open={Boolean(batchTermination.target)}
+        sessions={batchTermination.target?.sessions || []}
+        skippedCount={batchTermination.target?.skippedCount || 0}
+        totalVisible={batchTermination.target?.totalVisible || 0}
+        capability={capability}
+        connectionName={selectedConnectionName}
+        databaseName={workbench.databaseName}
+        production={isProduction}
+        loading={batchTermination.loading}
+        onCancel={batchTermination.close}
+        onConfirm={() => { void batchTermination.confirm(); }}
       />
       <SessionConfirmModal
         open={Boolean(dialogs.confirmRow && dialogs.confirmAction)}

@@ -6,12 +6,14 @@ import {
   formatSessionDuration,
   isRedisConnection,
   isServerInternalSession,
+  normalizeSessionBatchActionResult,
   normalizeSessionCapability,
   normalizeSessionPayload,
   resolveSessionActionTarget,
   sessionStateTone,
   sessionConnections,
   sessionActionDisplayId,
+  terminableSessions,
   truncateSessionStatement,
   type DatabaseSession,
   type SessionCapability,
@@ -152,6 +154,39 @@ describe('sessionWorkbenchModel', () => {
     expect(buildSessionActionRequest(mysqlCapability, 'terminateSession', scheduler)).toBeNull();
     expect(availableSessionActions(mysqlCapability, { ...scheduler, state: 'Sleep' }))
       .toEqual(['cancelQuery', 'terminateSession']);
+  });
+
+  it('selects only the filtered rows that can be terminated in bulk', () => {
+    const mysqlCapability: SessionCapability = {
+      ...dualCapability,
+      cancelTarget: 'sessionId',
+    };
+    const rows: DatabaseSession[] = [
+      session,
+      { key: 'daemon', sessionId: '7', state: 'Daemon' },
+      { key: 'missing-target', state: 'running' },
+    ];
+    expect(terminableSessions(mysqlCapability, rows).map((row) => row.key)).toEqual([session.key]);
+  });
+
+  it('normalizes partial batch action results', () => {
+    expect(normalizeSessionBatchActionResult({
+      total: 3,
+      succeeded: 1,
+      failed: 2,
+      results: [
+        { index: 0, success: true },
+        { index: 1, success: false, message: 'gone' },
+      ],
+    }, 3)).toEqual({
+      total: 3,
+      succeeded: 1,
+      failed: 2,
+      results: [
+        { index: 0, success: true, message: undefined },
+        { index: 1, success: false, message: 'gone' },
+      ],
+    });
   });
 
   it('colors session states by lifecycle instead of one flat tag', () => {

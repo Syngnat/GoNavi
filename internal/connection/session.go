@@ -73,3 +73,21 @@ type SessionActionRequest struct {
 	InstanceID   string        `json:"instanceId,omitempty"`
 	SerialNumber string        `json:"serialNumber,omitempty"`
 }
+
+// SessionActionResult reports one item in a batch session action. The batch
+// itself is a successful request even when individual items fail.
+type SessionActionResult struct {
+	Index   int    `json:"index"`
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+}
+
+// SessionBatchActionResult preserves per-session outcomes so the workbench can
+// report partial success without treating already-terminated sessions as a
+// failed batch.
+type SessionBatchActionResult struct {
+	Total     int                   `json:"total"`
+	Succeeded int                   `json:"succeeded"`
+	Failed    int                   `json:"failed"`
+	Results   []SessionActionResult `json:"results"`
+}
