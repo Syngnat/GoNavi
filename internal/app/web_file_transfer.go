@@ -23,6 +23,7 @@ const (
 
 	webUploadPurposeDataImport   = "data-import"
 	webUploadPurposeSQLExecution = "sql-execution"
+	webUploadPurposeScriptInput  = "script-input"
 )
 
 const (
@@ -69,12 +70,13 @@ type WebDownloadInfo struct {
 }
 
 type webTransferMetadata struct {
-	Kind      string `json:"kind"`
-	Purpose   string `json:"purpose,omitempty"`
-	FileName  string `json:"fileName"`
-	MimeType  string `json:"mimeType,omitempty"`
-	FileSize  int64  `json:"fileSize"`
-	CreatedAt int64  `json:"createdAt"`
+	Kind          string `json:"kind"`
+	Purpose       string `json:"purpose,omitempty"`
+	OwnerUsername string `json:"ownerUsername,omitempty"`
+	FileName      string `json:"fileName"`
+	MimeType      string `json:"mimeType,omitempty"`
+	FileSize      int64  `json:"fileSize"`
+	CreatedAt     int64  `json:"createdAt"`
 }
 
 type webManagedFile struct {

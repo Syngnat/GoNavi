@@ -12,7 +12,8 @@ type hiveCSVField struct {
 	quoted bool
 }
 
-func readHiveCSVRecord(reader *bufio.Reader, delimiter byte) ([]hiveCSVField, error) {
+func readHiveCSVRecord(reader *bufio.Reader, delimiter byte, limits importLexicalLimits) ([]hiveCSVField, error) {
+	limits = normalizeImportLexicalLimits(limits)
 	var fields []hiveCSVField
 	var cell strings.Builder
 	quoted, inQuote, closed, started := false, false, false, false
@@ -34,11 +35,18 @@ func readHiveCSVRecord(reader *bufio.Reader, delimiter byte) ([]hiveCSVField, er
 			if !started && !closed && len(fields) == 0 {
 				return nil, io.EOF
 			}
+			if len(fields) >= limits.maxFields {
+				return nil, &ImportFileLimitError{
+					Format: "CSV",
+					Kind:   ImportFileFieldLimit,
+					Limit:  limits.maxFields,
+				}
+			}
 			finish()
 			return fields, nil
 		}
 		rawBytes++
-		if rawBytes > maxImportRowBytes {
+		if rawBytes > limits.maxRowBytes {
 			return nil, fmt.Errorf("Hive CSV row exceeds byte limit")
 		}
 		if inQuote {
@@ -56,7 +64,7 @@ func readHiveCSVRecord(reader *bufio.Reader, delimiter byte) ([]hiveCSVField, er
 			} else {
 				cell.WriteByte(ch)
 			}
-			if cell.Len() > maxImportCellBytes {
+			if cell.Len() > limits.maxCellBytes {
 				return nil, fmt.Errorf("Hive CSV field exceeds byte limit")
 			}
 			continue
@@ -68,6 +76,10 @@ func readHiveCSVRecord(reader *bufio.Reader, delimiter byte) ([]hiveCSVField, er
 				if _, err := reader.ReadByte(); err != nil {
 					return nil, err
 				}
+				rawBytes++
+				if rawBytes > limits.maxRowBytes {
+					return nil, fmt.Errorf("Hive CSV row exceeds byte limit")
+				}
 				newline = true
 			}
 		}
@@ -76,10 +88,24 @@ func readHiveCSVRecord(reader *bufio.Reader, delimiter byte) ([]hiveCSVField, er
 				rawBytes = 0
 				continue
 			}
+			if len(fields) >= limits.maxFields {
+				return nil, &ImportFileLimitError{
+					Format: "CSV",
+					Kind:   ImportFileFieldLimit,
+					Limit:  limits.maxFields,
+				}
+			}
 			finish()
 			return fields, nil
 		}
 		if ch == delimiter {
+			if len(fields) >= limits.maxFields {
+				return nil, &ImportFileLimitError{
+					Format: "CSV",
+					Kind:   ImportFileFieldLimit,
+					Limit:  limits.maxFields,
+				}
+			}
 			finish()
 			continue
 		}
@@ -95,7 +121,7 @@ func readHiveCSVRecord(reader *bufio.Reader, delimiter byte) ([]hiveCSVField, er
 		}
 		started = true
 		cell.WriteByte(ch)
-		if cell.Len() > maxImportCellBytes {
+		if cell.Len() > limits.maxCellBytes {
 			return nil, fmt.Errorf("Hive CSV field exceeds byte limit")
 		}
 	}
@@ -112,10 +138,12 @@ func hiveCSVImportedValue(field hiveCSVField, options ImportFileOptions) interfa
 }
 
 func streamHiveCSVImportFile(path string, consumer importFileConsumer, options ImportFileOptions) error {
+	limits := normalizeImportLexicalLimits(options.lexicalLimits)
 	source, err := openImportTextSource(path, options.Encoding)
 	if err != nil {
 		return err
 	}
+	options.sourceRegistry.Attach(source)
 	defer source.Close()
 	reader := bufio.NewReaderSize(source, importDelimiterProbeSize)
 	delimiter, explicit, err := resolveImportDelimiter(options.Delimiter)
@@ -138,7 +166,7 @@ func streamHiveCSVImportFile(path string, consumer importFileConsumer, options I
 	}
 	var fields []hiveCSVField
 	for row := 1; row <= headerRow; row++ {
-		fields, err = readHiveCSVRecord(reader, byte(delimiter))
+		fields, err = readHiveCSVRecord(reader, byte(delimiter), limits)
 		if err != nil {
 			return fmt.Errorf("read Hive CSV header: %w", err)
 		}
@@ -158,7 +186,7 @@ func streamHiveCSVImportFile(path string, consumer importFileConsumer, options I
 		return err
 	}
 	for {
-		fields, err = readHiveCSVRecord(reader, byte(delimiter))
+		fields, err = readHiveCSVRecord(reader, byte(delimiter), limits)
 		if err == io.EOF {
 			return nil
 		}

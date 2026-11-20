@@ -35,6 +35,7 @@ func initializeSchema(conn *sql.Conn) error {
 			database_name TEXT NOT NULL DEFAULT '',
 			query_id TEXT NOT NULL DEFAULT '',
 			transaction_id TEXT NOT NULL DEFAULT '',
+			run_id TEXT NOT NULL DEFAULT '',
 			source TEXT NOT NULL DEFAULT '',
 			boundary_mode TEXT NOT NULL DEFAULT 'unknown',
 			commit_mode TEXT NOT NULL DEFAULT '',
@@ -78,6 +79,7 @@ func initializeSchema(conn *sql.Conn) error {
 	}{
 		{name: "mcp_request_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "mcp_client", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "run_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "user_name", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "executed_count", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "failed_index", definition: "INTEGER NOT NULL DEFAULT 0"},
@@ -89,6 +91,9 @@ func initializeSchema(conn *sql.Conn) error {
 	}
 	if _, err := conn.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_sql_audit_events_mcp_request ON sql_audit_events(mcp_request_id, sequence)`); err != nil {
 		return fmt.Errorf("index MCP audit requests: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_sql_audit_events_run ON sql_audit_events(run_id, sequence)`); err != nil {
+		return fmt.Errorf("index script audit runs: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
 		return fmt.Errorf("set SQL audit schema version: %w", err)

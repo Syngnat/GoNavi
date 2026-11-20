@@ -35,13 +35,14 @@ func streamXLSXSheetRowsWithOptionsAndStyles(
 	if options.LosslessHive {
 		return streamHiveXLSXSheetRows(entry, sharedStrings, styles, date1904, consumer, options)
 	}
+	limits := normalizeImportLexicalLimits(options.lexicalLimits)
 	reader, err := entry.Open()
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 
-	decoder := xml.NewDecoder(reader)
+	decoder := xml.NewDecoder(newXMLTokenBudgetReader(reader, limits.maxCellBytes, maxXLSXTagBytes, "Excel cell"))
 	var columns []string
 	headerRow, err := resolveImportHeaderRow(options.HeaderRow)
 	if err != nil {
@@ -62,7 +63,7 @@ func streamXLSXSheetRowsWithOptionsAndStyles(
 		}
 		rowNumber = resolveXLSXRowNumber(start, rowNumber+1)
 		if rowNumber < headerRow {
-			if err := decoder.Skip(); err != nil {
+			if err := skipXLSXRowWithLimit(decoder, rowNumber, limits.maxRowBytes); err != nil {
 				return err
 			}
 			continue
@@ -70,7 +71,14 @@ func streamXLSXSheetRowsWithOptionsAndStyles(
 		if columns == nil && rowNumber > headerRow {
 			return fmt.Errorf("Excel header row %d is missing", headerRow)
 		}
-		values, err := readXLSXRowWithStyles(decoder, sharedStrings, styles, date1904)
+		values, err := readXLSXRowWithStylesAndLimits(
+			decoder,
+			sharedStrings,
+			styles,
+			date1904,
+			rowNumber,
+			limits,
+		)
 		if err != nil {
 			return err
 		}
@@ -124,6 +132,40 @@ func resolveXLSXRowNumber(start xml.StartElement, fallback int) int {
 	return fallback
 }
 
+func skipXLSXRowWithLimit(decoder *xml.Decoder, rowNumber int, maxBytes int) error {
+	if maxBytes <= 0 {
+		maxBytes = maxImportRowBytes
+	}
+	rowStartOffset := decoder.InputOffset()
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if err := checkXLSXRowByteLimit(decoder, rowStartOffset, rowNumber, maxBytes); err != nil {
+			return err
+		}
+		if end, ok := token.(xml.EndElement); ok && end.Name.Local == "row" {
+			return nil
+		}
+	}
+}
+
+func checkXLSXRowByteLimit(decoder *xml.Decoder, startOffset int64, rowNumber int, maxBytes int) error {
+	if maxBytes <= 0 || decoder == nil {
+		return nil
+	}
+	if decoder.InputOffset()-startOffset <= int64(maxBytes) {
+		return nil
+	}
+	return &ImportFileLimitError{
+		Format: "Excel",
+		Kind:   ImportFileRowByteLimit,
+		Row:    rowNumber,
+		Limit:  maxBytes,
+	}
+}
+
 func readXLSXRow(decoder *xml.Decoder, sharedStrings *xlsxSharedStringResolver) ([]string, error) {
 	return readXLSXRowWithStyles(decoder, sharedStrings, nil, false)
 }
@@ -134,11 +176,35 @@ func readXLSXRowWithStyles(
 	styles *xlsxStyleTable,
 	date1904 bool,
 ) ([]string, error) {
+	return readXLSXRowWithStylesAndLimits(
+		decoder,
+		sharedStrings,
+		styles,
+		date1904,
+		0,
+		importLexicalLimits{},
+	)
+}
+
+func readXLSXRowWithStylesAndLimits(
+	decoder *xml.Decoder,
+	sharedStrings *xlsxSharedStringResolver,
+	styles *xlsxStyleTable,
+	date1904 bool,
+	rowNumber int,
+	limits importLexicalLimits,
+) ([]string, error) {
+	limits = normalizeImportLexicalLimits(limits)
+	rowStartOffset := decoder.InputOffset()
 	values := make([]string, 0, 16)
 	currentColumn := 0
+	rowBytes := 0
 	for {
 		token, err := decoder.Token()
 		if err != nil {
+			return nil, err
+		}
+		if err := checkXLSXRowByteLimit(decoder, rowStartOffset, rowNumber, limits.maxRowBytes); err != nil {
 			return nil, err
 		}
 		switch typed := token.(type) {
@@ -168,14 +234,48 @@ func readXLSXRowWithStyles(
 			if columnIndex <= 0 {
 				columnIndex = currentColumn + 1
 			}
+			if columnIndex > limits.maxFields {
+				return nil, &ImportFileLimitError{
+					Format: "Excel",
+					Kind:   ImportFileFieldLimit,
+					Row:    rowNumber,
+					Cell:   columnIndex,
+					Limit:  limits.maxFields,
+				}
+			}
 			temporalKind, err := styles.temporalKind(styleIndex)
 			if err != nil {
 				return nil, err
 			}
-			cellValue, err := readXLSXCellWithTemporalStyle(decoder, cellType, temporalKind, date1904, sharedStrings)
+			cellValue, err := readXLSXCellWithTemporalStyleAndLimit(
+				decoder,
+				cellType,
+				temporalKind,
+				date1904,
+				sharedStrings,
+				limits.maxCellBytes,
+			)
 			if err != nil {
 				return nil, err
 			}
+			if len(cellValue) > limits.maxCellBytes {
+				return nil, &ImportFileLimitError{
+					Format: "Excel",
+					Kind:   ImportFileCellByteLimit,
+					Row:    rowNumber,
+					Cell:   columnIndex,
+					Limit:  limits.maxCellBytes,
+				}
+			}
+			if rowBytes > limits.maxRowBytes-len(cellValue) {
+				return nil, &ImportFileLimitError{
+					Format: "Excel",
+					Kind:   ImportFileRowByteLimit,
+					Row:    rowNumber,
+					Limit:  limits.maxRowBytes,
+				}
+			}
+			rowBytes += len(cellValue)
 			for len(values) < columnIndex {
 				values = append(values, "")
 			}
@@ -200,6 +300,27 @@ func readXLSXCellWithTemporalStyle(
 	date1904 bool,
 	sharedStrings *xlsxSharedStringResolver,
 ) (string, error) {
+	return readXLSXCellWithTemporalStyleAndLimit(
+		decoder,
+		cellType,
+		temporalKind,
+		date1904,
+		sharedStrings,
+		maxImportCellBytes,
+	)
+}
+
+func readXLSXCellWithTemporalStyleAndLimit(
+	decoder *xml.Decoder,
+	cellType string,
+	temporalKind xlsxTemporalKind,
+	date1904 bool,
+	sharedStrings *xlsxSharedStringResolver,
+	maxCellBytes int,
+) (string, error) {
+	if maxCellBytes <= 0 {
+		maxCellBytes = maxImportCellBytes
+	}
 	var rawValue strings.Builder
 	var inlineValue strings.Builder
 	for {
@@ -211,13 +332,13 @@ func readXLSXCellWithTemporalStyle(
 		case xml.StartElement:
 			switch typed.Name.Local {
 			case "v":
-				text, err := readXMLTextNodeLimited(decoder, typed.Name.Local, maxImportCellBytes-rawValue.Len(), "cell")
+				text, err := readXMLTextNodeLimited(decoder, typed.Name.Local, maxCellBytes-rawValue.Len(), "cell")
 				if err != nil {
 					return "", err
 				}
 				rawValue.WriteString(text)
 			case "t":
-				text, err := readXMLTextNodeLimited(decoder, typed.Name.Local, maxImportCellBytes-inlineValue.Len(), "cell")
+				text, err := readXMLTextNodeLimited(decoder, typed.Name.Local, maxCellBytes-inlineValue.Len(), "cell")
 				if err != nil {
 					return "", err
 				}

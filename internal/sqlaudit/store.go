@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	schemaVersion       = 4
+	schemaVersion       = 5
 	maxRetentionDays    = 3650
 	maxConfiguredEvents = 10_000_000
 )
@@ -200,14 +200,14 @@ func appendEventsLocked(conn *sql.Conn, settings Settings, inputEvents []Event) 
 
 		result, err := conn.ExecContext(context.Background(), `INSERT INTO sql_audit_events(
 			id, timestamp, event_type, status, connection_id, connection_fingerprint,
-			db_type, database_name, query_id, transaction_id, source, boundary_mode,
+			db_type, database_name, query_id, transaction_id, run_id, source, boundary_mode,
 			commit_mode, sql_text, sql_redacted, sql_fingerprint, statement_index,
 			statement_count, executed_count, failed_index, outcome_unknown, duration_ms, rows_affected, rows_returned, error_text,
 			prev_hash, record_hash, mcp_request_id, mcp_client, user_name
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			event.ID, event.Timestamp, event.EventType, event.Status, event.ConnectionID,
 			event.ConnectionFingerprint, event.DBType, event.Database, event.QueryID,
-			event.TransactionID, event.Source, event.BoundaryMode, event.CommitMode,
+			event.TransactionID, event.RunID, event.Source, event.BoundaryMode, event.CommitMode,
 			event.SQLText, boolToInt(event.SQLRedacted), event.SQLFingerprint,
 			event.StatementIndex, event.StatementCount, event.ExecutedCount, event.FailedIndex, boolToInt(event.OutcomeUnknown), event.DurationMs,
 			event.RowsAffected, event.RowsReturned, event.Error, event.PrevHash, "", event.MCPRequestID, event.MCPClient, event.UserName,
@@ -505,8 +505,26 @@ func normalizeFilter(filter Filter) Filter {
 	filter.EventType = strings.ToLower(strings.TrimSpace(filter.EventType))
 	filter.Status = strings.ToLower(strings.TrimSpace(filter.Status))
 	filter.TransactionID = strings.TrimSpace(filter.TransactionID)
+	filter.RunID = strings.TrimSpace(filter.RunID)
 	filter.Source = strings.ToLower(strings.TrimSpace(filter.Source))
 	filter.MCPRequestID = strings.TrimSpace(filter.MCPRequestID)
+	filter.Actor = strings.ToLower(strings.TrimSpace(filter.Actor))
+	if len(filter.ConnectionIDs) > 0 {
+		normalized := make([]string, 0, len(filter.ConnectionIDs))
+		seen := make(map[string]struct{}, len(filter.ConnectionIDs))
+		for _, id := range filter.ConnectionIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			normalized = append(normalized, id)
+		}
+		filter.ConnectionIDs = normalized
+	}
 	if filter.Page <= 0 {
 		filter.Page = 1
 	}
@@ -520,8 +538,8 @@ func normalizeFilter(filter Filter) Filter {
 }
 
 func buildFilterWhere(filter Filter) (string, []any) {
-	conditions := make([]string, 0, 11)
-	args := make([]any, 0, 12)
+	conditions := make([]string, 0, 12)
+	args := make([]any, 0, 14)
 	if filter.ExecutionHistory {
 		sources := `source = 'query_editor'`
 		if filter.IncludeMCP {
@@ -538,9 +556,9 @@ func buildFilterWhere(filter Filter) (string, []any) {
 		conditions = append(conditions, `(sql_text LIKE ? ESCAPE '\' OR error_text LIKE ? ESCAPE '\'
 			OR connection_id LIKE ? ESCAPE '\' OR connection_fingerprint LIKE ? ESCAPE '\'
 			OR database_name LIKE ? ESCAPE '\' OR db_type LIKE ? ESCAPE '\'
-			OR query_id LIKE ? ESCAPE '\' OR transaction_id LIKE ? ESCAPE '\'
+			OR query_id LIKE ? ESCAPE '\' OR transaction_id LIKE ? ESCAPE '\' OR run_id LIKE ? ESCAPE '\'
 			OR sql_fingerprint LIKE ? ESCAPE '\' OR source LIKE ? ESCAPE '\')`)
-		for range 10 {
+		for range 11 {
 			args = append(args, pattern)
 		}
 	}
@@ -557,8 +575,21 @@ func buildFilterWhere(filter Filter) (string, []any) {
 	appendExact("event_type", filter.EventType)
 	appendExact("status", filter.Status)
 	appendExact("transaction_id", filter.TransactionID)
+	appendExact("run_id", filter.RunID)
 	appendExact("source", filter.Source)
 	appendExact("mcp_request_id", filter.MCPRequestID)
+	if filter.Actor != "" {
+		conditions = append(conditions, "user_name = ?")
+		args = append(args, filter.Actor)
+	}
+	if len(filter.ConnectionIDs) > 0 {
+		placeholders := make([]string, 0, len(filter.ConnectionIDs))
+		for _, id := range filter.ConnectionIDs {
+			placeholders = append(placeholders, "?")
+			args = append(args, id)
+		}
+		conditions = append(conditions, "connection_id IN ("+strings.Join(placeholders, ", ")+")")
+	}
 	if filter.FromTimestamp > 0 {
 		conditions = append(conditions, "timestamp >= ?")
 		args = append(args, filter.FromTimestamp)

@@ -17,6 +17,7 @@ type xlsxSharedStringStore struct {
 	size          int64
 	maxCount      int
 	maxValueBytes int
+	maxTotalBytes int64
 }
 
 type xlsxSharedStringResolver struct {
@@ -27,11 +28,19 @@ type xlsxSharedStringResolver struct {
 }
 
 func newXLSXSharedStringStore() (*xlsxSharedStringStore, error) {
-	return newXLSXSharedStringStoreWithLimits(maxXLSXSharedStrings, maxImportCellBytes)
+	return newXLSXSharedStringStoreWithQuotas(
+		maxXLSXSharedStrings,
+		maxImportCellBytes,
+		maxXLSXSharedStringBytes,
+	)
 }
 
 func newXLSXSharedStringStoreWithLimits(maxCount int, maxValueBytes int) (*xlsxSharedStringStore, error) {
-	if maxCount <= 0 || maxValueBytes <= 0 {
+	return newXLSXSharedStringStoreWithQuotas(maxCount, maxValueBytes, maxXLSXSharedStringBytes)
+}
+
+func newXLSXSharedStringStoreWithQuotas(maxCount int, maxValueBytes int, maxTotalBytes int64) (*xlsxSharedStringStore, error) {
+	if maxCount <= 0 || maxValueBytes <= 0 || maxTotalBytes <= 0 {
 		return nil, fmt.Errorf("invalid shared string limits")
 	}
 	file, err := os.CreateTemp("", "gonavi-xlsx-shared-strings-*.bin")
@@ -44,6 +53,7 @@ func newXLSXSharedStringStoreWithLimits(maxCount int, maxValueBytes int) (*xlsxS
 		writer:        bufio.NewWriterSize(file, 1024*256),
 		maxCount:      maxCount,
 		maxValueBytes: maxValueBytes,
+		maxTotalBytes: maxTotalBytes,
 	}, nil
 }
 
@@ -66,6 +76,10 @@ func (s *xlsxSharedStringStore) Add(value string) error {
 	}
 	if len(value) > s.maxValueBytes {
 		return fmt.Errorf("shared string exceeds %d-byte cell limit", s.maxValueBytes)
+	}
+	entryBytes := int64(4 + len(value))
+	if s.maxTotalBytes > 0 && s.size+entryBytes > s.maxTotalBytes {
+		return fmt.Errorf("shared strings exceed %d-byte total limit", s.maxTotalBytes)
 	}
 	s.offsets = append(s.offsets, s.size)
 	if err := binary.Write(s.writer, binary.LittleEndian, uint32(len(value))); err != nil {
@@ -160,7 +174,7 @@ func (r *xlsxSharedStringResolver) parseNext() (bool, error) {
 		if !ok || start.Name.Local != "si" {
 			continue
 		}
-		value, err := readXLSXSharedStringItem(r.decoder)
+		value, err := readXLSXSharedStringItem(r.decoder, r.store.maxValueBytes)
 		if err != nil {
 			return false, err
 		}

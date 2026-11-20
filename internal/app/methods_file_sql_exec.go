@@ -14,6 +14,7 @@ import (
 	"GoNavi-Wails/internal/importjob"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/uievents"
+	"GoNavi-Wails/internal/webidentity"
 
 	"github.com/google/uuid"
 )
@@ -52,7 +53,7 @@ func (a *App) importDatabaseSQLWithGTIDModeContext(ctx context.Context, config c
 	if err := a.validateDatabaseSQLImportAccess(config); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	resolvedPath, err := a.resolveWebUploadReference(filePath, webUploadPurposeSQLExecution)
+	resolvedPath, err := a.resolveWebUploadReferenceForOwner(filePath, webUploadPurposeSQLExecution, webidentity.UsernameFromContext(ctx))
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -98,6 +99,11 @@ func (a *App) executeSQLFileContext(ctx context.Context, config connection.Conne
 	); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	resolvedPath, err := a.resolveWebUploadReferenceForOwner(filePath, webUploadPurposeSQLExecution, webidentity.UsernameFromContext(ctx))
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	filePath = resolvedPath
 	return a.executeSQLFileWithStatementLimitPolicyContext(ctx, config, dbName, filePath, jobID, true, DefaultSQLImportMaxStatementBytes, false, "sql_file")
 }
 

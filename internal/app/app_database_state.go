@@ -61,6 +61,10 @@ type managedSQLTransaction struct {
 	config       connection.ConnectionConfig
 	dbType       string
 	boundaryMode string
+	auditSource  string
+	auditActor   string
+	auditRunID   string
+	owner        string
 	commitSQL    string
 	rollbackSQL  string
 	createdAt    time.Time

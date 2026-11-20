@@ -179,9 +179,10 @@ func streamJSONImportFileWithOptions(filePath string, consumer importFileConsume
 	if err != nil {
 		return err
 	}
+	options.sourceRegistry.Attach(source)
 	defer source.Close()
 
-	decoder := newImportJSONDecoderWithLimits(source, importLexicalLimits{})
+	decoder := newImportJSONDecoderWithLimits(source, options.lexicalLimits)
 	token, err := decoder.Token()
 	if err != nil {
 		return fmt.Errorf("JSON Parse Error: %w", err)
@@ -259,9 +260,10 @@ func streamCSVImportFileWithOptions(filePath string, consumer importFileConsumer
 	if err != nil {
 		return err
 	}
+	options.sourceRegistry.Attach(source)
 	defer source.Close()
 
-	reader, err := newImportCSVReader(source, options.Delimiter)
+	reader, err := newImportCSVReaderWithLimits(source, options.Delimiter, options.lexicalLimits)
 	if err != nil {
 		return err
 	}

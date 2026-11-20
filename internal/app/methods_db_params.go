@@ -12,6 +12,7 @@ import (
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/sqlaudit"
 	"GoNavi-Wails/internal/sqlparam"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 // 查询编辑器运行时绑定参数入口。参数值只经 sqlparam 转换后通过驱动绑定
@@ -327,6 +328,8 @@ func (a *App) recordParameterizedQueryAudit(
 				Database:   dbName,
 				DBType:     resolvedDBType,
 				QueryID:    queryID,
+				RunID:      scriptWorkbenchRunIDFromContext(auditOptions.executionContext),
+				Actor:      webidentity.UsernameFromContext(auditOptions.executionContext),
 				SQL:        query,
 				Source:     auditSource,
 				CommitMode: result.CommitMode,
@@ -342,6 +345,22 @@ func (a *App) recordParameterizedQueryAudit(
 
 // DBQueryMultiWithParamsInTransaction 在编辑器托管事务内执行参数化 SQL。
 func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql string, queryID string, bindings []connection.QueryParamBinding, quotedPlaceholders bool) (result connection.QueryResult) {
+	return a.dbQueryMultiWithParamsInTransactionSource(context.Background(), transactionID, sql, queryID, bindings, quotedPlaceholders, nil, "")
+}
+
+func (a *App) dbQueryMultiWithParamsInTransactionSource(
+	executionContext context.Context,
+	transactionID string,
+	sql string,
+	queryID string,
+	bindings []connection.QueryParamBinding,
+	quotedPlaceholders bool,
+	budgetOptions *db.RowBudgetOptions,
+	auditSource string,
+) (result connection.QueryResult) {
+	if executionContext == nil {
+		executionContext = context.Background()
+	}
 	transactionID = strings.TrimSpace(transactionID)
 	if transactionID == "" {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_id_required", nil), QueryID: queryID}
@@ -356,12 +375,22 @@ func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql stri
 	if !ok || tx == nil || tx.execer == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil), QueryID: queryID}
 	}
+	if err := a.authorizeManagedSQLTransactionAccess(executionContext, tx, sql); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
+	}
+	if strings.TrimSpace(auditSource) == "" {
+		auditSource = tx.auditSource
+	}
+	auditSource = normalizeSQLAuditSource(auditSource)
 
 	runConfig := tx.config
 	if strings.TrimSpace(runConfig.Type) == "" {
 		runConfig.Type = tx.dbType
 	}
-	ctx, cancel := newQueryExecutionContext(runConfig)
+	ctx, cancel := newQueryExecutionContextWithParent(executionContext, runConfig)
+	if budget := db.NewRowBudgetWithOptions(valueOrZero(budgetOptions)); budget != nil {
+		ctx = db.ContextWithRowBudget(ctx, budget)
+	}
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
 	lifecycle := a.beginQueryExecutionLifecycle(queryID)
 	defer func() {
@@ -405,10 +434,9 @@ func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql stri
 	}
 
 	queryStartedAt := time.Now()
-	statementAuditEvents := make([]sqlaudit.Event, 0, len(stmts))
-	resultSets, _, _, statementResults, _, execErr := a.executeParameterizedStatements(
+	resultSets, _, _, statementResults, statementAuditEvents, execErr := a.executeParameterizedStatements(
 		ctx, nil, tx.execer, runConfig, resolvedDBType, stmts,
-		true, normalizeSQLAuditSource("query_editor"), queryStartedAt, queryID, transactionID, nil, &queryExecutionDuration,
+		true, auditSource, queryStartedAt, queryID, transactionID, nil, &queryExecutionDuration,
 	)
 	a.appendSQLAuditEvents(statementAuditEvents)
 	if execErr != nil {
@@ -419,6 +447,7 @@ func (a *App) DBQueryMultiWithParamsInTransaction(transactionID string, sql stri
 			QueryID:            queryID,
 			TransactionID:      transactionID,
 			TransactionPending: true,
+			OutcomeUnknown:     true,
 			StatementResults:   statementResults,
 		}
 	}
@@ -709,6 +738,8 @@ func (a *App) buildParameterizedStatementAuditEvent(
 		Database:       runConfig.Database,
 		DBType:         resolvedDBType,
 		QueryID:        queryID,
+		RunID:          scriptWorkbenchRunIDFromContext(ctx),
+		Actor:          webidentity.UsernameFromContext(ctx),
 		EventType:      "query_statement",
 		Status:         sqlAuditStatusFromError(statementErr),
 		Source:         auditSource,

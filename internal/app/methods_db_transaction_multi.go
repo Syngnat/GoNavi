@@ -10,6 +10,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/sqlaudit"
+	"GoNavi-Wails/internal/webidentity"
 
 	"github.com/google/uuid"
 )
@@ -27,8 +28,31 @@ func (a *App) DBQueryMultiTransactionalWithParams(config connection.ConnectionCo
 }
 
 func (a *App) dbQueryMultiTransactionalWithBindings(config connection.ConnectionConfig, dbName string, query string, queryID string, bindings []connection.QueryParamBinding, quotedPlaceholders bool, budgetOptions *db.RowBudgetOptions) (result connection.QueryResult) {
+	return a.dbQueryMultiTransactionalWithBindingsSource(
+		context.Background(), config, dbName, query, queryID, bindings, quotedPlaceholders, budgetOptions, "query_editor",
+	)
+}
+
+func (a *App) dbQueryMultiTransactionalWithBindingsSource(
+	executionContext context.Context,
+	config connection.ConnectionConfig,
+	dbName string,
+	query string,
+	queryID string,
+	bindings []connection.QueryParamBinding,
+	quotedPlaceholders bool,
+	budgetOptions *db.RowBudgetOptions,
+	auditSource string,
+) (result connection.QueryResult) {
+	if executionContext == nil {
+		executionContext = context.Background()
+	}
+	auditActor := webidentity.UsernameFromContext(executionContext)
+	auditRunID := scriptWorkbenchRunIDFromContext(executionContext)
+	transactionOwner := a.managedTransactionOwner(executionContext)
 	runConfig := normalizeRunConfig(config, dbName)
 	transactionDBType := resolveDDLDBType(runConfig)
+	auditSource = normalizeSQLAuditSource(auditSource)
 	transactionConfig := runConfig
 	transactionConfig.Type = transactionDBType
 	buildManagedTransactionUnsupportedMessage := func() string {
@@ -52,29 +76,24 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 	if queryID == "" {
 		queryID = generateQueryID()
 	}
+	if err := a.authorizeManagedTransactionStart(executionContext, config, query); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
+	}
 
 	query = sanitizeSQLForPgLike(transactionDBType, query)
 	if !shouldUseManagedSQLTransaction(transactionDBType, query) {
-		if budgetOptions != nil {
-			options := dbQueryMultiAuditOptions{
-				auditAll:     true,
-				auditWrites:  true,
-				source:       "query_editor",
-				ResultBudget: budgetOptions,
-			}
-			if len(bindings) > 0 {
-				return a.dbQueryMultiWithParams(config, dbName, query, queryID, bindings, quotedPlaceholders, options)
-			}
-			return a.dbQueryMulti(config, dbName, query, queryID, options)
+		options := dbQueryMultiAuditOptions{
+			auditAll:                  true,
+			auditWrites:               true,
+			source:                    auditSource,
+			executionContext:          executionContext,
+			synchronousConnectionWait: true,
+			ResultBudget:              budgetOptions,
 		}
 		if len(bindings) > 0 {
-			return a.dbQueryMultiWithParams(config, dbName, query, queryID, bindings, quotedPlaceholders, dbQueryMultiAuditOptions{
-				auditAll:    true,
-				auditWrites: true,
-				source:      "query_editor",
-			})
+			return a.dbQueryMultiWithParams(config, dbName, query, queryID, bindings, quotedPlaceholders, options)
 		}
-		return a.DBQueryMulti(config, dbName, query, queryID)
+		return a.dbQueryMulti(config, dbName, query, queryID, options)
 	}
 	transactionID := "sql-editor-" + uuid.NewString()
 	transactionAuditOpened := false
@@ -89,9 +108,11 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 			DBType:         transactionDBType,
 			QueryID:        queryID,
 			TransactionID:  transactionID,
+			RunID:          auditRunID,
+			Actor:          auditActor,
 			EventType:      "transaction_begin",
 			Status:         sqlAuditStatusFromResult(result),
-			Source:         "query_editor",
+			Source:         auditSource,
 			CommitMode:     "pending",
 			BoundaryMode:   transactionBoundaryMode,
 			SQL:            query,
@@ -126,7 +147,7 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 		implicitTextTransaction = true
 	}
 
-	ctx, cancel := newQueryExecutionContext(runConfig)
+	ctx, cancel := newQueryExecutionContextWithParent(executionContext, runConfig)
 	if budget := db.NewRowBudgetWithOptions(valueOrZero(budgetOptions)); budget != nil {
 		ctx = db.ContextWithRowBudget(ctx, budget)
 	}
@@ -231,9 +252,11 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 		DBType:        transactionDBType,
 		QueryID:       queryID,
 		TransactionID: transactionID,
+		RunID:         auditRunID,
+		Actor:         auditActor,
 		EventType:     "transaction_begin",
 		Status:        "success",
-		Source:        "query_editor",
+		Source:        auditSource,
 		CommitMode:    "pending",
 		BoundaryMode:  transactionBoundaryMode,
 	})
@@ -246,7 +269,7 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
 	statementObservations := make([]managedSQLStatementObservation, 0, len(statements))
 	auditObserver := withManagedSQLStatementAuditTimestamp(
-		a.sqlAuditTransactionStatementObserver(transactionConfig, dbName, transactionDBType, queryID, transactionID, transactionBoundaryMode, &statementAuditEvents),
+		a.sqlAuditTransactionStatementObserver(transactionConfig, dbName, transactionDBType, queryID, transactionID, transactionBoundaryMode, auditSource, auditActor, auditRunID, &statementAuditEvents),
 		&statementAuditEvents,
 	)
 	collectObserver := func(observation managedSQLStatementObservation) {
@@ -273,9 +296,11 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 			DBType:        transactionDBType,
 			QueryID:       queryID,
 			TransactionID: transactionID,
+			RunID:         auditRunID,
+			Actor:         auditActor,
 			EventType:     "transaction_rollback_requested",
 			Status:        "success",
-			Source:        "query_editor",
+			Source:        auditSource,
 			CommitMode:    "auto",
 			BoundaryMode:  transactionBoundaryMode,
 		})
@@ -295,9 +320,11 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 			DBType:        transactionDBType,
 			QueryID:       queryID,
 			TransactionID: transactionID,
+			RunID:         auditRunID,
+			Actor:         auditActor,
 			EventType:     "transaction_auto_rollback",
 			Status:        sqlAuditStatusFromError(rollbackErr),
-			Source:        "query_editor",
+			Source:        auditSource,
 			CommitMode:    "auto",
 			BoundaryMode:  transactionBoundaryMode,
 			Err:           rollbackErr,
@@ -327,6 +354,10 @@ func (a *App) dbQueryMultiTransactionalWithBindings(config connection.Connection
 		config:       runConfig,
 		dbType:       transactionDBType,
 		boundaryMode: transactionBoundaryMode,
+		auditSource:  auditSource,
+		auditActor:   auditActor,
+		auditRunID:   auditRunID,
+		owner:        transactionOwner,
 		commitSQL:    commitSQL,
 		rollbackSQL:  rollbackSQL,
 		createdAt:    time.Now(),
@@ -351,6 +382,19 @@ func (a *App) DBQueryMultiInTransaction(transactionID string, query string, quer
 }
 
 func (a *App) dbQueryMultiInTransaction(transactionID string, query string, queryID string, budgetOptions *db.RowBudgetOptions) (result connection.QueryResult) {
+	return a.dbQueryMultiInTransactionContext(context.Background(), transactionID, query, queryID, budgetOptions)
+}
+
+func (a *App) dbQueryMultiInTransactionContext(
+	executionContext context.Context,
+	transactionID string,
+	query string,
+	queryID string,
+	budgetOptions *db.RowBudgetOptions,
+) (result connection.QueryResult) {
+	if executionContext == nil {
+		executionContext = context.Background()
+	}
 	transactionID = strings.TrimSpace(transactionID)
 	if transactionID == "" {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_id_required", nil), QueryID: queryID}
@@ -365,11 +409,15 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 	if !ok || tx == nil || tx.execer == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil), QueryID: queryID}
 	}
+	if err := a.authorizeManagedSQLTransactionAccess(executionContext, tx, query); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
+	}
 
 	runConfig := tx.config
 	if strings.TrimSpace(runConfig.Type) == "" {
 		runConfig.Type = tx.dbType
 	}
+	auditSource := normalizeSQLAuditSource(tx.auditSource)
 	// 附加/卸载指令在托管事务中无语义（由连接级拦截执行），直接给出明确报错，
 	// 避免指令原文透传到引擎产生难懂的语法错误（Web RPC 公开入口的防御）。
 	if strings.EqualFold(runConfig.Type, "duckdb") && queryContainsDuckDBSavedConnectionDirective(query) {
@@ -381,7 +429,7 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 			TransactionPending: true,
 		}
 	}
-	ctx, cancel := newQueryExecutionContext(runConfig)
+	ctx, cancel := newQueryExecutionContextWithParent(executionContext, runConfig)
 	if budget := db.NewRowBudgetWithOptions(valueOrZero(budgetOptions)); budget != nil {
 		ctx = db.ContextWithRowBudget(ctx, budget)
 	}
@@ -417,7 +465,7 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
 	statementObservations := make([]managedSQLStatementObservation, 0, len(statements))
 	auditObserver := withManagedSQLStatementAuditTimestamp(
-		a.sqlAuditTransactionStatementObserver(runConfig, runConfig.Database, tx.dbType, queryID, transactionID, tx.boundaryMode, &statementAuditEvents),
+		a.sqlAuditTransactionStatementObserver(runConfig, runConfig.Database, tx.dbType, queryID, transactionID, tx.boundaryMode, auditSource, tx.auditActor, tx.auditRunID, &statementAuditEvents),
 		&statementAuditEvents,
 	)
 	collectObserver := func(observation managedSQLStatementObservation) {
@@ -444,6 +492,7 @@ func (a *App) dbQueryMultiInTransaction(transactionID string, query string, quer
 			QueryID:            queryID,
 			TransactionID:      transactionID,
 			TransactionPending: true,
+			OutcomeUnknown:     true,
 			StatementResults:   managedObservationStatementResults(statements, statementObservations, ""),
 		}
 	}

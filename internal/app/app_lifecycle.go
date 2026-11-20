@@ -190,6 +190,12 @@ func (a *App) LogWindowDiagnostic(stage string, payload string) {
 // Shutdown is called when the app terminates.
 func (a *App) Shutdown() {
 	logger.Infof("应用开始关闭，准备释放资源")
+	// Script runs may hold plugin data sources, database sessions and audit
+	// writers. Stop them before tearing down any shared backend resources.
+	if !a.shutdownScriptWorkbenchRuns(5 * time.Second) {
+		logger.Warnf("脚本运行未能在关闭超时内全部退出；跳过后续插件、数据库与审计资源关闭")
+		return
+	}
 	a.shutdownPlugins()
 	// This first datasource slice is read-only: revoke before evicting sessions.
 	// A future write/transaction adapter must redesign this order for rollback.

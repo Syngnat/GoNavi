@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 func (a *App) savedConnectionRepository() *savedConnectionRepository {
@@ -12,6 +15,12 @@ func (a *App) savedConnectionRepository() *savedConnectionRepository {
 }
 
 func (a *App) GetSavedConnections() ([]connection.SavedConnectionView, error) {
+	return a.GetSavedConnectionsContext(a.ctx)
+}
+
+// GetSavedConnectionsContext applies the authenticated Web actor's connection
+// ACL before returning saved connection metadata.
+func (a *App) GetSavedConnectionsContext(ctx context.Context) ([]connection.SavedConnectionView, error) {
 	repository := a.savedConnectionRepository()
 	if err := repository.MigrateLegacyCreatedAt(); err != nil {
 		return nil, err
@@ -20,7 +29,26 @@ func (a *App) GetSavedConnections() ([]connection.SavedConnectionView, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sanitizeSavedConnectionViews(items), nil
+	items = sanitizeSavedConnectionViews(items)
+	if a == nil || !a.webRuntime {
+		return items, nil
+	}
+	actor, ok := webidentity.ActorFromContext(ctx)
+	if !ok {
+		// public Wails/内部调用没有请求身份；Web RPC 始终走带 context 的
+		// handler，不会落到这里。
+		return items, nil
+	}
+	if actor.Role == webidentity.RoleAdmin || len(actor.AllowedConnectionIDs) == 0 {
+		return items, nil
+	}
+	filtered := make([]connection.SavedConnectionView, 0, len(items))
+	for _, item := range items {
+		if slices.Contains(actor.AllowedConnectionIDs, strings.TrimSpace(item.ID)) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 func (a *App) GetEditableSavedConnection(id string) (connection.SavedConnectionView, error) {

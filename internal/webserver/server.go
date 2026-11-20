@@ -54,6 +54,7 @@ var desktopOnlyAppMethods = map[string]struct{}{
 	"OpenExportedTextFile":           {},
 	"SelectBackupDirectory":          {},
 	"SelectDataImportFile":           {},
+	"SelectScriptInputFile":          {},
 	"SetWindowTranslucency":          {},
 	"SetMacNativeWindowControls":     {},
 	"SetApplicationBrandIcon":        {},

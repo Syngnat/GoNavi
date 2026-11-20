@@ -298,6 +298,12 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		writeResponse(http.StatusBadRequest, invokeResponse{Error: err.Error()})
 		return
 	}
+	if actor.Username != "" {
+		if err := appcore.ClaimWebDownloadOwnerForResult(s.app, result, actor.Username); err != nil {
+			writeResponse(http.StatusInternalServerError, invokeResponse{Error: "failed to bind download ownership"})
+			return
+		}
+	}
 	writeResponse(http.StatusOK, invokeResponse{Result: result})
 }
 

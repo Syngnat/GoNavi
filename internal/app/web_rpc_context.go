@@ -8,12 +8,17 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/mockdata"
+	"GoNavi-Wails/internal/scriptlib"
+	"GoNavi-Wails/internal/sqlaudit"
 	syncengine "GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/internal/syncjob"
 )
 
 var requiredIssue1098WebRPCContextMethods = []string{
 	"DBQuery", "DBQueryApplicationWithCancel", "DBQueryWithCancel", "DBQueryMulti", "DBQueryMultiWithOptions", "DBQueryMultiCompact", "DBQueryMultiWithOptionsCompact", "DBQueryAudited", "DBQueryAI", "DBQueryIsolated", "MySQLQuery",
+	"DBQueryMultiTransactional", "DBQueryMultiTransactionalWithParams", "DBQueryMultiTransactionalWithOptions",
+	"DBQueryMultiInTransaction", "DBQueryMultiInTransactionWithOptions", "DBQueryMultiWithParamsInTransaction",
+	"DBCommitTransaction", "DBRollbackTransaction", "DBCommitTransactionWithTrigger", "DBRollbackTransactionWithTrigger",
 	"DBGetDatabases", "DBGetTables", "DBGetViews", "DBGetObjects", "DBGetAllColumns", "DBGetColumns", "DBGetIndexes",
 	"DBGetForeignKeys", "DBGetDatabaseForeignKeys", "DBGetTriggers", "DBShowCreateTable", "DBTableExists",
 	"DBListSessions", "DBListLockWaits", "DBListLongTransactions", "DBExecuteSessionAction",
@@ -22,11 +27,18 @@ var requiredIssue1098WebRPCContextMethods = []string{
 	"DataSyncJobList", "DataSyncJobGet", "DataSyncRunGet", "DataSyncRunList", "DataSyncRunPage", "DataSyncRunEventList",
 	"DataSyncErrorRowList", "DataSyncErrorRowGet", "DataSyncCheckpointGet", "DataSync", "DataSyncAnalyze", "DataSyncPreview",
 	"PreviewImportFile", "PreviewImportFileWithOptions", "InferImportTableSchema", "ImportDataWithProgress", "ImportDataWithProgressOptions",
-	"ImportDatabaseSQL", "ImportDatabaseSQLWithOptions", "ExecuteSQLFile", "ResumeImportJob", "RetryImportJobFailedRows", "VerifySQLAuditIntegrity",
+	"ImportDatabaseSQL", "ImportDatabaseSQLWithOptions", "PreflightDatabaseSQLImport", "ExecuteSQLFile", "ResumeImportJob", "RetryImportJobFailedRows", "VerifySQLAuditIntegrity",
 	"MockDataInspect", "MockDataPreview", "MockDataGenerate",
 	"TestConnectionWithProgress", "NacosTestConnectionWithProgress",
 	"BackgroundGalleryRefresh", "BackgroundGalleryDownload",
 	"FontGalleryRefresh", "FontGalleryDownload", "FontGalleryPreview",
+	"GetScriptLibrarySnapshot", "SaveScriptLibraryScript", "SaveScriptLibraryFolder",
+	"DeleteScriptLibraryScript", "DeleteScriptLibraryFolder", "SetScriptLibraryScriptVisibility",
+	"SetScriptLibraryFolderVisibility",
+	"RunScriptWorkbench", "CancelScriptWorkbenchRun", "GetScriptWorkbenchRun", "GetScriptWorkbenchOutput",
+	"PrepareScriptWorkbenchWrite", "ListScriptInputSheets",
+	"GetSQLAuditEvents",
+	"GetSavedConnections", "BuildSQLAuditExport",
 }
 
 // RequiredIssue1098WebRPCContextMethods returns the exact App method set whose
@@ -41,6 +53,38 @@ func RequiredIssue1098WebRPCContextMethods() []string {
 // context.Context; the Web server validates the complete map at construction.
 func WebRPCContextHandlers(a *App) map[string]any {
 	return withPluginContextHandlers(a, withFontGalleryContextHandlers(a, withBackgroundGalleryContextHandlers(a, map[string]any{
+		"DBQueryMultiTransactional": func(ctx context.Context, config connection.ConnectionConfig, dbName, query, queryID string) connection.QueryResult {
+			return a.dbQueryMultiTransactionalWithBindingsSource(ctx, config, dbName, query, queryID, nil, true, nil, "query_editor")
+		},
+		"DBQueryMultiTransactionalWithParams": func(ctx context.Context, config connection.ConnectionConfig, dbName, query, queryID string, bindings []connection.QueryParamBinding, quotedPlaceholders bool) connection.QueryResult {
+			return a.dbQueryMultiTransactionalWithBindingsSource(ctx, config, dbName, query, queryID, bindings, quotedPlaceholders, nil, "query_editor")
+		},
+		"DBQueryMultiTransactionalWithOptions": func(ctx context.Context, config connection.ConnectionConfig, dbName, query, queryID string, options QueryResultBudgetOptions) connection.QueryResult {
+			budget := normalizeQueryResultBudgetOptions(options)
+			return a.dbQueryMultiTransactionalWithBindingsSource(ctx, config, dbName, query, queryID, nil, true, &budget, "query_editor")
+		},
+		"DBQueryMultiInTransaction": func(ctx context.Context, transactionID, query, queryID string) connection.QueryResult {
+			return a.dbQueryMultiInTransactionContext(ctx, transactionID, query, queryID, nil)
+		},
+		"DBQueryMultiInTransactionWithOptions": func(ctx context.Context, transactionID, query, queryID string, options QueryResultBudgetOptions) connection.QueryResult {
+			budget := normalizeQueryResultBudgetOptions(options)
+			return a.dbQueryMultiInTransactionContext(ctx, transactionID, query, queryID, &budget)
+		},
+		"DBQueryMultiWithParamsInTransaction": func(ctx context.Context, transactionID, query, queryID string, bindings []connection.QueryParamBinding, quotedPlaceholders bool) connection.QueryResult {
+			return a.dbQueryMultiWithParamsInTransactionSource(ctx, transactionID, query, queryID, bindings, quotedPlaceholders, nil, "")
+		},
+		"DBCommitTransaction": func(ctx context.Context, transactionID string) connection.QueryResult {
+			return a.finishManagedSQLTransactionContext(ctx, transactionID, true, "manual")
+		},
+		"DBRollbackTransaction": func(ctx context.Context, transactionID string) connection.QueryResult {
+			return a.finishManagedSQLTransactionContext(ctx, transactionID, false, "manual")
+		},
+		"DBCommitTransactionWithTrigger": func(ctx context.Context, transactionID, trigger string) connection.QueryResult {
+			return a.finishManagedSQLTransactionContext(ctx, transactionID, true, trigger)
+		},
+		"DBRollbackTransactionWithTrigger": func(ctx context.Context, transactionID, trigger string) connection.QueryResult {
+			return a.finishManagedSQLTransactionContext(ctx, transactionID, false, trigger)
+		},
 		"DBQuery": func(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
 			return a.dbQueryContext(ctx, config, dbName, query)
 		},
@@ -225,6 +269,9 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		"ImportDatabaseSQLWithOptions": func(ctx context.Context, config connection.ConnectionConfig, dbName, filePath, jobID string, continueOnError bool, mysqlGTIDMode string) connection.QueryResult {
 			return a.importDatabaseSQLContext(ctx, config, dbName, filePath, jobID, continueOnError, mysqlGTIDMode)
 		},
+		"PreflightDatabaseSQLImport": func(ctx context.Context, config connection.ConnectionConfig, dbName, filePath string) connection.QueryResult {
+			return a.preflightDatabaseSQLImportContext(ctx, config, dbName, filePath)
+		},
 		"ExecuteSQLFile": func(ctx context.Context, config connection.ConnectionConfig, dbName, filePath, jobID string) connection.QueryResult {
 			return a.executeSQLFileContext(ctx, config, dbName, filePath, jobID)
 		},
@@ -251,6 +298,54 @@ func WebRPCContextHandlers(a *App) map[string]any {
 		},
 		"NacosTestConnectionWithProgress": func(ctx context.Context, config connection.ConnectionConfig, runID string) connection.QueryResult {
 			return a.nacosTestConnectionWithProgressContext(ctx, config, runID)
+		},
+		"GetScriptLibrarySnapshot": func(ctx context.Context) connection.QueryResult {
+			return a.getScriptLibrarySnapshotContext(ctx)
+		},
+		"GetSavedConnections": func(ctx context.Context) ([]connection.SavedConnectionView, error) {
+			return a.GetSavedConnectionsContext(ctx)
+		},
+		"GetSQLAuditEvents": func(ctx context.Context, filter sqlaudit.Filter) connection.QueryResult {
+			return a.getSQLAuditEventsContext(ctx, filter)
+		},
+		"BuildSQLAuditExport": func(ctx context.Context, filter sqlaudit.Filter, format string) connection.QueryResult {
+			return a.buildSQLAuditExportResult(ctx, filter, format)
+		},
+		"SaveScriptLibraryScript": func(ctx context.Context, input scriptlib.SaveScriptInput) connection.QueryResult {
+			return a.saveScriptLibraryScriptContext(ctx, input)
+		},
+		"SaveScriptLibraryFolder": func(ctx context.Context, input scriptlib.SaveFolderInput) connection.QueryResult {
+			return a.saveScriptLibraryFolderContext(ctx, input)
+		},
+		"DeleteScriptLibraryScript": func(ctx context.Context, input scriptlib.DeleteInput) connection.QueryResult {
+			return a.deleteScriptLibraryScriptContext(ctx, input)
+		},
+		"DeleteScriptLibraryFolder": func(ctx context.Context, input scriptlib.DeleteInput) connection.QueryResult {
+			return a.deleteScriptLibraryFolderContext(ctx, input)
+		},
+		"SetScriptLibraryScriptVisibility": func(ctx context.Context, input scriptlib.ShareInput) connection.QueryResult {
+			return a.setScriptLibraryScriptVisibilityContext(ctx, input)
+		},
+		"SetScriptLibraryFolderVisibility": func(ctx context.Context, input scriptlib.ShareInput) connection.QueryResult {
+			return a.setScriptLibraryFolderVisibilityContext(ctx, input)
+		},
+		"RunScriptWorkbench": func(ctx context.Context, request ScriptWorkbenchRunRequest) connection.QueryResult {
+			return a.runScriptWorkbenchContext(ctx, request)
+		},
+		"PrepareScriptWorkbenchWrite": func(ctx context.Context, request ScriptWorkbenchRunRequest) connection.QueryResult {
+			return a.prepareScriptWorkbenchWriteContext(ctx, request)
+		},
+		"ListScriptInputSheets": func(ctx context.Context, input ScriptWorkbenchInput) connection.QueryResult {
+			return a.listScriptInputSheetsContext(ctx, input)
+		},
+		"CancelScriptWorkbenchRun": func(ctx context.Context, runID string) connection.QueryResult {
+			return a.cancelScriptWorkbenchRunContext(ctx, runID)
+		},
+		"GetScriptWorkbenchRun": func(ctx context.Context, runID string) connection.QueryResult {
+			return a.getScriptWorkbenchRunContext(ctx, runID)
+		},
+		"GetScriptWorkbenchOutput": func(ctx context.Context, runID string, outputIndex int, page int, pageSize int) connection.QueryResult {
+			return a.getScriptWorkbenchOutputContext(ctx, runID, outputIndex, page, pageSize)
 		},
 	})))
 }

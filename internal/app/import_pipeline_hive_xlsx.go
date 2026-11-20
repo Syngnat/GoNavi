@@ -10,12 +10,13 @@ import (
 )
 
 func streamHiveXLSXSheetRows(entry *zip.File, shared *xlsxSharedStringResolver, styles *xlsxStyleTable, date1904 bool, consumer importFileConsumer, options ImportFileOptions) error {
+	limits := normalizeImportLexicalLimits(options.lexicalLimits)
 	input, err := entry.Open()
 	if err != nil {
 		return err
 	}
 	defer input.Close()
-	decoder := xml.NewDecoder(input)
+	decoder := xml.NewDecoder(newXMLTokenBudgetReader(input, limits.maxCellBytes, maxXLSXTagBytes, "Excel cell"))
 	headerRow, err := resolveImportHeaderRow(options.HeaderRow)
 	if err != nil {
 		return err
@@ -36,7 +37,7 @@ func streamHiveXLSXSheetRows(entry *zip.File, shared *xlsxSharedStringResolver, 
 		}
 		rowNumber = resolveXLSXRowNumber(start, rowNumber+1)
 		if rowNumber < headerRow {
-			if err := decoder.Skip(); err != nil {
+			if err := skipXLSXRowWithLimit(decoder, rowNumber, limits.maxRowBytes); err != nil {
 				return err
 			}
 			continue
@@ -44,7 +45,7 @@ func streamHiveXLSXSheetRows(entry *zip.File, shared *xlsxSharedStringResolver, 
 		if columns == nil && rowNumber > headerRow {
 			return fmt.Errorf("Excel header row %d is missing", headerRow)
 		}
-		values, err := readHiveXLSXRow(decoder, shared, styles, date1904)
+		values, err := readHiveXLSXRowWithLimits(decoder, shared, styles, date1904, rowNumber, limits)
 		if err != nil {
 			return err
 		}
@@ -91,12 +92,25 @@ func streamHiveXLSXSheetRows(entry *zip.File, shared *xlsxSharedStringResolver, 
 	return nil
 }
 
-func readHiveXLSXRow(decoder *xml.Decoder, shared *xlsxSharedStringResolver, styles *xlsxStyleTable, date1904 bool) ([]interface{}, error) {
+func readHiveXLSXRowWithLimits(
+	decoder *xml.Decoder,
+	shared *xlsxSharedStringResolver,
+	styles *xlsxStyleTable,
+	date1904 bool,
+	rowNumber int,
+	limits importLexicalLimits,
+) ([]interface{}, error) {
+	limits = normalizeImportLexicalLimits(limits)
+	rowStartOffset := decoder.InputOffset()
 	var values []interface{}
 	current := 0
+	rowBytes := 0
 	for {
 		token, err := decoder.Token()
 		if err != nil {
+			return nil, err
+		}
+		if err := checkXLSXRowByteLimit(decoder, rowStartOffset, rowNumber, limits.maxRowBytes); err != nil {
 			return nil, err
 		}
 		switch part := token.(type) {
@@ -124,14 +138,48 @@ func readHiveXLSXRow(decoder *xml.Decoder, shared *xlsxSharedStringResolver, sty
 			if index <= current || index > xlsxMaxColumns {
 				return nil, fmt.Errorf("invalid Excel cell order")
 			}
+			if index > limits.maxFields {
+				return nil, &ImportFileLimitError{
+					Format: "Excel",
+					Kind:   ImportFileFieldLimit,
+					Row:    rowNumber,
+					Cell:   index,
+					Limit:  limits.maxFields,
+				}
+			}
 			temporal, err := styles.temporalKind(style)
 			if err != nil {
 				return nil, err
 			}
-			text, err := readXLSXCellWithTemporalStyle(decoder, kind, temporal, date1904, shared)
+			text, err := readXLSXCellWithTemporalStyleAndLimit(
+				decoder,
+				kind,
+				temporal,
+				date1904,
+				shared,
+				limits.maxCellBytes,
+			)
 			if err != nil {
 				return nil, err
 			}
+			if len(text) > limits.maxCellBytes {
+				return nil, &ImportFileLimitError{
+					Format: "Excel",
+					Kind:   ImportFileCellByteLimit,
+					Row:    rowNumber,
+					Cell:   index,
+					Limit:  limits.maxCellBytes,
+				}
+			}
+			if rowBytes > limits.maxRowBytes-len(text) {
+				return nil, &ImportFileLimitError{
+					Format: "Excel",
+					Kind:   ImportFileRowByteLimit,
+					Row:    rowNumber,
+					Limit:  limits.maxRowBytes,
+				}
+			}
+			rowBytes += len(text)
 			for len(values) < index {
 				values = append(values, nil)
 			}

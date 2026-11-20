@@ -35,6 +35,7 @@ type Event struct {
 	Database              string `json:"database"`
 	QueryID               string `json:"queryId"`
 	TransactionID         string `json:"transactionId"`
+	RunID                 string `json:"runId,omitempty"`
 	Source                string `json:"source"`
 	UserName              string `json:"userName,omitempty"`
 	MCPRequestID          string `json:"mcpRequestId,omitempty"`
@@ -65,10 +66,15 @@ type Filter struct {
 	EventType     string `json:"eventType"`
 	Status        string `json:"status"`
 	TransactionID string `json:"transactionId"`
+	RunID         string `json:"runId,omitempty"`
 	Source        string `json:"source"`
 	FromTimestamp int64  `json:"fromTimestamp"`
 	ToTimestamp   int64  `json:"toTimestamp"`
 	MCPRequestID  string `json:"mcpRequestId"`
+	// Actor 与 ConnectionIDs 只由服务端权限层写入，不接受客户端指定。
+	// Actor 为空表示不按用户过滤；ConnectionIDs 为空表示不按连接过滤。
+	Actor         string   `json:"-"`
+	ConnectionIDs []string `json:"-"`
 	// IncludeMCP 在执行历史中额外包含 MCP 来源；默认保持仅查询编辑器。
 	IncludeMCP bool `json:"includeMcp"`
 	// ExecutionHistory 排除事务控制事件，保留查询、托管事务语句和失败的事务打开。

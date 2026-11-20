@@ -50,6 +50,7 @@ func (a *App) dbQueryMulti(
 		defer a.beginSQLAuditMulti(sqlAuditQueryInput{
 			Config: runConfig, Database: dbName, DBType: resolvedDBType,
 			QueryID: queryID, SQL: originalQuery, Source: auditSource,
+			RunID:      scriptWorkbenchRunIDFromContext(traceContext),
 			Actor:      webidentity.UsernameFromContext(traceContext),
 			MCPContext: sqlaudit.MCPContextFrom(traceContext),
 		}, auditStartedAt, &result, &statementAuditEvents)()
@@ -181,6 +182,8 @@ func (a *App) dbQueryMulti(
 			Database:       dbName,
 			DBType:         resolvedDBType,
 			QueryID:        queryID,
+			RunID:          scriptWorkbenchRunIDFromContext(traceContext),
+			Actor:          webidentity.UsernameFromContext(traceContext),
 			EventType:      "query_statement",
 			Status:         sqlAuditStatusFromError(statementErr),
 			Source:         auditSource,

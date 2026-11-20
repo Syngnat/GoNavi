@@ -53,6 +53,7 @@ type sqlAuditQueryInput struct {
 	Database       string
 	DBType         string
 	QueryID        string
+	RunID          string
 	SQL            string
 	Source         string
 	CommitMode     string
@@ -67,6 +68,8 @@ type sqlAuditTransactionEventInput struct {
 	DBType         string
 	QueryID        string
 	TransactionID  string
+	RunID          string
+	Actor          string
 	EventType      string
 	Status         string
 	Source         string

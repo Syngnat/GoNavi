@@ -11,6 +11,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/sqlaudit"
+	"GoNavi-Wails/internal/webidentity"
 
 	runtime "GoNavi-Wails/internal/desktop"
 )
@@ -34,15 +35,32 @@ func (a *App) GetSQLAuditHealth() connection.QueryResult {
 }
 
 func (a *App) GetSQLAuditEvents(filter sqlaudit.Filter) connection.QueryResult {
+	return a.getSQLAuditEventsContext(a.ctx, filter)
+}
+
+func (a *App) getSQLAuditEventsContext(ctx context.Context, filter sqlaudit.Filter) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	a.flushSQLAuditWrites()
+	filter, actor, restricted, err := a.restrictSQLAuditFilter(ctx, filter)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	var page sqlaudit.Page
-	err := a.withSQLAuditStore(false, func(store *sqlaudit.Store) error {
+	err = a.withSQLAuditStore(false, func(store *sqlaudit.Store) error {
 		var queryErr error
 		page, queryErr = store.Query(filter)
 		return queryErr
 	})
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if restricted {
+		redactSQLAuditEventsForActor(&page, actor)
 	}
 	return connection.QueryResult{Success: true, Data: page}
 }
@@ -174,8 +192,22 @@ func (a *App) clearSQLAuditRecoveredGapState() {
 }
 
 func (a *App) BuildSQLAuditExport(filter sqlaudit.Filter, format string) connection.QueryResult {
+	return a.buildSQLAuditExportResult(a.ctx, filter, format)
+}
+
+func (a *App) buildSQLAuditExportResult(ctx context.Context, filter sqlaudit.Filter, format string) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	a.flushSQLAuditWrites()
-	content, normalizedFormat, err := a.buildSQLAuditExport(filter, format)
+	restrictedFilter, _, _, err := a.restrictSQLAuditFilter(ctx, filter)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	content, normalizedFormat, err := a.buildSQLAuditExport(restrictedFilter, format)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -188,6 +220,42 @@ func (a *App) BuildSQLAuditExport(filter sqlaudit.Filter, format string) connect
 		MimeType: mimeType,
 		Content:  string(content),
 	}}
+}
+
+func (a *App) restrictSQLAuditFilter(
+	ctx context.Context,
+	filter sqlaudit.Filter,
+) (sqlaudit.Filter, webidentity.Actor, bool, error) {
+	if a == nil || !a.webRuntime {
+		return filter, webidentity.Actor{}, false, nil
+	}
+	actor, ok := webidentity.ActorFromContext(ctx)
+	if !ok {
+		// public Wails/内部调用没有请求身份；Web RPC 始终走带 context 的
+		// handler，不会落到这里。
+		return filter, webidentity.Actor{}, false, nil
+	}
+	if actor.Role == webidentity.RoleAdmin {
+		return filter, actor, false, nil
+	}
+	filter.Actor = actor.Username
+	if len(actor.AllowedConnectionIDs) > 0 {
+		filter.ConnectionIDs = append([]string(nil), actor.AllowedConnectionIDs...)
+	}
+	return filter, actor, true, nil
+}
+
+func redactSQLAuditEventsForActor(page *sqlaudit.Page, actor webidentity.Actor) {
+	if page == nil {
+		return
+	}
+	for index := range page.Items {
+		if webidentity.NormalizeUsername(page.Items[index].UserName) == actor.Username {
+			continue
+		}
+		page.Items[index].TransactionID = ""
+		page.Items[index].RunID = ""
+	}
 }
 
 func (a *App) ExportSQLAuditFile(filter sqlaudit.Filter, format string) connection.QueryResult {

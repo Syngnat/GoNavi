@@ -118,6 +118,7 @@ type canonicalEvent struct {
 	Database              string `json:"database"`
 	QueryID               string `json:"queryId"`
 	TransactionID         string `json:"transactionId"`
+	RunID                 string `json:"runId,omitempty"`
 	Source                string `json:"source"`
 	UserName              string `json:"userName,omitempty"`
 	MCPRequestID          string `json:"mcpRequestId,omitempty"`
@@ -153,6 +154,7 @@ func calculateEventHash(event Event) (string, error) {
 		Database:              event.Database,
 		QueryID:               event.QueryID,
 		TransactionID:         event.TransactionID,
+		RunID:                 event.RunID,
 		Source:                event.Source,
 		UserName:              event.UserName,
 		MCPRequestID:          event.MCPRequestID,
@@ -191,7 +193,7 @@ const selectEventColumns = `SELECT sequence, id, timestamp, event_type, status,
 	connection_id, connection_fingerprint, db_type, database_name, query_id,
 	transaction_id, source, boundary_mode, commit_mode, sql_text, sql_redacted,
 	sql_fingerprint, statement_index, statement_count, executed_count, failed_index,
-	outcome_unknown, duration_ms, rows_affected, rows_returned, error_text, prev_hash, record_hash, mcp_request_id, mcp_client, user_name FROM sql_audit_events`
+	outcome_unknown, duration_ms, rows_affected, rows_returned, error_text, prev_hash, record_hash, mcp_request_id, mcp_client, user_name, run_id FROM sql_audit_events`
 
 type rowScanner interface {
 	Scan(...any) error
@@ -206,7 +208,7 @@ func scanEvent(scanner rowScanner) (Event, error) {
 		&event.QueryID, &event.TransactionID, &event.Source, &event.BoundaryMode,
 		&event.CommitMode, &event.SQLText, &sqlRedacted, &event.SQLFingerprint,
 		&event.StatementIndex, &event.StatementCount, &event.ExecutedCount, &event.FailedIndex, &outcomeUnknown, &event.DurationMs,
-		&event.RowsAffected, &event.RowsReturned, &event.Error, &event.PrevHash, &event.Hash, &event.MCPRequestID, &event.MCPClient, &event.UserName,
+		&event.RowsAffected, &event.RowsReturned, &event.Error, &event.PrevHash, &event.Hash, &event.MCPRequestID, &event.MCPClient, &event.UserName, &event.RunID,
 	); err != nil {
 		return Event{}, fmt.Errorf("scan SQL audit event: %w", err)
 	}

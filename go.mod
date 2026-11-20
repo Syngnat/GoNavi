@@ -15,6 +15,7 @@ require (
 	github.com/apache/rocketmq-client-go/v2 v2.1.2
 	github.com/bodgit/sevenzip v1.6.1
 	github.com/caretdev/go-irisnative v0.2.1
+	github.com/dop251/goja v0.0.0-20261117132507-c18a77e471d9
 	github.com/duckdb/duckdb-go/v2 v2.5.5
 	github.com/ebitengine/purego v0.11.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -48,9 +49,15 @@ require (
 	golang.org/x/mod v0.41.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
-	golang.org/x/text v0.42.0
+	golang.org/x/text v0.43.0
 	google.golang.org/grpc v1.82.1
 	modernc.org/sqlite v1.44.3
+)
+
+require (
+	github.com/dlclark/regexp2/v2 v2.11.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 )
 
 require (
@@ -222,10 +229,10 @@ require (
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
-	golang.org/x/sync v0.23.0
-	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
+	golang.org/x/sync v0.24.0
+	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
 	golang.org/x/term v0.46.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

@@ -23,6 +23,7 @@ import (
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
+	"GoNavi-Wails/internal/scriptengine"
 	"GoNavi-Wails/internal/webserver"
 	"GoNavi-Wails/shared/i18n"
 
@@ -437,6 +438,10 @@ func runSpecialMode(args []string) (bool, error) {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return true, app.RunScheduledJobOnce(ctx, args[1:])
+	case scriptengine.WorkerModeArg:
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return true, scriptengine.RunWorker(ctx, os.Stdin, os.Stdout)
 	case "mcp-server", "--mcp-server":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

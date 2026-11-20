@@ -13,6 +13,7 @@ const (
 	maxImportErrorDetails       = 20
 	maxImportCellBytes          = 16 * 1024 * 1024
 	maxImportRowBytes           = 64 * 1024 * 1024
+	maxImportFields             = 16_384
 	maxImportBatchBytes         = 64 * 1024 * 1024
 	importProgressRowInterval   = 100
 	importProgressTimeInterval  = 250 * time.Millisecond
@@ -127,6 +128,10 @@ type ImportFileOptions struct {
 	// AutoCreateTable 仅在「按文件新建表」流程出现：目标表不存在时先执行建表 SQL，
 	// 再走原有列映射与写入。为空时行为与历史版本完全一致。
 	AutoCreateTable *ImportAutoCreateTable `json:"autoCreateTable,omitempty"`
+
+	lexicalLimits  importLexicalLimits
+	xlsxLimits     xlsxArchiveResourceLimits
+	sourceRegistry *importSourceRegistry
 }
 
 func resolveImportContinueOnError(options ImportFileOptions) bool {

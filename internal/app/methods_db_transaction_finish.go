@@ -4,38 +4,122 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 )
 
+// These optional interfaces let context-aware drivers stop a commit/rollback
+// when the caller deadline expires. Legacy drivers still use the historical
+// no-context TransactionExecer contract.
+type managedTransactionContextCommitter interface {
+	CommitContext(context.Context) error
+}
+
+type managedTransactionContextRollerBacker interface {
+	RollbackContext(context.Context) error
+}
+
+var managedTransactionFinishTracker = struct {
+	sync.Mutex
+	next    uint64
+	pending map[uint64]chan struct{}
+}{
+	pending: make(map[uint64]chan struct{}),
+}
+
+func registerManagedTransactionFinish() (uint64, func()) {
+	tracker := &managedTransactionFinishTracker
+	tracker.Lock()
+	tracker.next++
+	id := tracker.next
+	done := make(chan struct{})
+	tracker.pending[id] = done
+	tracker.Unlock()
+	return id, func() {
+		tracker.Lock()
+		if pending, ok := tracker.pending[id]; ok {
+			delete(tracker.pending, id)
+			close(pending)
+		}
+		tracker.Unlock()
+	}
+}
+
+// waitForManagedTransactionFinishes waits for finalizers that have outlived
+// their caller deadline. It deliberately has no timeout: shutdown must not
+// close shared database/audit resources while a finalizer can still touch them.
+func waitForManagedTransactionFinishes() {
+	tracker := &managedTransactionFinishTracker
+	for {
+		tracker.Lock()
+		if len(tracker.pending) == 0 {
+			tracker.Unlock()
+			return
+		}
+		pending := make([]chan struct{}, 0, len(tracker.pending))
+		for _, done := range tracker.pending {
+			pending = append(pending, done)
+		}
+		tracker.Unlock()
+		for _, done := range pending {
+			<-done
+		}
+	}
+}
+
+type managedTransactionFinishOutcome struct {
+	execErr  error
+	closeErr error
+}
+
 func (a *App) DBCommitTransaction(transactionID string) connection.QueryResult {
-	return a.finishManagedSQLTransaction(transactionID, true, "manual")
+	return a.finishManagedSQLTransactionContext(transactionCleanupContext(a.ctx), transactionID, true, "manual")
 }
 
 func (a *App) DBRollbackTransaction(transactionID string) connection.QueryResult {
-	return a.finishManagedSQLTransaction(transactionID, false, "manual")
+	return a.finishManagedSQLTransactionContext(transactionCleanupContext(a.ctx), transactionID, false, "manual")
 }
 
 func (a *App) DBCommitTransactionWithTrigger(transactionID string, trigger string) connection.QueryResult {
-	return a.finishManagedSQLTransaction(transactionID, true, trigger)
+	return a.finishManagedSQLTransactionContext(transactionCleanupContext(a.ctx), transactionID, true, trigger)
 }
 
 func (a *App) DBRollbackTransactionWithTrigger(transactionID string, trigger string) connection.QueryResult {
-	return a.finishManagedSQLTransaction(transactionID, false, trigger)
+	return a.finishManagedSQLTransactionContext(transactionCleanupContext(a.ctx), transactionID, false, trigger)
 }
 
-func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, trigger string) connection.QueryResult {
+func (a *App) finishManagedSQLTransactionContext(ctx context.Context, transactionID string, commit bool, trigger string) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	transactionID = strings.TrimSpace(transactionID)
 	trigger = normalizeSQLTransactionFinishTrigger(trigger)
 	if transactionID == "" {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_id_required", nil)}
 	}
+	if err := ctx.Err(); err != nil {
+		key := "db.backend.error.transaction_rollback_failed"
+		if commit {
+			key = "db.backend.error.transaction_commit_failed"
+		}
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText(key, map[string]any{"detail": "transaction finish was not attempted: " + err.Error()}),
+		}
+	}
+	_, finish := registerManagedTransactionFinish()
+	defer finish()
 
 	a.sqlTransactionMu.Lock()
 	tx, ok := a.sqlTransactions[transactionID]
 	if ok {
+		if err := a.authorizeManagedSQLTransactionAccess(ctx, tx, ""); err != nil {
+			a.sqlTransactionMu.Unlock()
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
 		delete(a.sqlTransactions, transactionID)
 	}
 	a.sqlTransactionMu.Unlock()
@@ -48,9 +132,6 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil)}
 	}
 	tx.finished = true
-	if tx.cancel != nil {
-		defer tx.cancel()
-	}
 
 	actionCode := "rollback"
 	sqlText := tx.rollbackSQL
@@ -62,7 +143,7 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 	} else if trigger == "tab_close" || trigger == "auto" {
 		eventType = "transaction_auto_rollback"
 	}
-	auditSource := "query_editor"
+	auditSource := normalizeSQLAuditSource(tx.auditSource)
 	if trigger == "tab_close" {
 		auditSource = "tab_close"
 	}
@@ -71,8 +152,6 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 		commitMode = "auto"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), sqlEditorTransactionFinishTimeout)
-	defer cancel()
 	requestedEventType := "transaction_rollback_requested"
 	if commit {
 		requestedEventType = "transaction_commit_requested"
@@ -82,6 +161,8 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 		Database:      tx.config.Database,
 		DBType:        tx.dbType,
 		TransactionID: transactionID,
+		RunID:         tx.auditRunID,
+		Actor:         tx.auditActor,
 		EventType:     requestedEventType,
 		Status:        "success",
 		Source:        auditSource,
@@ -90,17 +171,39 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 	})
 	startedAt := time.Now()
 
-	var execErr error
-	if tx.transactor != nil {
+	finishCtx, cancelFinish := context.WithTimeout(ctx, sqlEditorTransactionFinishTimeout)
+	outcome, timedOut := a.runManagedTransactionFinish(finishCtx, tx, commit, sqlText)
+	cancelFinish()
+	if timedOut {
+		execErr := errors.New("transaction finish did not complete before the deadline; outcome is unknown")
+		a.recordSQLAuditTransactionEvent(sqlAuditTransactionEventInput{
+			Config:        tx.config,
+			Database:      tx.config.Database,
+			DBType:        tx.dbType,
+			TransactionID: transactionID,
+			RunID:         tx.auditRunID,
+			Actor:         tx.auditActor,
+			EventType:     eventType,
+			Status:        "error",
+			Source:        auditSource,
+			CommitMode:    commitMode,
+			BoundaryMode:  tx.boundaryMode,
+			Duration:      time.Since(startedAt),
+			Err:           execErr,
+		})
+		logger.Error(execErr, "SQL 编辑器事务%s超时：id=%s dbType=%s", actionCode, transactionID, tx.dbType)
+		key := "db.backend.error.transaction_rollback_failed"
 		if commit {
-			execErr = tx.transactor.Commit()
-		} else {
-			execErr = tx.transactor.Rollback()
+			key = "db.backend.error.transaction_commit_failed"
 		}
-	} else if strings.TrimSpace(sqlText) != "" {
-		_, execErr = tx.execer.ExecContext(ctx, sqlText)
+		return connection.QueryResult{
+			Success:        false,
+			Message:        a.appText(key, map[string]any{"detail": execErr.Error()}),
+			OutcomeUnknown: true,
+		}
 	}
-	closeErr := tx.execer.Close()
+	execErr := outcome.execErr
+	closeErr := outcome.closeErr
 	if execErr != nil {
 		if closeErr != nil {
 			execErr = errors.Join(execErr, closeErr)
@@ -110,6 +213,8 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 			Database:      tx.config.Database,
 			DBType:        tx.dbType,
 			TransactionID: transactionID,
+			RunID:         tx.auditRunID,
+			Actor:         tx.auditActor,
 			EventType:     eventType,
 			Status:        "error",
 			Source:        auditSource,
@@ -137,6 +242,8 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 			Database:      tx.config.Database,
 			DBType:        tx.dbType,
 			TransactionID: transactionID,
+			RunID:         tx.auditRunID,
+			Actor:         tx.auditActor,
 			EventType:     eventType,
 			Status:        "success",
 			Source:        auditSource,
@@ -157,6 +264,8 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 		Database:      tx.config.Database,
 		DBType:        tx.dbType,
 		TransactionID: transactionID,
+		RunID:         tx.auditRunID,
+		Actor:         tx.auditActor,
 		EventType:     eventType,
 		Status:        "success",
 		Source:        auditSource,
@@ -171,6 +280,62 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 	return connection.QueryResult{Success: true, Message: a.appText("db.backend.message.transaction_rolled_back", nil)}
 }
 
+func (a *App) runManagedTransactionFinish(
+	ctx context.Context,
+	tx *managedSQLTransaction,
+	commit bool,
+	sqlText string,
+) (managedTransactionFinishOutcome, bool) {
+	if tx == nil {
+		return managedTransactionFinishOutcome{execErr: errors.New("managed transaction is unavailable")}, false
+	}
+	if err := ctx.Err(); err != nil {
+		outcome := managedTransactionFinishOutcome{execErr: err}
+		if tx.execer != nil {
+			outcome.closeErr = tx.execer.Close()
+		}
+		if tx.cancel != nil {
+			tx.cancel()
+		}
+		return outcome, false
+	}
+	resultCh := make(chan managedTransactionFinishOutcome, 1)
+	_, finish := registerManagedTransactionFinish()
+	go func() {
+		defer finish()
+		outcome := managedTransactionFinishOutcome{}
+		switch {
+		case tx.transactor != nil && commit:
+			if finisher, ok := tx.transactor.(managedTransactionContextCommitter); ok {
+				outcome.execErr = finisher.CommitContext(ctx)
+			} else {
+				outcome.execErr = tx.transactor.Commit()
+			}
+		case tx.transactor != nil:
+			if finisher, ok := tx.transactor.(managedTransactionContextRollerBacker); ok {
+				outcome.execErr = finisher.RollbackContext(ctx)
+			} else {
+				outcome.execErr = tx.transactor.Rollback()
+			}
+		case strings.TrimSpace(sqlText) != "":
+			_, outcome.execErr = tx.execer.ExecContext(ctx, sqlText)
+		}
+		if tx.execer != nil {
+			outcome.closeErr = tx.execer.Close()
+		}
+		if tx.cancel != nil {
+			tx.cancel()
+		}
+		resultCh <- outcome
+	}()
+	select {
+	case outcome := <-resultCh:
+		return outcome, false
+	case <-ctx.Done():
+		return managedTransactionFinishOutcome{}, true
+	}
+}
+
 func normalizeSQLTransactionFinishTrigger(trigger string) string {
 	switch strings.ToLower(strings.TrimSpace(trigger)) {
 	case "auto", "tab_close":
@@ -181,6 +346,10 @@ func normalizeSQLTransactionFinishTrigger(trigger string) string {
 }
 
 func (a *App) rollbackPendingSQLTransactionsOnShutdown() {
+	// Finalizers that already outlived a caller deadline still own their
+	// sessions. Wait for them before enumerating and closing the remaining
+	// transactions so shutdown never closes a session underneath them.
+	waitForManagedTransactionFinishes()
 	a.rollbackAllPendingSQLTransactions("app_shutdown", "关闭应用时")
 }
 
@@ -244,6 +413,8 @@ func (a *App) rollbackPendingSQLTransactionsMatching(match func(*managedSQLTrans
 			Database:      tx.config.Database,
 			DBType:        tx.dbType,
 			TransactionID: tx.id,
+			RunID:         tx.auditRunID,
+			Actor:         tx.auditActor,
 			EventType:     "transaction_rollback_requested",
 			Status:        "success",
 			Source:        auditSource,
@@ -253,7 +424,12 @@ func (a *App) rollbackPendingSQLTransactionsMatching(match func(*managedSQLTrans
 		startedAt := time.Now()
 		var rollbackErr error
 		if tx.transactor != nil {
-			if err := tx.transactor.Rollback(); err != nil {
+			if finisher, ok := tx.transactor.(managedTransactionContextRollerBacker); ok {
+				if err := finisher.RollbackContext(ctx); err != nil {
+					rollbackErr = err
+					logger.Warnf("%s回滚 SQL 编辑器事务失败：id=%s dbType=%s err=%v", logPrefix, tx.id, tx.dbType, err)
+				}
+			} else if err := tx.transactor.Rollback(); err != nil {
 				rollbackErr = err
 				logger.Warnf("%s回滚 SQL 编辑器事务失败：id=%s dbType=%s err=%v", logPrefix, tx.id, tx.dbType, err)
 			}
@@ -285,6 +461,8 @@ func (a *App) rollbackPendingSQLTransactionsMatching(match func(*managedSQLTrans
 			Database:      tx.config.Database,
 			DBType:        tx.dbType,
 			TransactionID: tx.id,
+			RunID:         tx.auditRunID,
+			Actor:         tx.auditActor,
 			EventType:     "transaction_auto_rollback",
 			Status:        status,
 			Source:        auditSource,

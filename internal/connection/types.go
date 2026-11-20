@@ -418,6 +418,9 @@ const QueryCancellationStateUnsupported = "unsupported"
 type QueryResult struct {
 	Success           bool                       `json:"success"`
 	Message           string                     `json:"message"`
+	Code              string                     `json:"code,omitempty"`
+	Kind              string                     `json:"kind,omitempty"`
+	Params            map[string]any             `json:"params,omitempty"`
 	Data              interface{}                `json:"data"`
 	Fields            []string                   `json:"fields,omitempty"`
 	Messages          []string                   `json:"messages,omitempty"`

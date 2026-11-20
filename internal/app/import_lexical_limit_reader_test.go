@@ -46,6 +46,30 @@ func TestCSVReaderRejectsOversizedLogicalCellBeforeDecode(t *testing.T) {
 	}
 }
 
+func TestCSVReaderRejectsTooManyFieldsBeforeDecode(t *testing.T) {
+	reader, err := newImportCSVReaderWithLimits(
+		strings.NewReader("a,b\n1,2,3\n"),
+		importDelimiterComma,
+		importLexicalLimits{maxCellBytes: 64, maxRowBytes: 64, maxFields: 2},
+	)
+	if err != nil {
+		t.Fatalf("create CSV reader: %v", err)
+	}
+	reader.FieldsPerRecord = -1
+	if _, err := reader.Read(); err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	_, err = reader.Read()
+	var limitErr *ImportFileLimitError
+	if !errors.As(err, &limitErr) ||
+		limitErr.Kind != ImportFileFieldLimit ||
+		limitErr.Format != "CSV" ||
+		limitErr.Row != 2 ||
+		limitErr.Limit != 2 {
+		t.Fatalf("field limit error = %#v (%v)", limitErr, err)
+	}
+}
+
 func TestJSONDecoderRejectsOversizedStringBeforeDecode(t *testing.T) {
 	decoder := newImportJSONDecoderWithLimits(
 		strings.NewReader(`[{"id":1,"payload":"123456789"}]`),
@@ -65,6 +89,26 @@ func TestJSONDecoderRejectsOversizedStringBeforeDecode(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "123456789") {
 		t.Fatalf("limit error leaked JSON value: %v", err)
+	}
+}
+
+func TestJSONDecoderCountsNestedKeysBeforeDecode(t *testing.T) {
+	decoder := newImportJSONDecoderWithLimits(
+		strings.NewReader(`[{"a":{"b":1,"c":2},"d":3}]`),
+		importLexicalLimits{maxCellBytes: 256, maxRowBytes: 256, maxFields: 3},
+	)
+	if _, err := decoder.Token(); err != nil {
+		t.Fatalf("read root token: %v", err)
+	}
+	var row map[string]interface{}
+	err := decoder.Decode(&row)
+	var limitErr *ImportFileLimitError
+	if !errors.As(err, &limitErr) ||
+		limitErr.Kind != ImportFileFieldLimit ||
+		limitErr.Format != "JSON" ||
+		limitErr.Row != 1 ||
+		limitErr.Limit != 3 {
+		t.Fatalf("key limit error = %#v (%v)", limitErr, err)
 	}
 }
 

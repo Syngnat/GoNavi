@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 type mysqlGTIDImportMode string
@@ -232,13 +234,17 @@ func (a *App) validateDatabaseSQLImportAccess(config connection.ConnectionConfig
 }
 
 func (a *App) PreflightDatabaseSQLImport(config connection.ConnectionConfig, dbName string, filePath string) (result connection.QueryResult) {
+	return a.preflightDatabaseSQLImportContext(a.ctx, config, dbName, filePath)
+}
+
+func (a *App) preflightDatabaseSQLImportContext(ctx context.Context, config connection.ConnectionConfig, dbName string, filePath string) (result connection.QueryResult) {
 	if err := a.validateDatabaseSQLImportAccess(config); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	if strings.TrimSpace(filePath) == "" {
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.file_path_empty", nil)}
 	}
-	resolvedPath, err := a.resolveWebUploadReference(filePath, webUploadPurposeSQLExecution)
+	resolvedPath, err := a.resolveWebUploadReferenceForOwner(filePath, webUploadPurposeSQLExecution, webidentity.UsernameFromContext(ctx))
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

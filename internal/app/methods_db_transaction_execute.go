@@ -290,9 +290,45 @@ func isSQLTransactionControlStatement(stmt string) bool {
 		return isBeginTransactionControlStatement(stmt, keywordEnd)
 	case "start":
 		return strings.Contains(strings.ToLower(stmt), "transaction")
+	case "set":
+		return isSQLTransactionSettingStatement(stmt, keywordEnd)
 	default:
 		return false
 	}
+}
+
+// isSQLTransactionSettingStatement blocks settings that can detach a
+// managed-transaction statement from GoNavi's explicit commit/rollback
+// lifecycle, especially MySQL's SET autocommit and SQL-standard SET
+// TRANSACTION variants.
+func isSQLTransactionSettingStatement(stmt string, keywordEnd int) bool {
+	rest := strings.ToLower(strings.TrimSpace(stmt[keywordEnd:]))
+	compact := strings.Map(func(char rune) rune {
+		switch char {
+		case ' ', '\t', '\r', '\n', '.', '`', '"', '\'':
+			return -1
+		default:
+			return char
+		}
+	}, rest)
+	for _, prefix := range []string{
+		"autocommit",
+		"@@autocommit",
+		"@@sessionautocommit",
+		"@@localautocommit",
+		"sessionautocommit",
+		"localautocommit",
+		"transaction",
+		"sessiontransaction",
+		"localtransaction",
+		"sessioncharacteristicsastransaction",
+		"localcharacteristicsastransaction",
+	} {
+		if strings.HasPrefix(compact, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isBeginTransactionControlStatement(stmt string, keywordEnd int) bool {

@@ -43,7 +43,12 @@ func loadXLSXStyles(entry *zip.File) (*xlsxStyleTable, error) {
 	}
 	defer reader.Close()
 
-	decoder := xml.NewDecoder(reader)
+	decoder := xml.NewDecoder(newXMLTokenBudgetReader(
+		reader,
+		maxXLSXMetadataTextBytes,
+		maxXLSXTagBytes,
+		"Excel metadata",
+	))
 	customFormats := make(map[int]string)
 	styleFormatIDs := make([]int, 0, 32)
 	inCellXFs := false
@@ -215,7 +220,10 @@ func normalizeXLSXNumberFormatCode(formatCode string) (string, bool) {
 	return builder.String(), elapsed
 }
 
-func readXLSXSharedStringItem(decoder *xml.Decoder) (string, error) {
+func readXLSXSharedStringItem(decoder *xml.Decoder, maxValueBytes int) (string, error) {
+	if maxValueBytes <= 0 {
+		maxValueBytes = maxImportCellBytes
+	}
 	var builder strings.Builder
 	depth := 1
 	for depth > 0 {
@@ -230,7 +238,7 @@ func readXLSXSharedStringItem(decoder *xml.Decoder) (string, error) {
 				continue
 			}
 			if typed.Name.Local == "t" {
-				remaining := maxImportCellBytes - builder.Len()
+				remaining := maxValueBytes - builder.Len()
 				text, err := readXMLTextNodeLimited(decoder, typed.Name.Local, remaining, "shared string")
 				if err != nil {
 					return "", err

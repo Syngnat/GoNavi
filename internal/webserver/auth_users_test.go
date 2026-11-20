@@ -39,6 +39,46 @@ func TestNormalizeWebAuthConfigMigratesLegacyAdmin(t *testing.T) {
 	}
 }
 
+func TestViewerDBQueryWhitelistUsesExactReadOnlyMethods(t *testing.T) {
+	for _, method := range []string{
+		"DBQuery",
+		"DBQueryMulti",
+		"DBQueryMultiWithOptions",
+		"DBQueryMultiWithParams",
+		"DBQueryMultiInTransaction",
+		"DBQueryMultiWithParamsInTransaction",
+		"DBQueryAudited",
+		"DBQueryAI",
+		"DBQueryIsolated",
+	} {
+		if !viewerAllowedInvoke("app", method) {
+			t.Errorf("viewer read-only method %s is not allowed", method)
+		}
+	}
+	for _, method := range []string{
+		"DBQueryMultiTransactional",
+		"DBQueryMultiTransactionalWithParams",
+		"DBQueryMultiTransactionalWithOptions",
+	} {
+		if viewerAllowedInvoke("app", method) {
+			t.Errorf("viewer write transaction method %s must be denied", method)
+		}
+	}
+}
+
+func TestViewerCannotIssueScriptWriteApproval(t *testing.T) {
+	viewer := webidentity.Actor{
+		Username: "bob",
+		Role:     webidentity.RoleViewer,
+	}
+	if viewerAllowedInvoke("app", "PrepareScriptWorkbenchWrite") {
+		t.Fatal("viewer must not be allowed to issue production write approvals")
+	}
+	if err := enforceViewerPolicy(viewer, "app", "PrepareScriptWorkbenchWrite", nil); err == nil {
+		t.Fatal("viewer production write approval was not rejected")
+	}
+}
+
 func TestWebSessionManagerPersistsAcrossRestart(t *testing.T) {
 	root := t.TempDir()
 	cfg := normalizeWebAuthConfig(webAuthConfig{

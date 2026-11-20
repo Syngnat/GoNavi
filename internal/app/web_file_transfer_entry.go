@@ -11,10 +11,22 @@ import (
 	"time"
 	"unicode"
 
+	"GoNavi-Wails/internal/webidentity"
+
 	"github.com/google/uuid"
 )
 
 func StageWebUploadForEntryPoint(a *App, purpose string, fileName string, source io.Reader) (WebUploadInfo, error) {
+	return StageWebUploadForEntryPointForOwner(a, purpose, fileName, source, "")
+}
+
+func StageWebUploadForEntryPointForOwner(
+	a *App,
+	purpose string,
+	fileName string,
+	source io.Reader,
+	ownerUsername string,
+) (WebUploadInfo, error) {
 	if a == nil || !a.webRuntime {
 		return WebUploadInfo{}, errors.New("web upload is unavailable outside web runtime")
 	}
@@ -24,6 +36,11 @@ func StageWebUploadForEntryPoint(a *App, purpose string, fileName string, source
 	purpose, err := normalizeWebUploadPurpose(purpose)
 	if err != nil {
 		return WebUploadInfo{}, fmt.Errorf("%w: %v", ErrInvalidWebUpload, err)
+	}
+	ownerUsername = webidentity.NormalizeUsername(ownerUsername)
+	// Web 上传入口始终传入已认证用户；空 owner 仅保留给内部/测试的旧入口。
+	if purpose == webUploadPurposeScriptInput && ownerUsername == "" {
+		return WebUploadInfo{}, fmt.Errorf("%w: script upload requires an authenticated owner", ErrInvalidWebUpload)
 	}
 	fileName, err = normalizeWebTransferFileName(fileName)
 	if err != nil {
@@ -41,9 +58,10 @@ func StageWebUploadForEntryPoint(a *App, purpose string, fileName string, source
 		return WebUploadInfo{}, err
 	}
 	managed, err := createWebManagedFile(root, fileName, webTransferMetadata{
-		Kind:     webTransferUploadsDir,
-		Purpose:  purpose,
-		FileName: fileName,
+		Kind:          webTransferUploadsDir,
+		Purpose:       purpose,
+		OwnerUsername: ownerUsername,
+		FileName:      fileName,
 	})
 	if err != nil {
 		budget.abort()
@@ -97,12 +115,25 @@ func StageWebUploadForEntryPoint(a *App, purpose string, fileName string, source
 }
 
 func OpenWebDownloadForEntryPoint(a *App, token string) (*os.File, WebDownloadInfo, error) {
+	return OpenWebDownloadForOwner(a, token, "")
+}
+
+func OpenWebDownloadForOwner(a *App, token string, ownerUsername string) (*os.File, WebDownloadInfo, error) {
 	if a == nil || !a.webRuntime {
 		return nil, WebDownloadInfo{}, ErrWebTransferNotFound
 	}
 	managed, err := a.resolveWebManagedFile(webTransferDownloadsDir, "", token)
 	if err != nil {
 		return nil, WebDownloadInfo{}, err
+	}
+	ownerUsername = webidentity.NormalizeUsername(ownerUsername)
+	metadataOwner := webidentity.NormalizeUsername(managed.metadata.OwnerUsername)
+	if metadataOwner == "" {
+		if ownerUsername != "" {
+			return nil, WebDownloadInfo{}, ErrWebTransferNotFound
+		}
+	} else if ownerUsername != metadataOwner {
+		return nil, WebDownloadInfo{}, ErrWebTransferNotFound
 	}
 	file, err := os.Open(managed.path)
 	if err != nil {
@@ -133,6 +164,8 @@ func normalizeWebUploadPurpose(raw string) (string, error) {
 		return webUploadPurposeDataImport, nil
 	case webUploadPurposeSQLExecution:
 		return webUploadPurposeSQLExecution, nil
+	case webUploadPurposeScriptInput:
+		return webUploadPurposeScriptInput, nil
 	default:
 		return "", errors.New("unsupported web upload purpose")
 	}
@@ -146,6 +179,8 @@ func validateWebUploadFileName(purpose string, fileName string) error {
 		allowed = strings.HasSuffix(lower, ".csv") || strings.HasSuffix(lower, ".json") || strings.HasSuffix(lower, ".xlsx")
 	case webUploadPurposeSQLExecution:
 		allowed = strings.HasSuffix(lower, ".sql") || strings.HasSuffix(lower, ".sql.gz")
+	case webUploadPurposeScriptInput:
+		allowed = strings.HasSuffix(lower, ".csv") || strings.HasSuffix(lower, ".json") || strings.HasSuffix(lower, ".xlsx")
 	}
 	if !allowed {
 		return errors.New("unsupported upload file type")
@@ -228,12 +263,13 @@ func createWebManagedFile(root string, fileName string, metadata webTransferMeta
 			dir:   dir,
 			path:  filepath.Join(dir, fileName),
 			metadata: webTransferMetadata{
-				Kind:      metadata.Kind,
-				Purpose:   metadata.Purpose,
-				FileName:  fileName,
-				MimeType:  metadata.MimeType,
-				FileSize:  metadata.FileSize,
-				CreatedAt: metadata.CreatedAt,
+				Kind:          metadata.Kind,
+				Purpose:       metadata.Purpose,
+				OwnerUsername: metadata.OwnerUsername,
+				FileName:      fileName,
+				MimeType:      metadata.MimeType,
+				FileSize:      metadata.FileSize,
+				CreatedAt:     metadata.CreatedAt,
 			},
 		}, nil
 	}
@@ -348,6 +384,10 @@ func validateWebManagedPath(root string, path string) error {
 }
 
 func (a *App) resolveWebUploadReference(reference string, purpose string) (string, error) {
+	return a.resolveWebUploadReferenceForOwner(reference, purpose, "")
+}
+
+func (a *App) resolveWebUploadReferenceForOwner(reference string, purpose string, ownerUsername string) (string, error) {
 	if a == nil || !a.webRuntime {
 		return reference, nil
 	}
@@ -357,6 +397,15 @@ func (a *App) resolveWebUploadReference(reference string, purpose string) (strin
 	managed, err := a.resolveWebManagedFile(webTransferUploadsDir, purpose, reference)
 	if err != nil {
 		return "", err
+	}
+	ownerUsername = webidentity.NormalizeUsername(ownerUsername)
+	metadataOwner := webidentity.NormalizeUsername(managed.metadata.OwnerUsername)
+	if metadataOwner == "" {
+		if ownerUsername != "" || purpose == webUploadPurposeScriptInput {
+			return "", ErrWebTransferNotFound
+		}
+	} else if ownerUsername != metadataOwner {
+		return "", ErrWebTransferNotFound
 	}
 	return managed.path, nil
 }

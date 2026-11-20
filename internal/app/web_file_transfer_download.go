@@ -10,10 +10,84 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/webidentity"
 )
+
+var webTransferOwnerClaimMu sync.Mutex
+
+// claimWebDownloadOwner binds a download token created by an export RPC to the
+// authenticated user that received it. The token is only exposed in that same
+// response, so claiming before the response is written closes the window where
+// another user could race an unguessable but otherwise unowned token.
+func (a *App) claimWebDownloadOwner(token string, ownerUsername string) error {
+	if a == nil || !a.webRuntime {
+		return nil
+	}
+	ownerUsername = webidentity.NormalizeUsername(ownerUsername)
+	if ownerUsername == "" {
+		return errors.New("download owner is required")
+	}
+	webTransferOwnerClaimMu.Lock()
+	defer webTransferOwnerClaimMu.Unlock()
+	managed, err := a.resolveWebManagedFile(webTransferDownloadsDir, "", token)
+	if err != nil {
+		return err
+	}
+	existing := webidentity.NormalizeUsername(managed.metadata.OwnerUsername)
+	if existing == ownerUsername {
+		return nil
+	}
+	if existing != "" {
+		return ErrWebTransferNotFound
+	}
+	managed.metadata.OwnerUsername = ownerUsername
+	return writeWebTransferMetadata(managed.dir, managed.metadata)
+}
+
+// ClaimWebDownloadOwnerForResult is called by the Web RPC transport after a
+// method returns and before its response is serialized.
+func ClaimWebDownloadOwnerForResult(a *App, result any, ownerUsername string) error {
+	token := webDownloadTokenFromResult(result)
+	if token == "" {
+		return nil
+	}
+	return a.claimWebDownloadOwner(token, ownerUsername)
+}
+
+func webDownloadTokenFromResult(result any) string {
+	switch value := result.(type) {
+	case connection.QueryResult:
+		return webDownloadTokenFromData(value.Data)
+	case *connection.QueryResult:
+		if value != nil {
+			return webDownloadTokenFromData(value.Data)
+		}
+	}
+	return ""
+}
+
+func webDownloadTokenFromData(data any) string {
+	fields, ok := data.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	switch info := fields["webDownload"].(type) {
+	case WebDownloadInfo:
+		return strings.TrimSpace(info.Token)
+	case *WebDownloadInfo:
+		if info != nil {
+			return strings.TrimSpace(info.Token)
+		}
+	case map[string]interface{}:
+		token, _ := info["token"].(string)
+		return strings.TrimSpace(token)
+	}
+	return ""
+}
 
 func (a *App) newWebDownloadTarget(fileName string, mimeType string) (*webDownloadTarget, error) {
 	if a == nil || !a.webRuntime {

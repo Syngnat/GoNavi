@@ -14,6 +14,7 @@ type ImportFileLimitKind string
 const (
 	ImportFileCellByteLimit ImportFileLimitKind = "cell_byte_limit"
 	ImportFileRowByteLimit  ImportFileLimitKind = "row_byte_limit"
+	ImportFileFieldLimit    ImportFileLimitKind = "field_limit"
 )
 
 // ImportFileLimitError reports a bounded parsing failure without retaining or
@@ -34,6 +35,9 @@ func (err *ImportFileLimitError) Error() string {
 	if err.Kind == ImportFileRowByteLimit {
 		return fmt.Sprintf("%s row %d exceeds %d-byte limit", err.Format, err.Row, err.Limit)
 	}
+	if err.Kind == ImportFileFieldLimit {
+		return fmt.Sprintf("%s row %d exceeds %d-field/key limit", err.Format, err.Row, err.Limit)
+	}
 	if err.Column != "" {
 		return fmt.Sprintf("%s row %d column %q exceeds %d-byte cell limit", err.Format, err.Row, err.Column, err.Limit)
 	}
@@ -46,6 +50,7 @@ func (err *ImportFileLimitError) Error() string {
 type importLexicalLimits struct {
 	maxCellBytes int
 	maxRowBytes  int
+	maxFields    int
 }
 
 func normalizeImportLexicalLimits(limits importLexicalLimits) importLexicalLimits {
@@ -54,6 +59,9 @@ func normalizeImportLexicalLimits(limits importLexicalLimits) importLexicalLimit
 	}
 	if limits.maxRowBytes <= 0 {
 		limits.maxRowBytes = maxImportRowBytes
+	}
+	if limits.maxFields <= 0 {
+		limits.maxFields = maxImportFields
 	}
 	return limits
 }
@@ -145,8 +153,7 @@ func (reader *importCSVLexicalLimitReader) consumeDataByte(value byte, rawBytes 
 				return reader.addFieldBytes(2, 1)
 			case reader.delimiter:
 				reader.inQuotes = false
-				reader.finishField()
-				return nil
+				return reader.finishField()
 			default:
 				// Keep malformed CSV for encoding/csv to diagnose. Counting the
 				// byte still bounds the parser's allocation before that happens.
@@ -167,8 +174,7 @@ func (reader *importCSVLexicalLimitReader) consumeDataByte(value byte, rawBytes 
 		return nil
 	}
 	if value == reader.delimiter {
-		reader.finishField()
-		return nil
+		return reader.finishField()
 	}
 	reader.atFieldStart = false
 	return reader.addFieldBytes(rawBytes, decodedBytes)
@@ -226,11 +232,20 @@ func (reader *importCSVLexicalLimitReader) addRowRawBytes(rawBytes int) error {
 	return nil
 }
 
-func (reader *importCSVLexicalLimitReader) finishField() {
+func (reader *importCSVLexicalLimitReader) finishField() error {
+	if reader.cell >= reader.limits.maxFields {
+		return &ImportFileLimitError{
+			Format: "CSV",
+			Kind:   ImportFileFieldLimit,
+			Row:    reader.row,
+			Limit:  reader.limits.maxFields,
+		}
+	}
 	reader.cell++
 	reader.fieldRaw = 0
 	reader.fieldDecoded = 0
 	reader.atFieldStart = true
+	return nil
 }
 
 func (reader *importCSVLexicalLimitReader) finishRecord() {
@@ -291,6 +306,11 @@ type importJSONLexicalLimitReader struct {
 	topValueMode    importJSONValueLimitMode
 	topValueRaw     int
 	terminalErr     error
+
+	containerKinds     []byte
+	containerExpectKey []bool
+	elementKeyCount    int
+	stringIsKey        bool
 }
 
 type importJSONValueLimitMode uint8
@@ -345,6 +365,7 @@ func (reader *importJSONLexicalLimitReader) consumeByte(value byte) error {
 		if value == '[' {
 			reader.rootStarted = true
 			reader.depth = 1
+			reader.setContainer(reader.depth, '[')
 		}
 		return nil
 	}
@@ -364,6 +385,7 @@ func (reader *importJSONLexicalLimitReader) consumeByte(value byte) error {
 		reader.row++
 		reader.inElement = true
 		reader.elementRaw = 0
+		reader.elementKeyCount = 0
 	}
 	if reader.depth == 1 && reader.inElement && (value == ',' || value == ']') {
 		reader.finishElement()
@@ -383,19 +405,23 @@ func (reader *importJSONLexicalLimitReader) consumeByte(value byte) error {
 	}
 
 	if value == '"' {
-		reader.startString()
+		if err := reader.startString(); err != nil {
+			return err
+		}
 		return nil
 	}
 
 	switch value {
 	case '{':
 		reader.depth++
+		reader.setContainer(reader.depth, '{')
 		if reader.topObjectDepth == 0 && reader.depth == 2 {
 			reader.topObjectDepth = reader.depth
 			reader.topExpectKey = true
 		}
 	case '[':
 		reader.depth++
+		reader.setContainer(reader.depth, '[')
 	case '}':
 		if reader.topObjectDepth == reader.depth {
 			reader.topObjectDepth = 0
@@ -403,10 +429,12 @@ func (reader *importJSONLexicalLimitReader) consumeByte(value byte) error {
 			reader.topColumn = ""
 		}
 		if reader.depth > 1 {
+			reader.clearContainer(reader.depth)
 			reader.depth--
 		}
 	case ']':
 		if reader.depth > 1 {
+			reader.clearContainer(reader.depth)
 			reader.depth--
 		}
 	case ',':
@@ -414,17 +442,36 @@ func (reader *importJSONLexicalLimitReader) consumeByte(value byte) error {
 			reader.topExpectKey = true
 			reader.topColumn = ""
 		}
+		if reader.isObjectAt(reader.depth) {
+			reader.containerExpectKey[reader.depth] = true
+		}
 	case ':':
 		if reader.topObjectDepth > 0 && reader.depth == reader.topObjectDepth && !reader.topExpectKey {
 			reader.topValuePending = true
 			reader.topValueMode = importJSONValueLimitNone
 			reader.topValueRaw = 0
 		}
+		if reader.isObjectAt(reader.depth) {
+			reader.containerExpectKey[reader.depth] = false
+		}
 	}
 	return nil
 }
 
-func (reader *importJSONLexicalLimitReader) startString() {
+func (reader *importJSONLexicalLimitReader) startString() error {
+	reader.stringIsKey = reader.isObjectAt(reader.depth) &&
+		reader.containerExpectKey[reader.depth]
+	if reader.stringIsKey {
+		reader.elementKeyCount++
+		if reader.elementKeyCount > reader.limits.maxFields {
+			return &ImportFileLimitError{
+				Format: "JSON",
+				Kind:   ImportFileFieldLimit,
+				Row:    reader.row,
+				Limit:  reader.limits.maxFields,
+			}
+		}
+	}
 	reader.inString = true
 	reader.escaped = false
 	reader.unicodeDigits = 0
@@ -437,6 +484,7 @@ func (reader *importJSONLexicalLimitReader) startString() {
 	if !reader.stringIsTopKey {
 		reader.stringColumn = reader.topColumn
 	}
+	return nil
 }
 
 func (reader *importJSONLexicalLimitReader) consumeStringByte(value byte) error {
@@ -480,6 +528,9 @@ func (reader *importJSONLexicalLimitReader) consumeStringByte(value byte) error 
 	}
 	if value == '"' {
 		reader.inString = false
+		if reader.stringIsKey {
+			reader.containerExpectKey[reader.depth] = false
+		}
 		if reader.stringIsTopKey {
 			reader.topExpectKey = false
 			if reader.topKeyUsable {
@@ -585,10 +636,37 @@ func (reader *importJSONLexicalLimitReader) finishTopValue() {
 func (reader *importJSONLexicalLimitReader) finishElement() {
 	reader.inElement = false
 	reader.elementRaw = 0
+	reader.elementKeyCount = 0
 	reader.topObjectDepth = 0
 	reader.topExpectKey = false
 	reader.topColumn = ""
 	reader.finishTopValue()
+}
+
+func (reader *importJSONLexicalLimitReader) setContainer(depth int, kind byte) {
+	if depth <= 0 {
+		return
+	}
+	for len(reader.containerKinds) <= depth {
+		reader.containerKinds = append(reader.containerKinds, 0)
+		reader.containerExpectKey = append(reader.containerExpectKey, false)
+	}
+	reader.containerKinds[depth] = kind
+	reader.containerExpectKey[depth] = kind == '{'
+}
+
+func (reader *importJSONLexicalLimitReader) clearContainer(depth int) {
+	if depth <= 0 || depth >= len(reader.containerKinds) {
+		return
+	}
+	reader.containerKinds[depth] = 0
+	reader.containerExpectKey[depth] = false
+}
+
+func (reader *importJSONLexicalLimitReader) isObjectAt(depth int) bool {
+	return depth > 0 &&
+		depth < len(reader.containerKinds) &&
+		reader.containerKinds[depth] == '{'
 }
 
 func importJSONSimpleEscape(value byte) (byte, bool) {

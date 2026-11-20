@@ -147,6 +147,7 @@ type App struct {
 	keepAliveCancel               context.CancelFunc
 	keepAliveDone                 chan struct{}
 	resultDiffManager             *resultdiff.Manager
+	scriptWorkbench               scriptWorkbenchRuntime
 	saveFileDialog                saveFileDialogFunc
 	cloudBackupSyncMu             sync.Mutex
 	cloudBackupStateMu            sync.Mutex

@@ -6,25 +6,32 @@ import (
 )
 
 const (
-	xlsxWorkbookXMLPath     = "xl/workbook.xml"
-	xlsxWorkbookRelsXMLPath = "xl/_rels/workbook.xml.rels"
-	xlsxSharedStringsXML    = "xl/sharedStrings.xml"
-	xlsxStylesXMLPath       = "xl/styles.xml"
-	maxXLSXSharedStrings    = 10_000_000
-	maxXLSXCellStyles       = 65_536
-	maxXLSXNumberFormats    = 65_536
+	xlsxWorkbookXMLPath      = "xl/workbook.xml"
+	xlsxWorkbookRelsXMLPath  = "xl/_rels/workbook.xml.rels"
+	xlsxSharedStringsXML     = "xl/sharedStrings.xml"
+	xlsxStylesXMLPath        = "xl/styles.xml"
+	maxXLSXSharedStrings     = 1_000_000
+	maxXLSXSharedStringBytes = int64(256 << 20)
+	maxXLSXCellStyles        = 65_536
+	maxXLSXNumberFormats     = 65_536
 )
 
 type xlsxArchiveResourceLimits struct {
 	MaxEntryUncompressedBytes uint64
 	MaxTotalUncompressedBytes uint64
 	MaxCompressionRatio       uint64
+	MaxSharedStringCount      int
+	MaxSharedStringValueBytes int
+	MaxSharedStringBytes      int64
 }
 
 var defaultXLSXArchiveResourceLimits = xlsxArchiveResourceLimits{
-	MaxEntryUncompressedBytes: 16 << 30,
-	MaxTotalUncompressedBytes: 64 << 30,
+	MaxEntryUncompressedBytes: 512 << 20,
+	MaxTotalUncompressedBytes: 1 << 30,
 	MaxCompressionRatio:       1000,
+	MaxSharedStringCount:      maxXLSXSharedStrings,
+	MaxSharedStringValueBytes: maxImportCellBytes,
+	MaxSharedStringBytes:      maxXLSXSharedStringBytes,
 }
 
 func streamXLSXImportFile(filePath string, consumer importFileConsumer) error {
@@ -32,7 +39,7 @@ func streamXLSXImportFile(filePath string, consumer importFileConsumer) error {
 }
 
 func streamXLSXImportFileWithOptions(filePath string, consumer importFileConsumer, options ImportFileOptions) error {
-	return streamXLSXImportFileWithOptionsAndLimits(filePath, consumer, options, defaultXLSXArchiveResourceLimits)
+	return streamXLSXImportFileWithOptionsAndLimits(filePath, consumer, options, options.xlsxLimits)
 }
 
 func streamXLSXImportFileWithLimits(filePath string, consumer importFileConsumer, limits xlsxArchiveResourceLimits) error {
@@ -51,10 +58,12 @@ func streamXLSXImportFileWithOptionsAndLimits(
 	if err := validateImportFileOptions(options); err != nil {
 		return err
 	}
+	limits = normalizeXLSXArchiveResourceLimits(limits)
 	reader, err := zip.OpenReader(filePath)
 	if err != nil {
 		return fmt.Errorf("Excel Parse Error: %w", err)
 	}
+	options.sourceRegistry.Attach(reader)
 	defer reader.Close()
 	var totalUncompressedBytes uint64
 	for _, entry := range reader.File {
@@ -106,7 +115,12 @@ func streamXLSXImportFileWithOptionsAndLimits(
 		return fmt.Errorf("Excel Parse Error: %w", err)
 	}
 
-	sharedStrings, err := loadXLSXSharedStrings(entryByPath[xlsxSharedStringsXML])
+	sharedStrings, err := loadXLSXSharedStringsWithLimits(
+		entryByPath[xlsxSharedStringsXML],
+		limits.MaxSharedStringCount,
+		limits.MaxSharedStringValueBytes,
+		limits.MaxSharedStringBytes,
+	)
 	if err != nil {
 		return fmt.Errorf("Excel Parse Error: %w", err)
 	}
@@ -126,4 +140,27 @@ func streamXLSXImportFileWithOptionsAndLimits(
 		return fmt.Errorf("Excel Read Error: %w", err)
 	}
 	return nil
+}
+
+func normalizeXLSXArchiveResourceLimits(limits xlsxArchiveResourceLimits) xlsxArchiveResourceLimits {
+	defaults := defaultXLSXArchiveResourceLimits
+	if limits.MaxEntryUncompressedBytes == 0 {
+		limits.MaxEntryUncompressedBytes = defaults.MaxEntryUncompressedBytes
+	}
+	if limits.MaxTotalUncompressedBytes == 0 {
+		limits.MaxTotalUncompressedBytes = defaults.MaxTotalUncompressedBytes
+	}
+	if limits.MaxCompressionRatio == 0 {
+		limits.MaxCompressionRatio = defaults.MaxCompressionRatio
+	}
+	if limits.MaxSharedStringCount <= 0 {
+		limits.MaxSharedStringCount = defaults.MaxSharedStringCount
+	}
+	if limits.MaxSharedStringValueBytes <= 0 {
+		limits.MaxSharedStringValueBytes = defaults.MaxSharedStringValueBytes
+	}
+	if limits.MaxSharedStringBytes <= 0 {
+		limits.MaxSharedStringBytes = defaults.MaxSharedStringBytes
+	}
+	return limits
 }

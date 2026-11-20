@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	appcore "GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 func buildWebUploadRequest(t *testing.T, purpose string, fileName string, content string) *http.Request {
@@ -33,6 +34,13 @@ func buildWebUploadRequest(t *testing.T, purpose string, fileName string, conten
 	return request
 }
 
+func withWebActor(request *http.Request, username string) *http.Request {
+	return request.WithContext(webidentity.WithActor(request.Context(), webidentity.Actor{
+		Username: username,
+		Role:     webidentity.RoleAdmin,
+	}))
+}
+
 func newWebFileTransferServer(t *testing.T) (*Server, *appcore.App) {
 	t.Helper()
 	t.Setenv("GONAVI_DATA_ROOT", t.TempDir())
@@ -42,7 +50,7 @@ func newWebFileTransferServer(t *testing.T) (*Server, *appcore.App) {
 
 func TestWebUploadHandlerReturnsOpaqueTokenAndEnforcesPurpose(t *testing.T) {
 	server, _ := newWebFileTransferServer(t)
-	request := buildWebUploadRequest(t, "data-import", `C:\fakepath\customers.csv`, "id,name\n1,Ada\n")
+	request := withWebActor(buildWebUploadRequest(t, "data-import", `C:\fakepath\customers.csv`, "id,name\n1,Ada\n"), "alice")
 	recorder := httptest.NewRecorder()
 	server.handleWebUpload(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -66,7 +74,7 @@ func TestWebUploadHandlerReturnsOpaqueTokenAndEnforcesPurpose(t *testing.T) {
 		t.Fatalf("upload response leaked a managed path: %s", recorder.Body.String())
 	}
 
-	wrongPurpose := buildWebUploadRequest(t, "sql-execution", "customers.csv", "id\n1\n")
+	wrongPurpose := withWebActor(buildWebUploadRequest(t, "sql-execution", "customers.csv", "id\n1\n"), "alice")
 	wrongRecorder := httptest.NewRecorder()
 	server.handleWebUpload(wrongRecorder, wrongPurpose)
 	if wrongRecorder.Code != http.StatusBadRequest {
@@ -82,6 +90,27 @@ func TestWebUploadHandlerRejectsOversizeContentLengthBeforeStaging(t *testing.T)
 	server.handleWebUpload(recorder, request)
 	if recorder.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversize status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestWebScriptInputUploadRequiresActor(t *testing.T) {
+	server, _ := newWebFileTransferServer(t)
+	unauthorized := buildWebUploadRequest(t, webScriptInputUploadPurpose, "ids.csv", "id\n1\n")
+	unauthorizedRecorder := httptest.NewRecorder()
+	server.handleWebUpload(unauthorizedRecorder, unauthorized)
+	if unauthorizedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated script upload status = %d, body=%s", unauthorizedRecorder.Code, unauthorizedRecorder.Body.String())
+	}
+
+	authorized := buildWebUploadRequest(t, webScriptInputUploadPurpose, "ids.csv", "id\n1\n")
+	authorized = authorized.WithContext(webidentity.WithActor(authorized.Context(), webidentity.Actor{
+		Username: "alice",
+		Role:     webidentity.RoleViewer,
+	}))
+	authorizedRecorder := httptest.NewRecorder()
+	server.handleWebUpload(authorizedRecorder, authorized)
+	if authorizedRecorder.Code != http.StatusOK {
+		t.Fatalf("authenticated script upload status = %d, body=%s", authorizedRecorder.Code, authorizedRecorder.Body.String())
 	}
 }
 
@@ -116,9 +145,12 @@ func TestWebDownloadHandlerSupportsMetadataHeadAndRange(t *testing.T) {
 	}
 	data := result.Data.(map[string]interface{})
 	download := data["webDownload"].(appcore.WebDownloadInfo)
+	if err := appcore.ClaimWebDownloadOwnerForResult(application, result, "alice"); err != nil {
+		t.Fatalf("claim download owner: %v", err)
+	}
 	url := internalRoutePrefix + "/api/download/" + download.Token
 
-	headRequest := httptest.NewRequest(http.MethodHead, url, nil)
+	headRequest := withWebActor(httptest.NewRequest(http.MethodHead, url, nil), "alice")
 	headRecorder := httptest.NewRecorder()
 	server.handleWebDownload(headRecorder, headRequest)
 	if headRecorder.Code != http.StatusOK || headRecorder.Body.Len() != 0 {
@@ -131,7 +163,7 @@ func TestWebDownloadHandlerSupportsMetadataHeadAndRange(t *testing.T) {
 		t.Fatalf("Cache-Control = %q", headRecorder.Header().Get("Cache-Control"))
 	}
 
-	rangeRequest := httptest.NewRequest(http.MethodGet, url, nil)
+	rangeRequest := withWebActor(httptest.NewRequest(http.MethodGet, url, nil), "alice")
 	rangeRequest.Header.Set("Range", "bytes=0-2")
 	rangeRecorder := httptest.NewRecorder()
 	server.handleWebDownload(rangeRecorder, rangeRequest)
@@ -143,9 +175,15 @@ func TestWebDownloadHandlerSupportsMetadataHeadAndRange(t *testing.T) {
 	}
 
 	missingRecorder := httptest.NewRecorder()
-	server.handleWebDownload(missingRecorder, httptest.NewRequest(http.MethodGet, internalRoutePrefix+"/api/download/not-a-token", nil))
+	server.handleWebDownload(missingRecorder, withWebActor(httptest.NewRequest(http.MethodGet, internalRoutePrefix+"/api/download/not-a-token", nil), "alice"))
 	if missingRecorder.Code != http.StatusNotFound {
 		t.Fatalf("invalid token status = %d", missingRecorder.Code)
+	}
+
+	otherUserRecorder := httptest.NewRecorder()
+	server.handleWebDownload(otherUserRecorder, withWebActor(httptest.NewRequest(http.MethodGet, url, nil), "bob"))
+	if otherUserRecorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-user download status = %d, body=%s", otherUserRecorder.Code, otherUserRecorder.Body.String())
 	}
 }
 

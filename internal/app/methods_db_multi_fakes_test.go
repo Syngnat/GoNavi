@@ -240,6 +240,7 @@ func (f *fakeBatchWriteDB) QueryContextWithMessages(ctx context.Context, query s
 }
 
 func (f *fakeBatchWriteDB) ExecBatchContext(ctx context.Context, query string) (int64, error) {
+	f.lastCtx = ctx
 	f.batchCalls++
 	f.lastQuery = query
 	if f.batchErr != nil {

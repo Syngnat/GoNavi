@@ -26,6 +26,13 @@ var viewerForbiddenPrefixes = []string{
 	"Commit", "Rollback", "ForceQuit",
 }
 
+// RunScriptWorkbench deliberately accepts viewer calls: the App layer forces
+// AllowWrite=false for viewers and every database write still passes the saved
+// connection's read-only/protection checks.
+var viewerAllowedMutatingExceptions = map[string]struct{}{
+	"RunScriptWorkbench": {},
+}
+
 func exportedAppMethodNames() []string {
 	appType := reflect.TypeOf((*appcore.App)(nil))
 	names := make([]string, 0, appType.NumMethod())
@@ -53,6 +60,9 @@ func TestDesktopOnlyMethodListCoversLocalFileAndLifecycleMethods(t *testing.T) {
 func TestViewerAllowlistNeverContainsMutatingMethods(t *testing.T) {
 	for _, name := range exportedAppMethodNames() {
 		if !matchesAnyPrefix(name, viewerForbiddenPrefixes) {
+			continue
+		}
+		if _, allowed := viewerAllowedMutatingExceptions[name]; allowed {
 			continue
 		}
 		if viewerAllowedInvoke("app", name) {

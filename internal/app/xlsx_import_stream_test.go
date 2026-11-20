@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/zip"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -138,6 +139,69 @@ func TestXLSXImportRejectsRowOverCombinedByteLimit(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "row 2") || !strings.Contains(err.Error(), "byte limit") {
 		t.Fatalf("unexpected XLSX row limit error: %v", err)
+	}
+}
+
+func TestXLSXScriptInputUsesIndependentRowAndColumnLimits(t *testing.T) {
+	entries := minimalXLSXTestEntries(
+		`<sst></sst>`,
+		inlineStringXLSXSheet([][]string{
+			{"a", "b"},
+			{strings.Repeat("x", 96), strings.Repeat("y", 96), strings.Repeat("z", 96)},
+		}),
+	)
+	path := writeXLSXTestArchive(t, entries)
+	options := scriptWorkbenchInputOptions(scriptPreparedInput{
+		alias:     "ids",
+		path:      path,
+		headerRow: 1,
+		batchSize: 10,
+	})
+	options.lexicalLimits.maxCellBytes = 128
+	options.lexicalLimits.maxRowBytes = 256
+	options.lexicalLimits.maxFields = 4
+
+	err := streamImportFileWithOptions(path, newImportPreviewCollector(10), options)
+	if err == nil || !strings.Contains(err.Error(), "row 2") || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("script XLSX row limit error = %v", err)
+	}
+}
+
+func TestXLSXScriptInputRejectsTooManyColumns(t *testing.T) {
+	entries := minimalXLSXTestEntries(
+		`<sst></sst>`,
+		inlineStringXLSXSheet([][]string{
+			{"a", "b"},
+			{"1", "2", "3"},
+		}),
+	)
+	path := writeXLSXTestArchive(t, entries)
+	options := scriptWorkbenchInputOptions(scriptPreparedInput{
+		alias:     "ids",
+		path:      path,
+		headerRow: 1,
+		batchSize: 10,
+	})
+	options.lexicalLimits.maxFields = 2
+
+	err := streamImportFileWithOptions(path, newImportPreviewCollector(10), options)
+	var limitErr *ImportFileLimitError
+	if !errors.As(err, &limitErr) || limitErr.Kind != ImportFileFieldLimit {
+		t.Fatalf("script XLSX field limit error = %#v (%v)", limitErr, err)
+	}
+}
+
+func TestXLSXSharedStringStoreEnforcesTotalByteQuota(t *testing.T) {
+	store, err := newXLSXSharedStringStoreWithQuotas(10, 32, 20)
+	if err != nil {
+		t.Fatalf("create shared-string store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Add("12345678"); err != nil {
+		t.Fatalf("add first shared string: %v", err)
+	}
+	if err := store.Add("abcdefgh"); err == nil || !strings.Contains(err.Error(), "total limit") {
+		t.Fatalf("second shared string error = %v, want total limit", err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 // localizeImportHeaderMetadataError 把带 i18n key 的表头元数据错误转换为当前语言文案。
@@ -32,7 +33,7 @@ func (a *App) inferImportTableSchemaContext(ctx context.Context, config connecti
 	if err := validateImportFileOptions(options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	resolvedPath, err := a.resolveWebUploadReference(filePath, webUploadPurposeDataImport)
+	resolvedPath, err := a.resolveWebUploadReferenceForOwner(filePath, webUploadPurposeDataImport, webidentity.UsernameFromContext(ctx))
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

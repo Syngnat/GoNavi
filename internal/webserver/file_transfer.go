@@ -13,11 +13,13 @@ import (
 	"time"
 
 	appcore "GoNavi-Wails/internal/app"
+	"GoNavi-Wails/internal/webidentity"
 )
 
 const (
 	webUploadMultipartOverheadBytes int64 = 1 << 20
 	webUploadReadTimeout                  = 5 * time.Minute
+	webScriptInputUploadPurpose           = "script-input"
 )
 
 type webFileTransferResponse struct {
@@ -47,12 +49,19 @@ func (s *Server) handleWebUpload(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
+	purpose := r.URL.Query().Get("purpose")
+	actor, ok := webidentity.ActorFromContext(r.Context())
+	if !ok {
+		s.writeWebFileTransferResponse(w, http.StatusUnauthorized, webFileTransferResponse{Message: "authentication required"})
+		return
+	}
+	ownerUsername := actor.Username
+
 	reader, err := r.MultipartReader()
 	if err != nil {
 		s.writeWebFileTransferResponse(w, http.StatusBadRequest, webFileTransferResponse{Message: "invalid multipart upload"})
 		return
 	}
-	purpose := r.URL.Query().Get("purpose")
 	for {
 		part, nextErr := reader.NextPart()
 		if errors.Is(nextErr, io.EOF) {
@@ -67,7 +76,7 @@ func (s *Server) handleWebUpload(w http.ResponseWriter, r *http.Request) {
 			_ = part.Close()
 			continue
 		}
-		info, stageErr := appcore.StageWebUploadForEntryPoint(s.app, purpose, part.FileName(), part)
+		info, stageErr := appcore.StageWebUploadForEntryPointForOwner(s.app, purpose, part.FileName(), part, ownerUsername)
 		_ = part.Close()
 		if stageErr != nil {
 			s.writeWebUploadError(w, stageErr)
@@ -113,7 +122,12 @@ func (s *Server) handleWebDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	file, download, err := appcore.OpenWebDownloadForEntryPoint(s.app, token)
+	actor, ok := webidentity.ActorFromContext(r.Context())
+	if !ok {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	file, download, err := appcore.OpenWebDownloadForOwner(s.app, token, actor.Username)
 	if err != nil {
 		if errors.Is(err, appcore.ErrWebTransferNotFound) || errors.Is(err, appcore.ErrInvalidWebTransferToken) {
 			http.NotFound(w, r)

@@ -9,6 +9,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/importjob"
 	"GoNavi-Wails/internal/uievents"
+	"GoNavi-Wails/internal/webidentity"
 
 	runtime "GoNavi-Wails/internal/desktop"
 )
@@ -35,7 +36,7 @@ func (a *App) previewImportFileContext(ctx context.Context, filePath string, opt
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.import_file_empty", nil)}
 	}
 	fileReference := filePath
-	resolvedPath, err := a.resolveWebUploadReference(filePath, webUploadPurposeDataImport)
+	resolvedPath, err := a.resolveWebUploadReferenceForOwner(filePath, webUploadPurposeDataImport, webidentity.UsernameFromContext(ctx))
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -195,7 +196,7 @@ func (a *App) ImportDataWithProgressOptions(config connection.ConnectionConfig, 
 }
 
 func (a *App) importDataWithProgressContext(parent context.Context, config connection.ConnectionConfig, dbName, tableName, filePath string, options ImportFileOptions) (result connection.QueryResult) {
-	resolvedPath, err := a.resolveWebUploadReference(filePath, webUploadPurposeDataImport)
+	resolvedPath, err := a.resolveWebUploadReferenceForOwner(filePath, webUploadPurposeDataImport, webidentity.UsernameFromContext(parent))
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
