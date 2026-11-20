@@ -146,8 +146,18 @@ export const migrateLegacySidebarSearchShortcutOptions = (value: unknown): Short
   return options;
 };
 
+export const shortcutScopesConflict = (
+  left: ShortcutAction,
+  right: ShortcutAction,
+): boolean => {
+  const leftScope = SHORTCUT_ACTION_META[left].scope || 'global';
+  const rightScope = SHORTCUT_ACTION_META[right].scope || 'global';
+  return leftScope === 'global' || rightScope === 'global' || leftScope === rightScope;
+};
+
 // 改键冲突检测：目标组合键是否已被其它已启用动作占用（设置中心改键与
-// 快捷键搜索共用）。返回按注册顺序排列的冲突动作列表。
+// 快捷键搜索共用）。不同局部作用域（查询编辑器/脚本工作台/AI 输入框）
+// 可以复用同一组合键；global 作用域与所有作用域互斥。
 export const findEnabledActionConflicts = (
   options: ShortcutOptions,
   targetAction: ShortcutAction,
@@ -155,6 +165,9 @@ export const findEnabledActionConflicts = (
   platform: ShortcutPlatform,
 ): ShortcutAction[] => SHORTCUT_ACTION_ORDER.filter((action) => {
   if (action === targetAction) {
+    return false;
+  }
+  if (!shortcutScopesConflict(targetAction, action)) {
     return false;
   }
   const binding = resolveShortcutBinding(options, action, platform);

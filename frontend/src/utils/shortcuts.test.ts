@@ -29,11 +29,13 @@ import {
   migrateLegacySidebarSearchShortcutOptions,
   resolveShortcutBinding,
   resolveShortcutDisplay,
+  shortcutScopesConflict,
   setGlobalShortcutCaptureActive,
   setGlobalImeCompositionActive,
   sanitizeShortcutOptions,
   SHORTCUT_ACTION_META,
   SHORTCUT_ACTION_ORDER,
+  type ShortcutAction,
 } from './shortcuts';
 import type { ConflictInfo } from './shortcuts';
 
@@ -617,17 +619,31 @@ describe('shortcut defaults', () => {
     });
   });
 
-  it('keeps enabled default shortcuts unique per platform', () => {
+  it('keeps enabled default shortcuts unique within overlapping scopes', () => {
     for (const platform of ['mac', 'windows'] as const) {
-      const seen = new Map<string, string>();
+      const seen = new Map<string, ShortcutAction[]>();
       Object.entries(DEFAULT_SHORTCUT_OPTIONS).forEach(([action, bindings]) => {
         const binding = bindings[platform];
         if (!binding.enabled || !binding.combo) return;
-        const existingAction = seen.get(binding.combo);
-        expect(existingAction, `${platform} ${binding.combo} is shared by ${existingAction} and ${action}`).toBeUndefined();
-        seen.set(binding.combo, action);
+        const typedAction = action as ShortcutAction;
+        const existingActions = seen.get(binding.combo) || [];
+        const conflicts = existingActions.filter((existing) => (
+          shortcutScopesConflict(existing, typedAction)
+        ));
+        expect(
+          conflicts,
+          `${platform} ${binding.combo} conflicts with ${conflicts.join(', ')}`,
+        ).toEqual([]);
+        seen.set(binding.combo, [...existingActions, typedAction]);
       });
     }
+  });
+
+  it('allows the same combo in different local scopes but not across global actions', () => {
+    expect(shortcutScopesConflict('saveQuery', 'scriptWorkbenchSave')).toBe(false);
+    expect(shortcutScopesConflict('saveQueryAs', 'scriptWorkbenchShare')).toBe(false);
+    expect(shortcutScopesConflict('runQuery', 'scriptWorkbenchRun')).toBe(true);
+    expect(shortcutScopesConflict('closeActiveTab', 'scriptWorkbenchRun')).toBe(true);
   });
 
   it('uses Navicat-inspired defaults separately for macOS and Windows/Linux', () => {
@@ -671,6 +687,30 @@ describe('shortcut defaults', () => {
     });
     expect(SHORTCUT_ACTION_META.newConnection.label).toBe('新建数据源');
     expect(SHORTCUT_ACTION_META.toggleAIPanel.label).toBe('打开 AI 数据洞察');
+  });
+
+  it('registers script workbench actions with scoped defaults', () => {
+    expect(DEFAULT_SHORTCUT_OPTIONS.scriptWorkbenchRun).toEqual({
+      mac: { combo: 'Meta+Enter', enabled: true },
+      windows: { combo: 'Ctrl+Enter', enabled: true },
+    });
+    expect(DEFAULT_SHORTCUT_OPTIONS.scriptWorkbenchSave).toEqual({
+      mac: { combo: 'Meta+S', enabled: true },
+      windows: { combo: 'Ctrl+S', enabled: true },
+    });
+    expect(DEFAULT_SHORTCUT_OPTIONS.scriptWorkbenchLibrary).toEqual({
+      mac: { combo: 'Meta+O', enabled: true },
+      windows: { combo: 'Ctrl+O', enabled: true },
+    });
+    expect(DEFAULT_SHORTCUT_OPTIONS.scriptWorkbenchShare).toEqual({
+      mac: { combo: 'Meta+Shift+S', enabled: true },
+      windows: { combo: 'Ctrl+Shift+S', enabled: true },
+    });
+    expect(SHORTCUT_ACTION_META.scriptWorkbenchRun).toMatchObject({
+      scope: 'scriptWorkbench',
+      allowInEditable: true,
+    });
+    expect(SHORTCUT_ACTION_META.scriptWorkbenchSave.scope).toBe('scriptWorkbench');
   });
 
   it('migrates legacy single-platform shortcut bindings into both platform slots', () => {

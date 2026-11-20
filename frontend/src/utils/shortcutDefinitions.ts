@@ -29,7 +29,14 @@ export type ShortcutAction =
   | 'diagnoseExecutionError'
   | 'optimizeQueryWithAI'
   | 'showSlowQueries'
-  | 'refreshTableData';
+  | 'refreshTableData'
+  | 'scriptWorkbenchRun'
+  | 'scriptWorkbenchCancel'
+  | 'scriptWorkbenchSave'
+  | 'scriptWorkbenchLibrary'
+  | 'scriptWorkbenchSettings'
+  | 'scriptWorkbenchShare'
+  | 'scriptWorkbenchAI';
 
 export type ShortcutPlatform = 'mac' | 'windows';
 
@@ -47,7 +54,7 @@ export interface ShortcutActionMeta {
   description: string;
   allowInEditable?: boolean;
   allowWithoutModifier?: boolean;
-  scope?: 'global' | 'aiComposer' | 'queryEditor';
+  scope?: 'global' | 'aiComposer' | 'queryEditor' | 'scriptWorkbench';
   requiredKey?: string;
   disallowShift?: boolean;
   platformOnly?: 'mac';
@@ -136,6 +143,13 @@ export const SHORTCUT_ACTION_ORDER: ShortcutAction[] = [
   'optimizeQueryWithAI',
   'showSlowQueries',
   'refreshTableData',
+  'scriptWorkbenchRun',
+  'scriptWorkbenchCancel',
+  'scriptWorkbenchSave',
+  'scriptWorkbenchLibrary',
+  'scriptWorkbenchSettings',
+  'scriptWorkbenchShare',
+  'scriptWorkbenchAI',
   'openShortcutManager',
   'toggleMacFullscreen',
   'resetWindowZoom',
@@ -311,6 +325,49 @@ const SHORTCUT_ACTION_META_DEFINITIONS: Record<ShortcutAction, ShortcutActionMet
     scope: 'queryEditor',
     allowInEditable: true,
   },
+  scriptWorkbenchRun: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchRun.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchRun.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+    allowedReservedMonacoCommandIds: ['editor.action.insertLineAfter'],
+  },
+  scriptWorkbenchCancel: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchCancel.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchCancel.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+  },
+  scriptWorkbenchSave: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchSave.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchSave.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+  },
+  scriptWorkbenchLibrary: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchLibrary.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchLibrary.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+  },
+  scriptWorkbenchSettings: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchSettings.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchSettings.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+  },
+  scriptWorkbenchShare: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchShare.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchShare.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+  },
+  scriptWorkbenchAI: {
+    labelKey: 'app.shortcuts.action.scriptWorkbenchAI.label',
+    descriptionKey: 'app.shortcuts.action.scriptWorkbenchAI.description',
+    scope: 'scriptWorkbench',
+    allowInEditable: true,
+  },
   openShortcutManager: {
     labelKey: 'app.shortcuts.action.openShortcutManager.label',
     descriptionKey: 'app.shortcuts.action.openShortcutManager.description',
@@ -449,6 +506,34 @@ export const DEFAULT_SHORTCUT_OPTIONS: ShortcutOptions = {
   refreshTableData: {
     mac: { combo: 'Meta+Shift+R', enabled: true },
     windows: { combo: 'F5', enabled: true },
+  },
+  scriptWorkbenchRun: {
+    mac: { combo: 'Meta+Enter', enabled: true },
+    windows: { combo: 'Ctrl+Enter', enabled: true },
+  },
+  scriptWorkbenchCancel: {
+    mac: { combo: 'Meta+.', enabled: true },
+    windows: { combo: 'Ctrl+.', enabled: true },
+  },
+  scriptWorkbenchSave: {
+    mac: { combo: 'Meta+S', enabled: true },
+    windows: { combo: 'Ctrl+S', enabled: true },
+  },
+  scriptWorkbenchLibrary: {
+    mac: { combo: 'Meta+O', enabled: true },
+    windows: { combo: 'Ctrl+O', enabled: true },
+  },
+  scriptWorkbenchSettings: {
+    mac: { combo: 'Meta+Shift+O', enabled: true },
+    windows: { combo: 'Ctrl+Shift+O', enabled: true },
+  },
+  scriptWorkbenchShare: {
+    mac: { combo: 'Meta+Shift+S', enabled: true },
+    windows: { combo: 'Ctrl+Shift+S', enabled: true },
+  },
+  scriptWorkbenchAI: {
+    mac: { combo: 'Meta+Shift+I', enabled: true },
+    windows: { combo: 'Ctrl+Shift+I', enabled: true },
   },
   openShortcutManager: {
     mac: { combo: 'Meta+,', enabled: true },

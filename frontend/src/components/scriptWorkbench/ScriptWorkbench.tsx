@@ -36,7 +36,13 @@ import { ScriptWorkbenchResults } from './ScriptWorkbenchResults';
 import { ScriptLibraryDialog } from './ScriptLibraryDialog';
 import { ScriptWorkbenchWriteDialog, type ScriptWriteTarget } from './ScriptWorkbenchWriteDialog';
 import { ScriptWorkbenchConfirmDialog } from './ScriptWorkbenchConfirmDialog';
+import {
+  useScriptWorkbenchShortcuts,
+  type ScriptWorkbenchShortcutAction,
+} from './useScriptWorkbenchShortcuts';
 import { registerWorkbenchTabCloseGuard } from '../../utils/workbenchTabCloseProtection';
+import { isMacLikePlatform } from '../../utils/appearance';
+import { getShortcutPlatform, resolveShortcutDisplay } from '../../utils/shortcuts';
 import {
   ScriptWorkbenchRequestError,
   formatScriptWorkbenchError,
@@ -60,6 +66,12 @@ const ScriptWorkbench: React.FC<ScriptWorkbenchProps> = ({
 }) => {
   const t = useScriptWorkbenchCopy();
   const connections = useStore((state) => state.connections);
+  const shortcutOptions = useStore((state) => state.shortcutOptions);
+  const activeShortcutPlatform = useMemo(
+    () => getShortcutPlatform(isMacLikePlatform()),
+    [],
+  );
+  const rootRef = useRef<HTMLElement | null>(null);
   const translateRef = useRef(t);
   translateRef.current = t;
   const backendAdapter = useMemo(
@@ -535,8 +547,59 @@ const ScriptWorkbench: React.FC<ScriptWorkbenchProps> = ({
     }, options.draftInstanceId);
   }, [draftState, persistence]);
 
+  const shortcutActions = useMemo<Record<ScriptWorkbenchShortcutAction, () => void>>(() => ({
+    scriptWorkbenchRun: () => {
+      if (!isRunning) handleRun();
+    },
+    scriptWorkbenchCancel: () => {
+      if (isRunning) void run.cancel();
+    },
+    scriptWorkbenchSave: () => {
+      if (canEditCurrent) void handleSave();
+    },
+    scriptWorkbenchLibrary: () => {
+      setLibraryOpen(true);
+      void library.refresh();
+    },
+    scriptWorkbenchSettings: () => setSettingsOpen((open) => !open),
+    scriptWorkbenchShare: () => {
+      if (canShareCurrent && !shareBusy) void handleShare();
+    },
+    scriptWorkbenchAI: handleRequestAI,
+  }), [
+    canEditCurrent,
+    canShareCurrent,
+    handleRequestAI,
+    handleRun,
+    handleSave,
+    handleShare,
+    isRunning,
+    library.refresh,
+    run.cancel,
+    shareBusy,
+  ]);
+
+  const shortcutLabels = useMemo(() => ({
+    settings: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchSettings', activeShortcutPlatform),
+    library: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchLibrary', activeShortcutPlatform),
+    ai: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchAI', activeShortcutPlatform),
+    share: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchShare', activeShortcutPlatform),
+    save: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchSave', activeShortcutPlatform),
+    run: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchRun', activeShortcutPlatform),
+    cancel: resolveShortcutDisplay(shortcutOptions, 'scriptWorkbenchCancel', activeShortcutPlatform),
+  }), [activeShortcutPlatform, shortcutOptions]);
+
+  useScriptWorkbenchShortcuts({
+    isActive,
+    rootRef,
+    shortcutOptions,
+    activeShortcutPlatform,
+    disabled: libraryOpen || writeConfirmOpen || discardConfirmOpen,
+    actions: shortcutActions,
+  });
+
   return (
-    <section className="gn-script-workbench" data-active={isActive ? 'true' : 'false'}>
+    <section ref={rootRef} className="gn-script-workbench" data-active={isActive ? 'true' : 'false'}>
       <ScriptWorkbenchHeader
         name={draft.name}
         dirty={draftState.dirty || !draft.id}
@@ -560,6 +623,7 @@ const ScriptWorkbench: React.FC<ScriptWorkbenchProps> = ({
         onRun={handleRun}
         onCancel={() => { void run.cancel(); }}
         onRequestAI={handleRequestAI}
+        shortcutLabels={shortcutLabels}
       />
       <ScriptWorkbenchContextBar
         connections={connections}

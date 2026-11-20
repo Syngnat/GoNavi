@@ -33,6 +33,7 @@ export {
   findEnabledActionConflicts,
   resolveShortcutBinding,
   isEditableElement,
+  shortcutScopesConflict,
   getShortcutDisplay,
   getShortcutDisplayLabel,
   getShortcutPrimaryModifierDisplayLabel,

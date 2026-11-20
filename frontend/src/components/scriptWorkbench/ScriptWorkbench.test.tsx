@@ -229,6 +229,34 @@ describe('ScriptWorkbench', () => {
     act(() => renderer!.unmount());
   });
 
+  it('runs the active script from the default keyboard shortcut', async () => {
+    const adapter = createAdapter();
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<ScriptWorkbench tab={tab} adapter={adapter} />);
+      await Promise.resolve();
+    });
+    const runButton = renderer!.root.findByProps({ 'data-testid': 'script-workbench-run' });
+    expect(runButton.props.title).toContain('Ctrl+Enter');
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }));
+      await Promise.resolve();
+    });
+
+    expect(adapter.runScript).toHaveBeenCalledWith(expect.objectContaining({
+      allowWrite: false,
+      script: expect.stringContaining('gonavi.db.query'),
+    }), expect.anything(), expect.anything());
+    act(() => renderer!.unmount());
+  });
+
   it('requires explicit write confirmation before calling the run backend', async () => {
     const adapter = createAdapter();
     let renderer: ReactTestRenderer | undefined;

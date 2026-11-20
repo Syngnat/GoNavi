@@ -35,6 +35,17 @@ interface ScriptWorkbenchHeaderProps {
   onRun: () => void;
   onCancel: () => void;
   onRequestAI: () => void;
+  shortcutLabels?: ScriptWorkbenchHeaderShortcutLabels;
+}
+
+export interface ScriptWorkbenchHeaderShortcutLabels {
+  settings?: string;
+  library?: string;
+  ai?: string;
+  share?: string;
+  save?: string;
+  run?: string;
+  cancel?: string;
 }
 
 export const ScriptWorkbenchHeader: React.FC<ScriptWorkbenchHeaderProps> = ({
@@ -57,6 +68,7 @@ export const ScriptWorkbenchHeader: React.FC<ScriptWorkbenchHeaderProps> = ({
   onRun,
   onCancel,
   onRequestAI,
+  shortcutLabels,
 }) => {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(name);
@@ -77,6 +89,10 @@ export const ScriptWorkbenchHeader: React.FC<ScriptWorkbenchHeaderProps> = ({
     setNameValue(name);
     if (next && next !== name) onNameChange(next);
   };
+
+  const withShortcut = (label: string, combo?: string): string => (
+    combo && combo !== '-' ? `${label} (${combo})` : label
+  );
 
   return (
   <header className="gn-script-workbench-header">
@@ -140,13 +156,25 @@ export const ScriptWorkbenchHeader: React.FC<ScriptWorkbenchHeaderProps> = ({
         aria-haspopup="dialog"
         aria-expanded={settingsOpen}
         onClick={onOpenSettings}
+        title={withShortcut(t('script_workbench.settings.title'), shortcutLabels?.settings)}
       >
         <SlidersOutlined aria-hidden="true" />{t('script_workbench.settings.title')}
       </button>
-      <button type="button" className="gn-script-button" data-testid="script-workbench-library" onClick={onOpenLibrary}>
+      <button
+        type="button"
+        className="gn-script-button"
+        data-testid="script-workbench-library"
+        onClick={onOpenLibrary}
+        title={withShortcut(t('script_workbench.action.library'), shortcutLabels?.library)}
+      >
         <BookOutlined aria-hidden="true" />{t('script_workbench.action.library')}
       </button>
-      <button type="button" className="gn-script-button" onClick={onRequestAI}>
+      <button
+        type="button"
+        className="gn-script-button"
+        onClick={onRequestAI}
+        title={withShortcut(t('script_workbench.action.ai'), shortcutLabels?.ai)}
+      >
         <RobotOutlined aria-hidden="true" />{t('script_workbench.action.ai')}
       </button>
       <button
@@ -156,21 +184,46 @@ export const ScriptWorkbenchHeader: React.FC<ScriptWorkbenchHeaderProps> = ({
         aria-busy={shareBusy || undefined}
         onClick={onShare}
         disabled={!canShare || shareBusy}
+        title={withShortcut(
+          visibility === 'shared'
+            ? t('script_workbench.action.unshare')
+            : t('script_workbench.action.share'),
+          shortcutLabels?.share,
+        )}
       >
         <ShareAltOutlined aria-hidden="true" />
         {visibility === 'shared'
           ? t('script_workbench.action.unshare')
           : t('script_workbench.action.share')}
       </button>
-      <button type="button" className="gn-script-button" data-testid="script-workbench-save" onClick={onSave} disabled={!canSave}>
+      <button
+        type="button"
+        className="gn-script-button"
+        data-testid="script-workbench-save"
+        onClick={onSave}
+        disabled={!canSave}
+        title={withShortcut(t('script_workbench.action.save'), shortcutLabels?.save)}
+      >
         <SaveOutlined aria-hidden="true" />{t('script_workbench.action.save')}
       </button>
       {running ? (
-        <button type="button" className="gn-script-button gn-script-button--danger" data-testid="script-workbench-cancel" onClick={onCancel}>
+        <button
+          type="button"
+          className="gn-script-button gn-script-button--danger"
+          data-testid="script-workbench-cancel"
+          onClick={onCancel}
+          title={withShortcut(t('script_workbench.action.cancel'), shortcutLabels?.cancel)}
+        >
           <StopOutlined aria-hidden="true" />{t('script_workbench.action.cancel')}
         </button>
       ) : (
-        <button type="button" className="gn-script-button gn-script-button--primary" data-testid="script-workbench-run" onClick={onRun}>
+        <button
+          type="button"
+          className="gn-script-button gn-script-button--primary"
+          data-testid="script-workbench-run"
+          onClick={onRun}
+          title={withShortcut(t('script_workbench.action.run'), shortcutLabels?.run)}
+        >
           <PlayCircleOutlined aria-hidden="true" />{t('script_workbench.action.run')}
         </button>
       )}
