@@ -46,6 +46,8 @@ const ConnectionTitle: React.FC<{
   <span
     className="gn-data-sync-connection-tree-node"
     data-node-kind="connection"
+    title={connection.name}
+    aria-label={connection.name}
   >
     <span
       className="gn-data-sync-connection-tree-node__icon"
@@ -63,7 +65,12 @@ const ConnectionTitle: React.FC<{
 );
 
 const GroupTitle: React.FC<{ name: string }> = ({ name }) => (
-  <span className="gn-data-sync-connection-tree-node" data-node-kind="group">
+  <span
+    className="gn-data-sync-connection-tree-node"
+    data-node-kind="group"
+    title={name}
+    aria-label={name}
+  >
     <FolderOutlined
       className="gn-data-sync-connection-tree-node__folder"
       aria-hidden="true"

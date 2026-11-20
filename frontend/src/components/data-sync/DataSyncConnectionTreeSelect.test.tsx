@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -122,6 +124,20 @@ const renderControl = (
 };
 
 describe('DataSyncConnectionTreeSelect', () => {
+  it('exposes full connection and group names as native titles', () => {
+    const { control } = renderControl('source');
+    const group = control.props.treeData[0] as DataSyncConnectionTreeDataNode;
+    const connection = group.children![0] as DataSyncConnectionTreeDataNode;
+
+    const groupRenderer = TestRenderer.create(group.title as React.ReactElement);
+    const connectionRenderer = TestRenderer.create(connection.title as React.ReactElement);
+
+    expect(groupRenderer.root.findByProps({ title: 'BeroHost-测试' })).toBeTruthy();
+    expect(
+      connectionRenderer.root.findByProps({ title: 'Elasticsearch' }),
+    ).toBeTruthy();
+  });
+
   it('keeps nested sidebar groups and ungrouped hosts while filtering each role', () => {
     const source = renderControl('source').control;
     const target = renderControl('target').control;

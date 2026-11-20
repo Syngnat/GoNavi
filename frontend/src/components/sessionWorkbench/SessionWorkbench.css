@@ -90,8 +90,24 @@ body[data-ui-version="v2"] .gn-session-workbench .ant-pagination {
 }
 
 .gn-session-workbench-connection-select.gn-data-sync-connection-tree-select {
-  width: 280px;
+  width: clamp(280px, 30vw, 360px);
   min-width: 220px;
+}
+
+.gn-session-workbench-connection-select .ant-select-selection-item,
+.gn-session-workbench-connection-select .ant-select-selection-wrap,
+.gn-session-workbench-connection-popup .ant-select-tree-title,
+.gn-session-workbench-connection-popup .gn-data-sync-connection-tree-node {
+  min-width: 0;
+}
+
+.gn-session-workbench-connection-select .gn-data-sync-connection-tree-node__name,
+.gn-session-workbench-connection-popup .gn-data-sync-connection-tree-node__name {
+  flex: 1 1 auto;
+}
+
+.gn-session-workbench-connection-select .ant-select-selection-item {
+  padding-inline-end: calc(24px * var(--gn-ui-scale, 1));
 }
 
 .gn-session-workbench-database-select.ant-select {

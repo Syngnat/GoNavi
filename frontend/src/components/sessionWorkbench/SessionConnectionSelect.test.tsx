@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -69,5 +71,54 @@ describe('SessionConnectionSelect', () => {
     expect(onChange).not.toHaveBeenCalled();
     act(() => props.onChange('connection:c3'));
     expect(onChange).toHaveBeenCalledWith('c3');
+  });
+
+  it('releases the search focus after a pick settles', () => {
+    vi.useFakeTimers();
+    try {
+      const props = render('c1', vi.fn());
+      const host = document.createElement('div');
+      host.className = 'gn-session-workbench-connection-select';
+      const input = document.createElement('input');
+      host.append(input);
+      document.body.append(host);
+      input.focus();
+
+      act(() => props.onChange('connection:c3'));
+      expect(document.activeElement).toBe(input);
+
+      act(() => {
+        vi.runAllTimers();
+      });
+      expect(document.activeElement).not.toBe(input);
+
+      host.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a pending blur when the picker reopens first', () => {
+    vi.useFakeTimers();
+    try {
+      const props = render('c1', vi.fn());
+      const host = document.createElement('div');
+      host.className = 'gn-session-workbench-connection-select';
+      const input = document.createElement('input');
+      host.append(input);
+      document.body.append(host);
+      input.focus();
+
+      act(() => props.onOpenChange(false));
+      act(() => props.onOpenChange(true));
+      act(() => {
+        vi.runAllTimers();
+      });
+      expect(document.activeElement).toBe(input);
+
+      host.remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

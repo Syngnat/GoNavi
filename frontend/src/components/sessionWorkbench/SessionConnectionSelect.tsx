@@ -13,6 +13,7 @@ import {
   firstMatchingConnectionValue,
 } from '../data-sync/DataSyncConnectionTreeSelect';
 import '../data-sync/DataSyncWorkbench.css';
+import { useSessionConnectionPickerBlur } from './useSessionConnectionPickerBlur';
 
 const CONNECTION_VALUE_PREFIX = 'connection:';
 
@@ -59,6 +60,7 @@ export default function SessionConnectionSelect({
   const selectedGroupsSignature = selectedGroups.join('\u0000');
   const [expandedGroups, setExpandedGroups] = useState<string[]>(selectedGroups);
   const [searchValue, setSearchValue] = useState('');
+  const { cancelPendingBlur, scheduleBlurAfterClose } = useSessionConnectionPickerBlur();
 
   useEffect(() => {
     setExpandedGroups(selectedGroups);
@@ -70,14 +72,20 @@ export default function SessionConnectionSelect({
     const connectionId = nodeValue.slice(CONNECTION_VALUE_PREFIX.length);
     if (!connections.some((connection) => connection.id === connectionId)) return false;
     setSearchValue('');
+    setExpandedGroups(defaultExpandedGroupValues(treeData, nodeValue));
     onChange(connectionId);
+    scheduleBlurAfterClose();
     return true;
   };
 
   return (
     <BrowserSafeTreeSelect
       className="gn-data-sync-connection-tree-select gn-session-workbench-connection-select"
-      classNames={{ popup: { root: 'gn-data-sync-connection-tree-popup' } }}
+      classNames={{
+        popup: {
+          root: 'gn-data-sync-connection-tree-popup gn-session-workbench-connection-popup',
+        },
+      }}
       aria-label={t('session_workbench.connection.label')}
       value={selectedValue}
       placeholder={t('session_workbench.connection.placeholder')}
@@ -97,13 +105,19 @@ export default function SessionConnectionSelect({
         Boolean(input.trim()) && node.searchText.includes(input.trim().toLocaleLowerCase())
       )}
       notFoundContent={t('session_workbench.connection.empty')}
+      onOpenChange={(open) => {
+        if (open) {
+          cancelPendingBlur();
+          return;
+        }
+        scheduleBlurAfterClose();
+      }}
       onInputKeyDown={(event) => {
         if (event.key !== 'Enter' || !searchValue) return;
         const match = firstMatchingConnectionValue(treeData, searchValue);
         if (!match) return;
         event.preventDefault();
         event.stopPropagation();
-        event.currentTarget.blur();
         commit(match);
       }}
       onChange={(next) => {
