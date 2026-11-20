@@ -166,12 +166,13 @@ func RenderRemoteMCPClientConfig(options RemoteMCPClientConfigOptions) (string, 
 		fmt.Sprintf("1. Windows 本机访问 http://%s/healthz，确认返回 ok。", normalized.LocalAddr),
 		fmt.Sprintf("2. %s 中配置上面的 Streamable HTTP MCP，URL 指向公网/隧道后的 %s。", normalized.DisplayName, normalized.URL),
 		"3. 先调用 get_connections 获取 connectionId，再调用 get_server_version / get_databases / get_objects / get_tables / get_views / get_columns / get_table_ddl。",
+		"4. 如需脚本能力，先去启动参数中的 --schema-only，再调用 get_script_library / get_script 查看绑定，并用 run_script 执行；长任务用 get_script_run / get_script_output 轮询和分页。",
 		"",
 		"安全边界：",
 		"- 数据库连接、账号和密码继续保存在 Windows GoNavi。",
 		"- 云端 Agent 只保存 MCP URL 和 Bearer Token。",
-		"- 默认 schema-only 模式不会注册 execute_sql，适合只给 OpenClaw/Hermans 读取对象与结构元数据。",
-		"- 如明确去掉 --schema-only 开放 execute_sql，它与内置 AI 助手共用安全控制：只读仅查询，读写可 DML，完全可 DDL。调用 execute_sql 即视为确认，不必再传 allowMutating。",
+		"- 默认 schema-only 模式不会注册 execute_sql 与脚本执行工具，适合只给 OpenClaw/Hermans 读取对象与结构元数据。",
+		"- 如明确去掉 --schema-only 开放 execute_sql 与脚本工具，它们共用 AI 安全控制：只读禁止脚本写入，读写允许 DML 但禁止 DDL，完全才允许 DDL。调用 execute_sql 即视为确认，不必再传 allowMutating。",
 	}
 	return strings.Join(lines, "\n") + "\n", nil
 }

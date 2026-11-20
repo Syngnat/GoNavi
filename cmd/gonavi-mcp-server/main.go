@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"GoNavi-Wails/internal/mcpserver"
+	"GoNavi-Wails/internal/scriptengine"
 )
 
 func main() {
@@ -28,6 +29,9 @@ func isNormalServerExit(err error) bool {
 }
 
 func run(ctx context.Context, args []string) error {
+	if len(args) > 0 && strings.TrimSpace(args[0]) == scriptengine.WorkerModeArg {
+		return scriptengine.RunWorker(ctx, os.Stdin, os.Stdout)
+	}
 	if len(args) == 0 {
 		return mcpserver.RunAppStdioServer(ctx)
 	}

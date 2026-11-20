@@ -293,6 +293,9 @@ func (h *scriptWorkbenchHost) ensureWriteAllowed(prepared scriptPreparedConnecti
 	if h == nil || h.prepared == nil || !h.prepared.allowWrite {
 		return errors.New("script writes are disabled for this run; enable write mode explicitly")
 	}
+	if err := h.ensureExecutionPolicyAllows(sql); err != nil {
+		return err
+	}
 	if prepared.readOnly || isConnectionForcedReadOnly(prepared.config) {
 		return errors.New("script writes are disabled by the saved connection protection")
 	}
@@ -308,6 +311,20 @@ func (h *scriptWorkbenchHost) ensureWriteAllowed(prepared scriptPreparedConnecti
 	}
 	if err := ensureConnectionAllowsQuery(prepared.config, sql); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (h *scriptWorkbenchHost) ensureExecutionPolicyAllows(sql string) error {
+	if h == nil || h.prepared == nil || h.prepared.executionPolicy == nil {
+		return nil
+	}
+	policy := h.prepared.executionPolicy
+	if !policy.AllowWrites {
+		return errors.New("script writes are blocked by the current AI safety level")
+	}
+	if isMetadataAffectingDDL(sql) && !policy.AllowDDL {
+		return errors.New("script DDL is blocked by the current AI safety level")
 	}
 	return nil
 }

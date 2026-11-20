@@ -26,12 +26,27 @@
   - 与内置 AI 助手共用「安全控制」：只读仅查询，读写可 DML，完全可 DDL
   - 调用本工具即视为确认，不必再传 `allowMutating`
   - `maxRowsPerResult` 限制单个结果集返回给 Agent 的行数，默认 `50`，上限 `200`
+- `get_script_library` / `get_script`
+  - 列出当前用户可见的脚本、文件夹、连接/输入别名和 revision；需要源码时再读取完整脚本
+  - 脚本库不返回其他用户的私有脚本
+- `save_script`
+  - 创建或更新脚本库脚本；更新已有脚本必须带 `revision`
+- `list_script_input_sheets`
+  - 读取 CSV、JSON 或 XLSX 输入文件的工作表名称；多 Sheet XLSX 先查再传 `sheetName`
+- `prepare_script_write`
+  - 为未受保护的生产库写入脚本申请一次性 `writeApprovalToken`
+- `run_script`
+  - 支持 `scriptId` 或内联 JavaScript、连接别名、CSV/JSON/XLSX 输入、批大小、IN 分片、超时、调用次数、输出行数和内存限制
+  - 脚本可调用 `gonavi.db.query`、`gonavi.db.execute`、托管事务、`gonavi.files` 和 `gonavi.output`
+  - 只读安全等级拒绝 `allowWrite=true`；读写等级允许 DML 但拒绝 DDL；完全等级才允许 DDL
+- `get_script_run` / `get_script_output` / `cancel_script_run`
+  - 轮询状态与日志、分页读取 `gonavi.output` 输出流、取消仍在运行的脚本
 
 Redis 连接使用同一个 `execute_sql` 工具，`sql` 填写单条 Redis 命令，`dbName` 填写 DB 编号，例如 `GET gonavi:test:counter`。`GET`、`TTL`、`SCAN` 等只读命令可在只读模式执行；`SET`、`DEL` 等普通数据写入需要读写模式；`FLUSHDB`、`FLUSHALL`、脚本及未知命令仍要求完全模式。保存连接的只读保护和执行前再次授权同样生效。分号按 Redis 参数处理，不会拆成多条 SQL。
 
 Redis 结果放在结果集的 `value` 列，缺失 key 返回 `null`，数组按元素返回多行并受返回行数限制。每次执行使用隔离连接，记录既有审计并进入结果脱敏流程。Redis 客户端不自动重试响应丢失的命令；写入结果未知时返回 `outcomeUnknown`，调用方不得自动重试。
 
-远程 Agent 只需要结构元数据时，启动 HTTP 模式请加 `--schema-only`。该模式不注册 `execute_sql`，只保留连接摘要、对象清单、表/视图、字段、索引、外键、触发器和 DDL 工具。
+远程 Agent 只需要结构元数据时，启动 HTTP 模式请加 `--schema-only`。该模式不注册 `execute_sql` 与脚本执行工具，只保留连接摘要、对象清单、表/视图、字段、索引、外键、触发器和 DDL 工具。
 
 ## 查看 MCP SQL 执行记录
 

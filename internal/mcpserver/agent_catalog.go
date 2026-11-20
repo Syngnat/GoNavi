@@ -414,6 +414,9 @@ func (c *AgentToolCatalog) ResolveEffect(ctx context.Context, name string, argum
 		return "", err
 	}
 	if name != agentSQLToolName {
+		if effect, handled, err := c.resolveScriptEffect(ctx, name, arguments); handled {
+			return effect, err
+		}
 		return descriptor.Effect, nil
 	}
 	var args executeSQLArgs
@@ -589,6 +592,9 @@ func (e *agentToolExecutor) Execute(ctx context.Context, request runharness.Tool
 	case agentSQLToolName:
 		return e.executeSQL(ctx, request)
 	default:
+		if result, handled, err := e.executeScriptTool(ctx, name, request); handled {
+			return result, err
+		}
 		return failedAgentToolResult("tool_not_found"), fmt.Errorf("%w: %s", ErrAgentToolNotFound, name)
 	}
 }
@@ -730,7 +736,7 @@ func agentToolDescriptors() []runharness.ToolDescriptor {
 		return runharness.ToolDescriptor{Name: name, Description: description, InputSchema: schema,
 			Effect: runharness.ToolEffectReadOnly, Capabilities: append([]string(nil), metadataCapabilities...), MaxResultBytes: 1 << 20}
 	}
-	return []runharness.ToolDescriptor{
+	items := []runharness.ToolDescriptor{
 		readOnly("get_connections", "List saved GoNavi database connections. Use the returned connectionId for subsequent calls.", schemaObject(nil, nil)),
 		readOnly("get_server_version", "Read the live database server version for a saved connection. Call this before generating SQL so the statement uses syntax that version already supports.", schemaObject([]string{"connectionId"}, map[string]any{"connectionId": schemaString("saved connection ID")})),
 		readOnly("get_databases", "List databases or schemas for a saved connection.", schemaObject([]string{"connectionId"}, map[string]any{"connectionId": schemaString("saved connection ID")})),
@@ -759,8 +765,10 @@ func agentToolDescriptors() []runharness.ToolDescriptor {
 			Capabilities:   []string{"database", "sql", "side_effect_dynamic"},
 			MaxResultBytes: 1 << 20,
 		},
-		inspectSourceDescriptor(),
 	}
+	items = append(items, scriptToolDescriptors()...)
+	items = append(items, inspectSourceDescriptor())
+	return items
 }
 
 func schemaString(description string) map[string]any {

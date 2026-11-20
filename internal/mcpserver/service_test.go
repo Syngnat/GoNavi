@@ -7,6 +7,7 @@ import (
 	"GoNavi-Wails/internal/ai"
 	appcore "GoNavi-Wails/internal/app"
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/scriptlib"
 )
 
 type fakeBackend struct {
@@ -38,6 +39,16 @@ type fakeBackend struct {
 	authorizedConfig      connection.ConnectionConfig
 	authorizedSQL         string
 	events                []string
+	scriptLibraryResult   connection.QueryResult
+	scriptSaveResult      connection.QueryResult
+	scriptPrepareResult   connection.QueryResult
+	scriptRunResult       connection.QueryResult
+	scriptGetRunResult    connection.QueryResult
+	scriptOutputResult    connection.QueryResult
+	scriptCancelResult    connection.QueryResult
+	scriptSheetsResult    connection.QueryResult
+	scriptRunRequests     []appcore.ScriptWorkbenchRunRequest
+	scriptPrepareRequests []appcore.ScriptWorkbenchRunRequest
 }
 
 type cancellableTablesBackend struct {
@@ -137,6 +148,40 @@ func (f *fakeBackend) DBGetColumns(context.Context, connection.ConnectionConfig,
 
 func (f *fakeBackend) DBGetIndexes(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.indexesResult
+}
+
+func (f *fakeBackend) GetScriptLibrarySnapshot(context.Context) connection.QueryResult {
+	return f.scriptLibraryResult
+}
+
+func (f *fakeBackend) SaveScriptLibraryScript(context.Context, scriptlib.SaveScriptInput) connection.QueryResult {
+	return f.scriptSaveResult
+}
+
+func (f *fakeBackend) PrepareScriptWorkbenchWrite(_ context.Context, request appcore.ScriptWorkbenchRunRequest) connection.QueryResult {
+	f.scriptPrepareRequests = append(f.scriptPrepareRequests, request)
+	return f.scriptPrepareResult
+}
+
+func (f *fakeBackend) RunScriptWorkbench(_ context.Context, request appcore.ScriptWorkbenchRunRequest) connection.QueryResult {
+	f.scriptRunRequests = append(f.scriptRunRequests, request)
+	return f.scriptRunResult
+}
+
+func (f *fakeBackend) GetScriptWorkbenchRun(context.Context, string) connection.QueryResult {
+	return f.scriptGetRunResult
+}
+
+func (f *fakeBackend) GetScriptWorkbenchOutput(context.Context, string, int, int, int) connection.QueryResult {
+	return f.scriptOutputResult
+}
+
+func (f *fakeBackend) CancelScriptWorkbenchRun(context.Context, string) connection.QueryResult {
+	return f.scriptCancelResult
+}
+
+func (f *fakeBackend) ListScriptInputSheets(context.Context, appcore.ScriptWorkbenchInput) connection.QueryResult {
+	return f.scriptSheetsResult
 }
 
 func (f *fakeBackend) DBGetForeignKeys(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {

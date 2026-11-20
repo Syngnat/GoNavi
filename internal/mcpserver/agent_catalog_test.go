@@ -33,7 +33,14 @@ func TestAgentToolCatalogListIsBuiltInAndSchemaComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	wantNames := []string{"get_connections", "get_server_version", "get_databases", "get_tables", "get_views", "get_objects", "get_all_columns", "get_columns", "get_indexes", "get_foreign_keys", "get_triggers", "get_table_ddl", "execute_sql", "inspect_source"}
+	wantNames := []string{
+		"get_connections", "get_server_version", "get_databases", "get_tables", "get_views", "get_objects",
+		"get_all_columns", "get_columns", "get_indexes", "get_foreign_keys", "get_triggers", "get_table_ddl",
+		"execute_sql",
+		"get_script_library", "get_script", "save_script", "list_script_input_sheets",
+		"prepare_script_write", "run_script", "get_script_run", "get_script_output", "cancel_script_run",
+		"inspect_source",
+	}
 	if len(items) != len(wantNames) {
 		t.Fatalf("catalog length = %d, want %d", len(items), len(wantNames))
 	}
@@ -45,12 +52,19 @@ func TestAgentToolCatalogListIsBuiltInAndSchemaComplete(t *testing.T) {
 			t.Fatalf("catalog[%q] has invalid input schema: %s", want, items[index].InputSchema)
 		}
 	}
-	executeSQL := items[len(items)-2]
+	byName := make(map[string]runharness.ToolDescriptor, len(items))
+	for _, item := range items {
+		byName[item.Name] = item
+	}
+	executeSQL := byName["execute_sql"]
 	if executeSQL.Name != "execute_sql" || executeSQL.Effect != runharness.ToolEffectSideEffectUnknown {
 		t.Fatalf("execute_sql fallback effect = %q (%s), want conservative unknown", executeSQL.Effect, executeSQL.Name)
 	}
-	if items[len(items)-1].Name != "inspect_source" || items[len(items)-1].Effect != runharness.ToolEffectReadOnly {
-		t.Fatalf("inspect_source = %s effect %q", items[len(items)-1].Name, items[len(items)-1].Effect)
+	if byName["run_script"].Effect != runharness.ToolEffectSideEffectUnknown {
+		t.Fatalf("run_script fallback effect = %q, want conservative unknown", byName["run_script"].Effect)
+	}
+	if byName["inspect_source"].Effect != runharness.ToolEffectReadOnly {
+		t.Fatalf("inspect_source effect = %q", byName["inspect_source"].Effect)
 	}
 	for _, item := range items {
 		if strings.Contains(item.Name, "mcp") {

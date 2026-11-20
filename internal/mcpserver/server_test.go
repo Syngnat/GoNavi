@@ -21,12 +21,24 @@ func TestNewServerWithOptionsOmitsExecuteSQLInSchemaOnlyMode(t *testing.T) {
 	assertToolPresent(t, toolNames, "get_objects")
 	assertToolPresent(t, toolNames, "get_table_ddl")
 	assertToolAbsent(t, toolNames, "execute_sql")
+	for _, name := range []string{
+		"get_script_library", "get_script", "save_script", "list_script_input_sheets",
+		"prepare_script_write", "run_script", "get_script_run", "get_script_output", "cancel_script_run",
+	} {
+		assertToolAbsent(t, toolNames, name)
+	}
 }
 
 func TestNewServerIncludesExecuteSQLByDefault(t *testing.T) {
 	toolNames := listServerToolNames(t, NewServer(&fakeBackend{}))
 
 	assertToolPresent(t, toolNames, "execute_sql")
+	for _, name := range []string{
+		"get_script_library", "get_script", "save_script", "list_script_input_sheets",
+		"prepare_script_write", "run_script", "get_script_run", "get_script_output", "cancel_script_run",
+	} {
+		assertToolPresent(t, toolNames, name)
+	}
 }
 
 func TestExecuteSQLCallToolReturnsSelectResultContent(t *testing.T) {

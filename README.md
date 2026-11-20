@@ -524,7 +524,8 @@ pointer and is not a stable anchor. Release tags are published both with and
 without a `v` prefix (`v0.9.8` and `0.9.8`) pointing at the same digest, so use
 whichever your tooling expects.
 
-Safety defaults: remote `schema-only` omits `execute_sql`; when enabled it follows the same AI safety controls as the built-in assistant, and calling `execute_sql` is the confirmation.  
+Safety defaults: remote `schema-only` omits `execute_sql` and script execution tools; when enabled they share the built-in assistant's safety controls. Script writes are blocked in read-only mode, DDL is blocked in read/write mode, and only full mode allows DDL.
+
 Details: [cmd/gonavi-mcp-server/README.md](cmd/gonavi-mcp-server/README.md).
 
 ### Linux build environment only

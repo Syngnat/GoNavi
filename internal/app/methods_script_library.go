@@ -193,6 +193,9 @@ func scriptWorkbenchFailure(err error) connection.QueryResult {
 			code = "connection_not_allowed"
 		case strings.Contains(lower, "script execution is restricted"):
 			code = "execution_restricted"
+		case strings.Contains(lower, "script writes are blocked by the current ai safety level"),
+			strings.Contains(lower, "script ddl is blocked by the current ai safety level"):
+			code = "execution_restricted"
 		case strings.Contains(lower, "script source is required"):
 			code = "empty_code"
 		case strings.Contains(lower, "script exceeds"):

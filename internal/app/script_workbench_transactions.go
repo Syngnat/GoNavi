@@ -83,6 +83,9 @@ func (h *scriptWorkbenchHost) beginTransaction(alias, database string) (map[stri
 	if h.prepared == nil || !h.prepared.allowWrite {
 		return nil, errors.New("script writes are disabled for this run; enable write mode explicitly")
 	}
+	if err := h.ensureExecutionPolicyAllows(""); err != nil {
+		return nil, err
+	}
 	alias = strings.TrimSpace(alias)
 	prepared, exists := h.prepared.connections[alias]
 	if !exists {

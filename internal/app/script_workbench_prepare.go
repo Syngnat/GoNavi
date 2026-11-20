@@ -83,6 +83,10 @@ func (a *App) buildScriptWorkbenchPreparedRun(
 
 	allowWrite := request.AllowWrite && !actor.ReadOnly &&
 		!strings.EqualFold(webActor.role, string(webidentity.RoleViewer))
+	executionPolicy := cloneScriptWorkbenchExecutionPolicy(request.ExecutionPolicy)
+	if executionPolicy != nil && allowWrite && !executionPolicy.AllowWrites {
+		return nil, errors.New("script writes are blocked by the current AI safety level")
+	}
 	batchSize := clampScriptWorkbenchInt(request.BatchSize, 1, scriptWorkbenchMaxBatchRows, scriptWorkbenchDefaultBatchRows)
 	inListLimit := clampScriptWorkbenchInt(request.INListLimit, 1, scriptWorkbenchDefaultINList, scriptWorkbenchDefaultINList)
 	timeout, maxDBCalls, maxOutputRows, memoryLimitBytes := resolveScriptWorkbenchRunLimits(
@@ -176,6 +180,7 @@ func (a *App) buildScriptWorkbenchPreparedRun(
 		connections:           connections,
 		inputs:                inputs,
 		requiresWriteApproval: requiresWriteApproval,
+		executionPolicy:       executionPolicy,
 	}
 	prepared.workerRequest = scriptengine.RunRequest{
 		Script:      code,
@@ -195,6 +200,16 @@ func (a *App) buildScriptWorkbenchPreparedRun(
 		}, timeout),
 	}
 	return prepared, nil
+}
+
+func cloneScriptWorkbenchExecutionPolicy(
+	policy *ScriptWorkbenchExecutionPolicy,
+) *ScriptWorkbenchExecutionPolicy {
+	if policy == nil {
+		return nil
+	}
+	cloned := *policy
+	return &cloned
 }
 
 func (a *App) prepareScriptWorkbenchConnection(

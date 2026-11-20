@@ -6,7 +6,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
+
+	"GoNavi-Wails/internal/scriptengine"
 )
 
 func TestIsNormalServerExit(t *testing.T) {
@@ -43,5 +46,32 @@ func TestMainReturnsNonZeroForStartupFailure(t *testing.T) {
 	}
 	if exitErr.ExitCode() != 1 {
 		t.Fatalf("startup failure exit code = %d, want 1", exitErr.ExitCode())
+	}
+}
+
+func TestRunRoutesScriptWorkerMode(t *testing.T) {
+	emptyInput, err := os.CreateTemp(t.TempDir(), "empty-script-worker-*")
+	if err != nil {
+		t.Fatalf("create empty stdin: %v", err)
+	}
+	if err := emptyInput.Close(); err != nil {
+		t.Fatalf("close empty stdin: %v", err)
+	}
+	input, err := os.Open(emptyInput.Name())
+	if err != nil {
+		t.Fatalf("open empty stdin: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = input.Close()
+	})
+	previous := os.Stdin
+	os.Stdin = input
+	t.Cleanup(func() {
+		os.Stdin = previous
+	})
+
+	err = run(context.Background(), []string{scriptengine.WorkerModeArg})
+	if err == nil || !strings.Contains(err.Error(), "received no run request") {
+		t.Fatalf("script-worker mode error = %v, want empty run request", err)
 	}
 }

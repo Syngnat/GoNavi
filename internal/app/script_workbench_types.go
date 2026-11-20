@@ -84,6 +84,14 @@ type ScriptWorkbenchInput struct {
 	HeaderRow int    `json:"headerRow,omitempty"`
 }
 
+// ScriptWorkbenchExecutionPolicy constrains runs started by non-UI entry
+// points such as MCP. A nil policy preserves the desktop workbench's existing
+// behavior; the MCP backend always sets one from the current AI safety level.
+type ScriptWorkbenchExecutionPolicy struct {
+	AllowWrites bool
+	AllowDDL    bool
+}
+
 // ScriptWorkbenchRunRequest is the only frontend input that can start a run.
 // Connection passwords and DSNs are never accepted here.
 type ScriptWorkbenchRunRequest struct {
@@ -102,6 +110,10 @@ type ScriptWorkbenchRunRequest struct {
 	// WriteApprovalToken 必须来自 PrepareScriptWorkbenchWrite，只能用于一次
 	// 完全相同的生产写运行；非生产写保持为空。
 	WriteApprovalToken string `json:"writeApprovalToken,omitempty"`
+	// ExecutionPolicy is internal wiring for MCP/Agent entry points. It is
+	// never decoded from Wails or Web RPC JSON so the desktop UI cannot lower
+	// its own safety boundary.
+	ExecutionPolicy *ScriptWorkbenchExecutionPolicy `json:"-"`
 }
 
 // ScriptWorkbenchLogEntry is a bounded, display-only log line.
@@ -192,6 +204,7 @@ type scriptWorkbenchPrepared struct {
 	inputs                map[string]scriptPreparedInput
 	workerRequest         scriptengine.RunRequest
 	requiresWriteApproval bool
+	executionPolicy       *ScriptWorkbenchExecutionPolicy
 }
 
 type scriptPreparedConnection struct {

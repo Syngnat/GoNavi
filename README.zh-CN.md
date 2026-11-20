@@ -517,7 +517,8 @@ docker compose --env-file docker.mcp-server.env -f docker-compose.mcp-server.yml
 集群不希望版本漂移时请锁定精确版本；`dev-latest` 是移动指针，不是稳定锚点。
 版本 tag 同时发布带 `v`（`v0.9.8`）与不带 `v`（`0.9.8`）两种形式，指向同一 digest，按习惯任选一种即可。
 
-安全默认：远端 `schema-only` 不暴露 `execute_sql`；开放后与内置 AI 助手共用安全控制，调用 `execute_sql` 即视为确认。  
+安全默认：远端 `schema-only` 不暴露 `execute_sql` 与脚本执行工具；开放后与内置 AI 助手共用安全控制，调用 `execute_sql` 即视为确认。脚本在只读等级禁止写入、读写等级禁止 DDL，完全等级才允许 DDL。
+
 详见：[cmd/gonavi-mcp-server/README.md](cmd/gonavi-mcp-server/README.md)。
 
 ### 仅 Linux 构建环境

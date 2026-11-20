@@ -25,7 +25,7 @@ const (
   --token <令牌>        远程客户端必须携带的 Bearer 令牌
                         也可用环境变量 GONAVI_MCP_HTTP_TOKEN 指定
   --json-response       尽量返回 application/json 而非事件流
-  --schema-only         只暴露库表结构工具，不提供 execute_sql
+  --schema-only         只暴露库表结构工具，不提供 execute_sql 与脚本执行工具
   --allow-non-loopback  允许监听非回环地址（仅供显式容器部署）
 `
 
@@ -40,7 +40,7 @@ const (
   --path <路径>                本地与公开的 MCP 路径
   --gonavi-command <命令>      Windows 上的 GoNavi 可执行文件名
   --standalone-command <命令>  独立 gonavi-mcp-server 可执行文件名
-  --schema-only                生成不含 execute_sql 的配置
+  --schema-only                生成不含 execute_sql 与脚本执行工具的配置
 
 生成的配置片段写到标准输出。
 `

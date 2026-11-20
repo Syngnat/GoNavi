@@ -12,6 +12,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/requesttrace"
+	"GoNavi-Wails/internal/scriptlib"
 )
 
 // Backend 抽象 GoNavi 后端能力，便于复用真实 App 和单元测试替身。
@@ -35,6 +36,14 @@ type Backend interface {
 	GetSQLSafetyLevel() ai.SQLPermissionLevel
 	GetResultMaskingSettings() (ai.ResultMaskingSettings, error)
 	AuthorizeSQLConnection(config connection.ConnectionConfig, sql string) error
+	GetScriptLibrarySnapshot(context.Context) connection.QueryResult
+	SaveScriptLibraryScript(context.Context, scriptlib.SaveScriptInput) connection.QueryResult
+	PrepareScriptWorkbenchWrite(context.Context, appcore.ScriptWorkbenchRunRequest) connection.QueryResult
+	RunScriptWorkbench(context.Context, appcore.ScriptWorkbenchRunRequest) connection.QueryResult
+	GetScriptWorkbenchRun(context.Context, string) connection.QueryResult
+	GetScriptWorkbenchOutput(context.Context, string, int, int, int) connection.QueryResult
+	CancelScriptWorkbenchRun(context.Context, string) connection.QueryResult
+	ListScriptInputSheets(context.Context, appcore.ScriptWorkbenchInput) connection.QueryResult
 }
 
 // executionAuthorizingBackend is intentionally optional for non-App backend
@@ -239,4 +248,108 @@ func (b *AppBackend) AuthorizeSQLConnection(config connection.ConnectionConfig, 
 		return fmt.Errorf("MCP backend is unavailable")
 	}
 	return b.app.AuthorizeMCPConnectionSQL(config, sql)
+}
+
+func (b *AppBackend) GetScriptLibrarySnapshot(ctx context.Context) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.GetScriptLibrarySnapshot()
+}
+
+func (b *AppBackend) SaveScriptLibraryScript(ctx context.Context, input scriptlib.SaveScriptInput) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.SaveScriptLibraryScript(input)
+}
+
+func (b *AppBackend) PrepareScriptWorkbenchWrite(ctx context.Context, request appcore.ScriptWorkbenchRunRequest) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.PrepareScriptWorkbenchWrite(b.scriptRequestWithPolicy(request))
+}
+
+func (b *AppBackend) RunScriptWorkbench(ctx context.Context, request appcore.ScriptWorkbenchRunRequest) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.RunScriptWorkbench(b.scriptRequestWithPolicy(request))
+}
+
+func (b *AppBackend) GetScriptWorkbenchRun(ctx context.Context, runID string) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.GetScriptWorkbenchRun(runID)
+}
+
+func (b *AppBackend) GetScriptWorkbenchOutput(ctx context.Context, runID string, outputIndex int, page int, pageSize int) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.GetScriptWorkbenchOutput(runID, outputIndex, page, pageSize)
+}
+
+func (b *AppBackend) CancelScriptWorkbenchRun(ctx context.Context, runID string) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.CancelScriptWorkbenchRun(runID)
+}
+
+func (b *AppBackend) ListScriptInputSheets(ctx context.Context, input appcore.ScriptWorkbenchInput) connection.QueryResult {
+	if result, ok := checkMCPContext(ctx); !ok {
+		return result
+	}
+	if b == nil || b.app == nil {
+		return mcpScriptBackendUnavailable()
+	}
+	return b.app.ListScriptInputSheets(input)
+}
+
+func (b *AppBackend) scriptRequestWithPolicy(request appcore.ScriptWorkbenchRunRequest) appcore.ScriptWorkbenchRunRequest {
+	level := normalizeSQLSafetyLevel(b.GetSQLSafetyLevel())
+	policy := appcore.ScriptWorkbenchExecutionPolicy{
+		AllowWrites: level == ai.PermissionReadWrite || level == ai.PermissionFull,
+		AllowDDL:    level == ai.PermissionFull,
+	}
+	request.ExecutionPolicy = &policy
+	return request
+}
+
+func checkMCPContext(ctx context.Context) (connection.QueryResult, bool) {
+	if ctx == nil {
+		return connection.QueryResult{Success: false, Message: "MCP request context is required"}, false
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}, false
+	}
+	return connection.QueryResult{}, true
+}
+
+func mcpScriptBackendUnavailable() connection.QueryResult {
+	return connection.QueryResult{Success: false, Message: "script workbench is unavailable"}
 }
