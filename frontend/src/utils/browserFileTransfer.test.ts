@@ -59,6 +59,28 @@ describe('browser runtime file transfer', () => {
     );
   });
 
+  it('supports the owner-scoped script input upload purpose', async () => {
+    const formData = { append: vi.fn() } as unknown as FormData;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: { filePath: 'script-token', name: 'ids.xlsx', fileSize: 12 },
+      }),
+    }));
+
+    await uploadBrowserFile({ name: 'ids.xlsx', size: 12 } as File, 'script-input', {
+      fetch: fetchMock as unknown as typeof fetch,
+      createFormData: () => formData,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/__gonavi/api/upload?purpose=script-input',
+      expect.objectContaining({ body: formData }),
+    );
+  });
+
   it('downloads a token through a native anchor without fetching the file body', () => {
     const appended: any[] = [];
     const removed: any[] = [];

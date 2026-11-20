@@ -8,7 +8,7 @@ type BrowserFileUploadEnvironment = {
   createFormData?: () => FormData;
 };
 
-export type BrowserFileUploadPurpose = 'data-import' | 'sql-execution';
+export type BrowserFileUploadPurpose = 'data-import' | 'sql-execution' | 'script-input';
 
 export type BrowserUploadedFile = {
   filePath: string;

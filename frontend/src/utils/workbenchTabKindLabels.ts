@@ -20,6 +20,7 @@ export const getWorkbenchTabKindLabel = (tab: TabData): string => {
     );
   }
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
+  if (tab.type === 'script-workbench') return t('tab_manager.kind_badge.script_workbench');
   if (tab.type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
   if (tab.type === 'dml-snapshot') return t('tab_manager.kind_badge.dml_snapshot');
@@ -65,6 +66,7 @@ export const getWorkbenchTabKindTooltipLabel = (tab: TabData): string => {
     );
   }
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
+  if (tab.type === 'script-workbench') return t('tab_manager.hover.kind.script_workbench');
   if (tab.type === 'sql-analysis') return t('tab_manager.hover.kind.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.hover.kind.sql_audit');
   if (tab.type === 'dml-snapshot') return t('tab_manager.hover.kind.dml_snapshot');

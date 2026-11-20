@@ -43,6 +43,7 @@ const UserManagementWorkbench = React.lazy(() => import('./userManagement/UserMa
 const MessageQueueWorkbench = React.lazy(() => import('./MessageQueueWorkbench'));
 const SessionWorkbench = React.lazy(() => import('./sessionWorkbench/SessionWorkbench'));
 const SessionAgentWorkbench = React.lazy(() => import('./sessionAgent/SessionAgentWorkbench'));
+const ScriptWorkbench = React.lazy(() => import('./scriptWorkbench/ScriptWorkbench'));
 const PluginPageHost = React.lazy(() => import('../pluginPages/PluginPageHost').then((module) => ({ default: module.PluginPageHost })));
 
 const QueryWorkbenchContent: React.FC<{ tab: TabData; isActive: boolean }> = React.memo(({
@@ -208,6 +209,8 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <SessionWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'agent-assets') {
     content = <SessionAgentWorkbench tab={tab} />;
+  } else if (tab.type === 'script-workbench') {
+    content = <ScriptWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'xxljob-groups' || tab.type === 'xxljob-jobs' || tab.type === 'xxljob-logs') {
     content = <XxlJobWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'jvm-overview') {

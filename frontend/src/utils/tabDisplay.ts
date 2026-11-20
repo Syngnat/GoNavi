@@ -509,6 +509,9 @@ const buildCompactObjectTabTitle = (tab: TabData, translate: TabDisplayTranslate
   if (tab.type === 'request-diagnostics') {
     return translate('app.tools.entry.request_diagnostics.title');
   }
+  if (tab.type === 'script-workbench') {
+    return tab.scriptDisplayName || tab.title;
+  }
   if (tab.type === 'table') {
     return stripSchemaFromTabObjectLabel(tab.tableName || tab.title) || tab.title;
   }
@@ -576,6 +579,7 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'cloud-backup') return 'BACKUP';
   if (tab.type === 'settings-center') return 'SETTINGS';
   if (tab.type === 'request-diagnostics') return 'TRACE';
+  if (tab.type === 'script-workbench') return 'SCRIPT';
   if (tab.type.startsWith('redis')) return 'REDIS';
   if (tab.type.startsWith('jvm')) return 'JVM';
   if (tab.type === 'trigger') return 'TRG';
@@ -592,6 +596,7 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
 
 const getTabRawObjectLabel = (tab: TabData, translate: TabDisplayTranslate = defaultTranslate): string => {
   if (tab.type === 'query') return compactQueryTabTitle(tab, translate);
+  if (tab.type === 'script-workbench') return tab.scriptDisplayName || tab.title;
   if (tab.tableName) return tab.tableName;
   if (tab.viewName) return tab.viewName;
   if (tab.eventName) return tab.eventName;

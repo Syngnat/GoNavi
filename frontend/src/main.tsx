@@ -15,7 +15,10 @@ import {
 } from './utils/mainWindowStartup'
 import { configureAntdStaticOverlayLayer } from './utils/overlayZIndex'
 import { devHarnessMode } from './dev/devHarnessMode';
-import { installBrowserMockRuntime } from './dev/browserMock/installBrowserMockRuntime';
+import {
+    installBrowserMockRuntime,
+    shouldInstallBrowserMockScriptWorkbench,
+} from './dev/browserMock/installBrowserMockRuntime';
 import { startPluginInstallDeeplinkListener } from './components/pluginManager/pluginInstallDeeplink';
 import { installIpcMeter } from './utils/ipcMeter';
 import { installTabSwitchProbe } from './utils/tabSwitchProbe';
@@ -30,7 +33,11 @@ if (
         || typeof (window as any).go?.aiservice?.Service?.AIGetProviders !== 'function'
     )
 ) {
-    installBrowserMockRuntime();
+    const hasAppBinding = typeof (window as any).go?.app?.App?.GetSavedConnections === 'function';
+    const hasAIBinding = typeof (window as any).go?.aiservice?.Service?.AIGetProviders === 'function';
+    installBrowserMockRuntime({
+        includeScriptWorkbench: shouldInstallBrowserMockScriptWorkbench(hasAppBinding, hasAIBinding),
+    });
 }
 // 诊断设施安装点（各一行，默认关闭、只读计量）。放在 mock 之后：dev/Web 模式下绑定由 mock 提供。
 installIpcMeter();

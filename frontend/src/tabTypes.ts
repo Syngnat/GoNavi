@@ -47,4 +47,5 @@ export type WorkbenchTabType =
   | "jvm-diagnostic"
   | "jvm-monitoring"
   | "session-workbench"
-  | "agent-assets";
+  | "agent-assets"
+  | "script-workbench";

@@ -10,7 +10,21 @@ const AI_PROMPT_INJECT_EVENT = 'gonavi:ai:inject-prompt';
 interface AIInjectedPromptDetail {
   prompt?: string;
   autoSend?: boolean;
+  promptId?: string;
 }
+
+const recentInjectedPromptIds = new Set<string>();
+
+const rememberInjectedPrompt = (promptId: string): boolean => {
+  if (!promptId) return true;
+  if (recentInjectedPromptIds.has(promptId)) return false;
+  recentInjectedPromptIds.add(promptId);
+  if (recentInjectedPromptIds.size > 32) {
+    const oldest = recentInjectedPromptIds.values().next().value;
+    if (oldest) recentInjectedPromptIds.delete(oldest);
+  }
+  return true;
+};
 
 interface UseAIInjectedPromptOptions {
   interactionDisabled: boolean;
@@ -99,6 +113,9 @@ export function useAIInjectedPrompt(options: UseAIInjectedPromptOptions): void {
       const detail = (event as CustomEvent<AIInjectedPromptDetail>).detail;
       const prompt = String(detail?.prompt || '');
       if (!prompt) {
+        return;
+      }
+      if (!rememberInjectedPrompt(String(detail?.promptId || ''))) {
         return;
       }
       if (detail?.autoSend) {

@@ -11,6 +11,11 @@ import {
 } from '../../utils/sqlEditorApplicationQuit';
 import Modal from '../../components/common/ResizableDraggableModal';
 import { discardApplicationQuitUnsavedSQLChanges } from '../../utils/sqlEditorQuitDiscard';
+import {
+  cancelRunningWorkbenchTabGuards,
+  getDirtyWorkbenchTabCloseGuards,
+  getWorkbenchTabCloseGuardStates,
+} from '../../utils/workbenchTabCloseProtection';
 import { EventsOn } from '../../../wailsjs/runtime';
 import { createClosedConnectionPackageDialogState } from '../connectionPackageImport';
 import type { ToolCenterGroupKey } from '../settingsCenterPanes';
@@ -103,6 +108,8 @@ export const useAppQuitAndUpdate = ({
       };
 
       let targets;
+      let dataGuards: ReturnType<typeof getDirtyWorkbenchTabCloseGuards> = [];
+      let runningGuardCount = 0;
       try {
           await ensureSavedQueriesLoaded();
           const latestState = useStore.getState();
@@ -110,6 +117,10 @@ export const useAppQuitAndUpdate = ({
               latestState.tabs,
               latestState.savedQueries,
           );
+          dataGuards = getDirtyWorkbenchTabCloseGuards(latestState.tabs.map((tab) => tab.id));
+          runningGuardCount = getWorkbenchTabCloseGuardStates(
+              latestState.tabs.map((tab) => tab.id),
+          ).filter((state) => state.running).length;
       } catch (error) {
           cancelRequest();
           message.error(t('app.quit.unsaved_sql.inspect_failed', {
@@ -118,12 +129,52 @@ export const useAppQuitAndUpdate = ({
           return;
       }
 
-      if (targets.length === 0) {
+      if (targets.length === 0 && dataGuards.length === 0 && runningGuardCount === 0) {
           await runConfirmedAction();
           return;
       }
 
-      const label = buildApplicationQuitUnsavedSQLLabel(targets);
+      const hasSQLTargets = targets.length > 0;
+      if (targets.length === 0 && dataGuards.length === 0) {
+          await new Promise<void>((resolve) => {
+              let finished = false;
+              const finish = () => {
+                  if (finished) return;
+                  finished = true;
+                  applicationQuitConfirmRef.current = null;
+                  resolve();
+              };
+              const confirmRef = Modal.confirm({
+                  title: t('tab_manager.close_protection.running_title'),
+                  content: t('tab_manager.close_protection.running_close_content', {
+                      count: runningGuardCount,
+                  }),
+                  okText: t('tab_manager.close_protection.cancel_and_quit'),
+                  cancelText: t('common.cancel'),
+                  centered: true,
+                  closable: true,
+                  maskClosable: false,
+                  zIndex: applicationQuitModalZIndex,
+                  okButtonProps: { danger: true, type: 'primary' },
+                  onCancel: () => {
+                      cancelRequest();
+                      finish();
+                  },
+                  onOk: async () => {
+                      await cancelRunningWorkbenchTabGuards(
+                          useStore.getState().tabs.map((tab) => tab.id),
+                      );
+                      await runConfirmedAction();
+                      finish();
+                  },
+              });
+              applicationQuitConfirmRef.current = confirmRef;
+          });
+          return;
+      }
+      const label = targets.length === 1 && dataGuards.length === 0
+          ? buildApplicationQuitUnsavedSQLLabel(targets)
+          : String(targets.length + dataGuards.length);
       await new Promise<void>((resolve) => {
           let finished = false;
           const finish = () => {
@@ -141,12 +192,25 @@ export const useAppQuitAndUpdate = ({
 
           let destroyConfirm: (() => void) | null = null;
           const confirmRef = Modal.confirm({
-              title: t('app.quit.unsaved_sql.title'),
-              content: t(targets.length === 1
-                  ? 'app.quit.unsaved_sql.content_single'
-                  : 'app.quit.unsaved_sql.content_multiple', { label }),
-              okText: t('app.quit.unsaved_sql.save_exit'),
-              cancelText: t('app.quit.unsaved_sql.cancel'),
+              title: hasSQLTargets ? t('app.quit.unsaved_sql.title') : t('tab_manager.close_protection.title'),
+              content: (
+                  <>
+                      <div>
+                          {t(targets.length === 1 && dataGuards.length === 0
+                              ? 'app.quit.unsaved_sql.content_single'
+                              : 'tab_manager.close_protection.content_multiple', { label })}
+                      </div>
+                      {runningGuardCount > 0 ? (
+                          <div style={{ marginTop: 8, color: 'var(--gn-warn)' }}>
+                              {t('tab_manager.close_protection.running_close_content', {
+                                  count: runningGuardCount,
+                              })}
+                          </div>
+                      ) : null}
+                  </>
+              ),
+              okText: hasSQLTargets ? t('app.quit.unsaved_sql.save_exit') : t('tab_manager.close_protection.save_close'),
+              cancelText: hasSQLTargets ? t('app.quit.unsaved_sql.cancel') : t('common.cancel'),
               centered: true,
               closable: true,
               maskClosable: false,
@@ -158,10 +222,15 @@ export const useAppQuitAndUpdate = ({
                         onClick={() => {
                             destroyConfirm?.();
                             applicationQuitConfirmRef.current = null;
-                            void discardApplicationQuitUnsavedSQLChanges().then(runConfirmedActionAndFinish);
+                            void Promise.all(dataGuards.map(({ guard }) => guard.discard()))
+                                .then(() => discardApplicationQuitUnsavedSQLChanges())
+                                .then(() => cancelRunningWorkbenchTabGuards(
+                                    useStore.getState().tabs.map((tab) => tab.id),
+                                ))
+                                .then(runConfirmedActionAndFinish);
                         }}
                       >
-                          {t('app.quit.unsaved_sql.confirm_exit')}
+                          {hasSQLTargets ? t('app.quit.unsaved_sql.confirm_exit') : t('tab_manager.close_protection.discard_close')}
                       </Button>
                       <CancelBtn />
                       <OkBtn />
@@ -173,20 +242,34 @@ export const useAppQuitAndUpdate = ({
               },
               onOk: async () => {
                   try {
-                      await saveLatestApplicationQuitUnsavedSQLState({
-                          getState: () => {
-                              const latestState = useStore.getState();
-                              return {
-                                  tabs: latestState.tabs,
-                                  savedQueries: latestState.savedQueries,
-                              };
-                          },
-                          updateTabs: (update) => {
-                              useStore.setState((state) => ({ tabs: update(state.tabs) }));
-                          },
-                          saveQuery,
-                      });
-                      message.success(t('app.quit.unsaved_sql.saved'));
+                      if (targets.length > 0) {
+                          await saveLatestApplicationQuitUnsavedSQLState({
+                              getState: () => {
+                                  const latestState = useStore.getState();
+                                  return {
+                                      tabs: latestState.tabs,
+                                      savedQueries: latestState.savedQueries,
+                                  };
+                              },
+                              updateTabs: (update) => {
+                                  useStore.setState((state) => ({ tabs: update(state.tabs) }));
+                              },
+                              saveQuery,
+                          });
+                      }
+                      const latestState = useStore.getState();
+                      const latestDataGuards = getDirtyWorkbenchTabCloseGuards(
+                          latestState.tabs.map((tab) => tab.id),
+                      );
+                      for (const { guard } of latestDataGuards) {
+                          if (!(await guard.save())) {
+                              throw new Error(t('tab_manager.close_protection.save_failed'));
+                          }
+                      }
+                      await cancelRunningWorkbenchTabGuards(
+                          latestState.tabs.map((tab) => tab.id),
+                      );
+                      if (targets.length > 0) message.success(t('app.quit.unsaved_sql.saved'));
                   } catch (error) {
                       cancelRequest();
                       finish();

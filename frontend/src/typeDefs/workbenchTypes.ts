@@ -87,6 +87,12 @@ export interface TabData {
   title: string;
   type: WorkbenchTabType;
   connectionId: string;
+  /** Saved JavaScript identity and transient source used by the script workbench. */
+  scriptId?: string;
+  scriptFolderId?: string;
+  scriptVisibility?: "private" | "shared";
+  scriptDisplayName?: string;
+  scriptPreviewSource?: string;
   agentIntegrationId?: string; // 智能体集成 ID：agent-assets 页签定位唯一管理工作台
   dbName?: string;
   tableName?: string;

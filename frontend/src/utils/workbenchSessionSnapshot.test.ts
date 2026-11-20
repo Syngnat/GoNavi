@@ -45,6 +45,29 @@ describe('workbench session snapshot', () => {
     expect(toSnapshotTab(tab({ id: 'redis-4', type: 'redis-keys' }))?.redisDB).toBeUndefined();
   });
 
+  it('restores a script workbench identity without persisting transient source', () => {
+    const scriptTab = tab({
+      id: 'script-workbench:script-7',
+      type: 'script-workbench',
+      title: 'Nightly audit',
+      scriptId: 'script-7',
+      scriptFolderId: 'folder-2',
+      scriptVisibility: 'shared',
+      scriptDisplayName: 'Nightly audit',
+      scriptPreviewSource: 'const secret = "do not persist";',
+    });
+    expect(toSnapshotTab(scriptTab)).toEqual({
+      id: 'script-workbench:script-7',
+      type: 'script-workbench',
+      title: 'Nightly audit',
+      connectionId: 'conn-1',
+      scriptId: 'script-7',
+      scriptFolderId: 'folder-2',
+      scriptVisibility: 'shared',
+      scriptDisplayName: 'Nightly audit',
+    });
+  });
+
   it('restores a read-only database definition tab by connection and database', () => {
     expect(toSnapshotTab(tab({
       id: 'database-def-conn-1-tenant',

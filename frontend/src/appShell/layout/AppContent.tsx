@@ -22,6 +22,7 @@ import type { AppSecurityUpdateApi } from '../hooks/useAppSecurityUpdate';
 import type { AppWorkbenchActionsApi } from '../hooks/useAppWorkbenchActions';
 import type { AppSettingsNavigationApi } from '../hooks/useAppSettingsNavigation';
 import type { AppProxySettingsApi } from '../hooks/useAppProxySettings';
+import { useScriptWorkbenchOpenRequest } from '../../components/scriptWorkbench/useScriptWorkbenchOpenRequest';
 
 export interface AppContentProps {
   isSecurityUpdateBannerVisible: AppShellStateApi['isSecurityUpdateBannerVisible'];
@@ -69,6 +70,7 @@ export const AppContent = ({
   usePluginKeybindings();
   usePluginProgressNotifications();
   useFileAssociationOpen();
+  useScriptWorkbenchOpenRequest();
   return (
   <Content
     style={{ background: 'var(--gn-bg-panel-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}

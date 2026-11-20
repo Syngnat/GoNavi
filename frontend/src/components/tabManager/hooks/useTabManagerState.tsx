@@ -45,7 +45,11 @@ import {
   reconcileApplicationQuitSavedSQLTargets,
 } from '../../../utils/sqlEditorApplicationQuit';
 import {
+  cancelRunningWorkbenchTabGuards,
   getDirtyWorkbenchTabCloseGuards,
+  getWorkbenchTabCloseGuardStates,
+  hasRunningWorkbenchTabGuards,
+  persistWorkbenchTabCloseGuards,
   REQUEST_CLOSE_WORKBENCH_TABS_EVENT,
 } from '../../../utils/workbenchTabCloseProtection';
 import { closeConfirmedWorkbenchTabs } from '../tabManagerCloseHelpers';
@@ -152,9 +156,32 @@ export const useTabManagerState = () => {
       void message.warning(t('tab_manager.message.background_task_window_unavailable'));
       return;
     }
-    void openNativeWorkbenchTabWindow(tabId, preferred).catch((error) => {
-      message.error(error instanceof Error ? error.message : String(error));
-    });
+    const proceed = async () => {
+      try {
+        await persistWorkbenchTabCloseGuards([tabId]);
+        await cancelRunningWorkbenchTabGuards([tabId]);
+        await openNativeWorkbenchTabWindow(tabId, preferred);
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    };
+    if (hasRunningWorkbenchTabGuards([tabId])) {
+      // Run trackers are owned by the current ScriptWorkbench component and
+      // cannot be transferred to the detached window, so the user must
+      // explicitly accept cancellation before the window opens.
+      Modal.confirm({
+        title: t('tab_manager.close_protection.running_detach_title'),
+        content: t('tab_manager.close_protection.running_detach_content'),
+        okText: t('tab_manager.close_protection.cancel_and_detach'),
+        cancelText: t('common.cancel'),
+        closable: true,
+        maskClosable: false,
+        onOk: proceed,
+      });
+      return;
+    }
+    void proceed().catch(() => undefined);
   }, [tabs]);
   const dockedActiveTabId = useMemo(() => {
     return resolveDockedActiveTabId(tabs, activeTabId, detachedWorkbenchWindows);
@@ -327,8 +354,19 @@ export const useTabManagerState = () => {
         }));
         return;
       }
-      let dataGuards = getDirtyWorkbenchTabCloseGuards(closableTabs.map((tab) => tab.id));
-      if (sqlTargets.length === 0 && dataGuards.length === 0) {
+      const readGuardState = (targetTabs: TabData[]) => {
+        const states = getWorkbenchTabCloseGuardStates(targetTabs.map((tab) => tab.id));
+        return {
+          states,
+          dataGuards: states
+            .filter((state) => state.dirty)
+            .map(({ tabId, guard }) => ({ tabId, guard })),
+          runningCount: states.filter((state) => state.running).length,
+        };
+      };
+      let guardState = readGuardState(closableTabs);
+      let dataGuards = guardState.dataGuards;
+      if (sqlTargets.length === 0 && dataGuards.length === 0 && guardState.runningCount === 0) {
         // Inspecting an external SQL file is asynchronous. Re-read the live
         // tab state before the no-prompt close so edits made during that read
         // are never discarded without a confirmation.
@@ -338,11 +376,31 @@ export const useTabManagerState = () => {
           finalTargetTabs,
           finalState.savedQueries,
         );
-        dataGuards = getDirtyWorkbenchTabCloseGuards(finalTargetTabs.map((tab) => tab.id));
-        if (sqlTargets.length === 0 && dataGuards.length === 0) {
+        guardState = readGuardState(finalTargetTabs);
+        dataGuards = guardState.dataGuards;
+        if (sqlTargets.length === 0 && dataGuards.length === 0 && guardState.runningCount === 0) {
           closeConfirmedTabs();
           return;
         }
+      }
+
+      if (sqlTargets.length === 0 && dataGuards.length === 0 && guardState.runningCount > 0) {
+        Modal.confirm({
+          title: t('tab_manager.close_protection.running_title'),
+          content: t('tab_manager.close_protection.running_close_content', {
+            count: guardState.runningCount,
+          }),
+          okText: t('tab_manager.close_protection.cancel_and_close'),
+          cancelText: t('common.cancel'),
+          closable: true,
+          maskClosable: false,
+          okButtonProps: { danger: true },
+          onOk: async () => {
+            await cancelRunningWorkbenchTabGuards(closableTabs.map((tab) => tab.id));
+            closeConfirmedTabs();
+          },
+        });
+        return;
       }
 
       const label = sqlTargets.length === 1 && dataGuards.length === 0
@@ -351,11 +409,24 @@ export const useTabManagerState = () => {
       let destroyConfirm: (() => void) | null = null;
       const confirmRef = Modal.confirm({
         title: t('tab_manager.close_protection.title'),
-        content: t(
-          sqlTargets.length === 1 && dataGuards.length === 0
-            ? 'tab_manager.close_protection.content_single'
-            : 'tab_manager.close_protection.content_multiple',
-          { label },
+        content: (
+          <>
+            <div>
+              {t(
+                sqlTargets.length === 1 && dataGuards.length === 0
+                  ? 'tab_manager.close_protection.content_single'
+                  : 'tab_manager.close_protection.content_multiple',
+                { label },
+              )}
+            </div>
+            {guardState.runningCount > 0 ? (
+              <div style={{ marginTop: 8, color: 'var(--gn-warn)' }}>
+                {t('tab_manager.close_protection.running_close_content', {
+                  count: guardState.runningCount,
+                })}
+              </div>
+            ) : null}
+          </>
         ),
         okText: t('tab_manager.close_protection.save_close'),
         cancelText: t('common.cancel'),
@@ -368,6 +439,7 @@ export const useTabManagerState = () => {
               onClick={() => {
                 destroyConfirm?.();
                 void Promise.all(dataGuards.map(({ guard }) => guard.discard()))
+                  .then(() => cancelRunningWorkbenchTabGuards(closableTabs.map((tab) => tab.id)))
                   .then(() => {
                     sqlTargets.forEach(({ tabId }) => clearQueryTabDraft(tabId));
                     closeConfirmedTabs();
@@ -405,6 +477,7 @@ export const useTabManagerState = () => {
                 throw new Error(t('tab_manager.close_protection.save_failed'));
               }
             }
+            await cancelRunningWorkbenchTabGuards(latestTargetTabs.map((tab) => tab.id));
             closeConfirmedTabs();
           } catch (error) {
             message.error(t('tab_manager.close_protection.save_failed_detail', {

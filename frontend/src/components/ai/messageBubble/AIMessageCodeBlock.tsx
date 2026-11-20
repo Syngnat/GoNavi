@@ -39,6 +39,7 @@ import {
   sanitizeMermaidSvg,
   withMermaidRenderTimeout,
 } from './mermaidSecurity';
+import { AIMessageCodeScriptButton } from './AIMessageCodeScriptButton';
 
 [
   bash,
@@ -316,6 +317,7 @@ const HighlightedCodeBlock: React.FC<HighlightedCodeBlockProps> = ({
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const isLongCode = displayText.split('\n').length > 15;
   const isSql = language === 'sql';
+  const isJavaScript = language === 'javascript' || language === 'js';
   const isSelectQuery = isSql && /^\s*(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i.test(displayText.trim());
 
   const handleInlineExecute = async () => {
@@ -366,6 +368,13 @@ const HighlightedCodeBlock: React.FC<HighlightedCodeBlockProps> = ({
       >
         <span style={{ fontFamily: 'var(--gn-font-mono)' }}>{language}</span>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {isJavaScript ? (
+            <AIMessageCodeScriptButton
+              codeText={codeText}
+              connectionId={activeConnectionId}
+              dbName={activeDbName}
+            />
+          ) : null}
           {isSql && <CodeRunButton text={codeText} connectionId={activeConnectionId} dbName={activeDbName} originalSqlCandidates={originalSqlCandidates} />}
           {isSelectQuery && activeConnectionConfig && (
             <Tooltip title={copy('ai_chat.message.code.preview_tooltip')}>

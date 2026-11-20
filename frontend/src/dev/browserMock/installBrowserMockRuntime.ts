@@ -4,8 +4,20 @@ import { createBrowserMockAppMethods } from './browserMockAppMethods';
 import { createBrowserMockConnectionStore } from './browserMockConnectionStore';
 import { createBrowserMockMcp } from './browserMockMcp';
 import { createBrowserMockAgentRuntime } from './browserMockAgentRuntime';
+import { createBrowserMockScriptWorkbenchMethods } from './browserMockScriptWorkbenchMethods';
 
-export const installBrowserMockRuntime = () => {
+export type BrowserMockRuntimeOptions = {
+  includeScriptWorkbench?: boolean;
+};
+
+export const shouldInstallBrowserMockScriptWorkbench = (
+  hasAppBinding: boolean,
+  hasAIBinding: boolean,
+): boolean => !hasAppBinding && !hasAIBinding;
+
+export const installBrowserMockRuntime = ({
+    includeScriptWorkbench = true,
+}: BrowserMockRuntimeOptions = {}) => {
     const existingRuntime = (window as any).runtime || {};
     const existingEnvironment = existingRuntime.Environment;
     const existingEventsOnMultiple = existingRuntime.EventsOnMultiple;
@@ -278,7 +290,10 @@ export const installBrowserMockRuntime = () => {
 
     const mockGo = {
         app: {
-            App: mockAppMethods,
+            App: {
+                ...mockAppMethods,
+                ...(includeScriptWorkbench ? createBrowserMockScriptWorkbenchMethods() : {}),
+            },
         },
         aiservice: {
             Service: mockAiServiceMethods,

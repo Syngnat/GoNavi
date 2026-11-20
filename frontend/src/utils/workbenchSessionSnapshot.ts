@@ -67,7 +67,8 @@ const COMES_BACK_AFTER_RESTART: Record<WorkbenchTabType, boolean> = {
   'jvm-diagnostic': true,
   'jvm-monitoring': true,
   'agent-assets': false,
-    'session-workbench': true,
+  'session-workbench': true,
+  'script-workbench': true,
   'sql-file-execution': false,
   'sql-analysis': false,
   'table-export': false,
@@ -99,6 +100,9 @@ const TEXT_FIELDS = [
   'databaseLinkName',
   'sidebarLocateKey',
   'messageQueueTarget',
+  'scriptId',
+  'scriptFolderId',
+  'scriptDisplayName',
 ] as const satisfies readonly (keyof TabData)[];
 
 const CHOICE_FIELDS = {
@@ -110,6 +114,7 @@ const CHOICE_FIELDS = {
   dataSyncEntryMode: ['sync', 'compare', 'schemaCompare', 'dataCompare'],
   sqlAuditView: ['audit', 'query-history'],
   messageQueueObjectKind: ['topic-filter', 'topic', 'queue', 'exchange'],
+  scriptVisibility: ['private', 'shared'],
 } as const satisfies Partial<Record<keyof TabData, readonly string[]>>;
 
 const FLAG_FIELDS = ['readOnly', 'preserveUnboundConnection'] as const satisfies readonly (keyof TabData)[];
@@ -162,7 +167,10 @@ export const toSnapshotTab = (value: unknown): TabData | null => {
   if (raw.redisDB !== undefined && raw.redisDB !== null && Number.isInteger(redisDB) && redisDB >= 0 && redisDB <= MAX_REDIS_DB) {
     tab.redisDB = redisDB;
   }
-  tab.title = text(raw.title, MAX_TITLE_LENGTH) || String(tab.tableName ?? '') || id;
+  tab.title = text(raw.title, MAX_TITLE_LENGTH)
+    || text(raw.scriptDisplayName, MAX_TITLE_LENGTH)
+    || String(tab.tableName ?? '')
+    || id;
   return tab as unknown as TabData;
 };
 

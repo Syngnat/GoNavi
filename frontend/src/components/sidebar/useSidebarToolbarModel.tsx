@@ -25,6 +25,10 @@ import {
 import { buildTitlebarTrailingActions } from './titlebarTrailingActions';
 import { DRIVER_MANAGER_WORKBENCH_TAB_ID } from '../../utils/driverManagerTab';
 import { PLUGIN_MANAGER_WORKBENCH_TAB_ID } from '../../utils/pluginManagerTab';
+import {
+  buildScriptWorkbenchTab,
+  resolveScriptWorkbenchNodeConnectionId,
+} from '../../utils/scriptWorkbenchTab';
 import { useSidebarCommandSearchCopy } from './useSidebarCommandSearchCopy';
 import type { SidebarSearchPanelProps } from './SidebarSearchPanel';
 import type { V2CommandSearchItem } from '../sidebarV2Utils';
@@ -188,6 +192,22 @@ export const useSidebarToolbarModel = ({
     openDataImportWorkbench({ connectionId, dbName, tableName, mode });
   }, [activeContext?.connectionId, activeContext?.dbName, activeTabId, openDataImportWorkbench, tabs]);
   const handleOpenMockDataWorkbench = useSidebarMockDataLauncher({ selectedNodesRef, tabs, activeTabId, connections, addTab });
+  const handleOpenScriptWorkbench = useCallback(() => {
+    const node = selectedNodesRef.current[0];
+    const nodeConnectionId = resolveScriptWorkbenchNodeConnectionId(node, connections);
+    const connectionId = nodeConnectionId
+      || String(activeContext?.connectionId || activeTab?.connectionId || '').trim();
+    const dbName = String(
+      node?.type === 'database'
+        ? (node?.dataRef?.dbName || node?.title || '')
+        : node?.dataRef?.dbName || activeContext?.dbName || activeTab?.dbName || '',
+    ).trim();
+    addTab(buildScriptWorkbenchTab({
+      connectionId,
+      dbName,
+      title: t('script_workbench.title'),
+    }));
+  }, [activeContext?.connectionId, activeContext?.dbName, activeTab, addTab, connections, selectedNodesRef]);
 
   const {
     openSlowQueryWorkbench,
@@ -311,6 +331,12 @@ export const useSidebarToolbarModel = ({
           label: v2SqlAuditLabel,
           icon: <AuditOutlined aria-hidden="true" />,
           onClick: openSqlAuditWorkbench,
+        },
+        {
+          key: 'script-workbench',
+          label: t('sidebar.action.script_workbench'),
+          icon: <CodeOutlined aria-hidden="true" />,
+          onClick: handleOpenScriptWorkbench,
         },
         {
           key: 'dml-snapshot',
