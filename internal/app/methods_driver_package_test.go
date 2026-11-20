@@ -21,7 +21,7 @@ import (
 // 目录、假二进制、installed.json 元数据齐备，二进制名为当前平台的主程序名。
 func installFakeDriverPackage(t *testing.T, root string, driverType string, version string, agentRevision string) string {
 	t.Helper()
-	driverDir := filepath.Join(root, driverType)
+	driverDir := driverInstallDir(root, driverType)
 	if err := os.MkdirAll(driverDir, 0o755); err != nil {
 		t.Fatalf("创建驱动目录失败: %v", err)
 	}

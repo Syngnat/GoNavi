@@ -15,7 +15,7 @@ import (
 func installDriverWithMetaOnly(t *testing.T, root string, driverType string) (string, string) {
 	t.Helper()
 
-	driverDir := filepath.Join(root, driverType)
+	driverDir := driverInstallDir(root, driverType)
 	if err := os.MkdirAll(driverDir, 0o755); err != nil {
 		t.Fatalf("创建驱动目录失败: %v", err)
 	}
@@ -146,6 +146,28 @@ func TestGetDriverStatusListKeepsValidInstallUntouched(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Dir(metaPath)); err != nil {
 		t.Fatalf("有效驱动目录不应被清理: %v", err)
+	}
+}
+
+func TestDriverStatusUsesCanonicalDorisStoragePaths(t *testing.T) {
+	root := t.TempDir()
+	_, executablePath := installDriverWithMetaOnly(t, root, "diros")
+	if err := os.WriteFile(executablePath, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("写入二进制失败: %v", err)
+	}
+
+	app := NewApp()
+	app.SetLanguage("zh-CN")
+	item := statusItemFor(t, app, root, "diros")
+
+	if item.Name != "Doris" {
+		t.Fatalf("驱动展示名应为 Doris，got=%q", item.Name)
+	}
+	if got := filepath.Base(item.InstallDir); got != "doris" {
+		t.Fatalf("安装目录应使用 doris，got=%q path=%q", got, item.InstallDir)
+	}
+	if got := filepath.Base(item.ExecutablePath); got != "doris-driver-agent"+filepath.Ext(item.ExecutablePath) {
+		t.Fatalf("代理文件名应使用 doris，got=%q path=%q", got, item.ExecutablePath)
 	}
 }
 

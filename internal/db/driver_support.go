@@ -276,11 +276,12 @@ func ResolveOptionalGoDriverMarkerPath(downloadDir string, driverType string) (s
 	if !IsOptionalGoDriver(normalized) {
 		return "", fmt.Errorf("%s 不是可选 Go 驱动", driverDisplayName(normalized))
 	}
+	storageType := optionalDriverStorageTypeName(normalized)
 	root, err := resolveExternalDriverRoot(downloadDir)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, normalized, "installed.json"), nil
+	return filepath.Join(root, storageType, "installed.json"), nil
 }
 
 // optionalGoDriverInstalledAt 的 root 为空时回落全局目录（连接期调用方的既有行为）。
@@ -290,7 +291,18 @@ func optionalGoDriverInstalledAt(root string, driverType string) bool {
 		return false
 	}
 	info, statErr := os.Stat(markerPath)
-	return statErr == nil && !info.IsDir()
+	if statErr == nil && !info.IsDir() {
+		return true
+	}
+	if normalizeRuntimeDriverType(driverType) != "diros" {
+		return false
+	}
+	resolvedRoot, rootErr := resolveExternalDriverRoot(root)
+	if rootErr != nil {
+		return false
+	}
+	legacyInfo, legacyErr := os.Stat(filepath.Join(resolvedRoot, "diros", "installed.json"))
+	return legacyErr == nil && !legacyInfo.IsDir()
 }
 
 func optionalGoDriverRuntimeReadyAt(root string, driverType string) (bool, string) {
@@ -299,7 +311,7 @@ func optionalGoDriverRuntimeReadyAt(root string, driverType string) (bool, strin
 		return true, ""
 	}
 	displayName := driverDisplayName(normalized)
-	executablePath, err := ResolveOptionalDriverAgentExecutablePath(root, normalized)
+	executablePath, err := resolveExistingOptionalDriverAgentExecutablePath(root, normalized)
 	if err != nil {
 		return false, localizedDriverRuntimeText("driver_manager.backend.status.agent_path_failed", map[string]any{"name": displayName})
 	}

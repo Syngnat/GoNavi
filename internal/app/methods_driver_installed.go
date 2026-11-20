@@ -20,7 +20,7 @@ func driverInstallDir(downloadDir string, driverType string) string {
 	if err != nil {
 		root = defaultDriverDownloadDirectory()
 	}
-	return filepath.Join(root, normalizeDriverType(driverType))
+	return filepath.Join(root, optionalDriverPublicTypeName(driverType))
 }
 
 func installedDriverMetaPath(downloadDir string, driverType string) string {

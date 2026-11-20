@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
@@ -102,6 +103,9 @@ func (a *App) RemoveDriverPackage(driverType string, downloadDir string) connect
 		return connection.QueryResult{Success: false, Message: a.appText("driver_manager.backend.error.remove_package_failed", map[string]any{
 			"detail": a.driverOperationErrorMessage(err, "failed to remove driver package, driver=%s path=%s", definition.Type, driverDir),
 		})}
+	}
+	if normalizeDriverType(definition.Type) == "diros" {
+		_ = os.RemoveAll(filepath.Join(resolvedDir, "diros"))
 	}
 
 	return connection.QueryResult{Success: true, Message: a.appText("driver_manager.backend.message.package_removed", nil), Data: map[string]interface{}{

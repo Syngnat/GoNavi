@@ -17,7 +17,12 @@ func defaultDriverDownloadDirectory() string {
 }
 
 func resolveDriverDownloadDirectory(directory string) (string, error) {
-	return db.ResolveExternalDriverRoot(directory)
+	root, err := db.ResolveExternalDriverRoot(directory)
+	if err != nil {
+		return "", err
+	}
+	migrateLegacyDorisDriverInstall(root)
+	return root, nil
 }
 
 func normalizeDriverType(driverType string) string {

@@ -169,6 +169,57 @@ func TestManagedDriverRequiresInstallMarker(t *testing.T) {
 	}
 }
 
+func TestDorisStoragePathsUsePublicName(t *testing.T) {
+	root := t.TempDir()
+	SetExternalDriverDownloadDirectory(root)
+
+	executablePath, err := ResolveOptionalDriverAgentExecutablePath(root, "diros")
+	if err != nil {
+		t.Fatalf("解析 Doris 代理路径失败: %v", err)
+	}
+	if got := filepath.Base(filepath.Dir(executablePath)); got != "doris" {
+		t.Fatalf("Doris 安装目录应使用 doris，got=%q path=%q", got, executablePath)
+	}
+	if got := filepath.Base(executablePath); got != "doris-driver-agent"+filepath.Ext(executablePath) {
+		t.Fatalf("Doris 代理文件名应使用 doris，got=%q", got)
+	}
+
+	markerPath, err := ResolveOptionalGoDriverMarkerPath(root, "doris")
+	if err != nil {
+		t.Fatalf("解析 Doris marker 路径失败: %v", err)
+	}
+	if got := filepath.Base(filepath.Dir(markerPath)); got != "doris" {
+		t.Fatalf("Doris marker 目录应使用 doris，got=%q path=%q", got, markerPath)
+	}
+}
+
+func TestLegacyDorisStorageRemainsRuntimeCompatible(t *testing.T) {
+	root := t.TempDir()
+	SetExternalDriverDownloadDirectory(root)
+	legacyDir := filepath.Join(root, "diros")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("创建旧 Doris 目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "installed.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("写入旧 Doris marker 失败: %v", err)
+	}
+	legacyExecutable := filepath.Join(legacyDir, optionalDriverExecutableNameForStorage("diros"))
+	if err := os.WriteFile(legacyExecutable, []byte("legacy"), 0o755); err != nil {
+		t.Fatalf("写入旧 Doris 代理失败: %v", err)
+	}
+
+	if !optionalGoDriverInstalledAt(root, "doris") {
+		t.Fatal("旧 diros marker 应继续被识别为 Doris 已安装")
+	}
+	resolved, err := resolveExistingOptionalDriverAgentExecutablePath(root, "doris")
+	if err != nil {
+		t.Fatalf("解析旧 Doris 代理失败: %v", err)
+	}
+	if resolved != legacyExecutable {
+		t.Fatalf("迁移前应回退到旧 diros 代理，want=%q got=%q", legacyExecutable, resolved)
+	}
+}
+
 func TestNewCompatibleDriversAreOptionalAgentDrivers(t *testing.T) {
 	tmpDir := t.TempDir()
 	SetExternalDriverDownloadDirectory(tmpDir)
