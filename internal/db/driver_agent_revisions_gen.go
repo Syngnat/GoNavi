@@ -6,7 +6,7 @@ func init() {
 	optionalDriverAgentRevisions = map[string]string{
 		"mariadb":       "src-47e754c5477d8c5c",
 		"oceanbase":     "src-2dfbdb0ec1118342",
-		"diros":         "src-84271b9877a878a2",
+		"diros":         "src-1262de8919c13a9e",
 		"starrocks":     "src-051943dd82739ccd",
 		"sphinx":        "src-5f6c088bb33c7afc",
 		"sqlserver":     "src-05b2713c868ec747",

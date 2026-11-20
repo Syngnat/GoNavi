@@ -78,10 +78,7 @@ normalize_driver() {
 }
 
 build_driver_name() {
-  case "$1" in
-    doris) echo "diros" ;;
-    *) echo "$1" ;;
-  esac
+  echo "$1"
 }
 
 driver_build_tags() {

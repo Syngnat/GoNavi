@@ -258,7 +258,7 @@ func optionalDriverBuildTag(driverType string, selectedVersion string) (string, 
 	case "oceanbase":
 		return "gonavi_oceanbase_driver", nil
 	case "diros":
-		return "gonavi_diros_driver", nil
+		return "gonavi_doris_driver", nil
 	case "starrocks":
 		return "gonavi_starrocks_driver", nil
 	case "sphinx":

@@ -1,4 +1,4 @@
-//go:build gonavi_full_drivers || gonavi_diros_driver
+//go:build gonavi_full_drivers || gonavi_doris_driver || gonavi_diros_driver
 
 package db
 

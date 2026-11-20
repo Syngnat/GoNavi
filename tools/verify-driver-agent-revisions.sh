@@ -106,7 +106,7 @@ expected_revision_for() {
 build_tags_for_driver() {
   local driver="$1"
   local variant="${2:-}"
-  local tags="gonavi_${driver}_driver"
+  local tags="gonavi_$(public_driver_name "$driver")_driver"
   local registry_tag
   if registry_tag="$(registry_driver_build_tag "$driver")"; then
     tags="$registry_tag"
@@ -339,27 +339,28 @@ for raw_driver in "${raw_drivers[@]}"; do
     failed=1
     continue
   fi
+  driver_label="$(public_driver_name "$driver")"
   if [[ "$driver" == "duckdb" && "$goos" == "windows" && "$goarch" != "amd64" ]]; then
-    echo "⚠️  跳过 duckdb revision 校验（$target_platform 不构建 agent）"
+    echo "⚠️  跳过 $driver_label revision 校验（$target_platform 不构建 agent）"
     continue
   fi
   if ! registry_driver_platform_supported "$driver" "$target_platform"; then
-    echo "⚠️  跳过 $driver revision 校验（描述表未声明 $target_platform 平台）"
+    echo "⚠️  跳过 $driver_label revision 校验（描述表未声明 $target_platform 平台）"
     continue
   fi
 
   expected="$(expected_revision_for "$driver")"
   if [[ -z "$expected" ]]; then
-    echo "❌ $driver 缺少期望 revision"
+    echo "❌ $driver_label 缺少期望 revision"
     failed=1
     continue
   fi
 
   while IFS= read -r variant; do
     agent_path="$(agent_path_for "$driver" "$variant")"
-    variant_label="$driver"
+    variant_label="$driver_label"
     if [[ -n "$variant" ]]; then
-      variant_label="${driver}-${variant}"
+      variant_label="${driver_label}-${variant}"
     fi
     if [[ ! -f "$agent_path" ]]; then
       echo "❌ $variant_label 缺少 driver-agent 资产：$agent_path"

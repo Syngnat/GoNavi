@@ -906,10 +906,7 @@ jobs:
           }
 
           build_driver_name() {
-            case "$1" in
-              doris) echo "diros" ;;
-              *) echo "$1" ;;
-            esac
+            echo "$1"
           }
 
           declare -a RAW_DRIVERS=()

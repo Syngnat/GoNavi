@@ -44,8 +44,18 @@ normalize_driver() {
   esac
 }
 
+public_driver_name() {
+  case "$1" in
+    diros) echo "doris" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 build_driver_name() {
-  echo "$1"
+  case "$1" in
+    diros) echo "doris" ;;
+    *) echo "$1" ;;
+  esac
 }
 
 driver_build_tags() {
@@ -483,7 +493,7 @@ fingerprint_driver() {
   dependency_files="$(mktemp "${TMPDIR:-/tmp}/gonavi-agent-dependencies.XXXXXX")"
   if ! run_go_list_deps "$dependency_files" "$cgo_enabled" "$goos" "$goarch" "$tag" ./cmd/optional-driver-agent; then
     rm -f "$tmp" "$dependency_files"
-    echo "driver-agent dependency enumeration failed: $driver ($goos/$goarch)" >&2
+    echo "driver-agent dependency enumeration failed: $(public_driver_name "$driver") ($goos/$goarch)" >&2
     return 1
   fi
 
@@ -524,7 +534,7 @@ fingerprint_driver() {
   if [[ ${#direct_external_imports[@]} -gt 0 ]]; then
     if ! run_go_list_deps "$external_dependency_files" "$cgo_enabled" "$goos" "$goarch" "$tag" "${direct_external_imports[@]}"; then
       rm -f "$tmp" "$dependency_files" "$included_files" "$external_imports" "$external_dependency_files" "$hash_entries"
-      echo "driver-agent external dependency enumeration failed: $driver ($goos/$goarch)" >&2
+      echo "driver-agent external dependency enumeration failed: $(public_driver_name "$driver") ($goos/$goarch)" >&2
       return 1
     fi
   fi
@@ -573,7 +583,7 @@ wait_for_oldest_revision_job() {
   driver="${revision_pid_drivers[0]}"
 
   if ! wait "$pid"; then
-    echo "❌ 生成 driver-agent revision 失败：$driver ($goos/$goarch)" >&2
+    echo "❌ 生成 driver-agent revision 失败：$(public_driver_name "$driver") ($goos/$goarch)" >&2
     revision_failed=1
   fi
 
