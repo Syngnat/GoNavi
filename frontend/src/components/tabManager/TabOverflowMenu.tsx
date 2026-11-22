@@ -3,7 +3,7 @@ import { CloseOutlined, DownOutlined } from '@ant-design/icons';
 import type { TabsProps } from 'antd';
 import { t } from '../../i18n';
 import type { SavedConnection, TabData } from '../../types';
-import type { TabDisplaySettings } from '../../utils/tabDisplay';
+import type { TabDisplayPart, TabDisplaySettings } from '../../utils/tabDisplay';
 import { GnSearchIcon } from '../icons/gnIcons';
 import { QueryEditorRunningTabsDock } from '../queryEditor/QueryEditorRunningTabsDock';
 import { TabSwitchPhaseProfiler } from '../../utils/tabSwitchProbe';
@@ -31,6 +31,17 @@ const moveIndex = (current: number, offset: number, length: number): number => {
   return (current + offset + length) % length;
 };
 
+const renderOverflowParts = (parts: TabDisplayPart[], withSeparators: boolean) => parts.map((part, index) => (
+  <React.Fragment key={part.key}>
+    {withSeparators && index > 0 ? (
+      <span className="gn-v2-tab-overflow-separator" aria-hidden="true">·</span>
+    ) : null}
+    <span className={`gn-v2-tab-overflow-part gn-v2-tab-overflow-part-${part.key}`}>
+      {part.text}
+    </span>
+  </React.Fragment>
+));
+
 export const TabOverflowMenu = React.forwardRef<HTMLDivElement, TabOverflowMenuProps>(({
   tabs,
   activeTabId,
@@ -43,6 +54,7 @@ export const TabOverflowMenu = React.forwardRef<HTMLDivElement, TabOverflowMenuP
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const rows = useMemo(() => buildTabOverflowRows(tabs, {
     connections,
@@ -96,36 +108,86 @@ export const TabOverflowMenu = React.forwardRef<HTMLDivElement, TabOverflowMenuP
       ref={ref}
       className="gn-v2-tab-overflow-menu"
       data-testid="gn-v2-tab-overflow-menu"
+      role="group"
+      aria-label={t('tab_manager.overflow.menu_aria')}
     >
       <div className="gn-v2-tab-overflow-search">
-        <GnSearchIcon className="gn-v2-tab-overflow-search-icon" />
-        <input
-          autoFocus
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          placeholder={t('tab_manager.overflow.search_placeholder')}
-          aria-label={t('tab_manager.overflow.search_placeholder')}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={handleSearchKeyDown}
-        />
+        <div className="gn-v2-tab-overflow-search-field">
+          <GnSearchIcon className="gn-v2-tab-overflow-search-icon" />
+          <input
+            ref={searchInputRef}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            type="search"
+            value={query}
+            placeholder={t('tab_manager.overflow.search_placeholder')}
+            aria-label={t('tab_manager.overflow.search_placeholder')}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          {query ? (
+            <button
+              type="button"
+              className="gn-v2-tab-overflow-search-clear"
+              aria-label={t('tab_manager.overflow.clear_search')}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setQuery('');
+                searchInputRef.current?.focus();
+              }}
+            >
+              <CloseOutlined />
+            </button>
+          ) : null}
+        </div>
       </div>
       {visibleRows.length === 0 ? (
-        <p className="gn-v2-tab-overflow-empty">{t('tab_manager.overflow.empty')}</p>
+        <div className="gn-v2-tab-overflow-empty" role="status">
+          <span className="gn-v2-tab-overflow-empty-icon" aria-hidden="true">
+            <GnSearchIcon />
+          </span>
+          <span>{t('tab_manager.overflow.empty')}</span>
+        </div>
       ) : (
-        <ul className="gn-v2-tab-overflow-list" role="listbox">
+        <ul className="gn-v2-tab-overflow-list">
           {visibleRows.map((row, index) => (
             <li
               key={row.id}
-              role="option"
-              aria-selected={row.active}
               className={`gn-v2-tab-overflow-item${row.active ? ' is-active' : ''}${index === highlightedIndex ? ' is-highlighted' : ''}`}
               onMouseEnter={() => setHighlightedIndex(index)}
             >
               <button
                 type="button"
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
+                className="gn-v2-tab-overflow-item-main"
+                aria-label={row.accessibleLabel}
+                aria-current={row.active ? 'true' : undefined}
+                onClick={() => onActivate(row.id)}
+              >
+                <span className="gn-v2-tab-overflow-kind" title={row.kind}>
+                  <TabOverflowKindIcon kind={row.kind} />
+                </span>
+                <span className="gn-v2-tab-overflow-copy">
+                  <span className="gn-v2-tab-overflow-title">
+                    {row.primaryParts.length > 0 ? renderOverflowParts(row.primaryParts, false) : row.title}
+                  </span>
+                  {row.secondaryParts.length > 0 ? (
+                    <span className="gn-v2-tab-overflow-subtitle">
+                      {renderOverflowParts(row.secondaryParts, true)}
+                    </span>
+                  ) : null}
+                </span>
+                {row.active ? (
+                  <span className="gn-v2-tab-overflow-active-dot" aria-hidden="true" />
+                ) : null}
+              </button>
+              <button
+                type="button"
                 className="gn-v2-tab-overflow-close"
-                aria-label={t('tab_manager.close_aria', { title: row.title })}
+                aria-label={t('tab_manager.close_aria', { title: row.accessibleLabel })}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => {
                   event.preventDefault();
@@ -134,22 +196,6 @@ export const TabOverflowMenu = React.forwardRef<HTMLDivElement, TabOverflowMenuP
                 }}
               >
                 <CloseOutlined />
-              </button>
-              <button
-                type="button"
-                ref={(node) => {
-                  itemRefs.current[index] = node;
-                }}
-                className="gn-v2-tab-overflow-item-main"
-                onClick={() => onActivate(row.id)}
-              >
-                <span className="gn-v2-tab-overflow-kind" title={row.kind}>
-                  <TabOverflowKindIcon kind={row.kind} />
-                </span>
-                <span className="gn-v2-tab-overflow-copy">
-                  <span className="gn-v2-tab-overflow-title">{row.title}</span>
-                  <span className="gn-v2-tab-overflow-subtitle">{row.subtitle || row.kind}</span>
-                </span>
               </button>
             </li>
           ))}

@@ -12994,6 +12994,8 @@
   "tab_manager.message.background_task_window_unavailable": "背景任務工作台暫不支援在獨立視窗開啟，請在目前分頁中查看進度。",
   "tab_manager.message.data_import_running_close_blocked": "資料正在匯入，任務完成前無法關閉對應工作台。",
   "tab_manager.overflow.empty": "沒有符合的標籤",
+  "tab_manager.overflow.clear_search": "清除搜尋",
+  "tab_manager.overflow.menu_aria": "標籤頁列表",
   "tab_manager.overflow.more_aria": "顯示隱藏的標籤",
   "tab_manager.overflow.search_placeholder": "搜尋標籤",
   "tab_manager.sql_file_close.close_tabs": "關閉分頁",

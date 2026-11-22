@@ -28,7 +28,6 @@ import {
 import { installTabDetachDragGuards } from '../tabDragGuards';
 import { buildDetachDragPreviewState } from '../../DetachDragPreview';
 import { renderWorkbenchTabBar } from '../TabOverflowMenu';
-import { closeWorkbenchTabOverflowPopup } from '../tabOverflowModel';
 import { resolveConnectionEnvironmentPresentation } from '../../../utils/connectionEnvironment';
 import {
   resolveQueryTabRenameMenuState,
@@ -320,7 +319,6 @@ export const useTabManagerItems = ({
     connectionGroupNameById,
     onActivate: (tabId) => {
       setActiveTab(tabId);
-      closeWorkbenchTabOverflowPopup();
     },
     onClose: (tabId) => {
       closeTabsWithSQLFilePrompt([tabId], () => closeTab(tabId));

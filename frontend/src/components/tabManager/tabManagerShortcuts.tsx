@@ -52,6 +52,8 @@ export const buildTabWorkbenchStyle = (
 export const V2_WORKBENCH_TAB_MIN_WIDTH = 112;
 export const V2_WORKBENCH_TAB_MAX_WIDTH = 260;
 const V2_WORKBENCH_TAB_WIDTH_GUARD = 1;
+// The more button is 28px wide plus 4px/2px horizontal margins in tabOverflow.css.
+const V2_WORKBENCH_TAB_OVERFLOW_WIDTH = 34;
 
 export const resolveV2WorkbenchTabWidth = (availableWidth: number, tabCount: number): number => {
   const normalizedTabCount = Number.isFinite(tabCount) ? Math.floor(tabCount) : 0;
@@ -59,12 +61,27 @@ export const resolveV2WorkbenchTabWidth = (availableWidth: number, tabCount: num
     return V2_WORKBENCH_TAB_MAX_WIDTH;
   }
 
-  const equalShare = Math.floor(
-    (availableWidth - V2_WORKBENCH_TAB_WIDTH_GUARD) / normalizedTabCount,
+  // Keep the fractional share so integer layout rounding does not leave a
+  // visible gap after the last tab when the strip is full.
+  const equalShare = (availableWidth - V2_WORKBENCH_TAB_WIDTH_GUARD) / normalizedTabCount;
+  if (equalShare >= V2_WORKBENCH_TAB_MIN_WIDTH) {
+    return Math.min(V2_WORKBENCH_TAB_MAX_WIDTH, equalShare);
+  }
+
+  // Overflow is active: the more button consumes the right edge. Divide only
+  // the remaining viewport into complete tabs so automatic scrolling never
+  // leaves a half tab at either end.
+  const overflowViewportWidth = Math.max(
+    0,
+    availableWidth - V2_WORKBENCH_TAB_OVERFLOW_WIDTH,
+  );
+  const visibleTabCount = Math.max(
+    1,
+    Math.floor(overflowViewportWidth / V2_WORKBENCH_TAB_MIN_WIDTH),
   );
   return Math.min(
     V2_WORKBENCH_TAB_MAX_WIDTH,
-    Math.max(V2_WORKBENCH_TAB_MIN_WIDTH, equalShare),
+    Math.max(V2_WORKBENCH_TAB_MIN_WIDTH, overflowViewportWidth / visibleTabCount),
   );
 };
 

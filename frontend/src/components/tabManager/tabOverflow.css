@@ -32,6 +32,13 @@ body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-nav-more[a
   color: var(--gn-fg-1);
 }
 
+/* An empty running-dock slot must not reserve its padding. rc-tabs subtracts
+   the extra-content width from the tab viewport; the leftover 12px makes a
+   full-width tab strip overflow and hides the last tab under the more button. */
+body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav .ant-tabs-extra-content:empty {
+  display: none;
+}
+
 /* Portaled by rc-trigger. antd's position:absolute lives on a hashed
    selector; overwriting popupClassName without that hash drops the node
    into document flow (bottom-left of the workbench). Pin position here
@@ -46,12 +53,12 @@ body[data-ui-version="v2"] .gn-v2-tab-overflow-popup {
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-menu {
-  width: min(360px, calc(100vw - 24px));
-  min-width: 320px;
+  width: min(440px, calc(100vw - 24px));
+  min-width: min(320px, calc(100vw - 24px));
   overflow: hidden;
   box-sizing: border-box;
-  border: 0.5px solid var(--gn-br-2);
-  border-radius: var(--gn-v2-menu-surface-radius, 10px);
+  border: 1px solid var(--gn-br-1);
+  border-radius: 12px;
   background: var(--gn-bg-panel);
   color: var(--gn-fg-1);
   box-shadow: var(--gn-shadow-lg);
@@ -60,18 +67,35 @@ body[data-ui-version="v2"] .gn-v2-tab-overflow-menu {
 body[data-ui-version="v2"] .gn-v2-tab-overflow-search {
   display: flex;
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--gn-br-1);
+  background: color-mix(in srgb, var(--gn-bg-panel-2) 88%, var(--gn-bg-panel));
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search-field {
+  display: flex;
+  align-items: center;
   gap: 8px;
   width: 100%;
-  min-width: 100%;
-  height: 32px;
-  padding: 0 12px;
-  border-bottom: 0.5px solid var(--gn-br-1);
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid var(--gn-br-2);
+  border-radius: 9px;
+  background: var(--gn-bg-panel);
   color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search-field:focus-within {
+  border-color: color-mix(in srgb, var(--gn-accent) 58%, var(--gn-br-2));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gn-accent) 13%, transparent);
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-search-icon {
   flex: 0 0 auto;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--gn-fg-5);
 }
 
@@ -87,23 +111,57 @@ body[data-ui-version="v2"] .gn-v2-tab-overflow-search input {
   color: var(--gn-fg-1);
   font-family: inherit;
   font-size: 12.5px;
-  line-height: 20px;
+  line-height: 18px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search input::-webkit-search-cancel-button {
+  display: none;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-search input::placeholder {
   color: var(--gn-fg-5);
 }
 
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search-clear {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-fg-4);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search-clear:hover {
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-search-clear:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 1px;
+}
+
 body[data-ui-version="v2"] .gn-v2-tab-overflow-list {
   min-width: 100%;
-  max-height: min(320px, 50vh);
+  max-height: min(460px, 58vh);
+  box-sizing: border-box;
   overflow-x: hidden;
-  overflow-y: scroll;
+  overflow-y: auto;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--gn-fg-4) 55%, transparent) color-mix(in srgb, var(--gn-fg-4) 12%, var(--gn-bg-panel));
   margin: 0;
-  padding: 4px 4px 4px 6px;
+  padding: 6px;
   list-style: none;
 }
 
@@ -131,34 +189,53 @@ body[data-ui-version="v2"] .gn-v2-tab-overflow-list::-webkit-scrollbar-thumb:hov
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  padding: 10px 12px 12px;
+  padding: 28px 18px 30px;
   color: var(--gn-fg-4);
   font-size: 12px;
   line-height: 18px;
+  text-align: center;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-empty-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-5);
+  font-size: 16px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
-  height: var(--gn-v2-menu-row-height, 28px);
-  margin: 0;
-  padding: 0 8px 0 6px;
-  border-radius: var(--gn-v2-menu-item-radius, 5px);
+  min-height: 48px;
+  box-sizing: border-box;
+  margin: 1px 0;
+  padding: 2px;
+  border-radius: 9px;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
   flex: 1 1 auto;
   height: 100%;
   margin: 0;
-  padding: 0;
+  padding: 3px 5px;
   border: none;
+  border-radius: 7px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -176,28 +253,31 @@ body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-highlighted {
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active {
-  background: var(--gn-bg-selected);
-  box-shadow: inset 2px 0 0 var(--gn-accent);
+  background: color-mix(in srgb, var(--gn-accent) 7%, var(--gn-bg-panel));
+  box-shadow: inset 3px 0 0 var(--gn-accent);
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active.is-highlighted,
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active:hover {
-  background: var(--gn-bg-selected);
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-panel));
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-kind {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border-radius: 8px;
+  background: var(--gn-bg-hover);
   color: var(--gn-fg-4);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active .gn-v2-tab-overflow-kind {
+  background: var(--gn-accent-soft);
   color: var(--gn-accent);
 }
 
@@ -205,62 +285,140 @@ body[data-ui-version="v2"] .gn-v2-tab-overflow-copy {
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
   overflow: hidden;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
   min-width: 0;
-  flex: 0 1 auto;
-  max-width: 52%;
   overflow: hidden;
   color: var(--gn-fg-1);
   font-size: 12.5px;
-  font-weight: 500;
-  line-height: 18px;
-  text-overflow: ellipsis;
+  font-weight: 600;
+  line-height: 17px;
   white-space: nowrap;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
   overflow: hidden;
   color: var(--gn-fg-4);
   font-size: 11px;
-  line-height: 16px;
-  letter-spacing: 0.02em;
-  text-align: right;
+  line-height: 15px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-object {
+  flex: 1 1 auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-kind {
+  flex: 0 0 auto;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--gn-bg-active);
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 9.5px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-connection {
+  flex: 0 1 auto;
+  color: var(--gn-fg-2);
+  font-family: var(--gn-font-mono);
+  font-weight: 700;
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-host {
+  flex: 0 2 auto;
+  color: var(--gn-info);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-database {
+  flex: 0 2 auto;
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-schema,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-part-group {
+  flex: 0 2 auto;
+  color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-active .gn-v2-tab-overflow-part-kind {
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-separator {
+  flex: 0 0 auto;
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-active-dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--gn-accent);
+}
+
 body[data-ui-version="v2"] .gn-v2-tab-overflow-close {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  align-self: center;
   margin: 0;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--gn-fg-4);
-  opacity: 0;
+  opacity: 0.55;
   cursor: pointer;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-item:hover .gn-v2-tab-overflow-close,
-body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-highlighted .gn-v2-tab-overflow-close {
+body[data-ui-version="v2"] .gn-v2-tab-overflow-item.is-highlighted .gn-v2-tab-overflow-close,
+body[data-ui-version="v2"] .gn-v2-tab-overflow-close:focus-visible {
   opacity: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-tab-overflow-close:hover {
-  background: var(--gn-bg-hover);
+  background: var(--gn-bg-active);
   color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-tab-overflow-close:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 1px;
 }
 
 /* Fallback: if the cloned antd overflow labels ever leak through, flatten them

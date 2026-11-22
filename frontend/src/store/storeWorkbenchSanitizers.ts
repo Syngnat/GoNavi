@@ -495,6 +495,10 @@ export const sanitizeQueryTabs = (value: unknown): TabData[] => {
       dbName: toTrimmedString(raw.dbName, persistedDraft?.dbName),
       schemaName: toTrimmedString(raw.schemaName).slice(0, 256) || undefined,
       query,
+      queryBaseline:
+        typeof raw.queryBaseline === "string"
+          ? raw.queryBaseline.slice(0, MAX_PERSISTED_QUERY_LENGTH)
+          : undefined,
       resultPanelVisible:
         typeof raw.resultPanelVisible === "boolean"
           ? raw.resultPanelVisible

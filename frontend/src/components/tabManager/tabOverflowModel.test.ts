@@ -56,6 +56,27 @@ describe('tab overflow model', () => {
         active: true,
       }),
     ]);
+    expect(rows[0].primaryParts.map((part) => part.text)).toEqual(['[订单库]', 'SQL', '新建查询']);
+    expect(rows[0].secondaryParts).toEqual([]);
+    expect(rows[1].primaryParts.map((part) => part.text)).toEqual(['PLUGIN', '插件']);
+  });
+
+  it('keeps overflow rows on the same primary and secondary fields as the tab label', () => {
+    const rows = buildTabOverflowRows([queryTab], {
+      connections: [connection],
+      tabDisplay: {
+        layout: 'double',
+        primaryElements: ['object'],
+        secondaryElements: ['kind', 'connection', 'database'],
+      },
+      connectionGroupNameById: new Map(),
+      translate,
+    });
+
+    expect(rows[0].primaryParts.map((part) => part.text)).toEqual(['新建查询']);
+    expect(rows[0].secondaryParts.map((part) => part.text)).toEqual(['SQL', '[订单库]', 'sales']);
+    expect(rows[0].accessibleLabel).toContain('SQL');
+    expect(rows[0].accessibleLabel).toContain('[订单库]');
   });
 
   it('filters by kind, title and connection subtitle', () => {

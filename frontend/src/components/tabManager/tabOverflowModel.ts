@@ -5,6 +5,7 @@ import {
   getTabDisplayKindLabel,
   type TabDisplayElementKey,
   type TabDisplayModel,
+  type TabDisplayPart,
   type TabDisplaySettings,
   type TabDisplayTranslate,
 } from '../../utils/tabDisplay';
@@ -14,6 +15,9 @@ export type TabOverflowRow = {
   kind: string;
   title: string;
   subtitle: string;
+  accessibleLabel: string;
+  primaryParts: TabDisplayPart[];
+  secondaryParts: TabDisplayPart[];
   searchText: string;
   active: boolean;
 };
@@ -62,12 +66,16 @@ export const buildTabOverflowRows = (
       connectionName: connectionById.get(tab.connectionId)?.name,
       database: tab.dbName,
     });
+    const accessibleLabel = model.fullTitle || title;
     return {
       id: tab.id,
       kind,
       title,
       subtitle,
-      searchText: [kind, title, subtitle, model.fullTitle].join(' ').toLowerCase(),
+      accessibleLabel,
+      primaryParts: model.primaryParts,
+      secondaryParts: model.secondaryParts,
+      searchText: [kind, title, subtitle, accessibleLabel].join(' ').toLowerCase(),
       active: tab.id === options.activeTabId,
     };
   });

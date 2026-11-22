@@ -15,18 +15,19 @@ describe('tab overflow popup styles', () => {
   });
 
   it('uses a fixed icon slot and a flush speed-search header', () => {
-    expect(kindRule).toMatch(/flex:\s*0 0 16px;/);
+    expect(kindRule).toMatch(/flex:\s*0 0 28px;/);
+    expect(kindRule).toMatch(/width:\s*28px;/);
     expect(kindRule).not.toMatch(/min-width:\s*44px/);
     expect(kindRule).not.toMatch(/text-transform:\s*uppercase/);
     expect(searchRule).toMatch(/border-bottom:/);
     expect(tabOverflowCss).not.toMatch(/\.is-active \.gn-v2-tab-overflow-close/);
   });
 
-  it('keeps a wide list with a visible scrollbar and left close control', () => {
+  it('keeps a wide list with a visible scrollbar and right close control', () => {
     const menuRule = tabOverflowCss.match(/\.gn-v2-tab-overflow-menu\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(menuRule).toMatch(/width:\s*min\(360px/);
-    expect(menuRule).toMatch(/min-width:\s*320px;/);
+    expect(menuRule).toMatch(/width:\s*min\(440px/);
+    expect(menuRule).toMatch(/min-width:\s*min\(320px/);
     expect(tabOverflowCss).toMatch(/\.gn-v2-tab-overflow-list::-webkit-scrollbar\s*\{[^}]*width:\s*8px;/);
-    expect(tabOverflowCss).toMatch(/\.gn-v2-tab-overflow-item\.is-active\s*\{[^}]*box-shadow:\s*inset 2px 0 0 var\(--gn-accent\)/);
+    expect(tabOverflowCss).toMatch(/\.gn-v2-tab-overflow-item\.is-active\s*\{[^}]*box-shadow:\s*inset 3px 0 0 var\(--gn-accent\)/);
   });
 });

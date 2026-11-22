@@ -12994,6 +12994,8 @@
   "tab_manager.message.background_task_window_unavailable": "バックグラウンドタスクのワークベンチは、まだ別ウィンドウで開けません。現在のタブで進行状況を確認してください。",
   "tab_manager.message.data_import_running_close_blocked": "データをインポート中です。タスクが完了するまでワークベンチを閉じることはできません。",
   "tab_manager.overflow.empty": "一致するタブはありません",
+  "tab_manager.overflow.clear_search": "検索をクリア",
+  "tab_manager.overflow.menu_aria": "タブ一覧",
   "tab_manager.overflow.more_aria": "非表示のタブを表示",
   "tab_manager.overflow.search_placeholder": "タブを検索",
   "tab_manager.sql_file_close.close_tabs": "タブを閉じる",

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { Tabs } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TabData } from '../../types';
@@ -31,6 +32,7 @@ describe('TabOverflowMenu', () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    delete document.body.dataset.uiVersion;
     vi.unstubAllGlobals();
   });
 
@@ -41,6 +43,11 @@ describe('TabOverflowMenu', () => {
           tabs={TABS}
           activeTabId="tab-plugin"
           connections={[]}
+          tabDisplay={{
+            layout: 'double',
+            primaryElements: ['object'],
+            secondaryElements: ['kind', 'connection', 'database'],
+          }}
           connectionGroupNameById={new Map()}
           onActivate={onActivate}
           onClose={onClose}
@@ -68,8 +75,13 @@ describe('TabOverflowMenu', () => {
       'SQL',
       'PLUGIN',
     ]);
+    expect([...container.querySelectorAll('.gn-v2-tab-overflow-part-kind')].map((node) => node.textContent)).toEqual([
+      'SQL',
+      'PLUGIN',
+    ]);
     expect(container.querySelector('.gn-v2-tab-overflow-item.is-active .gn-v2-tab-overflow-title')?.textContent).toBe('Plugins');
-    expect(container.querySelector('.gn-v2-tab-overflow-item')?.firstElementChild?.classList.contains('gn-v2-tab-overflow-close')).toBe(true);
+    expect(container.querySelector('.gn-v2-tab-overflow-item')?.lastElementChild?.classList.contains('gn-v2-tab-overflow-close')).toBe(true);
+    expect(container.querySelector('.gn-v2-tab-overflow-item.is-active .gn-v2-tab-overflow-item-main')?.getAttribute('aria-current')).toBe('true');
     expect(container.querySelector('input')?.getAttribute('placeholder')).toBe('Search tabs');
   });
 
@@ -86,6 +98,11 @@ describe('TabOverflowMenu', () => {
     expect([...container.querySelectorAll('.gn-v2-tab-overflow-title')].map((node) => node.textContent)).toEqual([
       'Plugins',
     ]);
+
+    const clear = container.querySelector('.gn-v2-tab-overflow-search-clear');
+    if (!(clear instanceof HTMLButtonElement)) throw new Error('clear search button missing');
+    await act(async () => clear.click());
+    expect([...container.querySelectorAll('.gn-v2-tab-overflow-title')]).toHaveLength(2);
   });
 
   it('activates a row and closes a tab from the compact list', async () => {
@@ -94,6 +111,7 @@ describe('TabOverflowMenu', () => {
     if (!(queryButton instanceof HTMLButtonElement)) throw new Error('row missing');
     await act(async () => queryButton.click());
     expect(onActivate).toHaveBeenCalledWith('tab-query');
+    expect(container.querySelector('[data-testid="gn-v2-tab-overflow-menu"]')).not.toBeNull();
 
     const closeButtons = container.querySelectorAll('.gn-v2-tab-overflow-close');
     await act(async () => {
@@ -119,6 +137,28 @@ describe('TabOverflowMenu', () => {
     expect(more.minOverlayWidthMatchTrigger).toBe(false);
     expect(React.isValidElement(more.overlay)).toBe(true);
     expect(typeof renderWorkbenchTabBar).toBe('function');
+  });
+
+  it('collapses an empty extra slot instead of letting it force tab overflow', async () => {
+    document.body.dataset.uiVersion = 'v2';
+    const EmptyExtra = () => null;
+
+    await act(async () => {
+      root.render(
+        <Tabs
+          className="gn-v2-main-tabs"
+          items={[{ key: 'one', label: 'One' }]}
+          renderTabBar={(tabBarProps, DefaultTabBar) => (
+            <DefaultTabBar {...tabBarProps} extra={<EmptyExtra />} />
+          )}
+        />,
+      );
+    });
+
+    const extra = container.querySelector('.ant-tabs-extra-content');
+    expect(extra).not.toBeNull();
+    expect(extra?.childNodes).toHaveLength(0);
+    expect(extra?.matches(':empty')).toBe(true);
   });
 
   it('closes the overflow popup by clicking the expanded more button', async () => {

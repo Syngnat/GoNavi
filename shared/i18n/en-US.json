@@ -12994,6 +12994,8 @@
   "tab_manager.message.background_task_window_unavailable": "Background task workbenches cannot open in a separate window yet. View progress in the current tab.",
   "tab_manager.message.data_import_running_close_blocked": "Data import is running. The workbench cannot be closed until the task finishes.",
   "tab_manager.overflow.empty": "No matching tabs",
+  "tab_manager.overflow.clear_search": "Clear search",
+  "tab_manager.overflow.menu_aria": "Tab list",
   "tab_manager.overflow.more_aria": "Show hidden tabs",
   "tab_manager.overflow.search_placeholder": "Search tabs",
   "tab_manager.sql_file_close.close_tabs": "Close tabs",

@@ -115,6 +115,66 @@ describe('sqlEditorApplicationQuit', () => {
     expect(targets).toEqual([]);
   });
 
+  it('ignores a new query that still contains only the generated starter SQL', async () => {
+    const unnamedTab = createQueryTab({
+      id: 'tab-3',
+      title: 'New query',
+      query: 'SELECT * FROM ',
+      queryBaseline: 'SELECT * FROM ',
+    });
+    setQueryTabDraft('tab-3', 'SELECT * FROM ');
+
+    const targets = await collectApplicationQuitUnsavedSQLTargets([unnamedTab], [], vi.fn());
+
+    expect(targets).toEqual([]);
+  });
+
+  it('ignores an untouched contextual query with its own baseline', async () => {
+    const contextualQuery = 'SELECT * FROM users\nLIMIT 100;';
+    const unnamedTab = createQueryTab({
+      id: 'tab-3',
+      title: 'New query',
+      query: contextualQuery,
+      queryBaseline: contextualQuery,
+    });
+    setQueryTabDraft('tab-3', contextualQuery.replace('\n', '\r\n'));
+
+    const targets = await collectApplicationQuitUnsavedSQLTargets([unnamedTab], [], vi.fn());
+
+    expect(targets).toEqual([]);
+  });
+
+  it('still collects a new query once its generated starter SQL is edited', async () => {
+    const unnamedTab = createQueryTab({
+      id: 'tab-3',
+      title: 'New query',
+      query: 'SELECT * FROM users',
+      queryBaseline: 'SELECT * FROM ',
+    });
+    setQueryTabDraft('tab-3', 'SELECT * FROM users');
+
+    const targets = await collectApplicationQuitUnsavedSQLTargets([unnamedTab], [], vi.fn());
+
+    expect(targets).toEqual([expect.objectContaining({
+      kind: 'unsaved-query',
+      tabId: 'tab-3',
+      draft: 'SELECT * FROM users',
+    })]);
+  });
+
+  it('treats a legacy new query with only the default template as untouched', async () => {
+    const unnamedTab = createQueryTab({
+      id: 'tab-3',
+      title: 'New query',
+      query: 'SELECT * FROM ',
+    });
+    setQueryTabDraft('tab-3', 'SELECT * FROM ');
+
+    const targets = await collectApplicationQuitUnsavedSQLTargets([unnamedTab], [], vi.fn());
+
+    expect(targets).toEqual([]);
+  });
+
   it('saves external SQL files, existing saved queries, and unnamed query drafts before application quit', async () => {
     const saveQuery = vi.fn(async (query: SavedQuery) => query);
     const writeSQLFile = vi.fn(async () => ({ success: true }));

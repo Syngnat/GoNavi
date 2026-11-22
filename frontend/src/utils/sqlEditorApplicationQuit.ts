@@ -12,6 +12,7 @@ import {
   getQueryTabDraft,
   getSQLFileTabDraft,
 } from './sqlFileTabDrafts';
+import { DEFAULT_QUERY_TEMPLATE } from './queryTabInitialQuery';
 
 type QueryResultLike = {
   success?: boolean;
@@ -144,6 +145,13 @@ export const collectApplicationQuitUnsavedSQLTargets = async (
     const savedQuery = resolveSavedQueryForTab(tab, savedQueries);
     if (!savedQuery) {
       if (!draft.trim()) continue;
+      const baseline = typeof tab.queryBaseline === 'string' ? tab.queryBaseline : null;
+      if (
+        (baseline !== null && sameSQLText(draft, baseline))
+        || (baseline === null && sameSQLText(draft, DEFAULT_QUERY_TEMPLATE))
+      ) {
+        continue;
+      }
       targets.push({
         kind: 'unsaved-query',
         tabId: tab.id,

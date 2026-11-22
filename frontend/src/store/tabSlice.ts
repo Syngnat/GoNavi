@@ -16,8 +16,41 @@ import {
   pinSettingsCenterTabFirst,
   SETTINGS_CENTER_WORKBENCH_TAB_ID,
 } from "../utils/settingsCenterTab";
+import { isElasticsearchFamilyType } from "../utils/elasticsearchFamily";
+import {
+  getInitialEditorQuery,
+  resolveNewQueryDefaultTemplate,
+} from "../utils/queryTabInitialQuery";
 import type { AppState } from "./storeStateTypes";
 import type { StoreGet, StoreSet } from "./storeSliceTypes";
+
+const withQueryBaseline = (
+  tab: TabData,
+  state: Pick<AppState, "appearance" | "connections">,
+): TabData => {
+  if (
+    tab.type !== "query"
+    || typeof tab.queryBaseline === "string"
+  ) {
+    return tab;
+  }
+  const connectionConfig = state.connections.find(
+    (connection) => connection.id === tab.connectionId,
+  )?.config;
+  const isElasticsearch = Boolean(connectionConfig) && (
+    isElasticsearchFamilyType(connectionConfig?.type)
+    || isElasticsearchFamilyType(connectionConfig?.driver)
+  );
+  return {
+    ...tab,
+    queryBaseline: getInitialEditorQuery(
+      tab,
+      isElasticsearch
+        ? ""
+        : resolveNewQueryDefaultTemplate(state.appearance.newQuerySqlTemplate),
+    ),
+  };
+};
 
 export type TabSliceState = Pick<AppState, 
   | 'addTab'
@@ -131,14 +164,15 @@ export const createTabSlice = (set: StoreSet, _get: StoreGet): TabSliceState => 
           };
         }
       }
-      const nextTabs = pinSettingsCenterTabFirst([...state.tabs, incomingTab]);
+      const createdTab = withQueryBaseline(incomingTab, state);
+      const nextTabs = pinSettingsCenterTabFirst([...state.tabs, createdTab]);
       return {
         tabs: nextTabs,
         ...recentWorkbenchEntries,
-        activeTabId: incomingTab.id,
+        activeTabId: createdTab.id,
         activeContext: resolveActiveContextForTabId(
           nextTabs,
-          incomingTab.id,
+          createdTab.id,
           state.activeContext,
         ),
       };

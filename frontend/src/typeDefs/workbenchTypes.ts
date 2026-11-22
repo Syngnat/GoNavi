@@ -97,6 +97,8 @@ export interface TabData {
   dbName?: string;
   tableName?: string;
   query?: string;
+  // 创建页签时的初始 SQL，用于区分自动填充的模板和用户真正改过的内容。
+  queryBaseline?: string;
   resultPanelVisible?: boolean;
   // object-edit：修改已有对象的定义；object-create：侧栏「创建函数/存储过程/
   // 视图/事件」等入口打开的建对象脚本页，保存动作执行 DDL 而不是存成查询。
