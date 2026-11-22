@@ -12,7 +12,9 @@ func TestBuildWindowsPowerShellScriptUsesLiteralPathOperations(t *testing.T) {
 		`$Source = $env:GONAVI_UPDATE_SOURCE`,
 		`$Target = $env:GONAVI_UPDATE_TARGET`,
 		`Test-Path -LiteralPath $Source -PathType Leaf`,
-		`Expand-Archive -LiteralPath $Source -DestinationPath $ExtractDir -Force`,
+		`$Archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)`,
+		`[IO.Compression.ZipFileExtensions]::ExtractToFile($Entry, $FullPath, $true)`,
+		`Expand-UpdateArchive -ArchivePath $Source -Destination $ExtractDir`,
 		`Move-Item -LiteralPath $Target -Destination $TargetOld -Force`,
 		`Copy-Item -LiteralPath $SourceExe -Destination $Target -Force`,
 		`Start-Process -FilePath $Target -WorkingDirectory $TargetDir`,
@@ -21,6 +23,16 @@ func TestBuildWindowsPowerShellScriptUsesLiteralPathOperations(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Fatalf("Windows PowerShell updater missing required token: %s\n%s", want, script)
 		}
+	}
+}
+
+func TestBuildWindowsPowerShellScriptAvoidsVersionedExpandArchiveOverload(t *testing.T) {
+	script := buildWindowsPowerShellScript()
+	if strings.Contains(script, `Expand-Archive`) {
+		t.Fatalf("Windows PowerShell updater must not rely on Expand-Archive, whose implementation differs across runner images\n%s", script)
+	}
+	if strings.Contains(script, `ExtractToDirectory`) {
+		t.Fatalf("Windows PowerShell updater must not rely on version-specific ZipFile.ExtractToDirectory overloads\n%s", script)
 	}
 }
 

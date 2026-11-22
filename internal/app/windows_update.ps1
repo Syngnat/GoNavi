@@ -103,6 +103,49 @@ function Remove-UpdateArtifact {
     }
 }
 
+function Expand-UpdateArchive {
+    param(
+        [string]$ArchivePath,
+        [string]$Destination
+    )
+
+    $Archive = $null
+    try {
+        if (-not ('System.IO.Compression.ZipFile' -as [type])) {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+        }
+        $Archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+        $DestinationRoot = [IO.Path]::GetFullPath($Destination)
+        $DestinationPrefix = $DestinationRoot.TrimEnd(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar
+        ) + [IO.Path]::DirectorySeparatorChar
+        foreach ($Entry in $Archive.Entries) {
+            if ([string]::IsNullOrEmpty($Entry.FullName)) {
+                continue
+            }
+            $RelativePath = $Entry.FullName.Replace('/', [IO.Path]::DirectorySeparatorChar)
+            $FullPath = [IO.Path]::GetFullPath([IO.Path]::Combine($DestinationRoot, $RelativePath))
+            if (-not $FullPath.StartsWith($DestinationPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'invalid path in portable zip'
+            }
+            if ([string]::IsNullOrEmpty($Entry.Name)) {
+                [void][IO.Directory]::CreateDirectory($FullPath)
+                continue
+            }
+            $ParentDir = [IO.Path]::GetDirectoryName($FullPath)
+            if (-not [string]::IsNullOrEmpty($ParentDir)) {
+                [void][IO.Directory]::CreateDirectory($ParentDir)
+            }
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($Entry, $FullPath, $true)
+        }
+    } finally {
+        if ($null -ne $Archive) {
+            $Archive.Dispose()
+        }
+    }
+}
+
 function Select-PortableExecutable {
     param(
         [string]$ExtractDir,
@@ -198,7 +241,7 @@ try {
             Remove-Item -LiteralPath $ExtractDir -Recurse -Force
         }
         [IO.Directory]::CreateDirectory($ExtractDir) | Out-Null
-        Expand-Archive -LiteralPath $Source -DestinationPath $ExtractDir -Force
+        Expand-UpdateArchive -ArchivePath $Source -Destination $ExtractDir
 
         $SourceExe = Select-PortableExecutable -ExtractDir $ExtractDir -TargetPath $Target -PackagePath $Source
         Write-UpdateLog ("selected portable executable: " + $SourceExe)
