@@ -206,7 +206,7 @@ describe('provider settings mounted controls', () => {
     expect(presetSelects()).toHaveLength(1);
     expect(renderedText(renderer!.toJSON())).toContain('Built-in');
     expect(renderedText(renderer!.toJSON())).toContain('Sponsors');
-    expect(renderedText(renderer!.toJSON())).toContain('1USD trial credit');
+    expect(renderedText(renderer!.toJSON())).toContain('2U sign-up credit');
     expect(renderedText(renderer!.toJSON())).not.toContain('No sponsors yet');
     expect(presetSelect().props.classNames.popup.root).toBe('gonavi-ai-provider-preset-dropdown');
     expect(presetSelect().props.popupMatchSelectWidth).toBe(false);

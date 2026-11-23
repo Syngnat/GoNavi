@@ -50,7 +50,7 @@ describe('AIProviderPresetSelect', () => {
     const props = {
       value: 'openai',
       presets: [{ key: 'openai', label: 'OpenAI' }],
-      partners: [{ key: 'hualong', label: '華龍算力', logoSrc: '/sponsors/hualong-icon.png', url: 'https://gonavi.hualong.online/', baseUrl: 'https://api.hualong.online/v1', benefit: '1USD体验额度', promoCode: 'GONAVI&HUALONG' }],
+      partners: [{ key: 'hualong', label: '華龍算力', logoSrc: '/sponsors/hualong-icon.png', url: 'https://gonavi.hualong.online/', baseUrl: 'https://api.hualong.online/v1', benefit: '注册送 2U 额度', promoCode: 'GONAVI&HUALONG' }],
       canSelect: () => true,
       builtinLabel: '内置支持',
       partnerLabel: '赞助商',
@@ -65,7 +65,7 @@ describe('AIProviderPresetSelect', () => {
     expect(markup).toContain('gonavi-ai-provider-partner-option');
     expect(markup).toContain('/sponsors/hualong-icon.png');
     expect(markup).toContain('華龍算力');
-    expect(markup).toContain('1USD体验额度');
+    expect(markup).toContain('注册送 2U 额度');
     expect(markup).toContain('gonavi-ai-provider-partner-benefit-text');
 
     const renderer = create(<AIProviderPresetSelect {...props} />);
@@ -86,7 +86,7 @@ describe('AIProviderPresetSelect', () => {
     const renderer = create(<AIProviderPresetSelect
       value="openai"
       presets={[{ key: 'openai', label: 'OpenAI' }]}
-      partners={[{ key: 'hualong', label: '華龍算力', logoSrc: '/sponsors/hualong-icon.png', url: 'https://gonavi.hualong.online/', baseUrl: 'https://api.hualong.online/v1', benefit: '1USD体验额度', promoCode: 'GONAVI&HUALONG' }]}
+      partners={[{ key: 'hualong', label: '華龍算力', logoSrc: '/sponsors/hualong-icon.png', url: 'https://gonavi.hualong.online/', baseUrl: 'https://api.hualong.online/v1', benefit: '注册送 2U 额度', promoCode: 'GONAVI&HUALONG' }]}
       canSelect={() => true}
       builtinLabel="内置支持"
       partnerLabel="赞助商"
@@ -106,7 +106,7 @@ describe('AIProviderPresetSelect', () => {
     const renderer = create(<AIProviderPresetSelect
       value="openai"
       presets={[{ key: 'openai', label: 'OpenAI' }]}
-      partners={[{ key: 'hualong', label: '華龍算力', logoSrc: '/sponsors/hualong-icon.png', url: 'https://gonavi.hualong.online/', baseUrl: 'https://api.hualong.online/v1', benefit: '1USD体验额度', promoCode: 'GONAVI&HUALONG' }]}
+      partners={[{ key: 'hualong', label: '華龍算力', logoSrc: '/sponsors/hualong-icon.png', url: 'https://gonavi.hualong.online/', baseUrl: 'https://api.hualong.online/v1', benefit: '注册送 2U 额度', promoCode: 'GONAVI&HUALONG' }]}
       canSelect={() => true}
       builtinLabel="内置支持"
       partnerLabel="赞助商"
