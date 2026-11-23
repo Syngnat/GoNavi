@@ -53,88 +53,136 @@ function bindingName(namespace: string, service: string, method: string): string
     return `${pkg}.${serviceName}.${method}`;
 }
 
-function createGoProxy(): AnyRecord {
-    const serviceProxy = (namespace: string, service: string) =>
-        new Proxy(
-            {},
-            {
-                get: (_target, method) => {
-                    if (typeof method !== 'string') {
-                        return undefined;
-                    }
-                    return (...args: unknown[]) =>
+type ProxyCache = Map<string, AnyRecord>;
+
+function createServiceProxy(namespace: string, service: string, serviceCache: ProxyCache): AnyRecord {
+    const cacheKey = `${namespace}.${service}`;
+    const cachedService = serviceCache.get(cacheKey);
+    if (cachedService) {
+        return cachedService;
+    }
+    const methodCache = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+    const proxy = new Proxy(
+        {},
+        {
+            get: (target, method) => {
+                if (typeof method !== 'string') {
+                    return undefined;
+                }
+                if (Object.prototype.hasOwnProperty.call(target, method)) {
+                    return Reflect.get(target, method);
+                }
+                let cachedMethod = methodCache.get(method);
+                if (!cachedMethod) {
+                    cachedMethod = (...args: unknown[]) =>
                         loadWails3Runtime().then((rt) =>
                             rt.Call.ByName(bindingName(namespace, service, method), ...args),
                         );
-                },
+                    methodCache.set(method, cachedMethod);
+                }
+                return cachedMethod;
             },
-        );
+        },
+    );
+    serviceCache.set(cacheKey, proxy);
+    return proxy;
+}
 
+function createDetachedControlService(id: string, serviceCache: ProxyCache): AnyRecord {
+    const cacheKey = `nativewindow.Control:${id}`;
+    const cachedService = serviceCache.get(cacheKey);
+    if (cachedService) {
+        return cachedService;
+    }
+    const callManager = (method: string, ...args: unknown[]) =>
+        loadWails3Runtime().then((rt) =>
+            rt.Call.ByName(`GoNavi-Wails/internal/nativewindow.V3Manager.${method}`, ...args),
+        );
+    const hideForAISettings = async (
+        revision: number,
+        providerId?: string,
+    ) => {
+        const normalized = Math.trunc(Number(revision)) || 0;
+        // Match the v2 Control order: park the window first,
+        // then ask the host to open settings. Restore focus
+        // when the host rejects the request as stale.
+        const hidden = await callManager('HideWithRevision', id, normalized);
+        if (hidden?.success === false) {
+            return hidden;
+        }
+        const result = await callManager('Action', id, 'open-ai-settings', {
+            visibilityRevision: normalized,
+            providerId: String(providerId || ''),
+        });
+        if (result?.applied === false) {
+            await callManager('Focus', id);
+            return {
+                success: false,
+                message: 'open AI settings was superseded by a newer window focus',
+                visibilityRevision: result?.visibilityRevision,
+            };
+        }
+        return result;
+    };
+    const service = {
+        Hide: (revision?: number) =>
+            callManager('HideWithRevision', id, Math.trunc(Number(revision)) || 0),
+        HideForAISettings: (revision: number) => hideForAISettings(revision),
+        HideForAISettingsProvider: (revision: number, providerId?: string) =>
+            hideForAISettings(revision, providerId),
+        Close: () => callManager('Close', id),
+        CancelClose: () => callManager('Action', id, 'cancel-close', {}),
+    };
+    serviceCache.set(cacheKey, service);
+    return service;
+}
+
+function createNamespaceProxy(namespace: string, namespaceCache: ProxyCache, serviceCache: ProxyCache): AnyRecord {
+    const cachedNamespace = namespaceCache.get(namespace);
+    if (cachedNamespace) {
+        return cachedNamespace;
+    }
+    const proxy = new Proxy(
+        {},
+        {
+            get: (target, service) => {
+                if (typeof service !== 'string') {
+                    return undefined;
+                }
+                if (Object.prototype.hasOwnProperty.call(target, service)) {
+                    return Reflect.get(target, service);
+                }
+                // Detached windows used a per-window Control service in the
+                // v2 child. The v3 manager targets the same window by the id
+                // injected into the detached document.
+                if (namespace === 'nativewindow' && service === 'Control') {
+                    const id = String((window as AnyRecord).__GONAVI_DETACHED_ID__ || '').trim();
+                    if (id) {
+                        return createDetachedControlService(id, serviceCache);
+                    }
+                }
+                return createServiceProxy(namespace, service, serviceCache);
+            },
+        },
+    );
+    namespaceCache.set(namespace, proxy);
+    return proxy;
+}
+
+function createGoProxy(): AnyRecord {
+    const namespaceCache: ProxyCache = new Map();
+    const serviceCache: ProxyCache = new Map();
     return new Proxy(
         {},
         {
-            get: (_target, namespace) => {
+            get: (target, namespace) => {
                 if (typeof namespace !== 'string') {
                     return undefined;
                 }
-                return new Proxy(
-                    {},
-                    {
-                        get: (_serviceTarget, service) => {
-                            if (typeof service !== 'string') {
-                                return undefined;
-                            }
-                            // Detached windows used a per-window Control service in the
-                            // v2 child. The v3 manager targets the same window by the id
-                            // injected into the detached document.
-                            if (namespace === 'nativewindow' && service === 'Control') {
-                                const id = String((window as AnyRecord).__GONAVI_DETACHED_ID__ || '').trim();
-                                if (id) {
-                                    const callManager = (method: string, ...args: unknown[]) =>
-                                        loadWails3Runtime().then((rt) =>
-                                            rt.Call.ByName(`GoNavi-Wails/internal/nativewindow.V3Manager.${method}`, ...args),
-                                        );
-                                    const hideForAISettings = async (
-                                        revision: number,
-                                        providerId?: string,
-                                    ) => {
-                                        const normalized = Math.trunc(Number(revision)) || 0;
-                                        // Match the v2 Control order: park the window first,
-                                        // then ask the host to open settings. Restore focus
-                                        // when the host rejects the request as stale.
-                                        const hidden = await callManager('HideWithRevision', id, normalized);
-                                        if (hidden?.success === false) {
-                                            return hidden;
-                                        }
-                                        const result = await callManager('Action', id, 'open-ai-settings', {
-                                            visibilityRevision: normalized,
-                                            providerId: String(providerId || ''),
-                                        });
-                                        if (result?.applied === false) {
-                                            await callManager('Focus', id);
-                                            return {
-                                                success: false,
-                                                message: 'open AI settings was superseded by a newer window focus',
-                                                visibilityRevision: result?.visibilityRevision,
-                                            };
-                                        }
-                                        return result;
-                                    };
-                                    return {
-                                        Hide: (revision?: number) =>
-                                            callManager('HideWithRevision', id, Math.trunc(Number(revision)) || 0),
-                                        HideForAISettings: (revision: number) => hideForAISettings(revision),
-                                        HideForAISettingsProvider: (revision: number, providerId?: string) =>
-                                            hideForAISettings(revision, providerId),
-                                        Close: () => callManager('Close', id),
-                                        CancelClose: () => callManager('Action', id, 'cancel-close', {}),
-                                    };
-                                }
-                            }
-                            return serviceProxy(namespace, service);
-                        },
-                    },
-                );
+                if (Object.prototype.hasOwnProperty.call(target, namespace)) {
+                    return Reflect.get(target, namespace);
+                }
+                return createNamespaceProxy(namespace, namespaceCache, serviceCache);
             },
         },
     );

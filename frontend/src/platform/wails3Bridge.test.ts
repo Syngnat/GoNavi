@@ -67,4 +67,28 @@ describe('installWails3Bridge', () => {
 
         expect(runtimeWindow.go).toBe(installedGo);
     });
+
+    it('keeps the v2-shaped binding identities stable across repeated reads', () => {
+        runtimeWindow.__GONAVI_WAILS3__ = true;
+        installWails3Bridge();
+
+        const app = runtimeWindow.go.app.App;
+        const getSavedConnections = app.GetSavedConnections;
+
+        expect(runtimeWindow.go.app).toBe(runtimeWindow.go.app);
+        expect(runtimeWindow.go.app.App).toBe(app);
+        expect(runtimeWindow.go.app.App.GetSavedConnections).toBe(getSavedConnections);
+        expect(runtimeWindow.go.aiservice.Service.AIGetProviders)
+            .toBe(runtimeWindow.go.aiservice.Service.AIGetProviders);
+    });
+
+    it('keeps a replacement installed on a namespace visible on later reads', () => {
+        runtimeWindow.__GONAVI_WAILS3__ = true;
+        installWails3Bridge();
+
+        const replacement = { GetSavedConnections: () => Promise.resolve([]) };
+        runtimeWindow.go.app.App = replacement;
+
+        expect(runtimeWindow.go.app.App).toBe(replacement);
+    });
 });
