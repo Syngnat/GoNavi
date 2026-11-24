@@ -785,6 +785,11 @@ describe('Sidebar locate toolbar', () => {
     expect(virtualListPatch).toContain('var resolverOverscanRows = 6;');
     expect(virtualListPatch).toContain('var fixedStartIndex = Math.max(0, startLow - resolverOverscanRows);');
     expect(virtualListPatch).toContain('var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + resolverOverscanRows);');
+    // 外层容器首帧通常先以默认高度挂载，随后才测得真实高度。若只依赖
+    // ResizeObserver，通知缺失时虚拟列表会继续按旧高度算可见区，底部整段
+    // 空白要等滚动才恢复。补丁在 height prop 变化时同步视口高度。
+    expect(virtualListPatch).toContain('setViewportHeight(measuredHeight > 0 ? measuredHeight : height);');
+    expect(virtualListPatch).toContain('}, [height, nativeVerticalScroll]);');
     expect(virtualListPatch).toContain('useScrollTo(componentRef, mergedData, heights, itemHeight');
     expect(virtualListPatch).toContain('fixedItemOffsets, itemHeightFixed');
   });

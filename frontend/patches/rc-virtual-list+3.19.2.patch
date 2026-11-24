@@ -140,7 +140,7 @@ index 2926056..d9c28fc 100644
      _useHeights2 = _slicedToArray(_useHeights, 4),
      setInstanceRef = _useHeights2[0],
      collectHeight = _useHeights2[1],
-@@ -74,19 +92,33 @@ export function RawList(props, ref) {
+@@ -74,19 +92,42 @@ export function RawList(props, ref) {
  
    // ================================= MISC =================================
    var useVirtual = !!(virtual !== false && height && itemHeight);
@@ -172,6 +172,15 @@ index 2926056..d9c28fc 100644
 +  var viewportHeightState = React.useState(height);
 +  var viewportHeight = nativeVerticalScroll ? (viewportHeightState[0] || height) : height;
 +  var setViewportHeight = viewportHeightState[1];
++
++  // Sync the range when a flex parent settles its height before the holder's
++  // ResizeObserver notification arrives (otherwise the first paint leaves the
++  // rows below the old height unmounted until the user scrolls).
++  React.useLayoutEffect(function () {
++    if (!nativeVerticalScroll) return;
++    var measuredHeight = componentRef.current && componentRef.current.clientHeight;
++    setViewportHeight(measuredHeight > 0 ? measuredHeight : height);
++  }, [height, nativeVerticalScroll]);
 +
    // =============================== Item Key ===============================
  
@@ -1010,7 +1019,7 @@ index f0cb64d..6fbee3e 100644
      _useHeights2 = (0, _slicedToArray2.default)(_useHeights, 4),
      setInstanceRef = _useHeights2[0],
      collectHeight = _useHeights2[1],
-@@ -83,19 +101,33 @@ function RawList(props, ref) {
+@@ -83,19 +101,42 @@ function RawList(props, ref) {
  
    // ================================= MISC =================================
    var useVirtual = !!(virtual !== false && height && itemHeight);
@@ -1042,6 +1051,15 @@ index f0cb64d..6fbee3e 100644
 +  var viewportHeightState = React.useState(height);
 +  var viewportHeight = nativeVerticalScroll ? (viewportHeightState[0] || height) : height;
 +  var setViewportHeight = viewportHeightState[1];
++
++  // Sync the range when a flex parent settles its height before the holder's
++  // ResizeObserver notification arrives (otherwise the first paint leaves the
++  // rows below the old height unmounted until the user scrolls).
++  React.useLayoutEffect(function () {
++    if (!nativeVerticalScroll) return;
++    var measuredHeight = componentRef.current && componentRef.current.clientHeight;
++    setViewportHeight(measuredHeight > 0 ? measuredHeight : height);
++  }, [height, nativeVerticalScroll]);
 +
    // =============================== Item Key ===============================
  

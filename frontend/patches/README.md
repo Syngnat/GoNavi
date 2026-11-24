@@ -7,7 +7,7 @@
 | 补丁 | 作用 | 测试锚点 |
 |------|------|----------|
 | `rc-table+7.54.0.patch` | VirtualTable 列虚拟化窗口 `columnVirtualWindow`：只渲染水平可视窗内的列（overscan 640/960px，原生纵向滚动时 overscan 归 0），并给 `BodyLine` / `VirtualCell` 加 memo 比较，减少宽表重渲染。消费点 `src/components/dataGrid/shell/DataGridTableSurface.tsx` 的 `listItemColumnVirtual`。 | `src/utils/rcTableColumnVirtualWindow.test.ts` |
-| `rc-virtual-list+3.19.2.patch` | `itemHeightFixed` 原生纵向滚动模式（去掉 Filler/transform 模拟滚动）与 `itemHeightResolver`（可变行高）。 | `src/components/virtualListNativeScroll.test.tsx` |
+| `rc-virtual-list+3.19.2.patch` | `itemHeightFixed` 原生纵向滚动模式（去掉 Filler/transform 模拟滚动）、`itemHeightResolver`（可变行高），以及外层高度变化时同步视口区间，避免首屏底部留白。 | `src/components/virtualListNativeScroll.test.tsx` |
 | `rc-resize-observer+1.4.3.patch` | 侧栏拖拽/过渡期间**延迟** ResizeObserver 通知：新增 `deferredSidebarResizeTargets` 集合，按 `<body>` 上的 `data-sidebar-resizing` / `data-sidebar-transitioning` 属性判定是否处于侧栏 resize 中，收到 `gonavi:sidebar-resize-settled` 事件后统一 flush。避免拖侧栏时每次尺寸变化级联触发大量 observer 回调。配套模块侧代码 `src/utils/sidebarResizeLifecycle.ts`。 | `src/utils/sidebarResizeLifecycle.test.ts`<br>`src/utils/rcResizeObserverSidebarLifecycle.test.ts` |
 | `rc-tree+5.13.1.patch` | 把 `itemHeightFixed` / `itemHeightResolver` 两个 prop 透传到 rc-tree 的 `NodeList` → `VirtualList`（es/lib 各一份）。让**侧栏对象树**也能复用原生滚动 + 精确行高，而不只是结果集表格。消费点 `src/components/sidebar/SidebarObjectExplorer.tsx` 的 `itemHeightResolver={resolveSidebarTreeRowHeight}`（定义在 `src/components/sidebar/sidebarV2TreeNodes.ts`）。 | 无独立测试锚点；行为由 `src/components/virtualListNativeScroll.test.tsx` 与 `src/components/Sidebar.locate-toolbar.test.tsx` 间接覆盖 |
 

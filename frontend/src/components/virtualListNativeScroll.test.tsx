@@ -179,6 +179,28 @@ describe('resolver-based native virtual scrolling', () => {
     expect(container.querySelector('.rc-virtual-list-scrollbar-vertical')).toBeNull();
   });
 
+  it('adopts a larger height prop before the first scroll event', () => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    const rows = Array.from({ length: 300 }, (_, id) => ({ id }));
+    const render = (height: number) => root?.render(
+      <VirtualList data={rows} height={height} itemHeight={10} itemHeightFixed itemKey="id">
+        {(row) => <div data-visible-row={row.id}>{row.id}</div>}
+      </VirtualList>,
+    );
+
+    act(() => render(100));
+    const holder = container.querySelector<HTMLElement>('.rc-virtual-list-holder')!;
+    expect(container.querySelector('[data-visible-row="59"]')).toBeNull();
+
+    Object.defineProperty(holder, 'clientHeight', { configurable: true, value: 600 });
+    act(() => render(600));
+
+    expect(container.querySelector('[data-visible-row="0"]')).not.toBeNull();
+    expect(container.querySelector('[data-visible-row="59"]')).not.toBeNull();
+  });
+
   it('keeps exact variable row offsets while leaving vertical wheel input native', () => {
     const rows: Row[] = Array.from({ length: 40 }, (_, index) => ({
       id: `row-${index}`,
