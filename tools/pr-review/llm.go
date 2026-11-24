@@ -29,10 +29,11 @@ type modelFinding struct {
 }
 
 type modelEndpoint struct {
-	Name    string
-	BaseURL string
-	APIKey  string
-	Model   string
+	Name     string
+	BaseURL  string
+	APIKey   string
+	Model    string
+	Protocol string
 }
 
 // freeModelEndpoints 按 coco-framework-agent 的方式接 OpenAI 兼容接口。
@@ -48,17 +49,17 @@ func freeModelEndpoints(env func(string) string) []modelEndpoint {
 	var endpoints []modelEndpoint
 	if key := strings.TrimSpace(env("GROQ_API_KEY")); key != "" {
 		endpoints = append(endpoints, modelEndpoint{
-			Name: "groq", BaseURL: "https://api.groq.com/openai/v1", APIKey: key, Model: "openai/gpt-oss-120b",
+			Name: "groq", BaseURL: "https://api.groq.com/openai/v1", APIKey: key, Model: "openai/gpt-oss-120b", Protocol: "chat",
 		})
 	}
 	if key := strings.TrimSpace(env("GEMINI_API_KEY")); key != "" {
 		endpoints = append(endpoints, modelEndpoint{
-			Name: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", APIKey: key, Model: "gemini-2.5-flash",
+			Name: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", APIKey: key, Model: "gemini-2.5-flash", Protocol: "chat",
 		})
 	}
 	if key := strings.TrimSpace(env("OPENROUTER_API_KEY")); key != "" {
 		endpoints = append(endpoints, modelEndpoint{
-			Name: "openrouter", BaseURL: "https://openrouter.ai/api/v1", APIKey: key, Model: "meta-llama/llama-3.3-70b-instruct:free",
+			Name: "openrouter", BaseURL: "https://openrouter.ai/api/v1", APIKey: key, Model: "meta-llama/llama-3.3-70b-instruct:free", Protocol: "chat",
 		})
 	}
 	return endpoints
@@ -73,7 +74,10 @@ func customModelEndpoint(env func(string) string, key string) modelEndpoint {
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
-	return modelEndpoint{Name: "custom", BaseURL: baseURL, APIKey: key, Model: model}
+	return modelEndpoint{
+		Name: "custom", BaseURL: baseURL, APIKey: key, Model: model,
+		Protocol: normalizeProtocol(env("PR_REVIEW_API_PROTOCOL")),
+	}
 }
 
 // reviewWithFreeModels 依次尝试可用的免费或自定义模型。都失败时返回最后一个错误。
@@ -85,7 +89,7 @@ func reviewWithFreeModels(ctx context.Context, client *http.Client, env func(str
 	}
 	var lastErr error
 	for _, endpoint := range endpoints {
-		summary, findings, err := reviewWithModel(ctx, client, endpoint.BaseURL, endpoint.APIKey, endpoint.Model, files)
+		summary, findings, err := reviewWithModel(ctx, client, endpoint.BaseURL, endpoint.APIKey, endpoint.Model, files, endpoint.Protocol)
 		if err == nil {
 			return summary, findings, endpoint.Name + " · " + endpoint.Model, nil
 		}
@@ -94,8 +98,16 @@ func reviewWithFreeModels(ctx context.Context, client *http.Client, env func(str
 	return "", nil, "", lastErr
 }
 
+func normalizeProtocol(protocol string) string {
+	if strings.EqualFold(strings.TrimSpace(protocol), "responses") {
+		return "responses"
+	}
+	return "chat"
+}
+
 // reviewWithModel 把 diff 交给 OpenAI 兼容接口。失败时返回错误，调用方仍发布规约评审。
-func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, model string, files []FileChange) (string, []Finding, error) {
+// protocols 为空时保持旧的 chat/completions 行为，避免破坏已有调用方。
+func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, model string, files []FileChange, protocols ...string) (string, []Finding, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return "", nil, nil
 	}
@@ -106,13 +118,24 @@ func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, 
 	if model == "" {
 		model = "openai/gpt-oss-120b"
 	}
-	payload := map[string]any{
-		"model": model,
-		"messages": []map[string]string{
+	protocol := "chat"
+	if len(protocols) > 0 {
+		protocol = normalizeProtocol(protocols[0])
+	}
+	payload := map[string]any{"model": model}
+	endpointPath := "/chat/completions"
+	if protocol == "responses" {
+		payload["instructions"] = modelSystemPrompt
+		payload["input"] = modelUserPrompt(files)
+		payload["text"] = map[string]any{"format": map[string]string{"type": "json_object"}}
+		payload["max_output_tokens"] = 2000
+		endpointPath = "/responses"
+	} else {
+		payload["messages"] = []map[string]string{
 			{"role": "system", "content": modelSystemPrompt},
 			{"role": "user", "content": modelUserPrompt(files)},
-		},
-		"response_format": map[string]string{"type": "json_object"},
+		}
+		payload["response_format"] = map[string]string{"type": "json_object"}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -122,7 +145,7 @@ func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, 
 	if endpoint == "" {
 		endpoint = "https://api.openai.com/v1"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+endpointPath, bytes.NewReader(body))
 	if err != nil {
 		return "", nil, err
 	}
@@ -143,6 +166,9 @@ func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", nil, fmt.Errorf("模型接口返回 HTTP %d", resp.StatusCode)
 	}
+	if protocol == "responses" {
+		return parseResponsesReview(raw, files)
+	}
 	return parseModelReview(raw, files)
 }
 
@@ -160,8 +186,64 @@ func parseModelReview(raw []byte, files []FileChange) (string, []Finding, error)
 	if len(envelope.Choices) == 0 {
 		return "", nil, fmt.Errorf("模型没有返回内容")
 	}
+	return parseReviewText(envelope.Choices[0].Message.Content, files)
+}
+
+func parseResponsesReview(raw []byte, files []FileChange) (string, []Finding, error) {
+	var envelope struct {
+		OutputText string `json:"output_text"`
+		Output     []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return "", nil, fmt.Errorf("解析模型响应失败")
+	}
+	var text strings.Builder
+	if strings.TrimSpace(envelope.OutputText) != "" {
+		text.WriteString(envelope.OutputText)
+	}
+	var fallback []string
+	for _, item := range envelope.Output {
+		if item.Type != "" && item.Type != "message" {
+			continue
+		}
+		for _, content := range item.Content {
+			if strings.TrimSpace(content.Text) == "" {
+				continue
+			}
+			if content.Type == "" || content.Type == "output_text" {
+				if text.Len() > 0 {
+					text.WriteString("\n")
+				}
+				text.WriteString(content.Text)
+			} else {
+				fallback = append(fallback, content.Text)
+			}
+		}
+	}
+	if text.Len() == 0 && len(fallback) > 0 {
+		text.WriteString(strings.Join(fallback, "\n"))
+	}
+	if text.Len() == 0 {
+		return "", nil, fmt.Errorf("模型没有返回内容")
+	}
+	return parseReviewText(text.String(), files)
+}
+
+func parseReviewText(text string, files []FileChange) (string, []Finding, error) {
+	text = strings.TrimSpace(text)
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start >= 0 && end > start {
+		text = text[start : end+1]
+	}
 	var parsed modelReview
-	if err := json.Unmarshal([]byte(envelope.Choices[0].Message.Content), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		return "", nil, fmt.Errorf("模型没有返回 JSON")
 	}
 	return strings.TrimSpace(clipText(parsed.Summary, 2000)), modelFindings(parsed.Findings, files), nil

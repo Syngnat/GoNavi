@@ -11,7 +11,8 @@
 # 填了多个时按 Groq、Gemini、OpenRouter 的顺序，前一个失败再试下一个。
 # 免费档模型会下线（返回 HTTP 404），失效时以各 provider 模型列表为准换模型。
 # 若要指定别的接口，改用 PR_REVIEW_API_KEY，以及可选的
-# PR_REVIEW_API_BASE、PR_REVIEW_MODEL。
+# PR_REVIEW_API_BASE、PR_REVIEW_MODEL、PR_REVIEW_API_PROTOCOL
+# （chat 或 responses；Mistral/OpenAI Responses 用 responses）。
 name: PR Review
 
 on:
@@ -41,10 +42,10 @@ permissions:
   checks: read
 
 concurrency:
-  # 完整评审与“只刷新门禁”分组，避免 Backend Tests 完成时取消语义评审；
-  # 同一事件类型对同一提交仍只保留一个运行。
-  group: pr-review-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.inputs.pr }}
-  cancel-in-progress: true
+  # 完整评审与“只刷新门禁”必须串行：两者都会 upsert 同一条评论，
+  # 并发会竞态出两条评论；排队而不是取消，避免语义评审被掐掉。
+  group: pr-review-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.inputs.pr }}
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -77,6 +78,7 @@ jobs:
           PR_REVIEW_API_KEY: ${{ secrets.PR_REVIEW_API_KEY }}
           PR_REVIEW_API_BASE: ${{ vars.PR_REVIEW_API_BASE }}
           PR_REVIEW_MODEL: ${{ vars.PR_REVIEW_MODEL }}
+          PR_REVIEW_API_PROTOCOL: ${{ vars.PR_REVIEW_API_PROTOCOL }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
         run: |

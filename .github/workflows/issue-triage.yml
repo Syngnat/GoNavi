@@ -25,6 +25,9 @@ jobs:
             const current = new Set((issue.labels || []).map((l) => typeof l === 'string' ? l : l.name));
             const add = [];
 
+            // Keep these keys in sync with the option text in
+            // .github/ISSUE_TEMPLATE/*.yml. A wording change silently stops
+            // the label, so update both files in one PR.
             const areaMap = {
               '数据源连接、认证或网络': 'area: connection',
               '数据库、Schema、表、视图、索引等对象管理': 'area: metadata',
@@ -40,6 +43,19 @@ jobs:
               '性能、卡顿或崩溃': 'area: performance',
               '性能或资源占用': 'area: performance',
               '构建、测试、CI 与跨平台打包': 'area: build-ci',
+              'Data source connection, authentication, or network': 'area: connection',
+              'Database, schema, table, view, index, or other object management': 'area: metadata',
+              'SQL editing, execution, or result sets': 'area: sql-editor',
+              'Table data browsing or editing': 'area: data-grid',
+              'Redis, MongoDB, messaging, vector, or search data': 'area: non-sql',
+              'Import, export, or backup': 'area: import-export',
+              'SSH, proxy, or tunnel': 'area: tunnel-proxy',
+              'Driver or Driver Agent': 'area: driver',
+              'AI, MCP, or Agent': 'area: ai-mcp',
+              'Installation, update, or startup': 'area: updater',
+              'User interface, interaction, or local settings': 'area: ui-ux',
+              'Performance, freezing, or crash': 'area: performance',
+              'Performance or resource usage': 'area: performance',
             };
 
             const section = (heading) => {
@@ -49,11 +65,23 @@ jobs:
             };
             const blank = (value) => !value || value === '_No response_' || value === '无';
 
-            const area = section('问题所属功能') || section('需求所属功能');
+            const firstSection = (...headings) => {
+              for (const heading of headings) {
+                const value = section(heading);
+                if (value) return value;
+              }
+              return '';
+            };
+
+            const area = firstSection('问题所属功能', '需求所属功能', 'Affected area', 'Feature area');
             const areaLabel = areaMap[area];
             if (areaLabel && !current.has(areaLabel)) add.push(areaLabel);
 
-            const datasource = section('数据源类型及版本');
+            const datasource = firstSection(
+              '数据源类型及版本',
+              'Data source type and version',
+              'Related data source and version',
+            );
             const datasourceRules = [
               [/mysql/i, 'datasource: mysql'],
               [/postgres|pgsql/i, 'datasource: postgresql'],
@@ -73,21 +101,24 @@ jobs:
             const isBug = current.has('bug') || /^\[Bug\]/i.test(issue.title || '');
             if (isBug) {
               if (
-                blank(section('GoNavi 版本')) ||
-                blank(section('操作系统及版本')) ||
-                blank(section('数据源类型及版本'))
+                blank(firstSection('GoNavi 版本', 'GoNavi version')) ||
+                blank(firstSection('操作系统及版本', 'Operating system and version')) ||
+                blank(datasource)
               ) {
                 if (!current.has('status: needs-info')) add.push('status: needs-info');
               }
               if (
-                blank(section('最小复现步骤')) ||
-                blank(section('实际行为')) ||
-                blank(section('期望行为'))
+                blank(firstSection('最小复现步骤', 'Minimal reproduction steps')) ||
+                blank(firstSection('实际行为', 'Actual behavior')) ||
+                blank(firstSection('期望行为', 'Expected behavior'))
               ) {
                 if (!current.has('status: needs-reproduction')) add.push('status: needs-reproduction');
               }
             } else {
-              if (blank(section('现状与痛点')) || blank(section('期望的功能与交互'))) {
+              if (
+                blank(firstSection('现状与痛点', 'Current workflow and pain points')) ||
+                blank(firstSection('期望的功能与交互', 'Expected feature and interaction'))
+              ) {
                 if (!current.has('status: needs-info')) add.push('status: needs-info');
               }
             }

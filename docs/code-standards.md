@@ -26,7 +26,8 @@
 - **PR 快检**：受影响 Go 包、受影响前端测试、`go vet`、`tsc`、`npm run build`。
 - **合并门禁**：`CI Gate` 汇总的 `Frontend clean build`、`Full backend suite`、
   `Plugin and marketplace contract tests`、`Platform-sensitive tests`。
-- **夜间/发版**：全量前端 Vitest、全量 Go 套件、macOS/Windows/Linux 实际构建。
+- **夜间**：全量前端 Vitest、全量 Go 套件；失败要开 issue，并确认是否与 release 相关。
+- **发版**：`CI Gate` + release 构建/资产契约；夜间全量若未绿，发布说明必须写明未验证范围。
 - 涉及并发/缓存/连接池/取消：受影响包至少 `go test -race`。
 - 涉及 GUI：Chromium/WebKit 中至少覆盖改动页面；涉及共享选择器/布局时跑更大范围。
 
