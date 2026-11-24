@@ -4,6 +4,13 @@
 
 配套：`.cursor/rules/*.mdc`（Cursor）、`AGENTS.md`（Codex / 通用 Agent）。不要另起一套风格。
 
+必读顺序：
+
+1. [`LESSONS.md`](./LESSONS.md)：已经发生过的工程教训；
+2. [`docs/code-standards.md`](./docs/code-standards.md)：合并/发布验收标准；
+3. [`docs/subsystems/README.md`](./docs/subsystems/README.md)：按子系统读当前设计；
+4. 本文与 [`AGENTS.md`](./AGENTS.md)：仓库硬约束。
+
 语言手册不要混用：
 
 - **Go**：[`GO_STYLE.md`](./GO_STYLE.md)（Uber / Google / Effective Go + 本仓库）。**不是**阿里巴巴 Java 手册。

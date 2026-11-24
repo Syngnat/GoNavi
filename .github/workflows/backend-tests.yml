@@ -1,16 +1,26 @@
 name: Backend Tests
 
+# dev is the integration branch. main and release/** are included because
+# release.yml waits for the CI Gate check on the tagged commit.
 on:
   pull_request:
     branches:
       - dev
+      - main
+      - 'release/**'
   push:
     branches:
       - dev
+      - main
+      - 'release/**'
+  # 02:00 Asia/Shanghai: full frontend suite runs here, not on every PR.
+  schedule:
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Nightly full runs must not queue PR checks behind a 60-minute suite.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   # 新推送排队等待正在进行的测试，而不是取消它；同一 group 只保留一个等待项。
   cancel-in-progress: false
 
@@ -59,6 +69,29 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  frontend-full:
+    name: Full frontend suite
+    # PRs run the targeted frontend checks in `frontend`; the full 1,400+
+    # Vitest files run nightly and on manual dispatch only.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Run all frontend tests
+        working-directory: frontend
+        run: npm test -- --maxWorkers=2 --minWorkers=1
 
   full:
     name: Full backend suite
@@ -205,3 +238,29 @@ jobs:
 
       - name: Test optional driver-agent cleanup
         run: go test ./internal/db -run '^TestOptionalDriverAgentUnresponsiveProcessIsReapedAfterTimeout$' -count=1
+
+  gate:
+    name: CI Gate
+    # 这是 PR Review 与分支保护读取的权威检查。它本身不跑测试，
+    # 只把上面的必过 job 汇总成一个稳定名字，避免调用方绑定矩阵 job 名。
+    needs:
+      - frontend
+      - full
+      - marketplace-contract
+      - platform-sensitive
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every backend job to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$NEEDS_JSON" | jq .
+          jq -e '
+            .frontend.result == "success" and
+            .full.result == "success" and
+            .["marketplace-contract"].result == "success" and
+            .["platform-sensitive"].result == "success"
+          ' <<<"$NEEDS_JSON"
