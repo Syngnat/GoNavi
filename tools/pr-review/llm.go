@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const maxModelDiffRunes = 50000
+// Free OpenAI-compatible endpoints used by this job reject large requests
+// (Groq answered a 50k-rune diff with HTTP 413). Static rules still scan the
+// whole diff; only the optional semantic pass is bounded.
+const maxModelDiffRunes = 12000
 
 type modelReview struct {
 	Summary  string         `json:"summary"`
