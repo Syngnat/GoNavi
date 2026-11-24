@@ -334,6 +334,7 @@ body[data-ui-version="v2"] .gn-v2-table-row:last-child {
 }
 
 .gn-table-overview-compact-header > [role="columnheader"] {
+  position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -342,6 +343,42 @@ body[data-ui-version="v2"] .gn-v2-table-row:last-child {
 
 .gn-table-overview-compact-header > [role="columnheader"]:last-child {
   border-right: 0;
+}
+
+.gn-table-overview-compact-column-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.gn-table-overview-compact-column-resizer::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 0.12s ease;
+}
+
+.gn-table-overview-compact-header > [role="columnheader"]:hover
+  .gn-table-overview-compact-column-resizer::after {
+  background: var(--gn-br-2, rgba(15, 23, 42, 0.18));
+}
+
+.gn-table-overview-compact-column-resizer:hover::after,
+.gn-table-overview-compact-column-resizer:focus-visible::after {
+  background: var(--gn-accent, #1677ff) !important;
+}
+
+.gn-table-overview-compact-column-resizer:focus-visible {
+  outline: none;
 }
 
 .gn-table-overview-compact-section {

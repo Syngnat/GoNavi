@@ -128,6 +128,7 @@ export const createInitialStateSlice = (_set: StoreSet, _get: StoreGet): Initial
     wordWrap: false,
     resultTabRetention: DEFAULT_QUERY_RESULT_TAB_RETENTION,
     tableOverviewCompactColumns: [...DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS],
+    tableOverviewCompactColumnWidths: {},
     showColumnComment: true,
     showSidebarTableComment: false,
     sidebarTableMetadataFields: ["rows"],

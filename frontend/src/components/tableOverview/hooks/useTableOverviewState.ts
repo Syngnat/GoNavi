@@ -50,8 +50,10 @@ import { confirmProductionMutation } from '../../../utils/productionRiskConfirm'
 import { confirmCopyTable } from '../../tableCopyAction';
 import type { TableOverviewProps } from '../../TableOverview';
 import {
+  sanitizeTableOverviewCompactColumnWidths,
   sanitizeTableOverviewCompactColumns,
   type TableOverviewCompactColumn,
+  type TableOverviewCompactColumnWidths,
 } from '../../../utils/tableOverviewCompactColumns';
 import { resolveConnectionHostSummary } from '../../../utils/tabDisplay';
 
@@ -93,6 +95,15 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
   const setCompactColumns = useCallback((columns: TableOverviewCompactColumn[]) => {
       setQueryOptions({
           tableOverviewCompactColumns: sanitizeTableOverviewCompactColumns(columns),
+      });
+  }, [setQueryOptions]);
+  const compactColumnWidths = useMemo(
+      () => sanitizeTableOverviewCompactColumnWidths(queryOptions.tableOverviewCompactColumnWidths),
+      [queryOptions.tableOverviewCompactColumnWidths],
+  );
+  const setCompactColumnWidths = useCallback((widths: TableOverviewCompactColumnWidths) => {
+      setQueryOptions({
+          tableOverviewCompactColumnWidths: sanitizeTableOverviewCompactColumnWidths(widths),
       });
   }, [setQueryOptions]);
   const v2ContextMenuPortalRef = useRef<HTMLDivElement | null>(null);
@@ -507,6 +518,7 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
     addTab, setAIPanelVisible, addAIContext, pinnedSidebarTables, setSidebarTablePinned, darkMode,
     activeShortcutPlatform, tables, loading, searchText, setSearchText, sortField, setSortField,
     sortOrder, setSortOrder, viewMode, setViewMode, compactColumns, setCompactColumns,
+    compactColumnWidths, setCompactColumnWidths,
     v2ContextMenu, setV2ContextMenu,
     v2ContextMenuPortalRef, setVisibleTableLimit, deferredSearchText, isSearchPending, connection,
     metadataDialect, connectionHostSummary, schemaName, overviewSchemaName, supportsCopyTable, allowClear, loadData,
