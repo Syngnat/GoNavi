@@ -1,0 +1,46 @@
+export type SqlCompletionWord = {
+    word: string;
+    startColumn: number;
+    endColumn: number;
+};
+
+const trailingIdentifierPattern = /[\p{L}\p{N}_$#@]+$/u;
+
+/**
+ * Monaco's default word pattern does not include CJK text, so
+ * `getWordUntilPosition` returns an empty word for `FROM 认证`.
+ * Read the real trailing identifier from the line and prefer it when it is
+ * longer, non-ASCII, or Monaco returned nothing. The returned range must cover
+ * the same text so accepting a table suggestion replaces the comment fragment
+ * instead of inserting after it.
+ */
+export const resolveSqlCompletionWord = (model: any, position: any): SqlCompletionWord => {
+    const monacoWord = model?.getWordUntilPosition?.(position);
+    const monacoText = String(monacoWord?.word || '');
+    const line = String(model?.getLineContent?.(position.lineNumber) || '');
+    const prefix = line.slice(0, Math.max(0, Number(position.column || 1) - 1));
+    const token = prefix.match(trailingIdentifierPattern)?.[0] || '';
+    const monacoStartColumn = Number(monacoWord?.startColumn || 0);
+    const tokenStartColumn = Number(position.column) - token.length;
+    // Never shrink a range Monaco already covers. For example, `abc-认证`
+    // leaves the trailing token `认证`; replacing only that would keep `abc-`.
+    const tokenCoversMonacoWord = !monacoText
+        || (monacoStartColumn > 0 && tokenStartColumn <= monacoStartColumn);
+    const useToken = Boolean(token) && tokenCoversMonacoWord && (
+        !monacoText
+        || token.length > monacoText.length
+        || /[^\x00-\x7F]/.test(token)
+    );
+    if (useToken) {
+        return {
+            word: token,
+            startColumn: tokenStartColumn,
+            endColumn: Number(position.column),
+        };
+    }
+    return {
+        word: monacoText,
+        startColumn: Number(monacoWord?.startColumn || position.column || 1),
+        endColumn: Number(monacoWord?.endColumn || position.column || 1),
+    };
+};

@@ -51,17 +51,27 @@ export const createSqlCompletionSuggestionBuilders = ({
         comment?: string,
         filterPrefix = '',
         filterCandidates: readonly string[] = [label],
-    ) => ({
-        label: buildQueryEditorTableSuggestionLabel(
-            label,
-            // 右侧详情列里「对象类型」固定在最末端：注释在前、类型在后，
-            // 这样同一列的文本不会因为有没有注释而左右移动。
-            [normalizeCommentText(comment), detailPrefix].filter(Boolean).join(' - '),
-            useStructuredCompletionLabel,
-        ),
-        filterText: resolveQueryEditorCompletionFilterText(filterPrefix, filterCandidates)
-            || normalizeQueryEditorTableSuggestionText(label),
-    });
+    ) => {
+        const normalizedComment = normalizeCommentText(comment);
+        const normalizedFilterPrefix = String(filterPrefix || '').trim().toLowerCase();
+        const tableFilterText = resolveQueryEditorCompletionFilterText(filterPrefix, filterCandidates);
+        const commentFilterText = normalizedComment
+            && normalizedFilterPrefix
+            && normalizedComment.toLowerCase().includes(normalizedFilterPrefix)
+            ? normalizedComment
+            : '';
+        return {
+            label: buildQueryEditorTableSuggestionLabel(
+                label,
+                // 右侧详情列里「对象类型」固定在最末端：注释在前、类型在后，
+                // 这样同一列的文本不会因为有没有注释而左右移动。
+                [normalizedComment, detailPrefix].filter(Boolean).join(' - '),
+                useStructuredCompletionLabel,
+            ),
+            filterText: [tableFilterText, commentFilterText].filter(Boolean).join(' ')
+                || normalizeQueryEditorTableSuggestionText(label),
+        };
+    };
     const normalizeRoutineType = (routineType: string) => (
         String(routineType || '').trim().toUpperCase().includes('PROC') ? 'PROCEDURE' : 'FUNCTION'
     );

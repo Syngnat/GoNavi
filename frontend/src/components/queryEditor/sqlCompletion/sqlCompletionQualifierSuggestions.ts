@@ -120,7 +120,10 @@ export const resolveDatabaseQualifierSqlCompletion = async ({
             getMatchRank: (table, normalizedPrefix) => {
                 if (buildMetadataIdentityKey(activeDialect, table.dbName || '') !== qualifierIdentityKey) return null;
                 const meta = buildDbQualifiedTableSuggestionMeta(table.dbName || qualifier, table.tableName || '');
-                return rankQueryEditorCompletionCandidate(normalizedPrefix, [meta.displayName, table.tableName]);
+                return rankQueryEditorCompletionCandidate(
+                    normalizedPrefix,
+                    [meta.displayName, table.tableName, table.comment || ''],
+                );
             },
             getSelectionKey: (table, _prefix, matchRank) => {
                 const meta = buildDbQualifiedTableSuggestionMeta(table.dbName || qualifier, table.tableName || '');
@@ -144,7 +147,10 @@ export const resolveDatabaseQualifierSqlCompletion = async ({
                     detail: buildCompletionDetailTypeLast(`${translate('query_editor.object_info.table')} (${table.dbName})`, table.comment),
                     documentation: buildCompletionDocumentation(table.comment),
                     range,
-                    sortText: `0${rankQueryEditorCompletionCandidate(prefix, [meta.displayName, table.tableName]) ?? 9}${meta.displayName}`,
+                    sortText: `0${rankQueryEditorCompletionCandidate(
+                        prefix,
+                        [meta.displayName, table.tableName, table.comment || ''],
+                    ) ?? 9}${meta.displayName}`,
                 };
             },
         });
@@ -267,7 +273,7 @@ export const resolveSchemaQualifierSqlCompletion = ({
             if (!matchesSchemaQualifier(parsed.schema)) return null;
             hasKnownSchemaQualifier = true;
             if (!parsed.table) return null;
-            return rankQueryEditorCompletionCandidate(normalizedPrefix, [parsed.table]);
+            return rankQueryEditorCompletionCandidate(normalizedPrefix, [parsed.table, table.comment || '']);
         },
         getSelectionKey: (table, _prefix, matchRank) => `0${matchRank}${splitSchemaAndTable(table.tableName || '', table.dbName).table}`,
         buildSuggestion: (table) => {
@@ -288,7 +294,10 @@ export const resolveSchemaQualifierSqlCompletion = ({
                 detail: buildCompletionDetailTypeLast(`${translate('query_editor.object_info.table')} (${table.dbName}${parsed.schema ? '.' + parsed.schema : ''})`, table.comment),
                 documentation: buildCompletionDocumentation(table.comment),
                 range,
-                sortText: `0${rankQueryEditorCompletionCandidate(prefix, [parsed.table, table.tableName]) ?? 9}${parsed.table}`,
+                sortText: `0${rankQueryEditorCompletionCandidate(
+                    prefix,
+                    [parsed.table, table.tableName, table.comment || ''],
+                ) ?? 9}${parsed.table}`,
             };
         },
     });

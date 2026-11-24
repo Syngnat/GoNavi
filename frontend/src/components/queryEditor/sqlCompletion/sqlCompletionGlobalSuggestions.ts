@@ -228,10 +228,13 @@ export const buildSqlCompletionGlobalSuggestions = ({
                 const meta = buildDbQualifiedTableSuggestionMeta(table.dbName || '', table.tableName || '');
                 return rankQueryEditorCompletionCandidate(
                     normalizedPrefix,
-                    [meta.dbQualifiedLabel, table.tableName, pureTable],
+                    [meta.dbQualifiedLabel, table.tableName, pureTable, table.comment || ''],
                 );
             }
-            return rankQueryEditorCompletionCandidate(normalizedPrefix, [table.tableName, pureTable]);
+            return rankQueryEditorCompletionCandidate(
+                normalizedPrefix,
+                [table.tableName, pureTable, table.comment || ''],
+            );
         },
         getSelectionKey: (table, _prefix, matchRank) => {
             const isCurrentDb = isCurrentCompletionDatabase(table.dbName || '');
@@ -267,7 +270,9 @@ export const buildSqlCompletionGlobalSuggestions = ({
                     detail: buildCompletionDetailTypeLast(`${translate('query_editor.object_info.table')} (${table.dbName})`, table.comment),
                     documentation: buildCompletionDocumentation(table.comment),
                     range,
-                    sortText: sortGroups.tableOther + getPrefixMatchRank(label, table.tableName || '', pureTable) + label,
+                    sortText: sortGroups.tableOther
+                        + getPrefixMatchRank(label, table.tableName || '', pureTable, table.comment || '')
+                        + label,
                 };
             }
             const hasDuplicate = (
@@ -296,7 +301,9 @@ export const buildSqlCompletionGlobalSuggestions = ({
                 detail: buildCompletionDetailTypeLast(`${translate('query_editor.object_info.table')}${schemaInfo}`, table.comment),
                 documentation: buildCompletionDocumentation(table.comment),
                 range,
-                sortText: sortGroups.tableCurrent + getPrefixMatchRank(table.tableName || '', pureTable) + pureTable,
+                sortText: sortGroups.tableCurrent
+                    + getPrefixMatchRank(table.tableName || '', pureTable, table.comment || '')
+                    + pureTable,
             };
         },
     });

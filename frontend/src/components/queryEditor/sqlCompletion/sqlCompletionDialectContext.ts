@@ -18,6 +18,7 @@ import { peekDatabaseServerVersion } from '../queryEditorServerVersion';
 import type { TabData } from '../../../types';
 import { hiveFamily, readHiveParams } from '../../../utils/hiveConnection';
 import { resolveHiveFunctions, resolveHiveKeywords } from '../../../utils/hiveSqlDialect';
+import { resolveSqlCompletionWord } from './sqlCompletionPrefix';
 
 export interface CreateSqlCompletionDialectContextInput {
     model: any;
@@ -29,7 +30,7 @@ export interface CreateSqlCompletionDialectContextInput {
 }
 
 export const createSqlCompletionDialectContext = ({ model, position, currentDbRef, currentDb, tab, currentConnectionIdRef }: CreateSqlCompletionDialectContextInput) => {
-    const word = model.getWordUntilPosition(position);
+    const word = resolveSqlCompletionWord(model, position);
     const range = {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,

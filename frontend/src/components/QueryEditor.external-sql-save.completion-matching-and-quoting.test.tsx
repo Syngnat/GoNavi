@@ -617,6 +617,22 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'front_end_sys');
     expect(labels).toContain('fs_org_auth_application');
     expect(tableSuggestion?.detail).toBe('认证申请表 - 表');
+    expect(String(tableSuggestion?.filterText)).toContain('fs_org_auth_application');
+
+    editorState.value = 'SELECT * FROM 认证';
+    editorState.latestOnChange?.(editorState.value);
+    const commentResult = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    const commentTableSuggestion = commentResult.suggestions.find(
+      (item: any) => item.label === 'fs_org_auth_application',
+    );
+    expect(commentTableSuggestion).toBeTruthy();
+    expect(commentTableSuggestion?.filterText).toBe('认证申请表');
+    expect(commentTableSuggestion?.range?.startColumn).toBe('SELECT * FROM '.length + 1);
+    expect(commentTableSuggestion?.range?.endColumn).toBe(editorState.value.length + 1);
+
     await act(async () => {
       renderer.unmount();
     });
