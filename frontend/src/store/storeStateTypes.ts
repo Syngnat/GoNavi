@@ -27,7 +27,10 @@ import type { DataGridDisplaySettings } from "../utils/dataGridDisplay";
 import type { SqlEditorTypographySettings } from "../utils/sqlEditorTypography";
 import type { TitlebarActionsPlacementSettings } from "../utils/titlebarActionsPlacement";
 import type { TabAppearanceStyle, TabCloseButtonPosition } from "../utils/tabAppearance";
-import type { TableOverviewCompactColumn } from "../utils/tableOverviewCompactColumns";
+import type {
+  TableOverviewCompactColumn,
+  TableOverviewCompactColumnWidths,
+} from "../utils/tableOverviewCompactColumns";
 import type { QueryResultTabRetention } from "../utils/queryResultTabRetention";
 import type {
   DetachedWorkbenchWindow,
@@ -149,6 +152,7 @@ export interface QueryOptions {
   resultTabRetention: QueryResultTabRetention;
   tableOverviewViewMode?: TableOverviewViewMode;
   tableOverviewCompactColumns?: TableOverviewCompactColumn[];
+  tableOverviewCompactColumnWidths?: TableOverviewCompactColumnWidths;
   showColumnComment: boolean;
   showSidebarTableComment?: boolean;
   sidebarTableMetadataFields?: SidebarTableMetadataField[];

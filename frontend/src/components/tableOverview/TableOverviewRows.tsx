@@ -4,31 +4,59 @@ import { t } from '../../i18n';
 import { useOptionalI18n } from '../../i18n/provider';
 import { TABLE_OVERVIEW_CARD_HEIGHT, type OverviewTableSection, type ViewMode } from './tableOverviewModel';
 import { useTableOverviewRenderers, type UseTableOverviewRenderersInput } from './hooks/useTableOverviewRenderers';
-import { buildTableOverviewCompactGridStyle } from './tableOverviewCompactColumns';
-import { DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS } from '../../utils/tableOverviewCompactColumns';
+import { useTableOverviewCompactColumnResize } from './hooks/useTableOverviewCompactColumnResize';
+import {
+  DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
+  type TableOverviewCompactColumnWidths,
+} from '../../utils/tableOverviewCompactColumns';
+
+const EMPTY_COLUMN_WIDTHS: TableOverviewCompactColumnWidths = {};
 
 type TableOverviewRowsProps = UseTableOverviewRenderersInput & {
   sections: OverviewTableSection[];
   showSectionTitles: boolean;
   viewMode: ViewMode;
+  compactColumnWidths?: TableOverviewCompactColumnWidths;
+  onCompactColumnWidthsChange?: (widths: TableOverviewCompactColumnWidths) => void;
 };
 
-const TableOverviewRows: React.FC<TableOverviewRowsProps> = ({ sections, showSectionTitles, viewMode, ...rendererProps }) => {
+const TableOverviewRows: React.FC<TableOverviewRowsProps> = ({
+  sections,
+  showSectionTitles,
+  viewMode,
+  compactColumnWidths,
+  onCompactColumnWidthsChange,
+  ...rendererProps
+}) => {
   useOptionalI18n();
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const compactColumns = rendererProps.compactColumns ?? DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS;
+  const resize = useTableOverviewCompactColumnResize({
+    scrollRef,
+    columns: compactColumns,
+    widths: compactColumnWidths ?? EMPTY_COLUMN_WIDTHS,
+    onWidthsChange: onCompactColumnWidthsChange,
+  });
+  const canResizeColumns = Boolean(onCompactColumnWidthsChange);
   const {
     renderOverviewSectionTitle, renderCardTable, renderListTable,
     renderCompactTableHeader, renderCompactTableRow,
-  } = useTableOverviewRenderers(rendererProps);
+  } = useTableOverviewRenderers({
+    ...rendererProps,
+    compactColumnWidths,
+    onCompactColumnResizeStart: canResizeColumns ? resize.handleResizeStart : undefined,
+    onCompactColumnResizeKeyDown: canResizeColumns ? resize.handleResizeKeyDown : undefined,
+    onCompactColumnAutoFit: canResizeColumns ? resize.handleResizeAutoFit : undefined,
+  });
 
   if (viewMode === 'table') {
     return (
       <div
+        ref={scrollRef}
         className="gn-table-overview-compact-scroll"
         role="table"
         aria-label={t('table_overview.tooltip.table_view')}
-        style={buildTableOverviewCompactGridStyle(
-          rendererProps.compactColumns ?? DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
-        )}
+        style={resize.gridStyle}
       >
         {renderCompactTableHeader()}
         {sections.map((section) => (

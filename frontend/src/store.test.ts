@@ -601,6 +601,31 @@ describe('store appearance persistence', () => {
     expect(sanitized.useStore.getState().queryOptions.tableOverviewViewMode).toBeUndefined();
   });
 
+  it('persists sanitized table overview compact column widths across store reloads', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setQueryOptions({
+      tableOverviewCompactColumnWidths: { name: 420.4, rows: 12 },
+    });
+    expect(useStore.getState().queryOptions.tableOverviewCompactColumnWidths).toEqual({
+      name: 420,
+      rows: 64,
+    });
+
+    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
+    expect(persisted.state.queryOptions.tableOverviewCompactColumnWidths).toEqual({
+      name: 420,
+      rows: 64,
+    });
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().queryOptions.tableOverviewCompactColumnWidths).toEqual({
+      name: 420,
+      rows: 64,
+    });
+  });
+
   it('restores query tabs from crash-recovery snapshots even when persisted tabs are missing', async () => {
     storage.setItem('gonavi-query-tab-drafts-v1', JSON.stringify([
       {

@@ -3,6 +3,7 @@ import type React from 'react';
 import {
   DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
   type TableOverviewCompactColumn,
+  type TableOverviewCompactColumnWidths,
 } from '../../utils/tableOverviewCompactColumns';
 import type { TableOverviewSortField } from '../../utils/tableOverviewFilter';
 
@@ -22,7 +23,7 @@ export const TABLE_OVERVIEW_COMPACT_COLUMN_DEFINITIONS: Record<
   name: {
     key: 'name',
     labelKey: 'table_overview.sort.name',
-    minWidth: 190,
+    minWidth: 240,
     flex: 1.7,
     align: 'left',
     sortField: 'name',
@@ -112,12 +113,27 @@ export const resolveTableOverviewCompactColumnDefinitions = (
 
 export const buildTableOverviewCompactGridStyle = (
   columns: TableOverviewCompactColumn[],
+  widths: TableOverviewCompactColumnWidths = {},
 ): React.CSSProperties => {
   const definitions = resolveTableOverviewCompactColumnDefinitions(columns);
-  const minWidth = definitions.reduce((total, column) => total + column.minWidth, 0);
+  const resolvedWidths = definitions.map((column) => {
+    const requestedWidth = widths[column.key];
+    return Number.isFinite(requestedWidth)
+      ? Math.max(column.minWidth, Math.round(requestedWidth as number))
+      : null;
+  });
+  const minWidth = resolvedWidths.reduce<number>(
+    (total, width, index) => total + (width ?? definitions[index].minWidth),
+    0,
+  );
   return {
     '--gn-table-overview-compact-columns': definitions
-      .map((column) => `minmax(${column.minWidth}px, ${column.flex}fr)`)
+      .map((column, index) => {
+        const width = resolvedWidths[index];
+        return width === null
+          ? `minmax(${column.minWidth}px, ${column.flex}fr)`
+          : `${width}px`;
+      })
       .join(' '),
     '--gn-table-overview-compact-min-width': `${minWidth}px`,
   } as React.CSSProperties;

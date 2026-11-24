@@ -15,13 +15,14 @@ import type { TableOverviewStateApi } from './useTableOverviewState';
 import { TableOverviewCard } from '../TableOverviewCard';
 import { MetadataHoverCard, MetadataHoverTooltip } from '../../common/MetadataHoverCard';
 import {
-  buildTableOverviewCompactGridStyle,
   resolveTableOverviewCompactColumnDefinitions,
   type TableOverviewCompactColumnDefinition,
 } from '../tableOverviewCompactColumns';
 import {
   DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
+  TABLE_OVERVIEW_COMPACT_COLUMN_WIDTH_MAX,
   type TableOverviewCompactColumn,
+  type TableOverviewCompactColumnWidths,
 } from '../../../utils/tableOverviewCompactColumns';
 import { buildTableOverviewHoverModel } from '../tableOverviewMetadata';
 
@@ -29,7 +30,7 @@ const renderTableOverviewName = (
   _table: TableStatRow,
   displayName: string,
   style?: React.CSSProperties,
-) => <span style={style}>{displayName}</span>;
+) => <span style={style} title={displayName}>{displayName}</span>;
 
 export interface UseTableOverviewRenderersInput {
   textMuted: TableOverviewTableActionsApi['textMuted'];
@@ -47,6 +48,19 @@ export interface UseTableOverviewRenderersInput {
   toggleSort: TableOverviewTableActionsApi['toggleSort'];
   sortOrder: TableOverviewStateApi['sortOrder'];
   compactColumns?: TableOverviewCompactColumn[];
+  compactColumnWidths?: TableOverviewCompactColumnWidths;
+  onCompactColumnResizeStart?: (
+    key: TableOverviewCompactColumn,
+    event: React.PointerEvent<HTMLElement>,
+  ) => void;
+  onCompactColumnResizeKeyDown?: (
+    key: TableOverviewCompactColumn,
+    event: React.KeyboardEvent<HTMLElement>,
+  ) => void;
+  onCompactColumnAutoFit?: (
+    key: TableOverviewCompactColumn,
+    event: React.MouseEvent<HTMLElement>,
+  ) => void;
   connectionName?: string;
   hostSummary?: string;
   dbName?: string;
@@ -59,7 +73,9 @@ export const useTableOverviewRenderers = ({
   textMuted, textSecondary, textPrimary, darkMode, openTableByDefaultAction,
   openV2OverviewContextMenu, accentColor, metadataDialect, maxCombinedSize, hasKnownTableSize,
   getCombinedTableSize, sortField, toggleSort, sortOrder, isOverviewTableSelected,
-  compactColumns, connectionName, hostSummary, dbName, schemaName,
+  compactColumns, compactColumnWidths, onCompactColumnResizeStart,
+  onCompactColumnResizeKeyDown, onCompactColumnAutoFit,
+  connectionName, hostSummary, dbName, schemaName,
 }: UseTableOverviewRenderersInput) => {
   // 三种视图的行都带同一个选中标记，拖选 / Shift 区间只按它解析，不区分视图。
   // tabIndex=-1 让点击后行可聚焦，键盘交互以当前焦点行判定。
@@ -105,10 +121,6 @@ export const useTableOverviewRenderers = ({
   );
   const compactColumnDefinitions = React.useMemo(
       () => resolveTableOverviewCompactColumnDefinitions(resolvedCompactColumns),
-      [resolvedCompactColumns],
-  );
-  const compactGridStyle = React.useMemo(
-      () => buildTableOverviewCompactGridStyle(resolvedCompactColumns),
       [resolvedCompactColumns],
   );
   const renderMetadataHover = useCallback((
@@ -382,21 +394,46 @@ export const useTableOverviewRenderers = ({
       const sortState = sortField === column.sortField
           ? (sortOrder === 'asc' ? 'ascending' : 'descending')
           : 'none';
+      const requestedWidth = compactColumnWidths?.[column.key];
       return (
           <div
               key={column.key}
+              className="gn-table-overview-compact-column-header"
               role="columnheader"
               aria-sort={column.sortField ? sortState : undefined}
           >
               {column.sortField
                   ? renderCompactSortHeader(column.sortField, column.labelKey, column.align)
                   : <span className="gn-table-overview-compact-plain-header">{t(column.labelKey)}</span>}
+              {onCompactColumnResizeStart && (
+                  <span
+                      className="gn-table-overview-compact-column-resizer"
+                      data-table-overview-column-resizer={column.key}
+                      role="separator"
+                      aria-label={t('data_grid.column.resize_tooltip')}
+                      aria-orientation="vertical"
+                      aria-valuemin={column.minWidth}
+                      aria-valuemax={TABLE_OVERVIEW_COMPACT_COLUMN_WIDTH_MAX}
+                      aria-valuenow={Math.round(
+                          Math.max(
+                              column.minWidth,
+                              Number.isFinite(requestedWidth) ? requestedWidth as number : column.minWidth,
+                          ),
+                      )}
+                      tabIndex={0}
+                      title={t('data_grid.column.resize_tooltip')}
+                      onPointerDown={(event) => onCompactColumnResizeStart(column.key, event)}
+                      onDoubleClick={(event) => onCompactColumnAutoFit?.(column.key, event)}
+                      onKeyDown={(event) => onCompactColumnResizeKeyDown?.(column.key, event)}
+                      onClick={(event) => event.stopPropagation()}
+                  />
+              )}
           </div>
       );
   };
 
   const renderCompactTableHeader = () => (
-      <div className="gn-table-overview-compact-header" role="row" style={compactGridStyle}>
+      <div className="gn-table-overview-compact-header" role="row">
           {compactColumnDefinitions.map(renderCompactColumnHeader)}
       </div>
   );
@@ -471,7 +508,6 @@ export const useTableOverviewRenderers = ({
                   display: 'grid',
                   alignItems: 'center',
                   minHeight: 32,
-                  ...compactGridStyle,
                   ...({
                       cursor: 'pointer',
                       userSelect: 'none',
