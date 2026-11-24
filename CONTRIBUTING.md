@@ -68,13 +68,14 @@ cancelled, or missing.
 
 ## Merge Strategy for Maintainers
 
-Pull requests merged into `dev` should generally use **Squash and merge**.
+Pull requests merged into `dev` use **Merge commit** (the repository currently
+does not enable squash or rebase merges).
 
 Reasons:
 
-- keeps `dev` history readable and easier to audit during active iteration
-- maps each PR to a single integration commit on `dev`
-- reduces cherry-pick and conflict cost before creating `release/*`
+- keeps the reviewed PR head and its merge record visible
+- preserves the PR's individual commits for audit and rollback
+- matches the branch ruleset's allowed merge method
 
 ---
 

@@ -2,7 +2,7 @@
 
 Agent 工作流依赖两个规则集：
 
-- `dev-protection`：要求 PR、可 squash、`CI Gate` 成功、禁止强推/删除；
+- `dev-protection`：要求 PR、可 merge commit、`CI Gate` 成功、禁止强推/删除；
 - `main-protection`：保留现有 PR 规则，追加 `CI Gate` 成功、禁止强推/删除。
 
 ## 先 dry-run

@@ -47,9 +47,12 @@ for name in dev-protection main-protection; do
           ),
           rules: (
             (
-              (($ruleset.rules // []) | map(select(.type != "required_status_checks")))
-              | if ($name == "dev-protection" and (map(select(.type == "pull_request")) | length) == 0)
-                then . + [{
+            (($ruleset.rules // []) | map(select(
+              .type != "required_status_checks" and
+              ($name != "dev-protection" or .type != "pull_request")
+            )))
+            | if ($name == "dev-protection")
+              then . + [{
                   type: "pull_request",
                   parameters: {
                     required_approving_review_count: 0,
@@ -58,7 +61,7 @@ for name in dev-protection main-protection; do
                     require_code_owner_review: false,
                     require_last_push_approval: false,
                     required_review_thread_resolution: true,
-                    allowed_merge_methods: ["squash"]
+                  allowed_merge_methods: ["merge"]
                   }
                 }]
                 else . end

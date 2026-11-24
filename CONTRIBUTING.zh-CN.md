@@ -67,13 +67,13 @@ feature/* / fix/* -> dev -> release/* -> main -> tag(vX.Y.Z)
 
 ## PR 合并策略（维护者）
 
-`dev` 分支上的 PR 建议使用 **Squash and merge**。
+`dev` 分支上的 PR 使用 **Merge commit**（仓库当前未启用 squash/rebase merge）。
 
 原因：
 
-- 保持 `dev` 集成历史清晰、便于审查
-- 每个 PR 在 `dev` 上对应一个明确的集成提交
-- 降低发版前整理与冲突处理成本
+- 保留被评审的 PR head 和合并记录
+- 保留 PR 的独立提交，便于审计与回滚
+- 与分支规则集允许的合并方式一致
 
 ---
 
