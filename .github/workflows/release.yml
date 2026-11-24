@@ -1,5 +1,8 @@
 name: Release
 
+# A normal tag release waits for the CI Gate check on the tagged commit.
+# Rebuilding an old tag whose check run is gone requires allow_missing_ci;
+# driver-only rebuilds skip the app gate because they do not ship the app.
 on:
   push:
     tags:
@@ -12,6 +15,11 @@ on:
         type: string
       drivers_only:
         description: Rebuild only the GoNavi-DriverAgents assets for an existing tag (does not touch the GoNavi release)
+        required: false
+        default: false
+        type: boolean
+      allow_missing_ci:
+        description: Rebuild an old tag whose CI Gate is no longer available (maintainers only)
         required: false
         default: false
         type: boolean
@@ -60,9 +68,69 @@ jobs:
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "🧭 Releasing immutable tag ${tag} at ${sha}"
 
+  verify_ci:
+    name: Verify CI Gate
+    needs: validate_release_tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.validate_release_tag.outputs.sha }}
+      DRIVERS_ONLY: ${{ inputs.drivers_only }}
+      ALLOW_MISSING: ${{ inputs.allow_missing_ci }}
+    steps:
+      - name: Require CI Gate success for the tagged commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${DRIVERS_ONLY}" == "true" ]]; then
+            echo "Driver-only rebuild: the app CI Gate is not required."
+            exit 0
+          fi
+
+          deadline=$((SECONDS + 2700))
+          while (( SECONDS < deadline )); do
+            json="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?per_page=100")"
+            line="$(
+              jq -r '
+                [.check_runs[] | select(.name == "CI Gate")]
+                | sort_by(.started_at // "")
+                | last
+                | if . == null then "missing\t"
+                  else "\(.status)\t\(.conclusion // "")"
+                  end
+              ' <<<"$json"
+            )"
+            status="${line%%$'\t'*}"
+            conclusion="${line#*$'\t'}"
+            echo "CI Gate: status=${status} conclusion=${conclusion:-<empty>}"
+
+            if [[ "${status}" == "completed" && "${conclusion}" == "success" ]]; then
+              echo "CI Gate passed for ${SHA}."
+              exit 0
+            fi
+            if [[ "${status}" == "completed" && -n "${conclusion}" ]]; then
+              echo "::error::CI Gate concluded ${conclusion} for ${SHA}; refusing to release."
+              exit 1
+            fi
+            sleep 30
+          done
+
+          if [[ "${ALLOW_MISSING}" == "true" ]]; then
+            echo "::warning::CI Gate did not appear for ${SHA}; allowed by allow_missing_ci."
+            exit 0
+          fi
+          echo "::error::CI Gate did not pass for ${SHA} within 45 minutes; refusing to release."
+          exit 1
+
   frontend:
     name: Build frontend
-    needs: validate_release_tag
+    needs:
+      - validate_release_tag
+      - verify_ci
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
@@ -164,7 +232,9 @@ jobs:
 
   driver_agents:
     name: Detect changed driver agents
-    needs: validate_release_tag
+    needs:
+      - validate_release_tag
+      - verify_ci
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
@@ -355,7 +425,9 @@ jobs:
 
   driver_revision_maps:
     name: Generate canonical driver revision map ${{ matrix.goos }}/${{ matrix.goarch }}
-    needs: validate_release_tag
+    needs:
+      - validate_release_tag
+      - verify_ci
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

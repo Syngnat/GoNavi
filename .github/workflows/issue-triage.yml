@@ -1,0 +1,136 @@
+name: Issue Triage
+
+# Deterministic first-pass labels for the structured issue forms.
+# No model, no comment, no close: it only adds labels that already exist.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  label:
+    name: Label structured issue
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add area, datasource and missing-info labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+            const current = new Set((issue.labels || []).map((l) => typeof l === 'string' ? l : l.name));
+            const add = [];
+
+            // Keep these keys in sync with the option text in
+            // .github/ISSUE_TEMPLATE/*.yml. A wording change silently stops
+            // the label, so update both files in one PR.
+            const areaMap = {
+              '数据源连接、认证或网络': 'area: connection',
+              '数据库、Schema、表、视图、索引等对象管理': 'area: metadata',
+              'SQL 编辑、执行或结果集': 'area: sql-editor',
+              '表数据浏览或编辑': 'area: data-grid',
+              'Redis、MongoDB、消息队列、向量或搜索数据': 'area: non-sql',
+              '导入、导出或备份': 'area: import-export',
+              'SSH、代理或隧道': 'area: tunnel-proxy',
+              '驱动或 Driver Agent': 'area: driver',
+              'AI、MCP 或 Agent': 'area: ai-mcp',
+              '安装、更新或启动': 'area: updater',
+              '界面、交互或本地设置': 'area: ui-ux',
+              '性能、卡顿或崩溃': 'area: performance',
+              '性能或资源占用': 'area: performance',
+              '构建、测试、CI 与跨平台打包': 'area: build-ci',
+              'Data source connection, authentication, or network': 'area: connection',
+              'Database, schema, table, view, index, or other object management': 'area: metadata',
+              'SQL editing, execution, or result sets': 'area: sql-editor',
+              'Table data browsing or editing': 'area: data-grid',
+              'Redis, MongoDB, messaging, vector, or search data': 'area: non-sql',
+              'Import, export, or backup': 'area: import-export',
+              'SSH, proxy, or tunnel': 'area: tunnel-proxy',
+              'Driver or Driver Agent': 'area: driver',
+              'AI, MCP, or Agent': 'area: ai-mcp',
+              'Installation, update, or startup': 'area: updater',
+              'User interface, interaction, or local settings': 'area: ui-ux',
+              'Performance, freezing, or crash': 'area: performance',
+              'Performance or resource usage': 'area: performance',
+            };
+
+            const section = (heading) => {
+              const re = new RegExp(`### ${heading}\\s*\\n+([^\\n]*)`);
+              const match = body.match(re);
+              return (match?.[1] || '').trim();
+            };
+            const blank = (value) => !value || value === '_No response_' || value === '无';
+
+            const firstSection = (...headings) => {
+              for (const heading of headings) {
+                const value = section(heading);
+                if (value) return value;
+              }
+              return '';
+            };
+
+            const area = firstSection('问题所属功能', '需求所属功能', 'Affected area', 'Feature area');
+            const areaLabel = areaMap[area];
+            if (areaLabel && !current.has(areaLabel)) add.push(areaLabel);
+
+            const datasource = firstSection(
+              '数据源类型及版本',
+              'Data source type and version',
+              'Related data source and version',
+            );
+            const datasourceRules = [
+              [/mysql/i, 'datasource: mysql'],
+              [/postgres|pgsql/i, 'datasource: postgresql'],
+              [/redis/i, 'datasource: redis'],
+              [/mongo/i, 'datasource: mongodb'],
+              [/oracle/i, 'datasource: oracle'],
+              [/sql server|mssql/i, 'datasource: sql-server'],
+              [/oceanbase|dameng|dm8|kingbase|opengauss|达梦|金仓|人大金仓/i, 'datasource: domestic-db'],
+            ];
+            for (const [pattern, label] of datasourceRules) {
+              if (pattern.test(datasource) && !current.has(label)) {
+                add.push(label);
+                break;
+              }
+            }
+
+            const isBug = current.has('bug') || /^\[Bug\]/i.test(issue.title || '');
+            if (isBug) {
+              if (
+                blank(firstSection('GoNavi 版本', 'GoNavi version')) ||
+                blank(firstSection('操作系统及版本', 'Operating system and version')) ||
+                blank(datasource)
+              ) {
+                if (!current.has('status: needs-info')) add.push('status: needs-info');
+              }
+              if (
+                blank(firstSection('最小复现步骤', 'Minimal reproduction steps')) ||
+                blank(firstSection('实际行为', 'Actual behavior')) ||
+                blank(firstSection('期望行为', 'Expected behavior'))
+              ) {
+                if (!current.has('status: needs-reproduction')) add.push('status: needs-reproduction');
+              }
+            } else {
+              if (
+                blank(firstSection('现状与痛点', 'Current workflow and pain points')) ||
+                blank(firstSection('期望的功能与交互', 'Expected feature and interaction'))
+              ) {
+                if (!current.has('status: needs-info')) add.push('status: needs-info');
+              }
+            }
+
+            if (add.length === 0) {
+              core.info('No labels to add');
+              return;
+            }
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: add,
+            });
+            core.info(`Added: ${add.join(', ')}`);

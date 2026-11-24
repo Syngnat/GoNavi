@@ -58,18 +58,24 @@ Recommended expectations:
   - validation method
 - include screenshots or recordings for UI changes when helpful
 - explicitly mention risk and rollback notes for compatibility, data, or build-chain changes
+- include the failing output on the base commit and the passing output on the PR head for bug fixes
+- run the checks that apply to the change, and list every check you did not run with the reason
+
+`CI Gate` is the required status check. A PR is not ready to merge while it is failing,
+cancelled, or missing.
 
 ---
 
 ## Merge Strategy for Maintainers
 
-Pull requests merged into `dev` should generally use **Squash and merge**.
+Pull requests merged into `dev` use **Merge commit** (the repository currently
+does not enable squash or rebase merges).
 
 Reasons:
 
-- keeps `dev` history readable and easier to audit during active iteration
-- maps each PR to a single integration commit on `dev`
-- reduces cherry-pick and conflict cost before creating `release/*`
+- keeps the reviewed PR head and its merge record visible
+- preserves the PR's individual commits for audit and rollback
+- matches the branch ruleset's allowed merge method
 
 ---
 

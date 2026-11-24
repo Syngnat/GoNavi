@@ -1,0 +1,16 @@
+# 高风险路径的最终责任人。启用 require_code_owner_review 后，
+# 这些路径的 PR 需要 @Syngnat 批准；普通业务代码不在这里强制。
+
+/.github/                         @Syngnat
+/scripts/                         @Syngnat
+/build/                           @Syngnat
+/tools/                           @Syngnat
+/internal/app/app.go              @Syngnat
+/internal/app/methods_db.go       @Syngnat
+/internal/app/methods_file.go     @Syngnat
+/internal/db/                     @Syngnat
+/frontend/wailsjs/                @Syngnat
+/AGENTS.md                        @Syngnat
+/CLAUDE.md                        @Syngnat
+/CONTRIBUTING.md                  @Syngnat
+/CONTRIBUTING.zh-CN.md            @Syngnat

@@ -43,6 +43,24 @@ GoNavi 官方插件（作者自己把宿主能力拆出来做的插件）**一�
 
 ---
 
+## 0.2 Agent 工作流入口
+
+**【强制】** 改代码前按顺序读：
+
+1. [`LESSONS.md`](./LESSONS.md)：最近已发生的工程教训；
+2. [`docs/code-standards.md`](./docs/code-standards.md)：什么算完成、什么能合并/发布；
+3. 对应子系统的 [`docs/subsystems/`](./docs/subsystems/README.md) 页面；
+4. 涉及 Go 时再读 [`GO_STYLE.md`](./GO_STYLE.md)。
+
+PR 必须使用 [`.github/pull_request_template.md`](./.github/pull_request_template.md)：
+写清旧代码失败证据、新代码通过证据、跑过的测试、未运行项，以及是否涉及生产库/凭据。
+没有证据的 PR 不进入 review；Agent 生成的 PR 只能先开 Draft，合并与发版由维护者决定。
+
+常驻 loop 模板见 [`docs/agents/loops.md`](./docs/agents/loops.md)；
+分支保护见 [`docs/branch-protection.md`](./docs/branch-protection.md)。
+
+---
+
 ## 1. 【强制】体积与拆分（本仓库最高优先级）
 
 当前债务（禁止继续加行）：`frontend/src/components/QueryEditor.tsx`、`App.tsx`、`store.ts`、`DataGrid.tsx`、`Sidebar.tsx`、`queryEditor/QueryEditorHelpers.ts`、`internal/app/methods_file.go`、`methods_db.go`、`app.go`。

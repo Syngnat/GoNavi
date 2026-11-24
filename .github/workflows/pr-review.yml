@@ -1,4 +1,4 @@
-# Maintainer-only manual PR review; never auto-approves pull requests.
+# Advisory PR review; never auto-approves or merges pull requests.
 #
 # 工作流文件和评审程序都来自 PR 的基线提交，只通过 GitHub API 读取 diff，
 # 不检出、不执行 PR 分支里的代码。
@@ -11,11 +11,25 @@
 # 填了多个时按 Groq、Gemini、OpenRouter 的顺序，前一个失败再试下一个。
 # 免费档模型会下线（返回 HTTP 404），失效时以各 provider 模型列表为准换模型。
 # 若要指定别的接口，改用 PR_REVIEW_API_KEY，以及可选的
-# PR_REVIEW_API_BASE、PR_REVIEW_MODEL。
+# PR_REVIEW_API_BASE、PR_REVIEW_MODEL、PR_REVIEW_API_PROTOCOL
+# （chat 或 responses；Mistral/OpenAI Responses 用 responses）。
+# 可选 PR_REVIEW_REASONING_EFFORT（如 DeepSeek V4.1 Flash 1017 用 max）。
 name: PR Review
 
 on:
-  # PR 评审只允许维护者手动触发，避免模型自动处理或审批 PR。
+  # PR 一开/一推就自动评审；Backend Tests 完成后只刷新 CI 门禁段。
+  # 所有事件都只写评论，不 approve、不 merge、不执行 PR 代码。
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  workflow_run:
+    workflows:
+      - Backend Tests
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       pr:
@@ -29,17 +43,19 @@ permissions:
   checks: read
 
 concurrency:
-  # 统一按 PR head SHA 分组：同一提交的完整评审与门禁刷新互相取消，
-  # 避免两个事件并发 upsert 同一条评论。
+  # 完整评审与“只刷新门禁”必须串行：两者都会 upsert 同一条评论，
+  # 并发会竞态出两条评论；排队而不是取消，避免语义评审被掐掉。
   group: pr-review-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.inputs.pr }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   review:
     name: Review and reply
     # 草稿先不评审，转 ready_for_review 时会再触发。只回复，不作为第四个门禁，
     # 合并是否放行看 CI Gate。
-    if: ${{ github.event_name != 'pull_request_target' || !github.event.pull_request.draft }}
+    if: |
+      (github.event_name != 'pull_request_target' || !github.event.pull_request.draft) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -63,6 +79,8 @@ jobs:
           PR_REVIEW_API_KEY: ${{ secrets.PR_REVIEW_API_KEY }}
           PR_REVIEW_API_BASE: ${{ vars.PR_REVIEW_API_BASE }}
           PR_REVIEW_MODEL: ${{ vars.PR_REVIEW_MODEL }}
+          PR_REVIEW_API_PROTOCOL: ${{ vars.PR_REVIEW_API_PROTOCOL }}
+          PR_REVIEW_REASONING_EFFORT: ${{ vars.PR_REVIEW_REASONING_EFFORT }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
         run: |
