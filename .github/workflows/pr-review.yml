@@ -13,6 +13,7 @@
 # 若要指定别的接口，改用 PR_REVIEW_API_KEY，以及可选的
 # PR_REVIEW_API_BASE、PR_REVIEW_MODEL、PR_REVIEW_API_PROTOCOL
 # （chat 或 responses；Mistral/OpenAI Responses 用 responses）。
+# 可选 PR_REVIEW_REASONING_EFFORT（如 DeepSeek V4.1 Flash 1017 用 max）。
 name: PR Review
 
 on:
@@ -79,6 +80,7 @@ jobs:
           PR_REVIEW_API_BASE: ${{ vars.PR_REVIEW_API_BASE }}
           PR_REVIEW_MODEL: ${{ vars.PR_REVIEW_MODEL }}
           PR_REVIEW_API_PROTOCOL: ${{ vars.PR_REVIEW_API_PROTOCOL }}
+          PR_REVIEW_REASONING_EFFORT: ${{ vars.PR_REVIEW_REASONING_EFFORT }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
         run: |

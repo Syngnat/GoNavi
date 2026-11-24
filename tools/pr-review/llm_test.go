@@ -37,6 +37,8 @@ func TestCustomEndpointReadsResponsesProtocol(t *testing.T) {
 			return "deepseek-v4-1-flash-1017"
 		case "PR_REVIEW_API_PROTOCOL":
 			return "responses"
+		case "PR_REVIEW_REASONING_EFFORT":
+			return "max"
 		default:
 			return ""
 		}
@@ -44,7 +46,7 @@ func TestCustomEndpointReadsResponsesProtocol(t *testing.T) {
 	if len(endpoints) != 1 {
 		t.Fatalf("endpoints = %#v", endpoints)
 	}
-	if endpoints[0].Protocol != "responses" || endpoints[0].Model != "deepseek-v4-1-flash-1017" {
+	if endpoints[0].Protocol != "responses" || endpoints[0].Model != "deepseek-v4-1-flash-1017" || endpoints[0].ReasoningEffort != "max" {
 		t.Fatalf("endpoint = %#v", endpoints[0])
 	}
 }
@@ -61,6 +63,10 @@ func TestReviewWithResponsesParsesOutputText(t *testing.T) {
 		if body["instructions"] != modelSystemPrompt || body["input"] == "" {
 			t.Fatalf("unexpected body: %#v", body)
 		}
+		reasoning, ok := body["reasoning"].(map[string]any)
+		if !ok || reasoning["effort"] != "max" {
+			t.Fatalf("reasoning = %#v", body["reasoning"])
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"output": []map[string]any{{
 				"type": "message",
@@ -74,13 +80,34 @@ func TestReviewWithResponsesParsesOutputText(t *testing.T) {
 	defer server.Close()
 
 	files := []FileChange{{Filename: "a.go", Patch: "@@ -1 +1 @@\n-old\n+new\n"}}
-	summary, findings, err := reviewWithModel(
-		context.Background(), server.Client(), server.URL, "test-key", "deepseek-v4-1-flash-1017", files, "responses",
+	summary, findings, err := reviewWithModelOptions(
+		context.Background(), server.Client(), server.URL, "test-key", "deepseek-v4-1-flash-1017", files,
+		modelRequestOptions{Protocol: "responses", ReasoningEffort: "max"},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if summary != "未发现缺陷" || len(findings) != 0 {
 		t.Fatalf("summary=%q findings=%#v", summary, findings)
+	}
+}
+
+func TestModelFindingsAcceptsFileAndDetail(t *testing.T) {
+	files := []FileChange{{Filename: "a.go", Patch: "@@ -1 +1,2 @@\n keep\n+next\n"}}
+	findings := modelFindings([]modelFinding{{
+		File:       "a.go",
+		Line:       2,
+		Title:      "标题",
+		Detail:     "具体问题",
+		Suggestion: "改成这样",
+	}}, files)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v", findings)
+	}
+	if findings[0].Path != "a.go" || findings[0].Line != 2 {
+		t.Fatalf("finding = %#v", findings[0])
+	}
+	if !strings.Contains(findings[0].Message, "具体问题") || !strings.Contains(findings[0].Message, "改成这样") {
+		t.Fatalf("message = %q", findings[0].Message)
 	}
 }

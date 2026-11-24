@@ -248,6 +248,7 @@ jobs:
       - full
       - marketplace-contract
       - platform-sensitive
+      - frontend-full
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -262,5 +263,6 @@ jobs:
             .frontend.result == "success" and
             .full.result == "success" and
             .["marketplace-contract"].result == "success" and
-            .["platform-sensitive"].result == "success"
+            .["platform-sensitive"].result == "success" and
+            (.["frontend-full"].result == "success" or .["frontend-full"].result == "skipped")
           ' <<<"$NEEDS_JSON"

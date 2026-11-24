@@ -22,18 +22,23 @@ type modelReview struct {
 }
 
 type modelFinding struct {
-	Path     string `json:"path"`
-	Line     int    `json:"line"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
+	Path       string `json:"path"`
+	File       string `json:"file"`
+	Line       int    `json:"line"`
+	Severity   string `json:"severity"`
+	Message    string `json:"message"`
+	Title      string `json:"title"`
+	Detail     string `json:"detail"`
+	Suggestion string `json:"suggestion"`
 }
 
 type modelEndpoint struct {
-	Name     string
-	BaseURL  string
-	APIKey   string
-	Model    string
-	Protocol string
+	Name            string
+	BaseURL         string
+	APIKey          string
+	Model           string
+	Protocol        string
+	ReasoningEffort string
 }
 
 // freeModelEndpoints 按 coco-framework-agent 的方式接 OpenAI 兼容接口。
@@ -76,7 +81,8 @@ func customModelEndpoint(env func(string) string, key string) modelEndpoint {
 	}
 	return modelEndpoint{
 		Name: "custom", BaseURL: baseURL, APIKey: key, Model: model,
-		Protocol: normalizeProtocol(env("PR_REVIEW_API_PROTOCOL")),
+		Protocol:        normalizeProtocol(env("PR_REVIEW_API_PROTOCOL")),
+		ReasoningEffort: strings.TrimSpace(env("PR_REVIEW_REASONING_EFFORT")),
 	}
 }
 
@@ -89,7 +95,10 @@ func reviewWithFreeModels(ctx context.Context, client *http.Client, env func(str
 	}
 	var lastErr error
 	for _, endpoint := range endpoints {
-		summary, findings, err := reviewWithModel(ctx, client, endpoint.BaseURL, endpoint.APIKey, endpoint.Model, files, endpoint.Protocol)
+		summary, findings, err := reviewWithModelOptions(ctx, client, endpoint.BaseURL, endpoint.APIKey, endpoint.Model, files, modelRequestOptions{
+			Protocol:        endpoint.Protocol,
+			ReasoningEffort: endpoint.ReasoningEffort,
+		})
 		if err == nil {
 			return summary, findings, endpoint.Name + " · " + endpoint.Model, nil
 		}
@@ -105,30 +114,45 @@ func normalizeProtocol(protocol string) string {
 	return "chat"
 }
 
+type modelRequestOptions struct {
+	Protocol        string
+	ReasoningEffort string
+}
+
 // reviewWithModel 把 diff 交给 OpenAI 兼容接口。失败时返回错误，调用方仍发布规约评审。
 // protocols 为空时保持旧的 chat/completions 行为，避免破坏已有调用方。
 func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, model string, files []FileChange, protocols ...string) (string, []Finding, error) {
+	opts := modelRequestOptions{}
+	if len(protocols) > 0 {
+		opts.Protocol = protocols[0]
+	}
+	return reviewWithModelOptions(ctx, client, baseURL, apiKey, model, files, opts)
+}
+
+func reviewWithModelOptions(ctx context.Context, client *http.Client, baseURL, apiKey, model string, files []FileChange, opts modelRequestOptions) (string, []Finding, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return "", nil, nil
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 45 * time.Second}
+		// Max reasoning on a 12k-rune diff can take minutes; the job's own
+		// 10-minute timeout remains the hard upper bound.
+		client = &http.Client{Timeout: 300 * time.Second}
 	}
 	model = strings.TrimSpace(model)
 	if model == "" {
 		model = "openai/gpt-oss-120b"
 	}
-	protocol := "chat"
-	if len(protocols) > 0 {
-		protocol = normalizeProtocol(protocols[0])
-	}
+	protocol := normalizeProtocol(opts.Protocol)
+	reasoningEffort := strings.TrimSpace(opts.ReasoningEffort)
 	payload := map[string]any{"model": model}
 	endpointPath := "/chat/completions"
 	if protocol == "responses" {
 		payload["instructions"] = modelSystemPrompt
 		payload["input"] = modelUserPrompt(files)
 		payload["text"] = map[string]any{"format": map[string]string{"type": "json_object"}}
-		payload["max_output_tokens"] = 2000
+		if reasoningEffort != "" {
+			payload["reasoning"] = map[string]string{"effort": reasoningEffort}
+		}
 		endpointPath = "/responses"
 	} else {
 		payload["messages"] = []map[string]string{
@@ -136,6 +160,9 @@ func reviewWithModel(ctx context.Context, client *http.Client, baseURL, apiKey, 
 			{"role": "user", "content": modelUserPrompt(files)},
 		}
 		payload["response_format"] = map[string]string{"type": "json_object"}
+		if reasoningEffort != "" {
+			payload["reasoning_effort"] = reasoningEffort
+		}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -255,9 +282,25 @@ func modelFindings(items []modelFinding, files []FileChange) []Finding {
 	for _, item := range items {
 		message := strings.TrimSpace(item.Message)
 		if message == "" {
+			message = strings.TrimSpace(item.Detail)
+		}
+		if message == "" {
+			message = strings.TrimSpace(item.Title)
+		}
+		if suggestion := strings.TrimSpace(item.Suggestion); suggestion != "" {
+			if message == "" {
+				message = suggestion
+			} else {
+				message += " 建议：" + suggestion
+			}
+		}
+		if message == "" {
 			continue
 		}
 		path := strings.TrimSpace(item.Path)
+		if path == "" {
+			path = strings.TrimSpace(item.File)
+		}
 		line := item.Line
 		if _, ok := allowed[path]; !ok {
 			path = "整体"
