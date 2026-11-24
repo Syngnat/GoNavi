@@ -617,6 +617,7 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'front_end_sys');
     expect(labels).toContain('fs_org_auth_application');
     expect(tableSuggestion?.detail).toBe('认证申请表 - 表');
+    expect(String(tableSuggestion?.filterText)).toContain('fs_org_auth_application');
 
     editorState.value = 'SELECT * FROM 认证';
     editorState.latestOnChange?.(editorState.value);

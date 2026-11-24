@@ -32,4 +32,16 @@ describe('resolveSqlCompletionWord', () => {
             endColumn: line.length + 1,
         });
     });
+
+    it('keeps a wider Monaco range when the trailing token is only its CJK suffix', () => {
+        const line = 'SELECT * FROM abc-认证';
+        expect(resolveSqlCompletionWord(model(line, 'abc-认证', 15, line.length + 1), {
+            lineNumber: 1,
+            column: line.length + 1,
+        })).toEqual({
+            word: 'abc-认证',
+            startColumn: 15,
+            endColumn: line.length + 1,
+        });
+    });
 });

@@ -20,7 +20,13 @@ export const resolveSqlCompletionWord = (model: any, position: any): SqlCompleti
     const line = String(model?.getLineContent?.(position.lineNumber) || '');
     const prefix = line.slice(0, Math.max(0, Number(position.column || 1) - 1));
     const token = prefix.match(trailingIdentifierPattern)?.[0] || '';
-    const useToken = Boolean(token) && (
+    const monacoStartColumn = Number(monacoWord?.startColumn || 0);
+    const tokenStartColumn = Number(position.column) - token.length;
+    // Never shrink a range Monaco already covers. For example, `abc-认证`
+    // leaves the trailing token `认证`; replacing only that would keep `abc-`.
+    const tokenCoversMonacoWord = !monacoText
+        || (monacoStartColumn > 0 && tokenStartColumn <= monacoStartColumn);
+    const useToken = Boolean(token) && tokenCoversMonacoWord && (
         !monacoText
         || token.length > monacoText.length
         || /[^\x00-\x7F]/.test(token)
@@ -28,7 +34,7 @@ export const resolveSqlCompletionWord = (model: any, position: any): SqlCompleti
     if (useToken) {
         return {
             word: token,
-            startColumn: Number(position.column) - token.length,
+            startColumn: tokenStartColumn,
             endColumn: Number(position.column),
         };
     }

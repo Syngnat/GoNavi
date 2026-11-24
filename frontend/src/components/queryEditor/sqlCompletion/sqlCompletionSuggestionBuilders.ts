@@ -53,6 +53,13 @@ export const createSqlCompletionSuggestionBuilders = ({
         filterCandidates: readonly string[] = [label],
     ) => {
         const normalizedComment = normalizeCommentText(comment);
+        const normalizedFilterPrefix = String(filterPrefix || '').trim().toLowerCase();
+        const tableFilterText = resolveQueryEditorCompletionFilterText(filterPrefix, filterCandidates);
+        const commentFilterText = normalizedComment
+            && normalizedFilterPrefix
+            && normalizedComment.toLowerCase().includes(normalizedFilterPrefix)
+            ? normalizedComment
+            : '';
         return {
             label: buildQueryEditorTableSuggestionLabel(
                 label,
@@ -61,10 +68,8 @@ export const createSqlCompletionSuggestionBuilders = ({
                 [normalizedComment, detailPrefix].filter(Boolean).join(' - '),
                 useStructuredCompletionLabel,
             ),
-            filterText: resolveQueryEditorCompletionFilterText(
-                filterPrefix,
-                normalizedComment ? [...filterCandidates, normalizedComment] : filterCandidates,
-            ) || normalizeQueryEditorTableSuggestionText(label),
+            filterText: [tableFilterText, commentFilterText].filter(Boolean).join(' ')
+                || normalizeQueryEditorTableSuggestionText(label),
         };
     };
     const normalizeRoutineType = (routineType: string) => (
