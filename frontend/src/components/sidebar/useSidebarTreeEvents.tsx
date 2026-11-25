@@ -276,6 +276,10 @@ export const useSidebarTreeEvents = ({
       if (shouldSkipSidebarSelectWhileDragging(isTreeDragging, info)) return;
 
       const { type, dataRef, key, title } = info.node;
+      if (type === 'agent-integration') {
+          addTab(buildAgentAssetsWorkbenchTab(dataRef));
+          return;
+      }
       const nodeConnectionId = resolveSidebarNodeConnectionId(info.node, connectionIds);
       if (type === 'connection') {
           clearStaleHostStateOnSelection(info.node);
@@ -322,10 +326,6 @@ export const useSidebarTreeEvents = ({
           setActiveContext({ connectionId: dataRef.id, dbName: '' });
       }
 
-      if (type === 'agent-integration') {
-          addTab(buildAgentAssetsWorkbenchTab(dataRef));
-          return;
-      }
       if (type === 'folder-columns') openDesign(info.node, 'columns', false);
       else if (type === 'folder-indexes') openDesign(info.node, 'indexes', false);
       else if (type === 'folder-fks') openDesign(info.node, 'foreignKeys', false);
@@ -386,6 +386,10 @@ export const useSidebarTreeEvents = ({
       }
       const { type, dataRef, key: nodeKey } = node;
       if (type === 'v2-table-section' || type === 'v2-database-section') {
+          return;
+      }
+      if (type === 'agent-integration') {
+          addTab(buildAgentAssetsWorkbenchTab(dataRef));
           return;
       }
       const nodeConnectionId = resolveSidebarNodeConnectionId(node, connectionIds);

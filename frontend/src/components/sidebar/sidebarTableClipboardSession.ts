@@ -20,18 +20,21 @@ export const getSidebarTableClipboardCommandKey = (command: SidebarTableClipboar
     : null;
   return JSON.stringify([
     command.kind,
-    command.entries.map((entry) => [entry.connectionId, entry.database, entry.schema, entry.table]),
+    command.entries.map((entry) => [entry.objectKind, entry.connectionId, entry.database, entry.schema, entry.table]),
     target,
   ]);
 };
 
 const copyTableNames = async (entries: SidebarTableClipboardEntry[]): Promise<void> => {
+  const isView = entries[0]?.objectKind === 'view';
   try {
     await navigator.clipboard.writeText(entries.map((entry) => entry.table).join('\n'));
-    message.success(t('sidebar.multi_table_menu.copy_names_done', { count: entries.length }));
+    message.success(t(isView
+      ? 'sidebar.view_clipboard.copy_names_done'
+      : 'sidebar.multi_table_menu.copy_names_done', { count: entries.length }));
   } catch (error: unknown) {
     message.error(t('sidebar.copy_object_name.failed', {
-      label: t('sidebar.copy_object_name.label.table'),
+      label: t(isView ? 'sidebar.copy_object_name.label.view' : 'sidebar.copy_object_name.label.table'),
       error: error instanceof Error ? error.message : String(error),
     }));
   }
@@ -44,20 +47,36 @@ export const applySidebarTableClipboardCommand = (
   switch (command.kind) {
     case 'copy':
       clipboardEntries = command.entries;
-      message.success(t(command.entries.length === 1
-        ? 'sidebar.table_clipboard.copy_success'
-        : 'sidebar.table_clipboard.copy_success_multiple', {
-        table: command.entries[0].table,
-        count: command.entries.length,
-        shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
-      }));
+      {
+        const isView = command.entries[0]?.objectKind === 'view';
+        message.success(t(isView
+          ? (command.entries.length === 1
+            ? 'sidebar.view_clipboard.copy_success'
+            : 'sidebar.view_clipboard.copy_success_multiple')
+          : (command.entries.length === 1
+            ? 'sidebar.table_clipboard.copy_success'
+            : 'sidebar.table_clipboard.copy_success_multiple'), {
+          ...(isView
+            ? { view: command.entries[0].table }
+            : { table: command.entries[0].table }),
+          count: command.entries.length,
+          shortcut: state.activeShortcutPlatform === 'mac' ? '⌘V' : 'Ctrl+V',
+        }));
+      }
       return;
     case 'copy-names':
       clearSidebarTableClipboard();
       void copyTableNames(command.entries);
       return;
     case 'paste-copy-table':
-      state.onCopyTables(command.entries.map((entry) => entry.node));
+    case 'paste-copy-view':
+      state.onCopyTables(command.entries.map((entry) => entry.node), command.target);
+      return;
+    case 'paste-views-cross-connection':
+      message.warning(t('sidebar.view_clipboard.same_connection_required'));
+      return;
+    case 'paste-views-unsupported':
+      message.warning(t('sidebar.view_clipboard.unsupported'));
       return;
     case 'paste-via-data-sync':
       if (state.onOpenDataSyncWorkbench) state.onOpenDataSyncWorkbench('sync', command.prefill);

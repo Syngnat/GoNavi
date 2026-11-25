@@ -81,8 +81,92 @@ describe('sidebar table clipboard resolution', () => {
       connectionId: 'conn-a',
       database: 'shop',
       schema: '',
+      objectKind: 'table',
       table: 'orders',
     });
+  });
+
+  it('copies a selected view and routes same-database paste to the view copy action', () => {
+    const view = {
+      key: 'conn-a-shop-view-active-orders',
+      title: 'active_orders',
+      type: 'view',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        viewName: 'active_orders',
+        tableName: 'active_orders',
+        config: { type: 'mysql' },
+      },
+    };
+    const entry = resolveSidebarTableClipboardEntry(view, connectionIds)!;
+    expect(entry).toEqual({
+      node: view,
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+      objectKind: 'view',
+      table: 'active_orders',
+    });
+
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'shop')],
+      clipboard: [entry],
+      connectionIds,
+    });
+    expect(command.kind).toBe('paste-copy-view');
+  });
+
+  it('allows view copies across databases on the same connection', () => {
+    const viewEntry = resolveSidebarTableClipboardEntry({
+      key: 'conn-a-shop-view-active-orders',
+      title: 'active_orders',
+      type: 'view',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        viewName: 'active_orders',
+        config: { type: 'mysql' },
+      },
+    }, connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-a', 'archive')],
+      clipboard: [viewEntry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-copy-view');
+    expect(command.kind === 'paste-copy-view' && command.target.database).toBe('archive');
+  });
+
+  it('rejects view copies across different connections', () => {
+    const viewEntry = resolveSidebarTableClipboardEntry({
+      key: 'conn-a-shop-view-active-orders',
+      title: 'active_orders',
+      type: 'view',
+      dataRef: {
+        id: 'conn-a',
+        dbName: 'shop',
+        schemaName: '',
+        viewName: 'active_orders',
+        config: { type: 'mysql' },
+      },
+    }, connectionIds)!;
+    const command = resolveSidebarTableClipboardCommand({
+      event: createKeyEvent({ key: 'v', code: 'KeyV', metaKey: true }),
+      shortcutPlatform: 'mac',
+      selectedNodes: [createDatabaseNode('conn-b', 'shop')],
+      clipboard: [viewEntry],
+      connectionIds,
+    });
+
+    expect(command.kind).toBe('paste-views-cross-connection');
   });
 
   it('resolves multiple table nodes and rejects mixed non-table selections', () => {

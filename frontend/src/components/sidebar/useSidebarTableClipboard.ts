@@ -18,6 +18,7 @@ export type SidebarTableClipboardEntry = {
   connectionId: string;
   database: string;
   schema: string;
+  objectKind: 'table' | 'view';
   table: string;
 };
 
@@ -32,6 +33,9 @@ export type SidebarTableClipboardCommand =
   | { kind: 'copy'; entries: SidebarTableClipboardEntry[] }
   | { kind: 'copy-names'; entries: SidebarTableClipboardEntry[] }
   | { kind: 'paste-copy-table'; entries: SidebarTableClipboardEntry[]; target: SidebarTableClipboardTarget }
+  | { kind: 'paste-copy-view'; entries: SidebarTableClipboardEntry[]; target: SidebarTableClipboardTarget }
+  | { kind: 'paste-views-cross-connection'; entries: SidebarTableClipboardEntry[] }
+  | { kind: 'paste-views-unsupported'; entries: SidebarTableClipboardEntry[] }
   | {
       kind: 'paste-via-data-sync';
       entries: SidebarTableClipboardEntry[];
@@ -70,19 +74,28 @@ export const resolveSidebarTableClipboardEntry = (
   node: any,
   connectionIds: string[],
 ): SidebarTableClipboardEntry | null => {
-  if (!node || node.type !== 'table') return null;
+  if (!node) return null;
+  const objectKind = node.type === 'table'
+    ? 'table'
+    : node.type === 'view' || node.type === 'materialized-view'
+      ? 'view'
+      : null;
+  if (!objectKind) return null;
   const dataRef = node.dataRef;
   const connectionId = resolveSidebarNodeConnectionId(node, connectionIds)
     || normalizePart(dataRef?.id)
     || normalizePart(dataRef?.connectionId);
   const database = normalizePart(dataRef?.dbName);
-  const table = normalizePart(dataRef?.tableName) || normalizePart(node.title);
+  const table = objectKind === 'view'
+    ? normalizePart(dataRef?.viewName) || normalizePart(dataRef?.tableName) || normalizePart(node.title)
+    : normalizePart(dataRef?.tableName) || normalizePart(node.title);
   if (!connectionId || !database || !table) return null;
   return {
     node,
     connectionId,
     database,
     schema: normalizePart(dataRef?.schemaName),
+    objectKind,
     table,
   };
 };
@@ -111,6 +124,8 @@ export const resolveSidebarTableClipboardTarget = (
   const type = String(node.type || '');
   const isSupportedType = type === 'database'
     || type === 'table'
+    || type === 'view'
+    || type === 'materialized-view'
     || (type === 'object-group'
       && (dataRef?.groupKey === 'schema' || dataRef?.groupKey === 'tables'));
   if (!isSupportedType) return null;
@@ -163,7 +178,8 @@ export const areSidebarTableClipboardEntriesFromSameSource = (
   if (!Array.isArray(entries) || entries.length === 0) return false;
   const first = entries[0];
   return entries.every((entry) => (
-    entry.connectionId === first.connectionId
+    entry.objectKind === first.objectKind
+    && entry.connectionId === first.connectionId
     && entry.database === first.database
     && entry.schema === first.schema
   ));
@@ -218,14 +234,28 @@ const resolveSidebarTablePasteCommand = ({
   if (!areSidebarTableClipboardEntriesFromSameSource(clipboard)) {
     return { kind: 'paste-mixed-sources', entries: clipboard };
   }
+  const objectKind = clipboard[0]?.objectKind;
   const nodes = Array.isArray(selectedNodes) ? selectedNodes : [];
   const target = resolveSidebarTableClipboardPasteTarget(nodes, connectionIds);
   if (!target) {
     return { kind: 'paste-target-missing', entries: clipboard };
   }
+  if (objectKind === 'view') {
+    if (!clipboard.every((entry) => supportsDirectCopy(entry))) {
+      return { kind: 'paste-views-unsupported', entries: clipboard };
+    }
+    if (target.connectionId !== clipboard[0].connectionId) {
+      return { kind: 'paste-views-cross-connection', entries: clipboard };
+    }
+    return { kind: 'paste-copy-view', entries: clipboard, target };
+  }
   const sameDatabase = clipboard.every((entry) => isSameSidebarTableDatabase(entry, target));
   if (sameDatabase && clipboard.every((entry) => supportsDirectCopy(entry))) {
-    return { kind: 'paste-copy-table', entries: clipboard, target };
+    return {
+      kind: 'paste-copy-table',
+      entries: clipboard,
+      target,
+    };
   }
   return {
     kind: 'paste-via-data-sync',
@@ -307,7 +337,7 @@ export type UseSidebarTableClipboardInput = {
   selectedNodesRef: MutableRefObject<any[]>;
   connectionIds: string[];
   activeShortcutPlatform: ShortcutPlatform;
-  onCopyTables: (nodes: any[]) => void;
+  onCopyTables: (nodes: any[], target?: SidebarTableClipboardTarget) => void;
   onOpenDataSyncWorkbench?: (entryMode: 'sync', prefill: DataSyncPastePrefill) => void;
   blocked?: boolean;
 };

@@ -94,6 +94,23 @@ describe('sidebarExplorerFilter / Nacos 过滤', () => {
     const tree = nacosTree();
     expect(filterV2ExplorerTreeByKind(tree as any, 'all')).toBe(tree);
   });
+
+  it('keeps global agent workbench rows under every object filter', () => {
+    const tree = [
+      { key: 'agent-codex', type: 'agent-integration' },
+      {
+        key: 'conn-main',
+        type: 'database',
+        children: [
+          { key: 'conn-main-tables', type: 'object-group', dataRef: { groupKey: 'tables' } },
+          { key: 'conn-main-views', type: 'object-group', dataRef: { groupKey: 'views' } },
+        ],
+      },
+    ];
+    for (const filter of ['tables', 'views', 'routines', 'nacos-configs'] as const) {
+      expect(filterV2ExplorerTreeByKind(tree as any, filter)[0]?.key).toBe('agent-codex');
+    }
+  });
 });
 
 describe('sidebarExplorerFilter / 过滤维度表', () => {

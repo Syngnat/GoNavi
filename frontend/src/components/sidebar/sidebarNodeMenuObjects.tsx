@@ -347,7 +347,7 @@ export const buildViewMenuItems = ({ node, context }: BuildViewMenuItemsInput): 
   const {
     onDoubleClick, openViewDefinition, handleCopyTableName, openEditView, addTab,
     setRenameViewTarget, renameViewForm, extractObjectName, setIsRenameViewModalOpen,
-    handleDropView,
+    handleDropView, handleCopyTable,
   } = context;
   return [
       {
@@ -361,6 +361,12 @@ export const buildViewMenuItems = ({ node, context }: BuildViewMenuItemsInput): 
           label: t('sidebar.menu.view_definition'),
           icon: <CodeOutlined />,
           onClick: () => openViewDefinition(node)
+      },
+      {
+          key: 'copy-view',
+          label: t('sidebar.menu.copy_view'),
+          icon: <CopyOutlined />,
+          onClick: () => handleCopyTable(node)
       },
       {
           key: 'copy-view-name',

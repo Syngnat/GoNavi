@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { loadDatabaseJobDefinition } from '../../databaseJobs/loadJobDefinition';
 import {
   buildOracleDatabaseLinkDefinitionQueries,
@@ -15,6 +15,7 @@ import { buildDisplayDefinitionSql } from '../definitionViewerSql';
 import { formatDdlForDisplay } from '../../../utils/ddlFormat';
 import { resolveDefinitionViewerObjectMeta } from '../../definitionViewerObjectMeta';
 import { usesDriverObjectDefinition, usesDriverSequenceDefinition, usesBackendViewDefinition } from '../../definitionViewerDialect';
+import { SIDEBAR_DATABASE_REFRESH_EVENT, type SidebarDatabaseRefreshRequest } from '../../../utils/sidebarDatabaseRefresh';
 import type { DefinitionViewerStateApi } from './useDefinitionViewerState';
 import type { DefinitionViewerProps } from '../../DefinitionViewer';
 
@@ -52,6 +53,7 @@ export const useDefinitionViewerLoader = ({
   runQueryCandidatesCollectAll, runQueryCandidates, getVersionHint, setLoading, setError,
   loadedDefinitionKeyRef, objectIdentityKey, setDefinition, isMountedRef, definition, editorRef,
 }: UseDefinitionViewerLoaderInput) => {
+  const [refreshRevision, setRefreshRevision] = useState(0);
   const extractRoutineDefinition = (dialect: string, data: any[]): string => {
       if (!data || data.length === 0) return `-- ${t('definition_viewer.editor.routine_definition_not_found')}`;
 
@@ -428,6 +430,25 @@ export const useDefinitionViewerLoader = ({
   };
 
   useEffect(() => {
+      if (typeof window === 'undefined') return undefined;
+      const handleDatabaseRefresh = (event: Event) => {
+          const detail = (event as CustomEvent<SidebarDatabaseRefreshRequest>).detail;
+          if (detail?.schemaChanged !== true) return;
+          if (String(detail.connectionId || '').trim() !== String(tab.connectionId || '').trim()) return;
+          const refreshedDbName = String(detail.dbName || '').trim();
+          if (refreshedDbName && refreshedDbName !== String(tab.dbName || '').trim()) return;
+          const refreshedSchemaName = String(detail.schemaName || '').trim();
+          const tabSchemaName = String(tab.schemaName || '').trim();
+          if (refreshedSchemaName && tabSchemaName && refreshedSchemaName !== tabSchemaName) return;
+          setRefreshRevision((revision) => revision + 1);
+      };
+      window.addEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, handleDatabaseRefresh);
+      return () => {
+          window.removeEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, handleDatabaseRefresh);
+      };
+  }, [tab.connectionId, tab.dbName, tab.schemaName]);
+
+  useEffect(() => {
       let cancelled = false;
       const syncDefinition = async () => {
           setLoading(true);
@@ -451,7 +472,7 @@ export const useDefinitionViewerLoader = ({
       return () => {
           cancelled = true;
       };
-  }, [tab.connectionId, tab.dbName, tab.viewName, tab.viewKind, tab.eventName, tab.jobName, tab.jobKind, tab.routineName, tab.routineType, tab.sequenceName, tab.packageName, tab.databaseLinkName, tab.schemaName, tab.type, connections, objectIdentityKey, t]);
+  }, [tab.connectionId, tab.dbName, tab.viewName, tab.viewKind, tab.eventName, tab.jobName, tab.jobKind, tab.routineName, tab.routineType, tab.sequenceName, tab.packageName, tab.databaseLinkName, tab.schemaName, tab.type, connections, objectIdentityKey, t, refreshRevision]);
 
   useEffect(() => () => {
       isMountedRef.current = false;

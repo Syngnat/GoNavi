@@ -14358,5 +14358,18 @@
   "script_workbench.demo.output_name": "matched_users",
   "script_workbench.demo.log.start": "Eingabedatei und Datenbankkontexte werden vorbereitet",
   "script_workbench.demo.log.batch": "Batch {{current}} von {{total}} verarbeitet",
-  "script_workbench.demo.log.done": "Skript abgeschlossen"
+  "script_workbench.demo.log.done": "Skript abgeschlossen",
+  "connection.backend.action.copy_view": "Ansicht kopieren",
+  "db.backend.error.view_copy_source_failed": "Die Definition der Ansicht {{source}} konnte nicht gelesen werden: {{error}}",
+  "db.backend.error.view_copy_create_failed": "Ansicht {{source}} konnte nicht nach {{target}} kopiert werden: {{error}}",
+  "db.backend.message.view_copied": "Ansicht kopiert: {{source}} → {{target}}",
+  "sidebar.view_clipboard.copy_success": "Ansicht {{view}} kopiert. Ziel-Datenbank auswählen und zum Einfügen {{shortcut}} drücken.",
+  "sidebar.view_clipboard.copy_success_multiple": "{{count}} Ansichten kopiert. Ziel-Datenbank auswählen und zum Einfügen {{shortcut}} drücken.",
+  "sidebar.view_clipboard.same_database_required": "Das Kopieren von Ansichten ist nur innerhalb derselben Datenbank und desselben Schemas möglich.",
+  "sidebar.view_clipboard.copy_done_multiple": "{{count}} Ansichten kopiert",
+  "sidebar.menu.copy_view": "Ansicht kopieren",
+  "sidebar.view_clipboard.unsupported": "Diese Verbindung unterstützt das Kopieren von Ansichten nicht.",
+  "sidebar.view_clipboard.copy_names_done": "{{count}} Ansichtsnamen kopiert",
+  "db.backend.error.view_copy_cross_database_unsupported": "Diese Datenquelle unterstützt das Kopieren einer Ansicht über Datenbanken hinweg nicht: {{source}} → {{target}}",
+  "sidebar.view_clipboard.same_connection_required": "Das Kopieren von Ansichten erfordert dieselbe Verbindung; das Ziel darf in einer anderen Datenbank oder einem anderen Schema liegen."
 }

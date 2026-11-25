@@ -14358,5 +14358,18 @@
   "script_workbench.demo.output_name": "matched_users",
   "script_workbench.demo.log.start": "Подготовка входного файла и контекстов базы данных",
   "script_workbench.demo.log.batch": "Обработан пакет {{current}} из {{total}}",
-  "script_workbench.demo.log.done": "Скрипт завершён"
+  "script_workbench.demo.log.done": "Скрипт завершён",
+  "connection.backend.action.copy_view": "Копировать представление",
+  "db.backend.error.view_copy_source_failed": "Не удалось прочитать определение представления {{source}}: {{error}}",
+  "db.backend.error.view_copy_create_failed": "Не удалось скопировать представление {{source}} в {{target}}: {{error}}",
+  "db.backend.message.view_copied": "Представление скопировано: {{source}} → {{target}}",
+  "sidebar.view_clipboard.copy_success": "Представление {{view}} скопировано. Выберите целевую базу данных и нажмите {{shortcut}} для вставки.",
+  "sidebar.view_clipboard.copy_success_multiple": "Скопировано представлений: {{count}}. Выберите целевую базу данных и нажмите {{shortcut}} для вставки.",
+  "sidebar.view_clipboard.same_database_required": "Копирование представлений поддерживается только в пределах одной базы данных и схемы.",
+  "sidebar.view_clipboard.copy_done_multiple": "Скопировано представлений: {{count}}",
+  "sidebar.menu.copy_view": "Копировать представление",
+  "sidebar.view_clipboard.unsupported": "Это подключение не поддерживает копирование представлений.",
+  "sidebar.view_clipboard.copy_names_done": "Скопировано имён представлений: {{count}}",
+  "db.backend.error.view_copy_cross_database_unsupported": "Этот источник данных не поддерживает копирование представления между базами данных: {{source}} → {{target}}",
+  "sidebar.view_clipboard.same_connection_required": "Копирование представлений требует одного и того же подключения; целевая база данных или схема может отличаться."
 }

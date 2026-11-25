@@ -66,4 +66,18 @@ describe('SQL write sidebar refresh targets', () => {
         expect(dispatchEvent.mock.calls[0][0].detail.clearedTables).toBeUndefined();
     });
 
+    it('marks view DDL as a schema refresh so object definition viewers reload', () => {
+        dispatchSidebarSqlDataRefresh(
+            { connectionId: 'conn-1', dbName: 'main', schemaName: 'reporting' },
+            ['CREATE OR REPLACE VIEW reporting.active_users AS SELECT id FROM users'],
+            'postgres',
+        );
+        expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+            detail: expect.objectContaining({
+                connectionId: 'conn-1',
+                schemaChanged: true,
+            }),
+        }));
+    });
+
 });

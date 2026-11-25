@@ -14358,5 +14358,18 @@
   "script_workbench.demo.output_name": "matched_users",
   "script_workbench.demo.log.start": "正在準備輸入檔案與資料庫內容",
   "script_workbench.demo.log.batch": "已處理第 {{current}} / {{total}} 批",
-  "script_workbench.demo.log.done": "指令碼執行完成"
+  "script_workbench.demo.log.done": "指令碼執行完成",
+  "connection.backend.action.copy_view": "複製檢視",
+  "db.backend.error.view_copy_source_failed": "無法讀取檢視 {{source}} 的定義：{{error}}",
+  "db.backend.error.view_copy_create_failed": "複製檢視 {{source}} 到 {{target}} 失敗：{{error}}",
+  "db.backend.message.view_copied": "複製檢視成功：{{source}} → {{target}}",
+  "sidebar.view_clipboard.copy_success": "已複製檢視 {{view}}，選取目標資料庫後按 {{shortcut}} 貼上",
+  "sidebar.view_clipboard.copy_success_multiple": "已複製 {{count}} 個檢視，選取目標資料庫後按 {{shortcut}} 貼上",
+  "sidebar.view_clipboard.same_database_required": "檢視複製僅支援貼到同一資料庫和模式",
+  "sidebar.view_clipboard.copy_done_multiple": "已複製 {{count}} 個檢視",
+  "sidebar.menu.copy_view": "複製檢視",
+  "sidebar.view_clipboard.unsupported": "目前連線不支援複製檢視",
+  "sidebar.view_clipboard.copy_names_done": "已複製 {{count}} 個檢視名稱",
+  "db.backend.error.view_copy_cross_database_unsupported": "目前資料來源不支援跨資料庫複製檢視：{{source}} → {{target}}",
+  "sidebar.view_clipboard.same_connection_required": "檢視複製僅支援同一連線，可跨資料庫或跨模式選擇目標"
 }

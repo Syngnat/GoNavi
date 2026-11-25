@@ -14358,5 +14358,18 @@
   "script_workbench.demo.output_name": "matched_users",
   "script_workbench.demo.log.start": "Preparing input file and database contexts",
   "script_workbench.demo.log.batch": "Processed batch {{current}} of {{total}}",
-  "script_workbench.demo.log.done": "Script completed"
+  "script_workbench.demo.log.done": "Script completed",
+  "connection.backend.action.copy_view": "Copy view",
+  "db.backend.error.view_copy_source_failed": "Could not read the definition of view {{source}}: {{error}}",
+  "db.backend.error.view_copy_create_failed": "Failed to copy view {{source}} to {{target}}: {{error}}",
+  "db.backend.message.view_copied": "View copied: {{source}} → {{target}}",
+  "sidebar.view_clipboard.copy_success": "Copied view {{view}}. Select a target database and press {{shortcut}} to paste.",
+  "sidebar.view_clipboard.copy_success_multiple": "Copied {{count}} views. Select a target database and press {{shortcut}} to paste.",
+  "sidebar.view_clipboard.same_database_required": "View copy is only supported within the same database and schema.",
+  "sidebar.view_clipboard.copy_done_multiple": "Copied {{count}} views",
+  "sidebar.menu.copy_view": "Copy view",
+  "sidebar.view_clipboard.unsupported": "This connection does not support copying a view.",
+  "sidebar.view_clipboard.copy_names_done": "Copied {{count}} view names",
+  "db.backend.error.view_copy_cross_database_unsupported": "This data source does not support copying a view across databases: {{source}} → {{target}}",
+  "sidebar.view_clipboard.same_connection_required": "View copy requires the same connection; the target may be in another database or schema."
 }

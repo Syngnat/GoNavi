@@ -3,6 +3,7 @@ import { findPotentiallyMutatingConnectionStatements } from '../../utils/connect
 import { isMysqlFamilyDialect, isOracleLikeDialect, isPgLikeDialect, quoteSqlIdentifierPart, resolveSqlDialect } from '../../utils/sqlDialect';
 import { collectQueryEditorTableReferences } from './queryEditorTableReferences';
 import { maskQueryEditorSqlLiteralsAndComments } from './queryEditorSqlScan';
+import { isSqlEditorSchemaChangingStatement } from '../../utils/sqlEditorTransaction';
 
 // 数据库统计可能迟于写入更新；通知侧栏只为语句引用的已加载表补查行数。
 export const dispatchSidebarSqlDataRefresh = (
@@ -14,6 +15,9 @@ export const dispatchSidebarSqlDataRefresh = (
     const dialect = resolveSqlDialect(dbType);
     const targets = new Map<string, Set<string>>();
     const outcomes = new Map<string, Map<string, 'count' | 'clear' | 'drop'>>();
+    const schemaChanged = statements.some((statement) => (
+        isSqlEditorSchemaChangingStatement(statement, dbType)
+    ));
     targets.set(request.dbName || '', new Set());
     for (const statement of statements) {
         if (!findPotentiallyMutatingConnectionStatements({ type: dbType }, statement).length) continue;
@@ -56,6 +60,7 @@ export const dispatchSidebarSqlDataRefresh = (
         const droppedTables = [...tables].filter(table => committed && changes?.get(table) === 'drop');
         dispatchSidebarDatabaseRefresh({ ...request, dbName, rowCountTables: [...tables],
             ...(clearedTables.length ? { clearedTables } : {}), ...(droppedTables.length ? { droppedTables } : {}),
+            ...(schemaChanged ? { schemaChanged: true } : {}),
         });
     }
 };

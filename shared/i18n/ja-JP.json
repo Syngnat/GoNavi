@@ -14358,5 +14358,18 @@
   "script_workbench.demo.output_name": "matched_users",
   "script_workbench.demo.log.start": "入力ファイルとデータベースコンテキストを準備しています",
   "script_workbench.demo.log.batch": "バッチ {{current}} / {{total}} を処理しました",
-  "script_workbench.demo.log.done": "スクリプトが完了しました"
+  "script_workbench.demo.log.done": "スクリプトが完了しました",
+  "connection.backend.action.copy_view": "ビューをコピー",
+  "db.backend.error.view_copy_source_failed": "ビュー {{source}} の定義を読み取れませんでした: {{error}}",
+  "db.backend.error.view_copy_create_failed": "ビュー {{source}} を {{target}} にコピーできませんでした: {{error}}",
+  "db.backend.message.view_copied": "ビューをコピーしました: {{source}} → {{target}}",
+  "sidebar.view_clipboard.copy_success": "ビュー {{view}} をコピーしました。対象データベースを選択して {{shortcut}} で貼り付けます。",
+  "sidebar.view_clipboard.copy_success_multiple": "{{count}} 個のビューをコピーしました。対象データベースを選択して {{shortcut}} で貼り付けます。",
+  "sidebar.view_clipboard.same_database_required": "ビューのコピーは同じデータベースとスキーマ内のみ対応しています。",
+  "sidebar.view_clipboard.copy_done_multiple": "{{count}} 個のビューをコピーしました",
+  "sidebar.menu.copy_view": "ビューをコピー",
+  "sidebar.view_clipboard.unsupported": "この接続ではビューをコピーできません。",
+  "sidebar.view_clipboard.copy_names_done": "{{count}} 個のビュー名をコピーしました",
+  "db.backend.error.view_copy_cross_database_unsupported": "このデータソースはデータベースをまたぐビューのコピーに対応していません: {{source}} → {{target}}",
+  "sidebar.view_clipboard.same_connection_required": "ビューのコピーは同じ接続内のみ対応しており、対象は別のデータベースやスキーマでもかまいません。"
 }

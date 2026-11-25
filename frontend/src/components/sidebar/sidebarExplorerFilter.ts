@@ -196,6 +196,11 @@ export const filterV2ExplorerTreeByKind = (
     if (node.type === 'external-sql-root') {
       return null;
     }
+    // Agent sessions are global workbench entries, not objects of the active
+    // database. Keep them reachable while a table/view filter is active.
+    if (node.type === 'agent-integration') {
+      return node;
+    }
     // Relational filters have no semantic equivalent for a broker. Keep the
     // complete MQ namespace visible instead of making the explorer look empty
     // when the user switches from a database connection with a filter active.

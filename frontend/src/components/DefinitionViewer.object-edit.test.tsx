@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabData } from '../types';
 import { I18nProvider } from '../i18n/provider';
 import { clearQueryTabDraft, hasQueryTabDraft, setQueryTabDraft } from '../utils/sqlFileTabDrafts';
+import { SIDEBAR_DATABASE_REFRESH_EVENT } from '../utils/sidebarDatabaseRefresh';
 import DefinitionViewer from './DefinitionViewer';
 
 const storeState = vi.hoisted(() => ({
@@ -795,6 +796,52 @@ describe('DefinitionViewer object edit entry', () => {
     expect(findButtonText(renderer.root)).toContain('load failed');
     expect(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')).toHaveLength(0);
     expect(findButtonText(renderer.root)).not.toContain('SELECT id, name FROM users');
+  });
+
+  it('reloads the open definition when a matching DDL refresh is dispatched', async () => {
+    const refreshTarget = new EventTarget();
+    vi.stubGlobal('window', {
+      addEventListener: refreshTarget.addEventListener.bind(refreshTarget),
+      removeEventListener: refreshTarget.removeEventListener.bind(refreshTarget),
+      dispatchEvent: refreshTarget.dispatchEvent.bind(refreshTarget),
+    });
+    backendApp.DBQuery
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ view_definition: 'SELECT id, name FROM users' }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ view_definition: 'SELECT id, name, updated_at FROM users' }],
+      });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(createTab()));
+      await flushPromises();
+    });
+
+    expect(String(
+      renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''),
+    )).toContain('SELECT id, name FROM users');
+
+    await act(async () => {
+      refreshTarget.dispatchEvent(new CustomEvent(SIDEBAR_DATABASE_REFRESH_EVENT, {
+        detail: {
+          connectionId: 'conn-1',
+          dbName: 'main',
+          schemaName: 'reporting',
+          schemaChanged: true,
+        },
+      }));
+      await flushPromises();
+    });
+
+    expect(backendApp.DBQuery).toHaveBeenCalledTimes(2);
+    expect(String(
+      renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''),
+    )).toContain('SELECT id, name, updated_at FROM users');
+    vi.unstubAllGlobals();
   });
 
   it('keeps comment-only fallback definitions editable without reintroducing locale-specific detection', async () => {

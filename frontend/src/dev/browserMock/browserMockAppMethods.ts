@@ -183,6 +183,10 @@ export const createBrowserMockAppMethods = ({
             success: true,
             data: `CREATE TABLE \`${dbName || 'missav_bot'}\`.\`${String(tableName || 'table').replace(/`/g, '')}\` (\n  \`id\` bigint NOT NULL AUTO_INCREMENT COMMENT 'primary key',\n  PRIMARY KEY (\`id\`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='browser mock';`,
         }),
+        CopyView: async (_config: any, _dbName: string, _schemaName: string, viewName: string) => ({
+            success: true,
+            data: `${String(viewName || 'view').replace(/[_.]/g, '_')}_copy1`,
+        }),
         DataSyncCapability: async (sourceConfig: any, targetConfig: any) => {
             const sourceType = String(sourceConfig?.type || sourceConfig?.driver || '').trim().toLowerCase();
             const targetType = String(targetConfig?.type || targetConfig?.driver || '').trim().toLowerCase();

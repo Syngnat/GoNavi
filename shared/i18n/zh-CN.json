@@ -14358,5 +14358,18 @@
   "script_workbench.demo.output_name": "matched_users",
   "script_workbench.demo.log.start": "正在准备输入文件与数据库上下文",
   "script_workbench.demo.log.batch": "已处理第 {{current}} / {{total}} 批",
-  "script_workbench.demo.log.done": "脚本运行完成"
+  "script_workbench.demo.log.done": "脚本运行完成",
+  "connection.backend.action.copy_view": "复制视图",
+  "db.backend.error.view_copy_source_failed": "无法读取视图 {{source}} 的定义：{{error}}",
+  "db.backend.error.view_copy_create_failed": "复制视图 {{source}} 到 {{target}} 失败：{{error}}",
+  "db.backend.message.view_copied": "复制视图成功：{{source}} → {{target}}",
+  "sidebar.view_clipboard.copy_success": "已复制视图 {{view}}，选中目标库后按 {{shortcut}} 粘贴",
+  "sidebar.view_clipboard.copy_success_multiple": "已复制 {{count}} 个视图，选中目标库后按 {{shortcut}} 粘贴",
+  "sidebar.view_clipboard.same_database_required": "视图复制仅支持粘贴到同一数据库和模式",
+  "sidebar.view_clipboard.copy_done_multiple": "已复制 {{count}} 个视图",
+  "sidebar.menu.copy_view": "复制视图",
+  "sidebar.view_clipboard.unsupported": "当前连接不支持复制视图",
+  "sidebar.view_clipboard.copy_names_done": "已复制 {{count}} 个视图名",
+  "db.backend.error.view_copy_cross_database_unsupported": "当前数据源不支持跨库复制视图：{{source}} → {{target}}",
+  "sidebar.view_clipboard.same_connection_required": "视图复制仅支持同一连接，可跨库或跨模式选择目标"
 }

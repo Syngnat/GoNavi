@@ -125,7 +125,11 @@ describe('useSidebarTableClipboard DOM events', () => {
     });
 
     expect(pasteEvent.defaultPrevented).toBe(true);
-    expect(onCopyTables).toHaveBeenCalledWith([sourceNode]);
+    expect(onCopyTables).toHaveBeenCalledWith([sourceNode], {
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
   });
 
   it('copies and pastes multiple selected tables as one batch', () => {
@@ -150,7 +154,11 @@ describe('useSidebarTableClipboard DOM events', () => {
     });
 
     expect(pasteEvent.defaultPrevented).toBe(true);
-    expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode]);
+    expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode], {
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
   });
 
   it('pastes immediately when the copied table rows are still selected', () => {
@@ -169,7 +177,11 @@ describe('useSidebarTableClipboard DOM events', () => {
     });
 
     expect(pasteEvent.defaultPrevented).toBe(true);
-    expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode]);
+    expect(onCopyTables).toHaveBeenCalledWith([sourceNode, customersNode], {
+      connectionId: 'conn-a',
+      database: 'shop',
+      schema: '',
+    });
   });
 
   it('does not hijack native copy or paste from an input inside the sidebar', () => {

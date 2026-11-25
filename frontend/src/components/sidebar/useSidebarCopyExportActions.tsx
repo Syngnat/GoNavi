@@ -17,6 +17,7 @@ import { dispatchSidebarTableCreated } from '../../utils/sidebarDatabaseRefresh'
 import { buildBatchTableExportWorkbenchTab, buildTableExportTab } from '../../utils/tableExportTab';
 import { useStore } from '../../store';
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
+import type { SidebarTableClipboardTarget } from './useSidebarTableClipboard';
 
 export interface UseSidebarCopyExportActionsInput {
   connections: UseSidebarObjectActionsArgs['connections'];
@@ -78,8 +79,103 @@ export const useSidebarCopyExportActions = ({
     }
   };
 
-  const handleCopyTables = async (nodes: any[]) => {
-    const tableNodes = (Array.isArray(nodes) ? nodes : []).filter((node) => {
+  const handleCopyViews = async (
+    viewNodes: any[],
+    target?: SidebarTableClipboardTarget,
+  ) => {
+    const conn = viewNodes[0]?.dataRef;
+    const viewNames = viewNodes
+      .map((node) => String(node?.dataRef?.viewName || node?.title || '').trim())
+      .filter(Boolean);
+    if (!conn || viewNames.length === 0) return;
+    if (target && target.connectionId !== String(conn.id || '')) {
+      message.warning(t('sidebar.view_clipboard.same_connection_required'));
+      return;
+    }
+    if (!viewNodes.every((node) => (
+      String(node?.dataRef?.id || '') === String(conn.id || '')
+      && String(node?.dataRef?.dbName || '') === String(conn.dbName || '')
+      && String(node?.dataRef?.schemaName || '') === String(conn.schemaName || '')
+    ))) {
+      message.warning(t('table_copy.message.mixed_sources'));
+      return;
+    }
+    if (!getDataSourceCapabilities(conn.config).supportsCopyTable) {
+      message.warning(t('sidebar.view_clipboard.unsupported'));
+      return;
+    }
+    const copyViewMethod = (window as any).go?.app?.App?.CopyView;
+    if (typeof copyViewMethod !== 'function') {
+      message.error(t('sidebar.view_clipboard.unsupported'));
+      return;
+    }
+
+    const targetDBName = String(target?.database || conn.dbName || '').trim();
+    const targetSchemaName = String(target?.schema || '').trim();
+    const targetLabel = viewNames.length === 1
+      ? viewNames[0]
+      : t('table_copy.message.selection_count', { count: viewNames.length });
+    if (!await confirmSidebarMutation(
+      conn,
+      [targetDBName, targetSchemaName, targetLabel].filter(Boolean).join(' / '),
+    )) return;
+
+    const config = buildRuntimeConfig(conn, targetDBName);
+    const copiedTargets: string[] = [];
+    for (const viewName of viewNames) {
+      const result = await copyViewMethod(
+        buildRpcConnectionConfig(config) as any,
+        String(conn.dbName || ''),
+        String(conn.schemaName || ''),
+        viewName,
+        targetDBName,
+        targetSchemaName,
+      );
+      if (!result?.success) {
+        message.error(result?.message || t('sidebar.view_clipboard.unsupported'));
+        return;
+      }
+      const targetName = String(result.data || '').trim();
+      if (targetName) {
+        copiedTargets.push(targetName);
+        dispatchSidebarTableCreated({
+          connectionId: String(conn.id || ''),
+          dbName: targetDBName,
+          schemaName: targetSchemaName,
+          tableName: targetName,
+        });
+      }
+    }
+    if (copiedTargets.length === 1) {
+      message.success(t('db.backend.message.view_copied', {
+        source: viewNames[0],
+        target: [targetDBName, targetSchemaName, copiedTargets[0]].filter(Boolean).join('.'),
+      }));
+    } else if (copiedTargets.length > 1) {
+      message.success(t('sidebar.view_clipboard.copy_done_multiple', {
+        count: copiedTargets.length,
+      }));
+    }
+  };
+
+  const handleCopyTables = async (
+    nodes: any[],
+    target?: SidebarTableClipboardTarget,
+  ) => {
+    const selectedNodes = Array.isArray(nodes) ? nodes : [];
+    const viewNodes = selectedNodes.filter((node) => (
+      node?.type === 'view' || node?.type === 'materialized-view'
+    ));
+    if (viewNodes.length > 0) {
+      const hasTableNodes = selectedNodes.some((node) => node?.type === 'table');
+      if (hasTableNodes) {
+        message.warning(t('table_copy.message.mixed_sources'));
+        return;
+      }
+      await handleCopyViews(viewNodes, target);
+      return;
+    }
+    const tableNodes = selectedNodes.filter((node) => {
       const tableName = String(node?.dataRef?.tableName || node?.title || '').trim();
       return Boolean(node?.dataRef && tableName);
     });
@@ -123,7 +219,10 @@ export const useSidebarCopyExportActions = ({
     });
   };
 
-  const handleCopyTable = async (node: any) => handleCopyTables([node]);
+  const handleCopyTable = async (
+    node: any,
+    target?: SidebarTableClipboardTarget,
+  ) => handleCopyTables([node], target);
 
   // 整库复制：与复制表同一套交互（确认 → 执行 → 刷新树）。
   const handleCopyDatabase = async (node: any) => {

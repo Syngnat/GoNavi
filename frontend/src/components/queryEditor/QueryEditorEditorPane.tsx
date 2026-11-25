@@ -191,7 +191,7 @@ export const QueryEditorEditorPane = ({
     onRunAll={() => void handleElasticsearchRun(true)}
     onCancel={handleCancel}
     onQuickSave={handleQuickSave}
-    quickSaveTitle={tab.queryMode === 'object-create'
+    quickSaveTitle={tab.queryMode === 'object-create' || tab.queryMode === 'object-edit'
       ? translate('query_editor.action.save_to_database')
       : undefined}
     onFindInEditor={handleOpenEditorFind}

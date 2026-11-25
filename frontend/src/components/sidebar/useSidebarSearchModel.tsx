@@ -649,12 +649,14 @@ export const useSidebarSearchModel = ({
   }, [activeContext, activeTab?.dbName]);
   const activeConnectionTreeData = useMemo(() => {
     const externalSQLNodes = displayTreeData.filter((node) => node.type === 'external-sql-root');
+    const agentNodes = displayTreeData.filter((node) => node.type === 'agent-integration');
     if (!activeConnection) return displayTreeData;
     const activeConnectionNode = displayTreeData.find((node) => node.type === 'connection' && node.key === activeConnection.id);
     if (activeConnectionNode) {
       return dedupeSidebarTreeNodesByKey([
         ...(activeConnectionNode.children && activeConnectionNode.children.length > 0 ? activeConnectionNode.children : []),
         ...externalSQLNodes,
+        ...agentNodes,
       ]);
     }
     const filterTree = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap((node) => {
@@ -669,7 +671,7 @@ export const useSidebarSearchModel = ({
     });
 
     const filtered = filterTree(displayTreeData);
-    return dedupeSidebarTreeNodesByKey([...filtered, ...externalSQLNodes]);
+    return dedupeSidebarTreeNodesByKey([...filtered, ...externalSQLNodes, ...agentNodes]);
   }, [activeConnection, displayTreeData]);
   const v2VisibleTreeData = useMemo(() => {
     if (v2ExplorerFilter === 'all') {

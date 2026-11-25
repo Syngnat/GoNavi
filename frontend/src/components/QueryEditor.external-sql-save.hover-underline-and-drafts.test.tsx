@@ -1081,4 +1081,40 @@ END;`;
     expect(executedSql).toContain('CREATE PROCEDURE demo_proc');
     expect(executedSql).not.toContain('DELIMITER');
   });
+
+  it('executes the DDL instead of saving a query for object-edit tabs', async () => {
+    const updateViewSql = [
+      '-- Edit View: reporting.active_users',
+      'CREATE OR REPLACE VIEW reporting.active_users AS',
+      'SELECT id, name, updated_at FROM users;',
+    ].join('\n');
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        title: 'Edit View: reporting.active_users',
+        query: updateViewSql,
+        queryMode: 'object-edit',
+        viewName: 'reporting.active_users',
+        objectType: 'view',
+      })} />);
+    });
+
+    editorState.value = updateViewSql;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({ success: true, data: [] });
+
+    await act(async () => {
+      await findButton(renderer!, '保存').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(storeState.saveQuery).not.toHaveBeenCalled();
+    expect(backendApp.DBQueryMulti).toHaveBeenCalled();
+    expect(String(backendApp.DBQueryMulti.mock.calls[0][2])).toContain(
+      'CREATE OR REPLACE VIEW reporting.active_users',
+    );
+  });
 });

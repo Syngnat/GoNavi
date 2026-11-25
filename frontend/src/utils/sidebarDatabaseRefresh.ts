@@ -13,6 +13,8 @@ export type SidebarDatabaseRefreshRequest = {
   rowCountTables?: string[];
   clearedTables?: string[];
   droppedTables?: string[];
+  /** True when the refresh follows DDL, so object-definition viewers must re-read too. */
+  schemaChanged?: boolean;
   reason?: 'data-sync' | 'external';
 };
 
@@ -37,6 +39,7 @@ export const normalizeSidebarDatabaseRefreshRequest = (
     ...(rowCountTables.length ? { rowCountTables } : {}),
     ...(Array.isArray(value?.clearedTables) ? { clearedTables: value.clearedTables.map(table => String(table).trim()).filter(Boolean) } : {}),
     ...(Array.isArray(value?.droppedTables) ? { droppedTables: value.droppedTables.map(table => String(table).trim()).filter(Boolean) } : {}),
+    ...(value?.schemaChanged === true ? { schemaChanged: true } : {}),
     ...(value?.reason ? { reason: value.reason } : {}),
   };
 };
