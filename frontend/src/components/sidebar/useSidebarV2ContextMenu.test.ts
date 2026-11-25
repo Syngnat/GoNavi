@@ -90,6 +90,51 @@ describe('V2 sidebar context-menu shortcuts', () => {
     expect(onTableAction).toHaveBeenCalledWith(latestNode, 'copy-table-name');
     expect(onTableAction).not.toHaveBeenCalledWith(firstNode, 'copy-table-name');
   });
+
+  it('routes F2 on a table menu to rename-table', () => {
+    const node = { key: 'table-f2', title: 'T_WARE' };
+    const event = createKeyEvent({ key: 'F2', code: 'F2', keyCode: 113, which: 113 });
+    const onTableAction = vi.fn();
+    const onClose = vi.fn();
+
+    expect(handleSidebarV2ContextMenuShortcut({
+      event,
+      contextMenu: createTableMenu(node),
+      shortcutPlatform: 'mac',
+      onTableAction,
+      onClose,
+    })).toBe(true);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onTableAction).toHaveBeenCalledWith(node, 'rename-table');
+  });
+
+  it('routes F2 on a multi-table menu to the batch rename action', () => {
+    const node = { key: 'table-f2-a', type: 'table', title: 'T_WARE' };
+    const selectedNodes = [
+      node,
+      { key: 'table-f2-b', type: 'table', title: 'T_ORDER' },
+    ];
+    const event = createKeyEvent({ key: 'F2', code: 'F2', keyCode: 113, which: 113 });
+    const onTableAction = vi.fn();
+    const onMultiTableAction = vi.fn();
+    const onClose = vi.fn();
+
+    expect(handleSidebarV2ContextMenuShortcut({
+      event,
+      contextMenu: createTableMenu(node),
+      shortcutPlatform: 'mac',
+      onTableAction,
+      onMultiTableAction,
+      onClose,
+      selectedNodes,
+    })).toBe(true);
+
+    expect(onTableAction).not.toHaveBeenCalled();
+    expect(onMultiTableAction).toHaveBeenCalledWith(selectedNodes, 'rename-table');
+  });
 });
 
 describe('V2 table status SQL', () => {

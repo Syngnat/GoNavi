@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppstoreOutlined, CopyOutlined, DeleteOutlined, TableOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, CopyOutlined, DeleteOutlined, EditOutlined, TableOutlined } from '@ant-design/icons';
 
 import { t } from '../../i18n';
 import {
@@ -9,12 +9,13 @@ import {
 } from './v2ContextMenuPrimitives';
 
 // 多表右键菜单：只保留对多张表同时有意义的动作（打开数据 / 复制表名 /
-// 批量表工作台 / 批量截断 / 批量删除）。单表专属能力（重命名、设计表、
-// DDL、Rollup 等）由单表菜单提供，多选时不出现。
+// 批量重命名 / 批量表工作台 / 批量截断 / 批量删除）。设计表、DDL、Rollup
+// 等单对象能力仍是单表菜单专属。
 
 export type V2MultiTableContextMenuActionKey =
   | 'open-data'
   | 'copy-table-name'
+  | 'rename-table'
   | 'batch-tables'
   | 'truncate-table'
   | 'drop-table';
@@ -63,6 +64,7 @@ export const V2MultiTableContextMenuView: React.FC<{
         {renderItems([
           { action: 'open-data', icon: <TableOutlined />, title: t('sidebar.v2_table_menu.open_data'), featured: true },
           { action: 'copy-table-name', icon: <CopyOutlined />, title: t('sidebar.menu.copy_table_name') },
+          { action: 'rename-table', icon: <EditOutlined />, title: t('sidebar.menu.rename_table'), kbd: 'F2' },
           ...(supportsBatchTables ? [{ action: 'batch-tables' as const, icon: <AppstoreOutlined />, title: t('sidebar.action.batch_tables') }] : []),
         ])}
 

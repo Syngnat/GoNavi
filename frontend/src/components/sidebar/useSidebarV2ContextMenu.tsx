@@ -138,13 +138,17 @@ export const handleSidebarV2ContextMenuShortcut = ({
   contextMenu,
   shortcutPlatform,
   onTableAction,
+  onMultiTableAction,
   onClose,
+  selectedNodes,
 }: {
   event: KeyboardEvent;
   contextMenu: SidebarContextMenuState | null;
   shortcutPlatform: ShortcutPlatform;
   onTableAction: (node: any, action: V2TableContextMenuActionKey) => void;
+  onMultiTableAction?: (nodes: any[], action: V2MultiTableContextMenuActionKey) => void;
   onClose: () => void;
+  selectedNodes?: ReadonlyArray<any>;
 }): boolean => {
   if (event.key === 'Escape') {
     onClose();
@@ -152,6 +156,19 @@ export const handleSidebarV2ContextMenuShortcut = ({
   }
   if (event.defaultPrevented || contextMenu?.kind !== 'v2-table' || !contextMenu.node) {
     return false;
+  }
+
+  if (event.key === 'F2') {
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+    const multiTableNodes = resolveMultiTableSelection(contextMenu.node, selectedNodes);
+    if (multiTableNodes && onMultiTableAction) {
+      onMultiTableAction(multiTableNodes, 'rename-table');
+    } else {
+      onTableAction(contextMenu.node, 'rename-table');
+    }
+    return true;
   }
 
   const copyShortcut = shortcutPlatform === 'mac' ? 'Meta+C' : 'Ctrl+C';
@@ -288,6 +305,7 @@ export const useSidebarV2ContextMenu = ({
 }: SidebarV2ContextMenuOptions) => {
   const [contextMenu, setContextMenu] = useState<SidebarContextMenuState | null>(null);
   const contextMenuPortalRef = useRef<HTMLDivElement | null>(null);
+  const lastSidebarPointerDownRef = useRef(false);
   const [v2TableContextMenuStats, setV2TableContextMenuStats] = useState<Record<string, V2TableContextMenuStats>>({});
 
   useEffect(() => {
@@ -622,7 +640,9 @@ export const useSidebarV2ContextMenu = ({
               contextMenu,
               shortcutPlatform: activeShortcutPlatform,
               onTableAction: handleV2TableContextMenuAction,
+              onMultiTableAction: handleV2MultiTableContextMenuAction,
               onClose: () => setContextMenu(null),
+              selectedNodes: selectedNodesRef.current,
           });
       };
       document.addEventListener('mousedown', onPointerDown);
@@ -631,7 +651,63 @@ export const useSidebarV2ContextMenu = ({
           document.removeEventListener('mousedown', onPointerDown);
           document.removeEventListener('keydown', onKeyDown, true);
       };
-  }, [activeShortcutPlatform, contextMenu, handleV2TableContextMenuAction]);
+  }, [
+      activeShortcutPlatform,
+      contextMenu,
+      handleV2MultiTableContextMenuAction,
+      handleV2TableContextMenuAction,
+      selectedNodesRef,
+  ]);
+
+  useEffect(() => {
+      const onPointerDown = (event: MouseEvent) => {
+          lastSidebarPointerDownRef.current = Boolean(
+              (event.target as Element | null)?.closest?.('[data-sidebar-tree-panel="true"]'),
+          );
+      };
+      const onKeyDown = (event: KeyboardEvent) => {
+          if (event.defaultPrevented || event.key !== 'F2' || contextMenu) return;
+          const target = event.target as HTMLElement | null;
+          const activeElement = typeof document !== 'undefined'
+              ? document.activeElement as HTMLElement | null
+              : null;
+          const isSidebarTarget = Boolean(
+              lastSidebarPointerDownRef.current
+              || target?.closest?.('[data-sidebar-tree-panel="true"]')
+              || activeElement?.closest?.('[data-sidebar-tree-panel="true"]'),
+          );
+          if (!isSidebarTarget) return;
+          const isEditableTarget = Boolean(
+              target?.closest?.('input, textarea, select, [contenteditable="true"]')
+              || activeElement?.closest?.('input, textarea, select, [contenteditable="true"]'),
+          );
+          if (isEditableTarget) return;
+          const selectedNodes = (Array.isArray(selectedNodesRef.current) ? selectedNodesRef.current : [])
+              .filter(Boolean);
+          const selectedTableNodes = selectedNodes.filter((node) => (
+              (node as { type?: string })?.type === 'table'
+          )) as any[];
+          if (selectedTableNodes.length === 0 || selectedTableNodes.length !== selectedNodes.length) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (selectedTableNodes.length === 1) {
+              handleV2TableContextMenuAction(selectedTableNodes[0], 'rename-table');
+          } else {
+              handleV2MultiTableContextMenuAction(selectedTableNodes, 'rename-table');
+          }
+      };
+      document.addEventListener('mousedown', onPointerDown, true);
+      document.addEventListener('keydown', onKeyDown, true);
+      return () => {
+          document.removeEventListener('mousedown', onPointerDown, true);
+          document.removeEventListener('keydown', onKeyDown, true);
+      };
+  }, [
+      contextMenu,
+      handleV2MultiTableContextMenuAction,
+      handleV2TableContextMenuAction,
+      selectedNodesRef,
+  ]);
 
   useEffect(() => {
       if (!contextMenu?.kind) return;

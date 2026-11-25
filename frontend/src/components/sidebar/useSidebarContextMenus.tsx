@@ -56,6 +56,7 @@ import type { SidebarLocateApi } from './useSidebarLocate';
 import type { SidebarTitlebarSyncApi } from './useSidebarTitlebarSync';
 import type { SidebarConnectionRefreshApi } from './useSidebarConnectionRefresh';
 import type { SidebarProps } from '../Sidebar';
+import { useSidebarMultiTableRename } from './useSidebarMultiTableRename';
 
 export interface UseSidebarContextMenusInput {
   activeConnection: SidebarObjectMenuActionsApi['activeConnection'];
@@ -288,6 +289,15 @@ export const useSidebarContextMenus = ({
   // 多表右键菜单动作：批量能力走批量模块；逐表语义（打开数据）与批量工作台
   // 入口转发给单表 action 处理器。
   const multiTableDangerDeps = { buildRuntimeConfig, loadTables, getDatabaseNodeRef };
+  const { openMultiTableRenameModal, multiTableRenameModal } = useSidebarMultiTableRename({
+      buildRuntimeConfig,
+      loadTables,
+      getDatabaseNodeRef,
+      resolveConnection: (connRef: any) => (
+          connections.find((connection) => connection.id === connRef?.id) || connRef
+      ),
+      extractObjectName,
+  });
   const handleV2MultiTableContextMenuAction = (nodes: any[], action: V2MultiTableContextMenuActionKey) => {
       switch (action) {
           case 'open-data':
@@ -298,6 +308,9 @@ export const useSidebarContextMenus = ({
               return;
           case 'copy-table-name':
               void copySidebarMultiTableNames(nodes);
+              return;
+          case 'rename-table':
+              openMultiTableRenameModal(nodes);
               return;
           case 'truncate-table':
               void runSidebarMultiTableTruncate(multiTableDangerDeps, nodes);
@@ -640,7 +653,7 @@ export const useSidebarContextMenus = ({
   return {
     contextMenu, setContextMenu, contextMenuPortalRef, openV2ConnectionContextMenu,
     renderV2SidebarContextMenuContent, runCommandSearchItem, handleV2CommandSearchKeyDown,
-    getNodeMenuItems, titleRender, v2RailConnectionGroups,
+    getNodeMenuItems, titleRender, v2RailConnectionGroups, multiTableRenameModal,
   };
 };
 

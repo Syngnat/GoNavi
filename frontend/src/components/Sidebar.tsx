@@ -415,7 +415,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
   const {
     contextMenu, setContextMenu, contextMenuPortalRef, openV2ConnectionContextMenu,
     renderV2SidebarContextMenuContent, runCommandSearchItem, handleV2CommandSearchKeyDown,
-    getNodeMenuItems, titleRender, v2RailConnectionGroups,
+    getNodeMenuItems, titleRender, v2RailConnectionGroups, multiTableRenameModal,
   } = useSidebarContextMenus({
     activeConnection, v2ExplorerFilter, setV2ExplorerFilter, connections, connectionTags,
     activeShortcutPlatform, flattenConnectionNodes, v2TreeMetrics, tableSortPreference,
@@ -654,7 +654,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({
             setRenameSavedQueryTarget={setRenameSavedQueryTarget}
             handleRenameSavedQuery={handleRenameSavedQuery}
         />
-
+        {multiTableRenameModal}
         <SavedQueryGroupModal
             open={isSavedQueryGroupModalOpen}
             groups={savedQueryGroups}
