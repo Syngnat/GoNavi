@@ -688,6 +688,73 @@ describe('QueryEditor external SQL save', () => {
     });
   });
 
+  it('keeps every CJK table-comment match across shorter and longer middle fragments', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = false;
+    backendApp.DBGetTables.mockResolvedValue({
+      success: true,
+      data: [
+        { Table: 'T_WARE_BASE_SNAPSHOT' },
+        { Table: 'T_CT_WARE_NEW' },
+        { Table: 'T_WARE' },
+        { Table: 'T_UNCOMMENTED' },
+      ],
+    });
+    backendApp.DBGetAllColumns.mockResolvedValueOnce({ success: true, data: [] });
+    backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
+      if (/table_comment|information_schema\.tables/i.test(sql)) {
+        return {
+          success: true,
+          data: [
+            { table_name: 'T_WARE_BASE_SNAPSHOT', table_comment: '商品基本信息历史快照表' },
+            { table_name: 'T_CT_WARE_NEW', table_comment: '企业商品基本信息数据导入中间表' },
+            { table_name: 'T_WARE', table_comment: '企业商品基本信息' },
+          ],
+        };
+      }
+      return { success: true, data: [] };
+    });
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: '', dbName: 'front_end_sys' })} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    expect(sqlProvider).toBeTruthy();
+    for (const prefix of ['商品基本', '商品基', '商品基本信息']) {
+      editorState.value = `SELECT * FROM ${prefix}`;
+      editorState.latestOnChange?.(editorState.value);
+      const result = await sqlProvider.provideCompletionItems(
+        editorState.editor.getModel(),
+        { lineNumber: 1, column: editorState.value.length + 1 },
+      );
+      const labels = result.suggestions.map((item: any) => item.label);
+      expect(labels, `missing suggestions for ${prefix}`).toEqual(expect.arrayContaining([
+        'T_WARE_BASE_SNAPSHOT',
+        'T_CT_WARE_NEW',
+        'T_WARE',
+      ]));
+      for (const [label, filterText] of [
+        ['T_WARE_BASE_SNAPSHOT', '商品基本信息历史快照表'],
+        ['T_CT_WARE_NEW', '商品基本信息数据导入中间表'],
+        ['T_WARE', '商品基本信息'],
+      ] as const) {
+        const suggestion = result.suggestions.find((item: any) => item.label === label);
+        expect(suggestion?.filterText).toBe(filterText);
+        expect(String(suggestion?.filterText)).toContain(prefix);
+      }
+    }
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
   it('retries lazy table metadata after a transient failure instead of caching an empty catalog', async () => {
     let renderer!: ReactTestRenderer;
     autoFetchState.visible = false;

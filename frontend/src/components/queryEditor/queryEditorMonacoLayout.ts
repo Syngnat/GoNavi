@@ -63,6 +63,8 @@ export const buildQueryEditorMonacoOptions = (
     quickSuggestions: { other: true, comments: false, strings: false },
     quickSuggestionsDelay: QUERY_EDITOR_QUICK_SUGGESTIONS_DELAY_MS,
     suggestOnTriggerCharacters: true,
+    // CJK 注释片段常从词中间命中；Monaco 默认只认词首，回删后会把候选全部过滤掉。
+    suggest: { matchOnWordStartOnly: false },
     wordBasedSuggestions: 'off' as const,
     occurrencesHighlight: 'off' as const,
     suggestLineHeight: QUERY_EDITOR_TABLE_SUGGESTION_ROW_HEIGHT,
