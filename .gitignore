@@ -46,6 +46,8 @@ docs/*
 !docs/font-gallery-operations.md
 !docs/plugins/
 !docs/plugins/**
+!docs/subsystems/
+!docs/subsystems/**
 !docs/superpowers/
 docs/superpowers/*
 !docs/superpowers/specs/

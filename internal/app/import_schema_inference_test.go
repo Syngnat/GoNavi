@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,89 @@ func TestInferImportTableSchemaInfersLogicalTypesFromCSV(t *testing.T) {
 		if column.Name == "amount" && (column.Precision != 4 || column.Scale != 2) {
 			t.Fatalf("amount precision/scale = %d/%d, want 4/2", column.Precision, column.Scale)
 		}
+	}
+}
+
+func writeImportSamplingTestCSV(t *testing.T, path string) {
+	t.Helper()
+	var builder strings.Builder
+	builder.WriteString("id,amount,note\n")
+	for row := 1; row <= importSchemaSampleLimit+1; row++ {
+		fmt.Fprintf(&builder, "%d,%d.50,note-%d\n", row, row, row)
+	}
+	if err := os.WriteFile(path, []byte(builder.String()), 0o600); err != nil {
+		t.Fatalf("write CSV: %v", err)
+	}
+}
+
+func writeImportSamplingTestXLSX(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := newXLSXExportFileWriter(file, 0)
+	if err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := writer.SetColumns([]string{"id", "amount", "note"}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	for row := 1; row <= importSchemaSampleLimit+1; row++ {
+		if err := writer.ConsumeRowValues([]interface{}{
+			fmt.Sprintf("%d", row),
+			fmt.Sprintf("%d.50", row),
+			fmt.Sprintf("note-%d", row),
+		}); err != nil {
+			_ = file.Close()
+			t.Fatalf("write row %d: %v", row, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInferImportTableSchemaStopsSamplingAtLimit(t *testing.T) {
+	cases := []struct {
+		name     string
+		fileName string
+		write    func(*testing.T, string)
+	}{
+		{name: "csv", fileName: "large-orders.csv", write: writeImportSamplingTestCSV},
+		{name: "xlsx", fileName: "large-orders.xlsx", write: writeImportSamplingTestXLSX},
+	}
+	wantTypes := []string{"integer", "decimal", "text"}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), testCase.fileName)
+			testCase.write(t, path)
+
+			inference, err := inferImportTableSchema(context.Background(), path, ImportFileOptions{}, 64)
+			if err != nil {
+				t.Fatalf("inferImportTableSchema: %v", err)
+			}
+			if inference.SampledRows != importSchemaSampleLimit {
+				t.Fatalf("sampled rows = %d, want %d", inference.SampledRows, importSchemaSampleLimit)
+			}
+			if inference.SampleLimit != importSchemaSampleLimit {
+				t.Fatalf("sample limit = %d, want %d", inference.SampleLimit, importSchemaSampleLimit)
+			}
+			if len(inference.Columns) != len(wantTypes) {
+				t.Fatalf("columns = %#v", inference.Columns)
+			}
+			for index, wantType := range wantTypes {
+				if got := inference.Columns[index].LogicalType; got != wantType {
+					t.Fatalf("column %d logical type = %q, want %q", index, got, wantType)
+				}
+			}
+		})
 	}
 }
 

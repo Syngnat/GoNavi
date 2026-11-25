@@ -286,7 +286,7 @@ func inferImportTableSchema(ctx context.Context, filePath string, options Import
 	}
 	consumer := newImportSchemaSampleConsumer(importSchemaSampleLimit)
 	err = streamImportFileWithOptionsContext(ctx, filePath, consumer, sampleOptions)
-	if err != nil && err != errImportSchemaSampleReached {
+	if err != nil && !errors.Is(err, errImportSchemaSampleReached) {
 		return importTableSchemaInference{}, err
 	}
 	rawColumns := consumer.columns
