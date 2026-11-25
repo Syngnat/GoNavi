@@ -152,6 +152,7 @@ export interface TabData {
   tableExportInitialDatabaseNames?: string[];
   tableExportInitialConnectionIds?: string[];
   tableExportContentMode?: TableExportContentMode;
+  tableExportInitialFormat?: string;
   tableExportIncludeDropIfExists?: boolean;
   tableExportLaunchKey?: string;
   tableExportRequestKey?: string;

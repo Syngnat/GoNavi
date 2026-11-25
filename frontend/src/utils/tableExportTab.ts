@@ -73,6 +73,7 @@ type BuildBatchTableExportWorkbenchTabInput = ExportWorkbenchLaunchOptions & {
   dbName?: string;
   title?: string;
   initialObjectNames?: string[];
+  initialFormat?: string;
 };
 
 type BuildBatchDatabaseExportWorkbenchTabInput = ExportWorkbenchLaunchOptions & {
@@ -223,6 +224,7 @@ export const buildBatchTableExportWorkbenchTab = (
   const connectionId = String(input.connectionId || '').trim();
   const dbName = String(input.dbName || '').trim();
   const scopeSuffix = dbName || 'all';
+  const initialFormat = String(input.initialFormat || '').trim();
   return {
     id: `table-export-batch-tables-${connectionId || 'none'}-${scopeSuffix}`,
     title: String(input.title || t('sidebar.tab.batch_export_objects')).trim() || t('sidebar.tab.batch_export_objects'),
@@ -234,6 +236,7 @@ export const buildBatchTableExportWorkbenchTab = (
     ...(normalizeNameList(input.initialObjectNames)
       ? { tableExportInitialObjectNames: normalizeNameList(input.initialObjectNames) }
       : {}),
+    ...(initialFormat ? { tableExportInitialFormat: initialFormat } : {}),
     ...buildLaunchMetadata(input),
   };
 };

@@ -306,6 +306,79 @@ func TestDumpTableSQL_MySQLBackupBatchesRowsIntoMultiValueInsert(t *testing.T) {
 	}
 }
 
+func TestDumpTableSQLWithColumnsSelectsOnlyRequestedDataColumns(t *testing.T) {
+	fake := &fakeExportQueryDB{
+		data: []map[string]interface{}{{"name": "alice"}},
+		cols: []string{"name"},
+		defs: []connection.ColumnDefinition{
+			{Name: "id", Type: "bigint"},
+			{Name: "name", Type: "varchar(50)"},
+		},
+	}
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+
+	err := dumpTableSQLWithDatabaseContextAndColumns(
+		context.Background(),
+		writer,
+		fake,
+		connection.ConnectionConfig{Type: "mysql"},
+		"app",
+		"users",
+		false,
+		true,
+		map[string]string{},
+		true,
+		[]string{"name"},
+	)
+	if err != nil {
+		t.Fatalf("dumpTableSQLWithDatabaseContextAndColumns: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush exported SQL: %v", err)
+	}
+
+	if !slices.Contains(fake.queries, "SELECT `name` FROM `app`.`users`") {
+		t.Fatalf("expected selected-column query, queries=%#v", fake.queries)
+	}
+	content := buf.String()
+	if !strings.Contains(content, "INSERT INTO `app`.`users` (`name`) VALUES ('alice');") {
+		t.Fatalf("expected INSERT to contain only the selected column, content=%s", content)
+	}
+	if strings.Contains(content, "`id`") {
+		t.Fatalf("unselected column must not appear in data export, content=%s", content)
+	}
+}
+
+func TestExportColumnsForTableMatchesCaseInsensitiveTableName(t *testing.T) {
+	columns := exportColumnsForTable(
+		map[string][]string{"Users": {"id", "name"}},
+		"users",
+	)
+	if !slices.Equal(columns, []string{"id", "name"}) {
+		t.Fatalf("exportColumnsForTable = %#v", columns)
+	}
+}
+
+func TestNormalizeExportFileOptionsPreservesPerTableColumns(t *testing.T) {
+	normalized := normalizeExportFileOptions("sql", ExportFileOptions{
+		TableColumns: map[string][]string{
+			" users ": {"id", "id", "name"},
+			"":        {"ignored"},
+			"orders":  {},
+		},
+	})
+	if !slices.Equal(normalized.TableColumns["users"], []string{"id", "name"}) {
+		t.Fatalf("normalized per-table columns = %#v", normalized.TableColumns)
+	}
+	if _, ok := normalized.TableColumns[""]; ok {
+		t.Fatalf("empty table name must be dropped: %#v", normalized.TableColumns)
+	}
+	if _, ok := normalized.TableColumns["orders"]; ok {
+		t.Fatalf("empty column selection must fall back to all columns: %#v", normalized.TableColumns)
+	}
+}
+
 func TestDumpTableSQL_OracleBackupBatchesRowsIntoInsertAll(t *testing.T) {
 	fake := &fakeValueStreamExportDB{
 		streamCols: []string{"id", "name"},

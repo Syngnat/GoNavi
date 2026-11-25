@@ -13,6 +13,7 @@
 | Query Editor | `frontend/src/components/queryEditor/`、`QueryEditor.tsx` | 待补 |
 | DataGrid | `frontend/src/components/DataGrid*.tsx`、`dataGrid*` | 待补 |
 | 数据导入 | `internal/app/import_*`、`frontend/src/components/dataImport/` | `docs/subsystems/data-import.md` |
+| 数据导出 | `internal/app/methods_file_export_*`、`frontend/src/components/tableExport/` | `docs/subsystems/data-export.md` |
 | Zustand 状态与持久化 | `frontend/src/store.ts`、`store/` | 待补 |
 | i18n 与 catalog | `shared/i18n/`、`tools/i18n-scan/` | 待补 |
 | 插件运行时 / Driver Agent | `internal/plugin/`、`internal/pluginmarket/`、`cmd/optional-driver-agent/` | 部分：`docs/plugins/README.md` |

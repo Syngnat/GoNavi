@@ -240,7 +240,7 @@ func dumpTableSQL(
 	includeData bool,
 	viewLookup map[string]string,
 ) error {
-	return dumpTableSQLWithDatabaseContext(
+	return dumpTableSQLWithDatabaseContextAndColumns(
 		exportCtx,
 		w,
 		dbInst,
@@ -251,6 +251,7 @@ func dumpTableSQL(
 		includeData,
 		viewLookup,
 		true,
+		nil,
 	)
 }
 
@@ -266,9 +267,37 @@ func dumpTableSQLWithDatabaseContext(
 	viewLookup map[string]string,
 	includeDatabaseContext bool,
 ) error {
+	return dumpTableSQLWithDatabaseContextAndColumns(
+		exportCtx,
+		w,
+		dbInst,
+		config,
+		dbName,
+		tableName,
+		includeSchema,
+		includeData,
+		viewLookup,
+		includeDatabaseContext,
+		nil,
+	)
+}
+
+func dumpTableSQLWithDatabaseContextAndColumns(
+	exportCtx context.Context,
+	w *bufio.Writer,
+	dbInst db.Database,
+	config connection.ConnectionConfig,
+	dbName,
+	tableName string,
+	includeSchema bool,
+	includeData bool,
+	viewLookup map[string]string,
+	includeDatabaseContext bool,
+	columns []string,
+) error {
 	dbType := resolveDDLDBType(config)
 	if dbType == "hive" {
-		return dumpHiveTableSQL(exportCtx, w, dbInst, config, dbName, tableName, includeSchema, includeData, includeDatabaseContext)
+		return dumpHiveTableSQL(exportCtx, w, dbInst, config, dbName, tableName, includeSchema, includeData, includeDatabaseContext, columns)
 	}
 	metadataSchemaName, metadataTableName := normalizeMetadataSchemaAndTable(config, dbName, tableName)
 	ddlSchemaName, ddlTableName := normalizeSchemaAndTableByType(dbType, dbName, tableName)
@@ -344,8 +373,16 @@ func dumpTableSQLWithDatabaseContext(
 		return nil
 	}
 
-	selectSQL := fmt.Sprintf("SELECT * FROM %s", quoteTableIdentByType(dbType, ddlSchemaName, ddlTableName))
-	outputTableName := quoteTableIdentByType(dbType, ddlSchemaName, ddlTableName)
+	quotedTableName := quoteTableIdentByType(dbType, ddlSchemaName, ddlTableName)
+	selectSQL := fmt.Sprintf("SELECT * FROM %s", quotedTableName)
+	if selectedColumns := normalizeExportColumns(columns); len(selectedColumns) > 0 {
+		quotedColumns := make([]string, len(selectedColumns))
+		for index, column := range selectedColumns {
+			quotedColumns[index] = quoteIdentByType(dbType, column)
+		}
+		selectSQL = fmt.Sprintf("SELECT %s FROM %s", strings.Join(quotedColumns, ", "), quotedTableName)
+	}
+	outputTableName := quotedTableName
 	if supportsMySQLDatabaseContext(config) && !includeDatabaseContext {
 		outputTableName = quoteIdentByType(dbType, ddlTableName)
 	}

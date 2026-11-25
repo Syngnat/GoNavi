@@ -70,7 +70,7 @@ func loadHiveExportColumns(ctx context.Context, instance db.Database, database, 
 	return defs, err
 }
 
-func dumpHiveTableSQL(ctx context.Context, w *bufio.Writer, instance db.Database, config connection.ConnectionConfig, database, table string, includeSchema, includeData, includeContext bool) error {
+func dumpHiveTableSQL(ctx context.Context, w *bufio.Writer, instance db.Database, config connection.ConnectionConfig, database, table string, includeSchema, includeData, includeContext bool, columns []string) error {
 	schema, name := normalizeMetadataSchemaAndTable(config, database, table)
 	qualified := quoteTableIdentByType("hive", schema, name)
 	ddl, err := readHiveCreateStatement(ctx, instance, config, qualified)
@@ -101,7 +101,29 @@ func dumpHiveTableSQL(ctx context.Context, w *bufio.Writer, instance db.Database
 			return err
 		}
 	}
-	layout, err := newHiveInsertLayout(defs, nil)
+	layoutDefs := defs
+	selectedColumns := normalizeExportColumns(columns)
+	if len(selectedColumns) > 0 {
+		defsByName := make(map[string]connection.ColumnDefinition, len(defs))
+		for _, def := range defs {
+			defsByName[normalizeColumnName(def.Name)] = def
+		}
+		selectedSet := make(map[string]bool, len(selectedColumns))
+		for _, column := range selectedColumns {
+			key := normalizeColumnName(column)
+			if _, ok := defsByName[key]; !ok {
+				return fmt.Errorf("selected Hive column %q is absent from table metadata", column)
+			}
+			selectedSet[key] = true
+		}
+		layoutDefs = make([]connection.ColumnDefinition, 0, len(selectedColumns)+len(defs))
+		for _, def := range defs {
+			if selectedSet[normalizeColumnName(def.Name)] || strings.EqualFold(strings.TrimSpace(def.Extra), "partition") {
+				layoutDefs = append(layoutDefs, def)
+			}
+		}
+	}
+	layout, err := newHiveInsertLayout(layoutDefs, nil)
 	if err != nil {
 		return err
 	}
@@ -119,7 +141,15 @@ func dumpHiveTableSQL(ctx context.Context, w *bufio.Writer, instance db.Database
 		return nil
 	}
 	consumer := &sqlInsertExportConsumer{w: w, dbType: "hive", quotedTable: outputTable, hiveLayout: layout}
-	if err := streamQueryDataForExportWithContext(ctx, instance, config, "SELECT * FROM "+qualified, consumer); err != nil {
+	selectSQL := "SELECT * FROM " + qualified
+	if len(selectedColumns) > 0 {
+		selectColumns := make([]string, 0, len(layoutDefs))
+		for _, def := range layoutDefs {
+			selectColumns = append(selectColumns, hivesql.QuoteIdentifier(def.Name))
+		}
+		selectSQL = "SELECT " + strings.Join(selectColumns, ", ") + " FROM " + qualified
+	}
+	if err := streamQueryDataForExportWithContext(ctx, instance, config, selectSQL, consumer); err != nil {
 		return err
 	}
 	if consumer.rowCount == 0 {

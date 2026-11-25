@@ -34,7 +34,8 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
     isBatchTablesWorkbench, isBatchDatabasesWorkbench, isDirectDatabaseWorkbench,
     isDirectSchemaWorkbench, isDirectSQLWorkbench, selectedConnectionId, setSelectedConnectionId,
     selectedDbName, setSelectedDbName, availableDatabases, setAvailableDatabases, availableObjects,
-    setAvailableObjects, availableColumns, selectedColumns, setSelectedColumns, selectedObjectNames,
+    setAvailableObjects, availableColumns, selectedColumns, setSelectedColumns,
+    batchTableColumnStates, setBatchTableSelectedColumns, selectedObjectNames,
     setSelectedObjectNames, selectedDatabaseNames, setSelectedDatabaseNames, batchTableMode,
     setBatchTableMode, batchDatabaseMode, setBatchDatabaseMode, batchIntent, setBatchIntent,
     includeDropIfExists, setIncludeDropIfExists, includeDatabaseContext, setIncludeDatabaseContext,
@@ -69,6 +70,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
     columnLoadError, connectionConfig, activeScopeOption, loadingColumns, selectedColumns,
     isDirectDatabaseWorkbench, connectionCapabilities, connection, setDestructiveOperation,
     addSqlLog, setAvailableObjects, setSelectedObjectNames,
+    batchTableColumnStates,
   });
 
   const { handleDeleteSelectedDatabases, handleStartExport, headerBadges } = useTableExportRunActions({
@@ -81,7 +83,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
     hasBatchTableMetadataError, batchTableMode, batchTableModeMeta, batchDatabaseMode,
     batchDatabaseModeMeta, includeDatabaseContext, effectiveDbName, isSingleWorkbench,
     isBatchTablesWorkbench, isDirectDatabaseWorkbench, isDirectSchemaWorkbench, appliedLaunchKey,
-    progressState, isRunning, canStart, hostSummary, isDirectSQLWorkbench,
+    progressState, isRunning, canStart, hostSummary, isDirectSQLWorkbench, batchTableColumnStates,
   });
 
   return (
@@ -259,6 +261,12 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
                 selectedObjectNames={selectedObjectNames} loadingObjects={loadingObjects}
                 isBatchExportIntent={isBatchExportIntent} batchTableMode={batchTableMode}
                 setBatchTableMode={setBatchTableMode} batchTableModeMeta={batchTableModeMeta}
+                format={format} setFormat={setFormat}
+                supportsSqlFormat={connectionCapabilities.supportsSqlQueryExport}
+                batchTableColumnStates={batchTableColumnStates}
+                setBatchTableSelectedColumns={setBatchTableSelectedColumns}
+                xlsxMaxRowsPerSheet={xlsxMaxRowsPerSheet}
+                setXlsxMaxRowsPerSheet={setXlsxMaxRowsPerSheet}
                 includeDropIfExists={includeDropIfExists}
                 setIncludeDropIfExists={setIncludeDropIfExists}
               />
@@ -302,6 +310,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
             exportStrategyLabel={exportStrategyLabel} secondaryTextColor={secondaryTextColor}
             isBatchDeleteIntent={isBatchDeleteIntent}
             isBatchTablesWorkbench={isBatchTablesWorkbench} connectionConfig={connectionConfig}
+            format={format}
             connectionCapabilities={connectionCapabilities}
             isConfigurationLocked={isConfigurationLocked}
             hasBatchTableMetadataError={hasBatchTableMetadataError}

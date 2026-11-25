@@ -54,6 +54,7 @@ export interface UseTableExportRunActionsInput {
   includeDropIfExists: TableExportStateApi['includeDropIfExists'];
   selectedDbName: TableExportStateApi['selectedDbName'];
   selectedObjectNames: TableExportStateApi['selectedObjectNames'];
+  batchTableColumnStates: TableExportStateApi['batchTableColumnStates'];
   loadingDatabases: TableExportStateApi['loadingDatabases'];
   loadingObjects: TableExportStateApi['loadingObjects'];
   hasBatchTableMetadataError: TableExportBatchTableActionsApi['hasBatchTableMetadataError'];
@@ -82,7 +83,7 @@ export const useTableExportRunActions = ({
   addSqlLog, tab, columnLoadError, loadingColumns, selectedColumns, runExportWithProgress, format,
   singleScopeRowCount, xlsxMaxRowsPerSheet, singleTotalRowsKnown, scope, activeScopeQuery,
   includeDropIfExists, selectedDbName, selectedObjectNames, loadingDatabases, loadingObjects,
-  hasBatchTableMetadataError, batchTableMode, batchTableModeMeta, batchDatabaseMode,
+  batchTableColumnStates, hasBatchTableMetadataError, batchTableMode, batchTableModeMeta, batchDatabaseMode,
   batchDatabaseModeMeta, includeDatabaseContext, effectiveDbName, isSingleWorkbench,
   isBatchTablesWorkbench, isDirectDatabaseWorkbench, isDirectSchemaWorkbench, appliedLaunchKey,
   progressState, isRunning, canStart, hostSummary, isDirectSQLWorkbench,
@@ -267,8 +268,43 @@ export const useTableExportRunActions = ({
     ) {
       return;
     }
+    if (format !== 'sql') {
+      const tableName = selectedObjectNames[0] || '';
+      const tableColumns = batchTableColumnStates[tableName]?.selectedColumns || [];
+      if (selectedObjectNames.length !== 1 || tableColumns.length === 0) {
+        return;
+      }
+      await runExportWithProgress({
+        title: t('file.backend.dialog.export_table', { table: tableName }),
+        targetName: tableName,
+        format,
+        run: (jobId) => ExportTableWithOptions(
+          buildRpcConnectionConfig(connectionConfig) as any,
+          selectedDbName,
+          tableName,
+          {
+            format,
+            columns: tableColumns,
+            xlsxMaxRowsPerSheet,
+            jobId,
+            totalRowsHint: 0,
+            totalRowsKnown: false,
+          } as any,
+        ),
+      });
+      return;
+    }
     const includeSchema = batchTableMode !== 'dataOnly';
     const includeData = batchTableMode !== 'schema';
+    const tableColumns: Record<string, string[]> = {};
+    if (includeData) {
+      selectedObjectNames.forEach((tableName) => {
+        const columns = batchTableColumnStates[tableName]?.selectedColumns || [];
+        if (columns.length > 0) {
+          tableColumns[tableName] = columns;
+        }
+      });
+    }
     await runExportWithProgress({
       title: `${batchTableModeMeta.label} · ${selectedDbName}`,
       targetName: resolveBatchTablesTargetName(selectedDbName, selectedObjectNames.length),
@@ -287,6 +323,7 @@ export const useTableExportRunActions = ({
             totalRowsHint: selectedObjectNames.length,
             totalRowsKnown: true,
             includeDropIfExists: includeSchema && includeDropIfExists,
+            ...(Object.keys(tableColumns).length > 0 ? { tableColumns } : {}),
           } as any,
         ),
     });

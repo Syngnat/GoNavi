@@ -121,9 +121,19 @@ export const useSidebarBatchExport = ({
   const openBatchTableWorkbench = (node?: any) => {
     const selectedNodes = node ? [node] : selectedNodesRef.current;
     const { connectionId, dbName } = resolveBatchWorkbenchContext(selectedNodes, connections);
+    const initialObjectNames = selectedNodes
+      .filter((item) => item?.type === 'table' || item?.type === 'view' || item?.type === 'materialized-view')
+      .map((item) => String(item?.dataRef?.tableName || item?.title || '').trim())
+      .filter(Boolean);
     addTab(buildBatchTableExportWorkbenchTab({
       connectionId,
       dbName: dbName || undefined,
+      ...(initialObjectNames.length > 0
+        ? {
+          initialObjectNames,
+          launchKey: createTableExportKey('batch-tables'),
+        }
+        : {}),
       title: t('sidebar.action.batch_tables'),
     }));
   };

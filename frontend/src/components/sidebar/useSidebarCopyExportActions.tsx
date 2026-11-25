@@ -4,6 +4,7 @@ import { t } from '../../i18n';
 import { DBShowCreateTable, ExportTableWithOptions } from '../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { message } from 'antd';
+import { DEFAULT_DATA_EXPORT_FORMAT } from '../DataExportDialog';
 import {
   resolveSidebarTableNameForCopy,
   resolveSidebarDatabaseNameForCopy,
@@ -14,7 +15,7 @@ import { confirmCopyTables } from '../tableCopyAction';
 import { confirmCopyDatabase } from '../databaseCopyAction';
 import { resolveSidebarNodeConnectionId } from '../sidebarV2Utils';
 import { dispatchSidebarTableCreated } from '../../utils/sidebarDatabaseRefresh';
-import { buildBatchTableExportWorkbenchTab, buildTableExportTab } from '../../utils/tableExportTab';
+import { buildBatchTableExportWorkbenchTab } from '../../utils/tableExportTab';
 import { useStore } from '../../store';
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
 import type { SidebarTableClipboardTarget } from './useSidebarTableClipboard';
@@ -316,17 +317,14 @@ export const useSidebarCopyExportActions = ({
     }
     const connectionId = resolveSidebarNodeConnectionId(node, connectionIds) || String(node?.dataRef?.id || '').trim();
     const dbName = String(node?.dataRef?.dbName || '').trim();
-    addTab(buildTableExportTab({
+    addTab(buildBatchTableExportWorkbenchTab({
       connectionId,
       dbName,
-      tableName,
-      title: t('file.backend.dialog.export_table', { table: tableName }),
-      objectType: node?.type === 'view' ? 'view' : (node?.type === 'materialized-view' ? 'materialized-view' : 'table'),
-      schemaName: typeof node?.dataRef?.schemaName === 'string' ? node.dataRef.schemaName : undefined,
-      sidebarLocateKey: typeof node?.key === 'string' ? node.key : undefined,
-      rowCountByScope: Number.isFinite(Number(node?.dataRef?.rowCount)) && Number(node?.dataRef?.rowCount) > 0
-        ? { all: Math.trunc(Number(node.dataRef.rowCount)) }
-        : undefined,
+      initialObjectNames: [tableName],
+      initialFormat: DEFAULT_DATA_EXPORT_FORMAT,
+      contentMode: 'dataOnly',
+      launchKey: `table-export-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: t('sidebar.action.batch_tables'),
     }));
   };
 

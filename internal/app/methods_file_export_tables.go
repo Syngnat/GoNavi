@@ -84,7 +84,19 @@ func (a *App) exportTablesSQLToFile(
 				"total":   len(objects),
 			}))
 		}
-		if err := dumpTableSQL(exportCtx, w, dbInst, runConfig, dbName, objectName, includeSchema, includeData, viewLookup); err != nil {
+		if err := dumpTableSQLWithDatabaseContextAndColumns(
+			exportCtx,
+			w,
+			dbInst,
+			runConfig,
+			dbName,
+			objectName,
+			includeSchema,
+			includeData,
+			viewLookup,
+			true,
+			exportColumnsForTable(options.TableColumns, objectName),
+		); err != nil {
 			if reporter != nil {
 				reporter.Error(int64(index), err.Error())
 			}

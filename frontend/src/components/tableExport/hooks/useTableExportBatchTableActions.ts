@@ -43,6 +43,7 @@ export interface UseTableExportBatchTableActionsInput {
   isDirectSchemaWorkbench: TableExportStateApi['isDirectSchemaWorkbench'];
   selectedDbName: TableExportStateApi['selectedDbName'];
   selectedObjectNames: TableExportStateApi['selectedObjectNames'];
+  batchTableColumnStates: TableExportStateApi['batchTableColumnStates'];
   selectedDatabaseNames: TableExportStateApi['selectedDatabaseNames'];
   format: TableExportStateApi['format'];
   history: TableExportStateApi['history'];
@@ -80,6 +81,7 @@ export const useTableExportBatchTableActions = ({
   isBatchDeleteIntent, isSingleWorkbench, scope, activeScopeQuery, isDirectSQLWorkbench,
   batchDatabaseModeMeta, isBatchTablesWorkbench, batchTableModeMeta, progressState, nowTick,
   workbenchMode, tab, isDirectSchemaWorkbench, selectedDbName, selectedObjectNames,
+  batchTableColumnStates,
   selectedDatabaseNames, format, history, activeScopeLabel, upsertTableExportHistory,
   exportHistoryKey, isBatchDatabasesWorkbench, batchTableMode, batchDatabaseMode,
   effectiveConnectionId, addTab, effectiveDbName, availableObjects, isRunning, destructiveOperation,
@@ -97,7 +99,9 @@ export const useTableExportBatchTableActions = ({
     : isDirectSQLWorkbench
       ? t('data_export.workbench.strategy.batch_databases', { mode: batchDatabaseModeMeta.label })
     : (isBatchTablesWorkbench
-      ? t('data_export.workbench.strategy.batch_tables', { mode: batchTableModeMeta.label })
+      ? (format === 'sql'
+        ? t('data_export.workbench.strategy.batch_tables', { mode: batchTableModeMeta.label })
+        : t('data_export.workbench.strategy.full_table'))
       : t('data_export.workbench.strategy.batch_databases', { mode: batchDatabaseModeMeta.label }));
   const currentElapsedMs = useMemo(
     () => resolveExportElapsedMs(progressState.startedAt, progressState.finishedAt, nowTick),
@@ -111,7 +115,9 @@ export const useTableExportBatchTableActions = ({
     : isDirectSQLWorkbench
       ? ([tab.dbName, isDirectSchemaWorkbench ? tab.schemaName : ''].filter(Boolean).join('.') || t('data_export.workbench.target.current_database'))
     : (isBatchTablesWorkbench ? resolveBatchTablesTargetName(selectedDbName, selectedObjectNames.length) : resolveBatchDatabasesTargetName(selectedDatabaseNames.length));
-  const fallbackFormat = isSingleWorkbench ? String(format || '').toUpperCase() : 'SQL';
+  const fallbackFormat = isSingleWorkbench || isBatchTablesWorkbench
+    ? String(format || '').toUpperCase()
+    : 'SQL';
 
   useEffect(() => {
     const jobId = String(progressState.jobId || '').trim();
@@ -211,6 +217,7 @@ export const useTableExportBatchTableActions = ({
   const hasBatchDatabaseMetadataError = Boolean(databaseLoadError);
   const hasBlockingMetadataError = (isSingleWorkbench && !!columnLoadError)
     || (isBatchTablesWorkbench && hasBatchTableMetadataError)
+    || (isBatchTablesWorkbench && (format !== 'sql' || batchTableMode !== 'schema') && !!columnLoadError)
     || (isBatchDatabasesWorkbench && hasBatchDatabaseMetadataError);
 
   const canStart = useMemo(() => {
@@ -226,6 +233,26 @@ export const useTableExportBatchTableActions = ({
         && (scope === 'all' || !!activeScopeQuery);
     }
     if (isBatchTablesWorkbench) {
+      if (format !== 'sql') {
+        const columnState = batchTableColumnStates[selectedObjectNames[0]];
+        return !!selectedDbName
+          && selectedObjectNames.length === 1
+          && !!columnState
+          && !columnState.loading
+          && !columnState.error
+          && columnState.selectedColumns.length > 0;
+      }
+      if (batchTableMode !== 'schema') {
+        const columnsReady = selectedObjectNames.length > 0
+          && selectedObjectNames.every((tableName) => {
+            const state = batchTableColumnStates[tableName];
+            return !!state
+              && !state.loading
+              && !state.error
+              && state.selectedColumns.length > 0;
+          });
+        if (!columnsReady) return false;
+      }
       return !!selectedDbName && selectedObjectNames.length > 0;
     }
     if (isDirectSQLWorkbench) {
@@ -235,8 +262,11 @@ export const useTableExportBatchTableActions = ({
   }, [
     activeScopeOption?.disabled,
     activeScopeQuery,
+    batchTableColumnStates,
+    batchTableMode,
     connectionConfig,
     effectiveDbName,
+    format,
     hasBlockingMetadataError,
     isBatchTablesWorkbench,
     isDirectDatabaseWorkbench,
@@ -249,6 +279,7 @@ export const useTableExportBatchTableActions = ({
     selectedDatabaseNames.length,
     selectedDbName,
     selectedColumns.length,
+    selectedObjectNames,
     selectedObjectNames.length,
     tab.tableName,
     tab.schemaName,

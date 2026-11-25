@@ -102,4 +102,27 @@ describe('useSidebarBatchExport', () => {
     }));
     expect(addTab.mock.calls[0][0].connectionId).toBe('');
   });
+
+  it('preselects the invoked table in the shared batch table workbench', () => {
+    const addTab = vi.fn();
+    const { openBatchTableWorkbench } = useSidebarBatchExport({
+      connections,
+      selectedNodesRef: { current: [] },
+      addTab,
+    });
+
+    openBatchTableWorkbench({
+      type: 'table',
+      title: 'users',
+      dataRef: { id: 'sql-1', dbName: 'app', tableName: 'users' },
+    });
+
+    expect(addTab).toHaveBeenCalledOnce();
+    expect(addTab).toHaveBeenCalledWith(expect.objectContaining({
+      exportWorkbenchMode: 'batch-tables',
+      connectionId: 'sql-1',
+      dbName: 'app',
+      tableExportInitialObjectNames: ['users'],
+    }));
+  });
 });

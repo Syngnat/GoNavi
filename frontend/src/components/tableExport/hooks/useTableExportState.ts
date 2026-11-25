@@ -43,6 +43,13 @@ export interface UseTableExportStateInput {
   tab: TableExportWorkbenchBodyProps['tab'];
 }
 
+export type TableExportBatchColumnState = {
+  availableColumns: string[];
+  selectedColumns: string[];
+  loading: boolean;
+  error: string;
+};
+
 export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
   const connections = useStore((state) => state.connections);
   const upsertTableExportHistory = useStore((state) => state.upsertTableExportHistory);
@@ -65,6 +72,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
   const [availableObjects, setAvailableObjects] = useState<SelectOption[]>([]);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [batchTableColumnStates, setBatchTableColumnStates] = useState<Record<string, TableExportBatchColumnState>>({});
   const [selectedObjectNames, setSelectedObjectNames] = useState<string[]>(() => tab.tableExportInitialObjectNames || []);
   const [selectedDatabaseNames, setSelectedDatabaseNames] = useState<string[]>(() => tab.tableExportInitialDatabaseNames || []);
   const [batchTableMode, setBatchTableMode] = useState<BatchTableExportMode>(() => tab.tableExportContentMode || 'schema');
@@ -166,7 +174,11 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     [tab.tableExportScopeOptions],
   );
   const [scope, setScope] = useState<TableExportScope>(() => resolveInitialScope(scopeOptions, tab.tableExportInitialScope));
-  const [format, setFormat] = useState<DataExportFormat>(DEFAULT_DATA_EXPORT_FORMAT);
+  const [format, setFormat] = useState<DataExportFormat>(() => {
+    const initialFormat = String(tab.tableExportInitialFormat || '').trim();
+    if (initialFormat) return initialFormat as DataExportFormat;
+    return isSingleWorkbench ? DEFAULT_DATA_EXPORT_FORMAT : 'sql';
+  });
   const [xlsxMaxRowsPerSheet, setXlsxMaxRowsPerSheet] = useState<number>(DEFAULT_XLSX_ROWS_PER_SHEET);
   useEffect(() => {
     // 非 SQL 数据源不提供 SQL 格式（从“备份 / 复制 INSERT”等入口带进来的 sql 格式改回默认格式）。
@@ -197,6 +209,12 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     setSelectedObjectNames(tab.tableExportInitialObjectNames || []);
     setSelectedDatabaseNames(tab.tableExportInitialDatabaseNames || []);
     setBatchTableMode(tab.tableExportContentMode || 'schema');
+    const initialFormat = String(tab.tableExportInitialFormat || '').trim();
+    if (initialFormat) {
+      setFormat(initialFormat as DataExportFormat);
+    } else if (isBatchTablesWorkbench) {
+      setFormat('sql');
+    }
     const nextDatabaseMode = tab.tableExportContentMode === 'backup' ? 'backup' : 'schema';
     setBatchDatabaseMode(nextDatabaseMode);
     setIncludeDropIfExists(tab.tableExportIncludeDropIfExists === true);
@@ -204,16 +222,26 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     setAppliedLaunchKey(launchKey);
   }, [
     appliedLaunchKey,
+    isBatchTablesWorkbench,
+    isSingleWorkbench,
     isRunning,
     tab.connectionId,
     tab.dbName,
     tab.tableExportContentMode,
     tab.tableExportIncludeDropIfExists,
     tab.tableExportInitialDatabaseNames,
+    tab.tableExportInitialFormat,
     tab.tableExportInitialObjectNames,
     tab.tableExportLaunchKey,
     tab.tableExportRequestKey,
   ]);
+
+  useEffect(() => {
+    if (!isBatchTablesWorkbench || format === 'sql' || selectedObjectNames.length === 1) {
+      return;
+    }
+    setFormat('sql');
+  }, [format, isBatchTablesWorkbench, selectedObjectNames.length]);
 
   useEffect(() => {
     if (hasFixedConnection || selectableConnections.length === 0) {
@@ -238,9 +266,14 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     });
   }, [scopeOptions, tab.tableExportInitialScope]);
 
+  const columnTargetConnectionId = isSingleWorkbench ? effectiveConnectionId : '';
+  const columnTargetDbName = isSingleWorkbench ? effectiveDbName : '';
+  const columnTargetObjectName = isSingleWorkbench
+    ? String(tab.tableName || '').trim()
+    : '';
+
   useEffect(() => {
-    const objectName = String(tab.tableName || '').trim();
-    if (!isSingleWorkbench || !connectionConfig || !objectName) {
+    if (!columnTargetObjectName || !connectionConfig || !columnTargetDbName) {
       successfulColumnRequestKeyRef.current = '';
       setAvailableColumns([]);
       setSelectedColumns([]);
@@ -250,7 +283,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     }
 
     let alive = true;
-    const requestKey = [effectiveConnectionId, effectiveDbName, objectName].join('\u0000');
+    const requestKey = [columnTargetConnectionId, columnTargetDbName, columnTargetObjectName].join('\u0000');
     if (successfulColumnRequestKeyRef.current && successfulColumnRequestKeyRef.current !== requestKey) {
       successfulColumnRequestKeyRef.current = '';
       setAvailableColumns([]);
@@ -258,7 +291,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     }
     setLoadingColumns(true);
     setColumnLoadError('');
-    DBGetColumns(buildRpcConnectionConfig(connectionConfig) as any, effectiveDbName, objectName)
+    DBGetColumns(buildRpcConnectionConfig(connectionConfig) as any, columnTargetDbName, columnTargetObjectName)
       .then((res) => {
         if (!alive) return;
         if (!res.success) {
@@ -294,7 +327,143 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     return () => {
       alive = false;
     };
-  }, [columnReloadRevision, connectionConfig, effectiveConnectionId, effectiveDbName, isSingleWorkbench, tab.tableName]);
+  }, [
+    columnReloadRevision,
+    columnTargetConnectionId,
+    columnTargetDbName,
+    columnTargetObjectName,
+    connectionConfig,
+  ]);
+
+  const needsBatchTableColumns = isBatchTablesWorkbench
+    && batchIntent === 'export'
+    && (
+      (format !== 'sql' && selectedObjectNames.length === 1)
+      || (format === 'sql' && batchTableMode !== 'schema')
+    );
+
+  useEffect(() => {
+    if (!isBatchTablesWorkbench || !needsBatchTableColumns || !connectionConfig || !selectedDbName) {
+      if (isBatchTablesWorkbench) {
+        setLoadingColumns(false);
+        setColumnLoadError('');
+      }
+      return undefined;
+    }
+    const targets = selectedObjectNames
+      .map((name) => String(name || '').trim())
+      .filter(Boolean);
+    if (targets.length === 0) {
+      setLoadingColumns(false);
+      setColumnLoadError('');
+      return undefined;
+    }
+
+    let alive = true;
+    setLoadingColumns(true);
+    setColumnLoadError('');
+    setBatchTableColumnStates((prev) => {
+      const next = { ...prev };
+      targets.forEach((tableName) => {
+        const current = next[tableName];
+        next[tableName] = {
+          availableColumns: current?.availableColumns || [],
+          selectedColumns: current?.selectedColumns || [],
+          loading: true,
+          error: '',
+        };
+      });
+      return next;
+    });
+
+    Promise.all(targets.map((tableName) => DBGetColumns(
+      buildRpcConnectionConfig(connectionConfig) as any,
+      selectedDbName,
+      tableName,
+    ).then(
+      (res) => ({ tableName, res, error: null as any }),
+      (error) => ({ tableName, res: null as any, error }),
+    ))).then((results) => {
+      if (!alive) return;
+      const errors: string[] = [];
+      setBatchTableColumnStates((prev) => {
+        const next = { ...prev };
+        results.forEach(({ tableName, res, error }) => {
+          if (error || !res?.success) {
+            const message = error?.message || res?.message || t('data_export.message.load_columns_failed');
+            errors.push(`${tableName}: ${message}`);
+            next[tableName] = {
+              availableColumns: [],
+              selectedColumns: [],
+              loading: false,
+              error: message,
+            };
+            return;
+          }
+          const availableColumns = resolveTableExportColumnNames(res.data);
+          if (availableColumns.length === 0) {
+            const message = t('data_export.message.load_columns_failed');
+            errors.push(`${tableName}: ${message}`);
+            next[tableName] = {
+              availableColumns: [],
+              selectedColumns: [],
+              loading: false,
+              error: message,
+            };
+            return;
+          }
+          const current = next[tableName];
+          const sameAvailableColumns = !!current
+            && current.availableColumns.length === availableColumns.length
+            && current.availableColumns.every((column, index) => column === availableColumns[index]);
+          const availableSet = new Set(availableColumns);
+          next[tableName] = {
+            availableColumns,
+            selectedColumns: sameAvailableColumns
+              ? current.selectedColumns.filter((column) => availableSet.has(column))
+              : availableColumns,
+            loading: false,
+            error: '',
+          };
+        });
+        return next;
+      });
+      setColumnLoadError(errors.join('; '));
+    }).finally(() => {
+      if (alive) setLoadingColumns(false);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [
+    batchIntent,
+    batchTableMode,
+    columnReloadRevision,
+    connectionConfig,
+    format,
+    isBatchTablesWorkbench,
+    needsBatchTableColumns,
+    selectedDbName,
+    selectedObjectNames,
+    selectedObjectNames.length,
+  ]);
+
+  const setBatchTableSelectedColumns = useCallback((tableName: string, columns: string[]) => {
+    const key = String(tableName || '').trim();
+    if (!key) return;
+    setBatchTableColumnStates((prev) => {
+      const current = prev[key];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [key]: {
+          ...current,
+          selectedColumns: columns,
+        },
+      };
+    });
+  }, []);
 
   useEffect(() => {
     if (!progressState.startedAt || progressState.finishedAt > 0) return undefined;
@@ -474,7 +643,8 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     isBatchTablesWorkbench, isBatchDatabasesWorkbench, isDirectDatabaseWorkbench,
     isDirectSchemaWorkbench, isDirectSQLWorkbench, selectedConnectionId, setSelectedConnectionId,
     selectedDbName, setSelectedDbName, availableDatabases, setAvailableDatabases, availableObjects,
-    setAvailableObjects, availableColumns, selectedColumns, setSelectedColumns, selectedObjectNames,
+    setAvailableObjects, availableColumns, selectedColumns, setSelectedColumns,
+    batchTableColumnStates, setBatchTableSelectedColumns, selectedObjectNames,
     setSelectedObjectNames, selectedDatabaseNames, setSelectedDatabaseNames, batchTableMode,
     setBatchTableMode, batchDatabaseMode, setBatchDatabaseMode, batchIntent, setBatchIntent,
     includeDropIfExists, setIncludeDropIfExists, includeDatabaseContext, setIncludeDatabaseContext,

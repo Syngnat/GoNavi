@@ -18,6 +18,7 @@ export interface TableExportWorkbenchActionsProps {
   isBatchDeleteIntent: TableExportStateApi['isBatchDeleteIntent'];
   isBatchTablesWorkbench: TableExportStateApi['isBatchTablesWorkbench'];
   connectionConfig: TableExportStateApi['connectionConfig'];
+  format: TableExportStateApi['format'];
   connectionCapabilities: TableExportStateApi['connectionCapabilities'];
   isConfigurationLocked: TableExportBatchTableActionsApi['isConfigurationLocked'];
   hasBatchTableMetadataError: TableExportBatchTableActionsApi['hasBatchTableMetadataError'];
@@ -38,7 +39,7 @@ export interface TableExportWorkbenchActionsProps {
 export const TableExportWorkbenchActions = ({
   dividerColor, isSingleWorkbench, isBatchDatabasesWorkbench, isDirectSQLWorkbench,
   activeScopeCount, exportStrategyLabel, secondaryTextColor, isBatchDeleteIntent,
-  isBatchTablesWorkbench, connectionConfig, connectionCapabilities, isConfigurationLocked,
+  isBatchTablesWorkbench, connectionConfig, format, connectionCapabilities, isConfigurationLocked,
   hasBatchTableMetadataError, selectedTableNames, destructiveOperation,
   handleTruncateSelectedTables, handleClearSelectedTables, handleDeleteSelectedTables,
   hasBatchDatabaseMetadataError, selectedDatabaseNames, handleDeleteSelectedDatabases,
@@ -84,7 +85,9 @@ export const TableExportWorkbenchActions = ({
         : isDirectSQLWorkbench
           ? t('data_export.workbench.helper.single_export_start')
         : isBatchTablesWorkbench
-          ? t('data_export.workbench.helper.batch_tables_start')
+          ? (format === 'sql'
+            ? t('data_export.workbench.helper.batch_tables_start')
+            : t('data_export.workbench.helper.single_export_start'))
           : t('data_export.workbench.helper.batch_databases_start')}
     </div>
     {isBatchDeleteIntent && isBatchTablesWorkbench ? (

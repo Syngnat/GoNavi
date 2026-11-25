@@ -18,6 +18,7 @@ type ExportFileOptions struct {
 	Format                         string                            `json:"format"`
 	CSVEncoding                    string                            `json:"csvEncoding,omitempty"`
 	Columns                        []string                          `json:"columns,omitempty"`
+	TableColumns                   map[string][]string               `json:"tableColumns,omitempty"`
 	ColumnComments                 map[string]string                 `json:"columnComments,omitempty"`
 	XLSXMaxRowsPerSheet            int                               `json:"xlsxMaxRowsPerSheet,omitempty"`
 	JobID                          string                            `json:"jobId,omitempty"`
@@ -45,6 +46,7 @@ func normalizeExportFileOptions(format string, options ExportFileOptions) Export
 		Format:                         resolvedFormat,
 		CSVEncoding:                    options.CSVEncoding,
 		Columns:                        normalizeExportColumns(options.Columns),
+		TableColumns:                   normalizeExportTableColumns(options.TableColumns),
 		ColumnComments:                 options.ColumnComments,
 		XLSXMaxRowsPerSheet:            normalizeXLSXRowsPerSheet(options.XLSXMaxRowsPerSheet),
 		JobID:                          strings.TrimSpace(options.JobID),
@@ -100,6 +102,41 @@ func normalizeExportColumns(columns []string) []string {
 		result = append(result, column)
 	}
 	return result
+}
+
+func normalizeExportTableColumns(tableColumns map[string][]string) map[string][]string {
+	if len(tableColumns) == 0 {
+		return nil
+	}
+	result := make(map[string][]string, len(tableColumns))
+	for tableName, columns := range tableColumns {
+		tableName = strings.TrimSpace(tableName)
+		columns = normalizeExportColumns(columns)
+		if tableName == "" || len(columns) == 0 {
+			continue
+		}
+		result[tableName] = columns
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func exportColumnsForTable(tableColumns map[string][]string, tableName string) []string {
+	if len(tableColumns) == 0 {
+		return nil
+	}
+	tableName = strings.TrimSpace(tableName)
+	if columns, ok := tableColumns[tableName]; ok {
+		return columns
+	}
+	for name, columns := range tableColumns {
+		if strings.EqualFold(name, tableName) {
+			return columns
+		}
+	}
+	return nil
 }
 
 func validateExportColumnsSelection(options ExportFileOptions) error {

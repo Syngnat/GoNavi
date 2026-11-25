@@ -4,8 +4,8 @@ import React, { useCallback, useMemo } from 'react';
 import { message, Input } from 'antd';
 import {
   buildBatchTableExportWorkbenchTab,
-  buildTableExportTab,
 } from '../../../utils/tableExportTab';
+import { DEFAULT_DATA_EXPORT_FORMAT } from '../../DataExportDialog';
 import { t } from '../../../i18n';
 import { showCountdownDangerConfirm } from '../../common/countdownDangerConfirm';
 import { confirmProductionMutation } from '../../../utils/productionRiskConfirm';
@@ -94,19 +94,17 @@ export const useTableOverviewTableActions = ({
       }));
   }, [addTab, tab.connectionId, tab.dbName]);
 
-  const openExportDialog = useCallback(async (tableName: string, totalRows?: number) => {
-      addTab(buildTableExportTab({
+  const openExportDialog = useCallback(async (tableName: string) => {
+      addTab(buildBatchTableExportWorkbenchTab({
           connectionId: tab.connectionId,
           dbName: tab.dbName,
-          tableName,
-          schemaName: schemaName || undefined,
-          title: t('file.backend.dialog.export_table', { table: tableName }),
-          objectType: 'table',
-          rowCountByScope: Number.isFinite(Number(totalRows)) && Number(totalRows) > 0
-              ? { all: Math.trunc(Number(totalRows)) }
-              : undefined,
+          initialObjectNames: [tableName],
+          initialFormat: DEFAULT_DATA_EXPORT_FORMAT,
+          contentMode: 'dataOnly',
+          launchKey: `table-overview-export-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          title: t('sidebar.action.batch_tables'),
       }));
-  }, [addTab, schemaName, tab.connectionId, tab.dbName]);
+  }, [addTab, tab.connectionId, tab.dbName]);
 
   const handleCopyTableAsInsert = useCallback(async (tableName: string) => {
       await openTableSQLExportWorkbench(tableName, 'dataOnly');
@@ -449,7 +447,7 @@ export const useTableOverviewTableActions = ({
               void loadData();
               return;
           case 'export-data':
-              void openExportDialog(tableName, tables.find((item) => item.name === tableName)?.rows);
+              void openExportDialog(tableName);
               return;
           case 'mock-data':
               addTab(buildMockDataWorkbenchTab({ connectionId: tab.connectionId, dbName: tab.dbName, tableName, schemaName }));

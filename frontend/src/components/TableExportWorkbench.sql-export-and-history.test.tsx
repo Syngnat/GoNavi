@@ -207,6 +207,10 @@ describe('TableExportWorkbench', () => {
     mockUseExportProgressRunner.mockReset();
     mockProgressLogs = [];
     vi.mocked(DBGetColumns).mockReset();
+    vi.mocked(DBGetColumns).mockResolvedValue({
+      success: true,
+      data: [{ name: 'id' }],
+    } as any);
     vi.mocked(DBGetDatabases).mockReset();
     vi.mocked(DBGetTables).mockReset();
     vi.mocked(ClearTables).mockReset();
@@ -532,6 +536,10 @@ describe('TableExportWorkbench', () => {
     });
     vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
     vi.mocked(DBGetTables).mockResolvedValue({ success: true, data: [{ name: 'users' }, { name: 'orders' }] } as any);
+    vi.mocked(DBGetColumns).mockResolvedValue({
+      success: true,
+      data: [{ name: 'id' }, { name: 'name' }],
+    } as any);
     vi.mocked(ExportTablesSQLWithOptions).mockResolvedValue({ success: true } as any);
 
     let renderer!: ReactTestRenderer;
@@ -552,6 +560,9 @@ describe('TableExportWorkbench', () => {
         />,
       );
       await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(mockRunExportWithProgress).toHaveBeenCalledTimes(1);
@@ -565,6 +576,196 @@ describe('TableExportWorkbench', () => {
       true,
       true,
       expect.objectContaining({ jobId: 'batch-objects-job-1' }),
+    );
+
+    renderer.unmount();
+  });
+
+  it('loads columns for a preselected batch table and exports the selected fields as a data file', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
+    vi.mocked(DBGetTables).mockResolvedValue({ success: true, data: [{ name: 'users' }] } as any);
+    vi.mocked(DBGetColumns).mockResolvedValue({
+      success: true,
+      data: [{ name: 'id' }, { name: 'email' }],
+    } as any);
+    vi.mocked(ExportTableWithOptions).mockResolvedValue({ success: true } as any);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-tables-conn-1-SYS',
+            title: '导出 users',
+            type: 'table-export',
+            exportWorkbenchMode: 'batch-tables',
+            connectionId: 'conn-1',
+            dbName: 'SYS',
+            tableExportInitialObjectNames: ['users'],
+            tableExportInitialFormat: 'xlsx',
+            tableExportContentMode: 'dataOnly',
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(DBGetColumns).toHaveBeenCalledWith(expect.anything(), 'SYS', 'users');
+    const columnSelect = renderer.root.findAllByType(Select).find((node) => (
+      node.props.mode === 'multiple'
+      && Array.isArray(node.props.options)
+      && node.props.options.some((option: { value?: string }) => option.value === 'email')
+    ));
+    expect(columnSelect?.props.value).toEqual(['id', 'email']);
+    await act(async () => {
+      columnSelect?.props.onChange(['id']);
+      await Promise.resolve();
+    });
+
+    const startButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(startButton?.props.disabled).toBe(false);
+    await act(async () => {
+      startButton?.props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(mockRunExportWithProgress).toHaveBeenCalledTimes(1);
+    const run = mockRunExportWithProgress.mock.calls[0][0].run as (jobId: string) => Promise<unknown>;
+    await run('batch-table-data-job-1');
+
+    expect(ExportTableWithOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mysql' }),
+      'SYS',
+      'users',
+      expect.objectContaining({
+        format: 'xlsx',
+        columns: ['id'],
+        jobId: 'batch-table-data-job-1',
+      }),
+    );
+    expect(ExportTablesSQLWithOptions).not.toHaveBeenCalled();
+
+    renderer.unmount();
+  });
+
+  it('falls back to SQL when a data-file format has multiple batch objects', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
+    vi.mocked(DBGetTables).mockResolvedValue({
+      success: true,
+      data: [{ name: 'users' }, { name: 'orders' }],
+    } as any);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-tables-conn-1-SYS',
+            title: '批量处理表',
+            type: 'table-export',
+            exportWorkbenchMode: 'batch-tables',
+            connectionId: 'conn-1',
+            dbName: 'SYS',
+            tableExportInitialObjectNames: ['users', 'orders'],
+            tableExportInitialFormat: 'xlsx',
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const formatSelect = renderer.root.findAllByType(Select).find((node) => (
+      Array.isArray(node.props.options)
+      && node.props.options.some((option: { value?: string }) => option.value === 'xlsx')
+    ));
+    expect(formatSelect?.props.value).toBe('sql');
+    expect(DBGetColumns).not.toHaveBeenCalled();
+
+    renderer.unmount();
+  });
+
+  it('loads per-table columns for multi-table SQL data export and passes every selected field set', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
+    vi.mocked(DBGetTables).mockResolvedValue({
+      success: true,
+      data: [{ name: 'users' }, { name: 'orders' }],
+    } as any);
+    vi.mocked(DBGetColumns).mockImplementation(async (_config: any, _dbName: string, tableName: string) => ({
+      success: true,
+      data: tableName === 'users'
+        ? [{ name: 'id' }, { name: 'name' }]
+        : [{ name: 'order_id' }, { name: 'total' }],
+    } as any));
+    vi.mocked(ExportTablesSQLWithOptions).mockResolvedValue({ success: true } as any);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-tables-conn-1-SYS',
+            title: '批量处理表',
+            type: 'table-export',
+            exportWorkbenchMode: 'batch-tables',
+            connectionId: 'conn-1',
+            dbName: 'SYS',
+            tableExportInitialObjectNames: ['users', 'orders'],
+            tableExportContentMode: 'dataOnly',
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const usersColumnSelect = renderer.root.findByProps({ 'data-batch-table-columns': 'users' })
+      .findAllByType(Select)[0];
+    const ordersColumnSelect = renderer.root.findByProps({ 'data-batch-table-columns': 'orders' })
+      .findAllByType(Select)[0];
+    expect(usersColumnSelect?.props.value).toEqual(['id', 'name']);
+    expect(ordersColumnSelect?.props.value).toEqual(['order_id', 'total']);
+    await act(async () => {
+      usersColumnSelect?.props.onChange(['id']);
+      await Promise.resolve();
+    });
+
+    const startButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(startButton?.props.disabled).toBe(false);
+    await act(async () => {
+      startButton?.props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(mockRunExportWithProgress).toHaveBeenCalledTimes(1);
+    const run = mockRunExportWithProgress.mock.calls[0][0].run as (jobId: string) => Promise<unknown>;
+    await run('batch-table-columns-job-1');
+
+    expect(ExportTablesSQLWithOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mysql' }),
+      'SYS',
+      ['users', 'orders'],
+      false,
+      true,
+      expect.objectContaining({
+        jobId: 'batch-table-columns-job-1',
+        tableColumns: {
+          users: ['id'],
+          orders: ['order_id', 'total'],
+        },
+      }),
     );
 
     renderer.unmount();

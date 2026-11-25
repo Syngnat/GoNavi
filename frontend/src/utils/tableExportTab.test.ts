@@ -123,6 +123,7 @@ describe('tableExportTab', () => {
       dbName: 'SYS',
       initialObjectNames: [' users ', 'orders', 'users'],
       contentMode: 'backup',
+      initialFormat: 'xlsx',
       includeDropIfExists: true,
       requestKey: 'batch-tables-1',
     });
@@ -130,6 +131,7 @@ describe('tableExportTab', () => {
     expect(tab).toEqual(expect.objectContaining({
       tableExportInitialObjectNames: ['users', 'orders'],
       tableExportContentMode: 'backup',
+      tableExportInitialFormat: 'xlsx',
       tableExportIncludeDropIfExists: true,
       tableExportLaunchKey: 'batch-tables-1',
       tableExportRequestKey: 'batch-tables-1',
