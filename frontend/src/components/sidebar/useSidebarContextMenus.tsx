@@ -27,6 +27,7 @@ import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 import { buildAgentAssetsWorkbenchTab } from '../../utils/agentAssetsTab';
 import {
   copySidebarMultiTableNames,
+  runSidebarMultiTableClear,
   runSidebarMultiTableDrop,
   runSidebarMultiTableTruncate,
 } from './sidebarMultiTableActions';
@@ -314,6 +315,9 @@ export const useSidebarContextMenus = ({
               return;
           case 'truncate-table':
               void runSidebarMultiTableTruncate(multiTableDangerDeps, nodes);
+              return;
+          case 'clear-table':
+              void runSidebarMultiTableClear(multiTableDangerDeps, nodes);
               return;
           case 'drop-table':
               void runSidebarMultiTableDrop(multiTableDangerDeps, nodes);

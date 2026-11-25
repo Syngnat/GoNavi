@@ -51,7 +51,10 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     onClick={(event) => event.stopPropagation()}
                     onContextMenu={(event) => event.preventDefault()}
                 >
-                    {actions.renderV2OverviewTableContextMenu(state.v2ContextMenuTable)}
+                    {actions.renderV2OverviewTableContextMenu(
+                        state.v2ContextMenuTable,
+                        interaction.selection.selectedNames,
+                    )}
                 </div>,
                 document.body,
             )}

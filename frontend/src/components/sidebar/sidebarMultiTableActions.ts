@@ -180,8 +180,8 @@ export const runSidebarMultiTableClear = async (
   if (total === 0) return;
   const confirmed = await new Promise<boolean>((resolve) => {
     Modal.confirm({
-      title: t('sidebar.multi_table_menu.confirm_truncate_title', { count: total }),
-      content: t('sidebar.multi_table_menu.confirm_truncate_content'),
+      title: t('sidebar.multi_table_menu.confirm_clear_title', { count: total }),
+      content: t('sidebar.multi_table_menu.confirm_clear_content'),
       okText: t('sidebar.action.continue'),
       cancelText: t('common.cancel'),
       okButtonProps: { danger: true },

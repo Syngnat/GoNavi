@@ -25,8 +25,18 @@ import {
 } from '../tableOverviewModel';
 import { noAutoCapInputProps } from '../../../utils/inputAutoCap';
 import { useStore } from '../../../store';
-import { type V2TableContextMenuActionKey, V2TableContextMenuView } from '../../V2TableContextMenu';
+import {
+  type V2MultiTableContextMenuActionKey,
+  type V2TableContextMenuActionKey,
+  V2MultiTableContextMenuView,
+  V2TableContextMenuView,
+} from '../../V2TableContextMenu';
 import { buildMockDataWorkbenchTab, canGenerateMockData } from '../../../utils/mockDataTab';
+import {
+  runSidebarMultiTableClear,
+  runSidebarMultiTableDrop,
+  runSidebarMultiTableTruncate,
+} from '../../sidebar/sidebarMultiTableActions';
 import type { TableOverviewStateApi } from './useTableOverviewState';
 import type { TableOverviewProps } from '../../TableOverview';
 
@@ -253,7 +263,7 @@ export const useTableOverviewTableActions = ({
       const quotedTable = safeTable.includes('`') ? safeTable : safeTable.split('.').map(part => `\`${part.replace(/`/g, '``')}\``).join('.');
       addTab({
           id: `query-create-starrocks-rollup-${Date.now()}`,
-          title: t('sidebar.v2_table_menu.new_rollup', { keyword: 'Rollup' }),
+          title: t('sidebar.v2_table_menu.new_rollup'),
           type: 'query',
           connectionId: connection.id,
           dbName: tab.dbName,
@@ -488,28 +498,125 @@ export const useTableOverviewTableActions = ({
       toggleOverviewTablePinned,
   ]);
 
-  const renderV2OverviewTableContextMenu = useCallback((table: TableStatRow) => (
-      <V2TableContextMenuView
-          tableName={table.name}
-          shortcutPlatform={activeShortcutPlatform}
-          stats={{
-              rowCount: table.rows,
-              dataLength: table.dataSize,
-              indexLength: table.indexSize,
-              engine: table.engine,
-          }}
-          isPinned={isOverviewTablePinned(pinnedSidebarTables, connection?.id, tab.dbName, schemaName, table.name)}
-          supportsTruncate={allowTruncate}
-          supportsClear={allowClear}
-          supportsCopyTable={supportsCopyTable}
-          supportsStarRocksRollup={metadataDialect === 'starrocks'}
-          supportsMockData={canGenerateMockData(connection)}
-          onAction={(action) => {
-              setV2ContextMenu(null);
-              handleV2TableContextMenuAction(table, action);
-          }}
-      />
-  ), [activeShortcutPlatform, allowClear, allowTruncate, connection, handleV2TableContextMenuAction, metadataDialect, pinnedSidebarTables, schemaName, supportsCopyTable, tab.dbName]);
+  const handleV2OverviewMultiTableContextMenuAction = useCallback((
+      tableNames: string[],
+      action: V2MultiTableContextMenuActionKey,
+  ) => {
+      if (!connection?.config) return;
+      const names = Array.from(new Set(
+          tableNames.map((name) => String(name || '').trim()).filter(Boolean),
+      ));
+      if (names.length === 0) return;
+      const dataRef = {
+          ...connection,
+          id: tab.connectionId,
+          dbName: tab.dbName || '',
+          schemaName,
+      };
+      const nodes = names.map((tableName) => ({
+          type: 'table',
+          title: tableName,
+          dataRef: { ...dataRef, tableName },
+      }));
+      const deps = {
+          buildRuntimeConfig: (connRef: any, overrideDatabase?: string) => buildRpcConnectionConfig(
+              connRef.config,
+              {
+                  id: connRef.id,
+                  database: overrideDatabase || connRef.dbName,
+              },
+          ),
+          loadTables: async () => {
+              dispatchSidebarTableMutationRefresh(
+                  {
+                      connectionId: connection.id,
+                      dbName: tab.dbName || '',
+                      schemaName,
+                  },
+                  names,
+                  resolveSqlDialect(
+                      connection.config.type,
+                      connection.config.driver,
+                      connection.config,
+                  ),
+                  action === 'drop-table' ? 'drop' : 'clear',
+              );
+              await loadData();
+          },
+          getDatabaseNodeRef: () => null,
+      };
+      if (action === 'truncate-table') {
+          void runSidebarMultiTableTruncate(deps, nodes);
+      } else if (action === 'clear-table') {
+          void runSidebarMultiTableClear(deps, nodes);
+      } else if (action === 'drop-table') {
+          void runSidebarMultiTableDrop(deps, nodes);
+      }
+  }, [connection, loadData, schemaName, tab.connectionId, tab.dbName]);
+
+  const renderV2OverviewTableContextMenu = useCallback((
+      table: TableStatRow,
+      selectedTableNames: string[] = [],
+  ) => {
+      const selectedNames = Array.from(new Set(
+          selectedTableNames.map((name) => String(name || '').trim()).filter(Boolean),
+      ));
+      const multiTableNames = selectedNames.length > 1 && selectedNames.includes(table.name)
+          ? selectedNames
+          : [];
+      if (multiTableNames.length > 0) {
+          return (
+              <V2MultiTableContextMenuView
+                  tableNames={multiTableNames}
+                  supportsOpenData={false}
+                  supportsCopyTableName={false}
+                  supportsRename={false}
+                  supportsTruncate={allowTruncate}
+                  supportsClear={allowClear}
+                  supportsBatchTables={false}
+                  onAction={(action) => {
+                      setV2ContextMenu(null);
+                      handleV2OverviewMultiTableContextMenuAction(multiTableNames, action);
+                  }}
+              />
+          );
+      }
+      return (
+          <V2TableContextMenuView
+              tableName={table.name}
+              shortcutPlatform={activeShortcutPlatform}
+              stats={{
+                  rowCount: table.rows,
+                  dataLength: table.dataSize,
+                  indexLength: table.indexSize,
+                  engine: table.engine,
+              }}
+              isPinned={isOverviewTablePinned(pinnedSidebarTables, connection?.id, tab.dbName, schemaName, table.name)}
+              supportsTruncate={allowTruncate}
+              supportsClear={allowClear}
+              supportsCopyTable={supportsCopyTable}
+              supportsStarRocksRollup={metadataDialect === 'starrocks'}
+              supportsMockData={canGenerateMockData(connection)}
+              onAction={(action) => {
+                  setV2ContextMenu(null);
+                  handleV2TableContextMenuAction(table, action);
+              }}
+          />
+      );
+  }, [
+      activeShortcutPlatform,
+      allowClear,
+      allowTruncate,
+      connection,
+      handleV2OverviewMultiTableContextMenuAction,
+      handleV2TableContextMenuAction,
+      metadataDialect,
+      pinnedSidebarTables,
+      schemaName,
+      setV2ContextMenu,
+      supportsCopyTable,
+      tab.dbName,
+  ]);
   return {
     textPrimary, textSecondary, textMuted, accentColor, containerBg, toggleSort, sortMenuItems,
     hasKnownTableSize, getCombinedTableSize, maxCombinedSize, renderToolbarSummary,

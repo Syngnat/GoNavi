@@ -50,4 +50,22 @@ describe('V2MultiTableContextMenuView', () => {
     const actions = onAction.mock.calls.map(([action]) => action);
     expect(actions).toEqual(['open-data', 'copy-table-name', 'rename-table', 'drop-table']);
   });
+
+  it('支持批量清空，并可隐藏表概览不支持的单项动作', () => {
+    const onAction = vi.fn();
+    const renderer = create(
+      <V2MultiTableContextMenuView
+        tableNames={['a', 'b']}
+        supportsOpenData={false}
+        supportsCopyTableName={false}
+        supportsRename={false}
+        supportsBatchTables={false}
+        supportsClear
+        onAction={onAction}
+      />,
+    );
+    clickAll(renderer);
+    const actions = onAction.mock.calls.map(([action]) => action);
+    expect(actions).toEqual(['truncate-table', 'clear-table', 'drop-table']);
+  });
 });

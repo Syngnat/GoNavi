@@ -384,9 +384,8 @@ export const useSidebarV2ContextMenu = ({
 
   const renderV2MultiTableContextMenu = (nodes: any[]) => {
       const configs = nodes.map((node) => node?.dataRef?.config).filter(Boolean);
-      const supportsTruncate = configs.length > 0 && configs.every((config) => (
-          supportsTableTruncateAction(config?.type, config?.driver)
-      ));
+      const supportsTruncate = configs.length > 0 && configs.every((config) => supportsTableTruncateAction(config?.type, config?.driver));
+      const supportsClear = configs.length > 0 && configs.every((config) => supportsTableClearAction(config?.type, config?.driver) && !isConnectionDataEditRestricted(config));
       const supportsBatchTables = configs.length > 0 && configs.every((config) => (
           getDataSourceCapabilities(config).supportsSqlQueryExport
       ));
@@ -394,6 +393,7 @@ export const useSidebarV2ContextMenu = ({
           <V2MultiTableContextMenuView
               tableNames={nodes.map((node) => String(node?.dataRef?.tableName || node?.title || '').trim()).filter(Boolean)}
               supportsTruncate={supportsTruncate}
+              supportsClear={supportsClear}
               supportsBatchTables={supportsBatchTables}
               onAction={(action) => {
                   setContextMenu(null);
