@@ -261,7 +261,7 @@ export const V2DatabaseContextMenuView: React.FC<{
 
         <div className="gn-v2-context-menu-divider" />
         {supportsDropDatabase && renderItems([
-          { action: 'drop-db', icon: <DeleteOutlined />, title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.delete_database'), suffix: 'DROP' }), tone: 'danger', kbd: '⌫' },
+          { action: 'drop-db', icon: <DeleteOutlined />, title: t('sidebar.menu.delete_database'), tone: 'danger', kbd: '⌫' },
         ])}
       </div>
     </div>

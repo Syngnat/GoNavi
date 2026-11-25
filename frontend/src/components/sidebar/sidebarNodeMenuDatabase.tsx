@@ -120,7 +120,7 @@ export const buildDatabaseNodeMenuItems = ({ node, context }: BuildDatabaseNodeM
            children: [
                {
                    key: 'drop-db',
-                   label: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.delete_database'), suffix: 'DROP' }),
+                   label: t('sidebar.menu.delete_database'),
                    icon: <DeleteOutlined />,
                    danger: true,
                    onClick: () => handleV2DatabaseContextMenuAction(node, 'drop-db')

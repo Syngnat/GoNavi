@@ -296,15 +296,15 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('在新标签打开');
     expect(markup).toContain('Ctrl+Enter');
     expect(markup).toContain('元信息');
-    expect(markup).toContain('查看 DDL · CREATE TABLE');
+    expect(markup).toContain('查看建表语句');
     expect(markup).toContain('在 ER 图中查看');
     expect(markup).toContain('复制');
     expect(markup).toContain('复制表名');
-    expect(markup).toContain('复制表结构 · DDL');
-    expect(markup).toContain('复制全表为 INSERT');
+    expect(markup).toContain('复制表结构');
+    expect(markup).toContain('复制全表为插入语句');
     expect(markup).toContain('维护');
     expect(markup).toContain('重命名…');
-    expect(markup).toContain('备份 · SQL Dump');
+    expect(markup).toContain('备份为数据库脚本');
     expect(markup).toContain('刷新统计信息');
     expect(markup).toContain('导出表数据');
     expect(markup).toContain('打开导出工作台…');
@@ -316,9 +316,9 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).not.toContain('HTML · .html');
     expect(markup).toContain('用 AI 解释这张表');
     expect(markup).toContain('用 AI 生成查询');
-    expect(markup).toContain('截断表 · TRUNCATE');
-    expect(markup).toContain('清空表 · DELETE');
-    expect(markup).toContain('删除表 · DROP');
+    expect(markup).toContain('截断表');
+    expect(markup).toContain('清空表');
+    expect(markup).toContain('删除表');
   });
 
   it('hides clear-table when the caller marks the database as unsupported', () => {
@@ -330,7 +330,7 @@ describe('Sidebar locate toolbar', () => {
     );
 
     expect(unsupportedMarkup).not.toContain('清空表');
-    expect(supportedMarkup).toContain('清空表 · DELETE');
+    expect(supportedMarkup).toContain('清空表');
   });
 
   it('renders the v2 table context menu pinned state', () => {
@@ -598,7 +598,7 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).not.toContain('在新标签打开');
   });
 
-  it('localizes v2 table context menu metadata copy in english while keeping raw create table', () => {
+  it('localizes v2 table context menu metadata copy in english', () => {
     setCurrentLanguage('en-US');
 
     const markup = renderToStaticMarkup(
@@ -606,15 +606,14 @@ describe('Sidebar locate toolbar', () => {
     );
 
     expect(markup).toContain('Metadata');
-    expect(markup).toContain('View DDL · CREATE TABLE');
+    expect(markup).toContain('View DDL');
     expect(markup).toContain('View in ER diagram');
-    expect(markup).toContain('CREATE TABLE');
     expect(markup).not.toContain('元信息');
-    expect(markup).not.toContain('查看 DDL · CREATE TABLE');
+    expect(markup).not.toContain('查看建表语句');
     expect(markup).not.toContain('在 ER 图中查看');
   });
 
-  it('localizes v2 table context menu copy block in english while keeping raw ddl and insert', () => {
+  it('localizes v2 table context menu copy block in english', () => {
     setCurrentLanguage('en-US');
 
     const markup = renderToStaticMarkup(
@@ -623,16 +622,15 @@ describe('Sidebar locate toolbar', () => {
 
     expect(markup).toContain('Copy');
     expect(markup).toContain('Copy table name');
-    expect(markup).toContain('Copy table structure · DDL');
+    expect(markup).toContain('Copy table structure');
     expect(markup).toContain('Copy entire table as INSERT');
-    expect(markup).toContain('DDL');
     expect(markup).toContain('INSERT');
     expect(markup).not.toContain('复制表名');
-    expect(markup).not.toContain('复制表结构 · DDL');
-    expect(markup).not.toContain('复制全表为 INSERT');
+    expect(markup).not.toContain('复制表结构');
+    expect(markup).not.toContain('复制全表为插入语句');
   });
 
-  it('localizes v2 table context menu maintenance block in english while keeping raw rollup and sql dump', () => {
+  it('localizes v2 table context menu maintenance block in english', () => {
     setCurrentLanguage('en-US');
 
     const markup = renderToStaticMarkup(
@@ -642,14 +640,14 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('Maintenance');
     expect(markup).toContain('Rename...');
     expect(markup).toContain('New Rollup');
-    expect(markup).toContain('Backup · SQL Dump');
+    expect(markup).toContain('Backup as SQL dump');
     expect(markup).toContain('Refresh stats');
     expect(markup).toContain('Rollup');
-    expect(markup).toContain('SQL Dump');
+    expect(markup).toContain('SQL dump');
     expect(markup).not.toContain('维护');
     expect(markup).not.toContain('重命名…');
-    expect(markup).not.toContain('新增 Rollup');
-    expect(markup).not.toContain('备份 · SQL Dump');
+    expect(markup).not.toContain('新建汇总');
+    expect(markup).not.toContain('备份为数据库脚本');
     expect(markup).not.toContain('刷新统计信息');
   });
 
@@ -681,33 +679,30 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).not.toContain('用 AI 生成查询');
   });
 
-  it('localizes v2 table context menu danger block in english while keeping raw truncate and drop', () => {
+  it('localizes v2 table context menu danger block in english', () => {
     setCurrentLanguage('en-US');
 
     const markup = renderToStaticMarkup(
       <V2TableContextMenuView tableName="t1" supportsTruncate supportsClear />,
     );
 
-    expect(markup).toContain('Truncate table · TRUNCATE');
-    expect(markup).toContain('Clear table · DELETE');
-    expect(markup).toContain('Delete table · DROP');
-    expect(markup).toContain('TRUNCATE');
-    expect(markup).toContain('DELETE');
-    expect(markup).toContain('DROP');
-    expect(markup).not.toContain('截断表 · TRUNCATE');
-    expect(markup).not.toContain('删除表 · DROP');
+    expect(markup).toContain('Truncate table');
+    expect(markup).toContain('Clear table');
+    expect(markup).toContain('Delete table');
+    expect(markup).not.toContain('截断表');
+    expect(markup).not.toContain('清空表');
+    expect(markup).not.toContain('删除表');
   });
 
-  it('keeps the v2 table context menu danger block raw truncate token outside the ru-RU label', () => {
+  it('keeps the v2 table context menu danger block fully localized in ru-RU', () => {
     setCurrentLanguage('ru-RU');
 
     const markup = renderToStaticMarkup(
       <V2TableContextMenuView tableName="t1" supportsTruncate />,
     );
 
-    expect(markup).toContain('TRUNCATE');
-    expect(markup).not.toContain('TRUNCATE · TRUNCATE');
-    expect(markup).not.toContain('через TRUNCATE · TRUNCATE');
+    expect(markup).toContain(t('sidebar.v2_table_menu.truncate_table'));
+    expect(markup).not.toContain('TRUNCATE');
   });
 
   it('renders the v2 database context menu with the redesigned grouped layout', () => {
@@ -738,7 +733,7 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain(t('sidebar.v2_database_menu.backup_all_tables_sql'));
     expect(markup).toContain(t('sidebar.action.batch_tables'));
     expect(markup).toContain(t('sidebar.action.batch_databases'));
-    expect(markup).toContain(t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.delete_database'), suffix: 'DROP' }));
+    expect(markup).toContain(t('sidebar.menu.delete_database'));
   });
 
   it('renders the v2 database schema action for PostgreSQL-compatible databases', () => {
@@ -782,18 +777,17 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('Back up all tables · schema + data SQL');
     expect(markup).toContain('Batch tables');
     expect(markup).toContain('Batch databases');
-    expect(markup).toContain('Delete database · DROP');
+    expect(markup).toContain('Delete database');
     expect(markup).toContain('StarRocks');
     expect(markup).toContain('Catalog');
     expect(markup).toContain('SQL');
-    expect(markup).toContain('DROP');
     expect(markup).not.toContain('数据库操作');
     expect(markup).not.toContain('新建表');
     expect(markup).not.toContain('新建物化视图');
     expect(markup).not.toContain('新建外部 Catalog');
     expect(markup).not.toContain('关闭数据库');
     expect(markup).not.toContain('导出与备份');
-    expect(markup).not.toContain('删除数据库 · DROP');
+    expect(markup).not.toContain('删除数据库');
   });
 
   it('localizes the v2 database schema action in english', () => {
@@ -832,7 +826,7 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('Export and backup');
     expect(markup).toContain('Export current schema table structures · SQL');
     expect(markup).toContain('Back up all current schema tables · schema + data');
-    expect(markup).toContain('Delete schema · DROP CASCADE');
+    expect(markup).toContain('Delete schema');
     ['当前数据库', '模式操作', '维护', '编辑模式', '刷新对象树', '导出与备份', '导出当前模式表结构', '备份当前模式全部表', '删除模式'].forEach((rawSnippet) => {
       expect(markup).not.toContain(rawSnippet);
     });
@@ -963,7 +957,7 @@ describe('Sidebar locate toolbar', () => {
 
     expect(connectionMarkup).not.toContain('新建数据库');
     expect(databaseMarkup).not.toContain('重命名数据库');
-    expect(databaseMarkup).not.toContain('删除数据库 · DROP');
+    expect(databaseMarkup).not.toContain('删除数据库');
     expect(databaseMarkup).toContain('刷新对象树');
     expect(databaseMarkup).toContain('关闭数据库');
   });

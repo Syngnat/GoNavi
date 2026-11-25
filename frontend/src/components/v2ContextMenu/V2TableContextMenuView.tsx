@@ -97,8 +97,8 @@ export const V2TableContextMenuView: React.FC<{
 
   const maintenanceItems: V2TableContextMenuItemConfig[] = [
     { action: 'rename-table', icon: <EditOutlined />, title: t('sidebar.v2_table_menu.rename_compact'), kbd: 'F2' },
-    ...(supportsStarRocksRollup ? [{ action: 'new-rollup' as const, icon: <ThunderboltOutlined />, title: t('sidebar.v2_table_menu.new_rollup', { keyword: 'Rollup' }) }] : []),
-    ...(supportsSqlExport ? [{ action: 'backup-table' as const, icon: <ExportOutlined />, title: t('sidebar.v2_table_menu.backup_sql_dump', { keyword: 'SQL Dump' }) }] : []),
+    ...(supportsStarRocksRollup ? [{ action: 'new-rollup' as const, icon: <ThunderboltOutlined />, title: t('sidebar.v2_table_menu.new_rollup') }] : []),
+    ...(supportsSqlExport ? [{ action: 'backup-table' as const, icon: <ExportOutlined />, title: t('sidebar.v2_table_menu.backup_sql_dump') }] : []),
     { action: 'refresh-stats', icon: <ReloadOutlined />, title: t('sidebar.v2_table_menu.refresh_stats') },
   ];
 
@@ -106,19 +106,19 @@ export const V2TableContextMenuView: React.FC<{
     ...(supportsTruncate ? [{
       action: 'truncate-table' as const,
       icon: <DeleteOutlined />,
-      title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.v2_table_menu.truncate_table'), suffix: 'TRUNCATE' }),
+      title: t('sidebar.v2_table_menu.truncate_table'),
       tone: 'danger' as const,
     }] : []),
     ...(supportsClear ? [{
       action: 'clear-table' as const,
       icon: <ClearOutlined />,
-      title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.clear_table'), suffix: 'DELETE' }),
+      title: t('sidebar.menu.clear_table'),
       tone: 'danger' as const,
     }] : []),
     {
       action: 'drop-table',
       icon: <DeleteOutlined />,
-      title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.delete_table'), suffix: 'DROP' }),
+      title: t('sidebar.menu.delete_table'),
       kbd: '⌫',
       tone: 'danger',
     },
@@ -151,16 +151,16 @@ export const V2TableContextMenuView: React.FC<{
 
         <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.metadata_section')}</div>
         {renderItems([
-          { action: 'view-ddl', icon: <CodeOutlined />, title: `${t('data_grid.ddl.view')} · CREATE TABLE` },
+          { action: 'view-ddl', icon: <CodeOutlined />, title: t('data_grid.ddl.view') },
           { action: 'view-er', icon: <LinkOutlined />, title: t('sidebar.v2_table_menu.view_in_er') },
         ])}
 
         <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.copy_section')}</div>
         {renderItems([
           { action: 'copy-table-name', icon: <CopyOutlined />, title: t('sidebar.v2_table_menu.copy_table_name'), kbd: primaryShortcut('Shift+C', shortcutPlatform) },
-          { action: 'copy-structure', icon: <CopyOutlined />, title: `${t('sidebar.menu.copy_table_structure')} · DDL` },
+          { action: 'copy-structure', icon: <CopyOutlined />, title: t('sidebar.menu.copy_table_structure') },
           ...(supportsCopyTable ? [{ action: 'copy-table' as const, icon: <CopyOutlined />, title: t('table_copy.action.label'), kbd: primaryShortcut('C', shortcutPlatform) }] : []),
-          ...(supportsSqlExport ? [{ action: 'copy-insert' as const, icon: <CopyOutlined />, title: t('sidebar.v2_table_menu.copy_table_as_insert', { keyword: 'INSERT' }) }] : []),
+          ...(supportsSqlExport ? [{ action: 'copy-insert' as const, icon: <CopyOutlined />, title: t('sidebar.v2_table_menu.copy_table_as_insert') }] : []),
         ])}
 
         <div className="gn-v2-context-menu-section-title">{t('sidebar.v2_table_menu.maintenance_section')}</div>

@@ -24,7 +24,7 @@ describe('table context menu clipboard shortcuts', () => {
 
     expect(shortcutOf(findItem(t('sidebar.v2_table_menu.copy_table_name')))).toBe(nameShortcut);
     expect(shortcutOf(findItem(t('table_copy.action.label')))).toBe(tableShortcut);
-    expect(findItem(`${t('sidebar.menu.copy_table_structure')} · DDL`).findAllByProps({ className: 'gn-v2-context-menu-kbd' })).toHaveLength(0);
+    expect(findItem(t('sidebar.menu.copy_table_structure')).findAllByProps({ className: 'gn-v2-context-menu-kbd' })).toHaveLength(0);
     act(() => renderer.unmount());
   });
 });

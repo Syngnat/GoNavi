@@ -274,7 +274,7 @@ export const useSidebarTableAndViewActions = ({
       : (safeTableParts.length > 0 ? safeTableParts : [safeTable]).map(part => `\`${part.replace(/`/g, '``')}\``).join('.');
     addTab({
       id: `query-create-starrocks-rollup-${Date.now()}`,
-      title: t('sidebar.v2_table_menu.new_rollup', { keyword: 'Rollup' }),
+      title: t('sidebar.v2_table_menu.new_rollup'),
       type: 'query',
       connectionId: id,
       dbName,

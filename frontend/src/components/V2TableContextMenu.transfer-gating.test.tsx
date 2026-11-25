@@ -12,8 +12,8 @@ import { registryAllowsImport } from '../utils/dataSourceRegistry';
 import { createTableExportFormatOptions } from './tableExport/tableExportWorkbenchOptions';
 import { decodeSavedConnectionViews } from './data-sync/wailsDtoMetadata';
 
-const sqlDumpTitle = t('sidebar.v2_table_menu.backup_sql_dump', { keyword: 'SQL Dump' });
-const copyInsertTitle = t('sidebar.v2_table_menu.copy_table_as_insert', { keyword: 'INSERT' });
+const sqlDumpTitle = t('sidebar.v2_table_menu.backup_sql_dump');
+const copyInsertTitle = t('sidebar.v2_table_menu.copy_table_as_insert');
 const runSqlFileTitle = t('sidebar.sql_file_exec.title');
 
 describe('transfer entry gating for data sources without SQL round-trips', () => {
