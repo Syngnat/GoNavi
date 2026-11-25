@@ -403,6 +403,7 @@ export const useTableDesignerSaveActions = ({
             const sql = buildAlterTablePreviewSql({
                 dbType: tableInfo.dbType,
                 tableName: tableInfo.qualifiedName,
+                foldUnquotedIdentifiers: tableInfo.foldUnquotedIdentifiers,
                 originalColumns,
                 columns,
                 charset,

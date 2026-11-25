@@ -6,7 +6,10 @@ import {
   isOracleLikeDialect,
   isPgLikeDialect,
 } from '../utils/sqlDialect';
-import { splitQualifiedNameLast } from '../utils/qualifiedName';
+import {
+  splitQualifiedNameLast,
+  splitQualifiedNameSegmentsDetailed,
+} from '../utils/qualifiedName';
 import { type I18nParams, t as translateCatalog } from '../i18n';
 
 export type SchemaSqlTranslator = (key: string, params?: I18nParams) => string;
@@ -31,6 +34,11 @@ export interface BuildAlterTablePreviewInput {
   tableName: string;
   originalColumns: EditableColumnSnapshot[];
   columns: EditableColumnSnapshot[];
+  /**
+   * OceanBase Oracle 元数据可能把未定界对象返回成小写；Oracle 裸名会折叠成大写，
+   * 因此生成 DDL 前先把未显式加引号的标识符折叠为大写。
+   */
+  foldUnquotedIdentifiers?: boolean;
   /**
    * 表级默认字符集/排序规则。只有 MySQL 系支持原地修改，且改动会重写整表，
    * 因此仅在显式给出且与当前值不同时才生成 CONVERT TO。
@@ -165,6 +173,17 @@ export const translateSchemaSqlComment = (
 };
 
 export const stripIdentifierQuotes = unquoteSqlIdentifierPart;
+
+export const foldUnquotedOracleIdentifierPath = (path: string): string => (
+  splitQualifiedNameSegmentsDetailed(String(path || ''), 'oracle')
+    .filter((segment) => Boolean(segment.value))
+    .map((segment) => (
+      segment.quoted
+        ? segment.raw
+        : String(segment.value).replace(/[a-z]/g, (char) => char.toUpperCase())
+    ))
+    .join('.')
+);
 
 export const splitQualifiedName = (qualifiedName: string): { schemaName: string; objectName: string } => {
   const parsed = splitQualifiedNameLast(qualifiedName);

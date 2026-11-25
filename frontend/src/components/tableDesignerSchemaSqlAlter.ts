@@ -28,6 +28,7 @@ import {
   buildSqlServerColumnCommentSql,
   collectPrimaryKeyColumnKeys,
   defaultDefinitionChanged,
+  foldUnquotedOracleIdentifierPath,
 } from './tableDesignerSchemaSqlColumns';
 import { buildInformixAlterPreviewSql } from './tableDesignerSchemaSqlInformix';
 import { buildFirebirdAlterPreviewSql } from './tableDesignerSchemaSqlFirebird';
@@ -481,7 +482,21 @@ const buildLimitedBacktickAlterPreviewSql = (input: BuildAlterTablePreviewInput,
   return statements.join('\n');
 };
 
-export const buildAlterTablePreviewSql = (input: BuildAlterTablePreviewInput): string => {
+export const buildAlterTablePreviewSql = (rawInput: BuildAlterTablePreviewInput): string => {
+  const input = rawInput.foldUnquotedIdentifiers
+    ? {
+      ...rawInput,
+      tableName: foldUnquotedOracleIdentifierPath(rawInput.tableName),
+      originalColumns: rawInput.originalColumns.map((column) => ({
+        ...column,
+        name: foldUnquotedOracleIdentifierPath(column.name),
+      })),
+      columns: rawInput.columns.map((column) => ({
+        ...column,
+        name: foldUnquotedOracleIdentifierPath(column.name),
+      })),
+    }
+    : rawInput;
   const dbType = resolveSqlDialect(input.dbType);
   if (getDataSourceDialectFamily(dbType) === 'informix') return buildInformixAlterPreviewSql({ ...input, dbType }, dbType);
   if (getDataSourceDialectFamily(dbType) === 'firebird') return buildFirebirdAlterPreviewSql({ ...input, dbType }, dbType);

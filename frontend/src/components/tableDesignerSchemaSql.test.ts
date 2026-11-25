@@ -33,6 +33,7 @@ const baseColumn = (overrides: Partial<EditableColumnSnapshot>): EditableColumnS
 const buildInput = (overrides: Partial<BuildAlterTablePreviewInput>): BuildAlterTablePreviewInput => ({
   dbType: overrides.dbType || 'mysql',
   tableName: overrides.tableName || 'users',
+  foldUnquotedIdentifiers: overrides.foldUnquotedIdentifiers,
   originalColumns: overrides.originalColumns || [baseColumn({ _key: 'id', name: 'id', key: 'PRI', nullable: 'NO' })],
   columns: overrides.columns || [
     baseColumn({ _key: 'id', name: 'id', key: 'PRI', nullable: 'NO' }),
@@ -413,6 +414,38 @@ describe('tableDesignerSchemaSql', () => {
     expect(sql).not.toContain('`');
     expect(sql).not.toContain('CHANGE COLUMN');
     expect(sql).not.toContain('AUTO_INCREMENT');
+  });
+
+  it('folds unquoted OceanBase Oracle identifiers before generating alter SQL', () => {
+    const sql = buildAlterTablePreviewSql(buildInput({
+      dbType: 'oracle',
+      tableName: 'h2.t_ware',
+      foldUnquotedIdentifiers: true,
+      originalColumns: [
+        baseColumn({ _key: 'id', name: 'id', type: 'NUMBER(10)', nullable: 'NO', key: 'PRI' }),
+      ],
+      columns: [
+        baseColumn({ _key: 'id', name: 'id', type: 'NUMBER(10)', nullable: 'NO', key: 'PRI' }),
+        baseColumn({ _key: 'ware_name', name: 'ware_name', type: 'VARCHAR2(255)', nullable: 'YES' }),
+      ],
+    }));
+
+    expect(sql).toContain('ALTER TABLE H2.T_WARE\nADD (WARE_NAME VARCHAR2(255));');
+    expect(sql).not.toContain('"');
+  });
+
+  it('keeps explicit OceanBase Oracle delimiters when folding bare identifiers', () => {
+    const sql = buildAlterTablePreviewSql(buildInput({
+      dbType: 'oracle',
+      tableName: '"h2"."t_ware"',
+      foldUnquotedIdentifiers: true,
+      originalColumns: [],
+      columns: [
+        baseColumn({ _key: 'ware_name', name: '"ware_name"', type: 'VARCHAR2(255)', nullable: 'YES' }),
+      ],
+    }));
+
+    expect(sql).toContain('ALTER TABLE "h2"."t_ware"\nADD ("ware_name" VARCHAR2(255));');
   });
 
   it('builds sqlserver alter preview with sp_rename and alter column syntax', () => {

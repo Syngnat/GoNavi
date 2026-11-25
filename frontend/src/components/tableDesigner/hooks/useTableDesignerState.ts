@@ -17,6 +17,7 @@ import {
     type TDengineTableKind,
     hasAlterTableDraftChanges,
 } from '../../tableDesignerSchemaSql';
+import { foldUnquotedOracleIdentifierPath } from '../../tableDesignerSchemaSqlColumns';
 import { useStore } from '../../../store';
 import { useTableDesignerI18nLanguage } from '../TableDesignerTableParts';
 import { resolveDataTableVerticalBorderRule } from '../../../utils/dataGridDisplay';
@@ -181,17 +182,6 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
 
     const lacksAlterForeignKeySupport = (dbType: string): boolean => dbType === 'sqlite' || dbType === 'duckdb' || dbType === 'tdengine';
 
-    // 这两个封装是表设计器里所有标识符引用的唯一出口。dbType 已经由
-    // getDbType() 按连接协议归一（OceanBase Oracle 协议 → oracle），
-    // 因此这里只需把归一后的方言继续传给引用函数即可。
-    const quoteIdentifierPartByDialect = (part: string, dbType: string): string => {
-        return quoteSqlIdentifierPart(dbType, part);
-    };
-
-    const quoteIdentifierPathByDialect = (path: string, dbType: string): string => {
-        return quoteSqlIdentifierPath(dbType, path);
-    };
-
     const getDbType = (): string => {
       const conn = connections.find(c => c.id === tab.connectionId);
       const rawType = String(conn?.config?.type || '').trim();
@@ -199,6 +189,34 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
       return resolveSqlDialect(rawType, String(conn?.config?.driver || ''), {
         oceanBaseProtocol: conn?.config?.oceanBaseProtocol,
       });
+    };
+
+    // OceanBase Oracle 的对象元数据可能返回未定界的小写名；Oracle 裸名会折叠成
+    // 大写，继续按大小写敏感规则加双引号会生成不存在的对象。
+    const shouldFoldUnquotedIdentifiers = (): boolean => {
+      const conn = connections.find(c => c.id === tab.connectionId);
+      const rawType = String(conn?.config?.type || '').trim().toLowerCase();
+      const driver = String(conn?.config?.driver || '').trim().toLowerCase();
+      const source = rawType === 'custom' ? driver : rawType;
+      return source === 'oceanbase' && getDbType() === 'oracle';
+    };
+
+    // 这两个封装是表设计器里所有标识符引用的唯一出口。dbType 已经由
+    // getDbType() 按连接协议归一（OceanBase Oracle 协议 → oracle），
+    // 因此这里只需把归一后的方言继续传给引用函数即可；OceanBase Oracle
+    // 额外折叠未显式定界的标识符。
+    const quoteIdentifierPartByDialect = (part: string, dbType: string): string => {
+        return quoteSqlIdentifierPart(
+            dbType,
+            shouldFoldUnquotedIdentifiers() ? foldUnquotedOracleIdentifierPath(part) : part,
+        );
+    };
+
+    const quoteIdentifierPathByDialect = (path: string, dbType: string): string => {
+        return quoteSqlIdentifierPath(
+            dbType,
+            shouldFoldUnquotedIdentifiers() ? foldUnquotedOracleIdentifierPath(path) : path,
+        );
     };
 
     const isTDengineNewTable = isNewTable && getDbType() === 'tdengine';
@@ -215,6 +233,7 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
         return {
             dbType,
             ...resolved,
+            foldUnquotedIdentifiers: shouldFoldUnquotedIdentifiers(),
             tableRef: quoteIdentifierPathByDialect(resolved.qualifiedName, dbType),
         };
     };
@@ -236,6 +255,7 @@ export const useTableDesignerState = ({ tab }: UseTableDesignerStateInput) => {
         return {
             dbType,
             ...resolved,
+            foldUnquotedIdentifiers: shouldFoldUnquotedIdentifiers(),
             tableRef: quoteIdentifierPathByDialect(resolved.qualifiedName, dbType),
         };
     };
