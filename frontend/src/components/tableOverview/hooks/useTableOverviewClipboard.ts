@@ -48,7 +48,7 @@ export const useTableOverviewClipboard = ({
     connectionIds: connections.map((item) => item.id),
     activeShortcutPlatform,
     blocked: blocked || Boolean(activeTabId && activeTabId !== tab.id),
-    onCopyTables: async (sourceNodes) => {
+    onCopyTables: async (sourceNodes, _target, options) => {
       const source = sourceNodes[0]?.dataRef;
       const sourceConnection = connections.find((item) => item.id === source?.id);
       if (!source || !sourceConnection) return;
@@ -62,6 +62,7 @@ export const useTableOverviewClipboard = ({
         dbName: source.dbName,
         sourceSchemaName: source.schemaName,
         sourceTableNames: tableNames,
+        skipConfirmation: options?.skipConfirmation === true,
         onSuccess: async (targets) => {
           dispatchSidebarTableCreated({
             connectionId: sourceConnection.id, dbName: source.dbName,

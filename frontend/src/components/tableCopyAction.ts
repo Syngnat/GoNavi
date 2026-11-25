@@ -22,6 +22,7 @@ type ConfirmCopyTableOptions = {
   sourceSchemaName?: string;
   sourceTableName: string;
   onSuccess?: (targetTableName: string) => void | Promise<void>;
+  skipConfirmation?: boolean;
 };
 
 type ConfirmCopyTablesOptions = {
@@ -30,6 +31,7 @@ type ConfirmCopyTablesOptions = {
   sourceSchemaName?: string;
   sourceTableNames: string[];
   onSuccess?: (targetTableNames: string[]) => void | Promise<void>;
+  skipConfirmation?: boolean;
 };
 
 const resolveCopyTableBackend = (): CopyTableBackend | null => {
@@ -41,61 +43,72 @@ const resolveCopyTableBackend = (): CopyTableBackend | null => {
     : null;
 };
 
-export const confirmCopyTable = ({
+const executeCopyTable = async ({
   config,
   dbName,
   sourceSchemaName = '',
   sourceTableName,
   onSuccess,
-}: ConfirmCopyTableOptions): void => {
+}: ConfirmCopyTableOptions): Promise<void> => {
   const source = String(sourceTableName || '').trim();
   if (!source) return;
+
+  const copyTable = resolveCopyTableBackend();
+  if (!copyTable) {
+    const error = t('table_copy.message.backend_unavailable');
+    message.error(error);
+    throw new Error(error);
+  }
+
+  const hide = message.loading(t('table_copy.message.loading', { source }), 0);
+  try {
+    const result = await copyTable(config, dbName, sourceSchemaName, source);
+    if (!result?.success) {
+      throw new Error(result?.message || t('common.unknown'));
+    }
+
+    const target = String(result.data || '').trim();
+    if (!target) {
+      throw new Error(t('table_copy.message.target_missing'));
+    }
+
+    if (onSuccess) {
+      try {
+        await onSuccess(target);
+      } catch (error: any) {
+        message.warning(t('table_copy.message.refresh_failed', {
+          target,
+          error: error?.message || String(error),
+        }));
+      }
+    }
+    message.success(t('table_copy.message.success', { target }));
+  } catch (error: any) {
+    message.error(t('table_copy.message.failed', {
+      error: error?.message || String(error),
+    }));
+    throw error;
+  } finally {
+    hide();
+  }
+};
+
+export const confirmCopyTable = (options: ConfirmCopyTableOptions): void => {
+  const { skipConfirmation = false } = options;
+  const source = String(options.sourceTableName || '').trim();
+  if (!source) return;
+  const runCopyTable = () => executeCopyTable({ ...options, sourceTableName: source });
+  if (skipConfirmation) {
+    void runCopyTable().catch(() => undefined);
+    return;
+  }
 
   Modal.confirm({
     title: t('table_copy.modal.title'),
     content: t('table_copy.modal.content', { source, target: `${source}_copy1` }),
     okText: t('common.confirm'),
     cancelText: t('common.cancel'),
-    onOk: async () => {
-      const copyTable = resolveCopyTableBackend();
-      if (!copyTable) {
-        const error = t('table_copy.message.backend_unavailable');
-        message.error(error);
-        return Promise.reject(new Error(error));
-      }
-
-      const hide = message.loading(t('table_copy.message.loading', { source }), 0);
-      try {
-        const result = await copyTable(config, dbName, sourceSchemaName, source);
-        if (!result?.success) {
-          throw new Error(result?.message || t('common.unknown'));
-        }
-
-        const target = String(result.data || '').trim();
-        if (!target) {
-          throw new Error(t('table_copy.message.target_missing'));
-        }
-
-        if (onSuccess) {
-          try {
-            await onSuccess(target);
-          } catch (error: any) {
-            message.warning(t('table_copy.message.refresh_failed', {
-              target,
-              error: error?.message || String(error),
-            }));
-          }
-        }
-        message.success(t('table_copy.message.success', { target }));
-      } catch (error: any) {
-        message.error(t('table_copy.message.failed', {
-          error: error?.message || String(error),
-        }));
-        return Promise.reject(error);
-      } finally {
-        hide();
-      }
-    },
+    onOk: runCopyTable,
   });
 };
 
@@ -114,13 +127,94 @@ const formatCopyTableFailures = (
   return failures.length > 5 ? `${details}; …` : details;
 };
 
-export const confirmCopyTables = ({
-  config,
-  dbName,
-  sourceSchemaName = '',
-  sourceTableNames,
-  onSuccess,
-}: ConfirmCopyTablesOptions): void => {
+const executeCopyTables = async (
+  options: ConfirmCopyTablesOptions,
+  tables: string[],
+): Promise<void> => {
+  const {
+    config,
+    dbName,
+    sourceSchemaName = '',
+    onSuccess,
+  } = options;
+  const copyTable = resolveCopyTableBackend();
+  if (!copyTable) {
+    const error = t('table_copy.message.backend_unavailable');
+    message.error(error);
+    throw new Error(error);
+  }
+
+  const hide = message.loading(
+    t('table_copy.message.loading_multiple', { count: tables.length }),
+    0,
+  );
+  const targets: string[] = [];
+  const failures: Array<{ source: string; error: string }> = [];
+  try {
+    for (const source of tables) {
+      try {
+        const result = await copyTable(config, dbName, sourceSchemaName, source);
+        if (!result?.success) {
+          throw new Error(result?.message || t('common.unknown'));
+        }
+        const target = String(result.data || '').trim();
+        if (!target) {
+          throw new Error(t('table_copy.message.target_missing'));
+        }
+        targets.push(target);
+      } catch (error: any) {
+        failures.push({
+          source,
+          error: error?.message || String(error),
+        });
+      }
+    }
+
+    if (onSuccess && targets.length > 0) {
+      try {
+        await onSuccess(targets);
+      } catch (error: any) {
+        message.warning(t('table_copy.message.refresh_failed_multiple', {
+          count: targets.length,
+          error: error?.message || String(error),
+        }));
+      }
+    }
+
+    if (failures.length === 0) {
+      message.success(t('table_copy.message.success_multiple', {
+        count: targets.length,
+      }));
+      return;
+    }
+
+    const details = formatCopyTableFailures(failures);
+    if (targets.length === 0) {
+      message.error(t('table_copy.message.failed_multiple', {
+        count: tables.length,
+        details,
+      }));
+      throw new Error(details);
+    }
+    message.warning(t('table_copy.message.partial', {
+      success: targets.length,
+      failed: failures.length,
+      details,
+    }));
+  } finally {
+    hide();
+  }
+};
+
+export const confirmCopyTables = (options: ConfirmCopyTablesOptions): void => {
+  const {
+    config,
+    dbName,
+    sourceSchemaName = '',
+    sourceTableNames,
+    onSuccess,
+    skipConfirmation = false,
+  } = options;
   const tables = Array.from(new Set(
     (Array.isArray(sourceTableNames) ? sourceTableNames : [])
       .map((table) => String(table || '').trim())
@@ -133,10 +227,24 @@ export const confirmCopyTables = ({
       dbName,
       sourceSchemaName,
       sourceTableName: tables[0],
+      skipConfirmation,
       onSuccess: onSuccess
         ? async (target) => onSuccess([target])
         : undefined,
     });
+    return;
+  }
+
+  const copyOptions: ConfirmCopyTablesOptions = {
+    config,
+    dbName,
+    sourceSchemaName,
+    sourceTableNames: tables,
+    onSuccess,
+    skipConfirmation,
+  };
+  if (skipConfirmation) {
+    void executeCopyTables(copyOptions, tables).catch(() => undefined);
     return;
   }
 
@@ -148,74 +256,6 @@ export const confirmCopyTables = ({
     }),
     okText: t('common.confirm'),
     cancelText: t('common.cancel'),
-    onOk: async () => {
-      const copyTable = resolveCopyTableBackend();
-      if (!copyTable) {
-        const error = t('table_copy.message.backend_unavailable');
-        message.error(error);
-        return Promise.reject(new Error(error));
-      }
-
-      const hide = message.loading(
-        t('table_copy.message.loading_multiple', { count: tables.length }),
-        0,
-      );
-      const targets: string[] = [];
-      const failures: Array<{ source: string; error: string }> = [];
-      try {
-        for (const source of tables) {
-          try {
-            const result = await copyTable(config, dbName, sourceSchemaName, source);
-            if (!result?.success) {
-              throw new Error(result?.message || t('common.unknown'));
-            }
-            const target = String(result.data || '').trim();
-            if (!target) {
-              throw new Error(t('table_copy.message.target_missing'));
-            }
-            targets.push(target);
-          } catch (error: any) {
-            failures.push({
-              source,
-              error: error?.message || String(error),
-            });
-          }
-        }
-
-        if (onSuccess && targets.length > 0) {
-          try {
-            await onSuccess(targets);
-          } catch (error: any) {
-            message.warning(t('table_copy.message.refresh_failed_multiple', {
-              count: targets.length,
-              error: error?.message || String(error),
-            }));
-          }
-        }
-
-        if (failures.length === 0) {
-          message.success(t('table_copy.message.success_multiple', {
-            count: targets.length,
-          }));
-          return;
-        }
-
-        const details = formatCopyTableFailures(failures);
-        if (targets.length === 0) {
-          message.error(t('table_copy.message.failed_multiple', {
-            count: tables.length,
-            details,
-          }));
-          return Promise.reject(new Error(details));
-        }
-        message.warning(t('table_copy.message.partial', {
-          success: targets.length,
-          failed: failures.length,
-          details,
-        }));
-      } finally {
-        hide();
-      }
-    },
+    onOk: () => executeCopyTables(copyOptions, tables),
   });
 };

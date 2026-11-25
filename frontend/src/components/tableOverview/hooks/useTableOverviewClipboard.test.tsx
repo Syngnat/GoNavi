@@ -101,7 +101,10 @@ describe('table clipboard across overview and sidebar', () => {
     expect((await fire('overview', 'c')).defaultPrevented).toBe(true);
     expect((await fire('overview', 'v')).defaultPrevented).toBe(true);
     expect(mocks.copyTables).toHaveBeenCalledWith(expect.objectContaining({
-      dbName: 'shop', sourceTableNames: ['orders', 'customers'], sourceSchemaName: '',
+      dbName: 'shop',
+      sourceTableNames: ['orders', 'customers'],
+      sourceSchemaName: '',
+      skipConfirmation: true,
     }));
     expect(mocks.confirmMutation).toHaveBeenCalledTimes(1);
   });
@@ -111,7 +114,10 @@ describe('table clipboard across overview and sidebar', () => {
     selectedNames = [];
     await render();
     await fire('overview', 'v');
-    expect(mocks.copyTables).toHaveBeenCalledWith(expect.objectContaining({ sourceTableNames: ['orders'] }));
+    expect(mocks.copyTables).toHaveBeenCalledWith(expect.objectContaining({
+      sourceTableNames: ['orders'],
+      skipConfirmation: true,
+    }));
   });
 
   it('pastes overview selections back into the sidebar', async () => {

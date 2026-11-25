@@ -28,6 +28,10 @@ export type SidebarTableClipboardTarget = {
   schema: string;
 };
 
+export type SidebarTableCopyOptions = {
+  skipConfirmation?: boolean;
+};
+
 export type SidebarTableClipboardCommand =
   | { kind: 'none' }
   | { kind: 'copy'; entries: SidebarTableClipboardEntry[] }
@@ -337,7 +341,11 @@ export type UseSidebarTableClipboardInput = {
   selectedNodesRef: MutableRefObject<any[]>;
   connectionIds: string[];
   activeShortcutPlatform: ShortcutPlatform;
-  onCopyTables: (nodes: any[], target?: SidebarTableClipboardTarget) => void;
+  onCopyTables: (
+    nodes: any[],
+    target?: SidebarTableClipboardTarget,
+    options?: SidebarTableCopyOptions,
+  ) => void;
   onOpenDataSyncWorkbench?: (entryMode: 'sync', prefill: DataSyncPastePrefill) => void;
   blocked?: boolean;
 };

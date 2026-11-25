@@ -161,6 +161,7 @@ export const useSidebarCopyExportActions = ({
   const handleCopyTables = async (
     nodes: any[],
     target?: SidebarTableClipboardTarget,
+    options?: { skipConfirmation?: boolean },
   ) => {
     const selectedNodes = Array.isArray(nodes) ? nodes : [];
     const viewNodes = selectedNodes.filter((node) => (
@@ -208,6 +209,7 @@ export const useSidebarCopyExportActions = ({
       dbName: String(conn.dbName || ''),
       sourceSchemaName: String(conn.schemaName || ''),
       sourceTableNames: tableNames,
+      skipConfirmation: options?.skipConfirmation === true,
       onSuccess: async (targetTableNames) => {
         dispatchSidebarTableCreated({
           connectionId: String(conn.id || ''),
@@ -222,7 +224,8 @@ export const useSidebarCopyExportActions = ({
   const handleCopyTable = async (
     node: any,
     target?: SidebarTableClipboardTarget,
-  ) => handleCopyTables([node], target);
+    options?: { skipConfirmation?: boolean },
+  ) => handleCopyTables([node], target, options);
 
   // 整库复制：与复制表同一套交互（确认 → 执行 → 刷新树）。
   const handleCopyDatabase = async (node: any) => {

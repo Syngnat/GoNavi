@@ -129,7 +129,7 @@ describe('useSidebarTableClipboard DOM events', () => {
       connectionId: 'conn-a',
       database: 'shop',
       schema: '',
-    });
+    }, { skipConfirmation: true });
   });
 
   it('copies and pastes multiple selected tables as one batch', () => {
@@ -158,7 +158,7 @@ describe('useSidebarTableClipboard DOM events', () => {
       connectionId: 'conn-a',
       database: 'shop',
       schema: '',
-    });
+    }, { skipConfirmation: true });
   });
 
   it('pastes immediately when the copied table rows are still selected', () => {
@@ -181,7 +181,7 @@ describe('useSidebarTableClipboard DOM events', () => {
       connectionId: 'conn-a',
       database: 'shop',
       schema: '',
-    });
+    }, { skipConfirmation: true });
   });
 
   it('does not hijack native copy or paste from an input inside the sidebar', () => {

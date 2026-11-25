@@ -102,6 +102,34 @@ describe('confirmCopyTable', () => {
     expect(mocks.hide).toHaveBeenCalledOnce();
   });
 
+  it('copies a table immediately when paste skips the confirmation modal', async () => {
+    const onSuccess = vi.fn();
+    mocks.copyTable.mockResolvedValue({
+      success: true,
+      data: 'orders_copy1',
+    });
+
+    confirmCopyTable({
+      config: { type: 'mysql' },
+      dbName: 'sales',
+      sourceTableName: 'orders',
+      onSuccess,
+      skipConfirmation: true,
+    });
+
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(mocks.copyTable).toHaveBeenCalledWith(
+        { type: 'mysql' },
+        'sales',
+        '',
+        'orders',
+      );
+      expect(onSuccess).toHaveBeenCalledWith('orders_copy1');
+    });
+    expect(mocks.success).toHaveBeenCalledWith('整表复制成功：orders_copy1');
+  });
+
   it('confirms once, copies multiple tables and refreshes after the batch', async () => {
     const onSuccess = vi.fn();
     mocks.copyTable
@@ -127,6 +155,28 @@ describe('confirmCopyTable', () => {
     expect(onSuccess).toHaveBeenCalledWith(['orders_copy1', 'customers_copy1']);
     expect(mocks.success).toHaveBeenCalledWith('已复制 2 张表');
     expect(mocks.hide).toHaveBeenCalledOnce();
+  });
+
+  it('copies a pasted table batch immediately without a confirmation modal', async () => {
+    const onSuccess = vi.fn();
+    mocks.copyTable
+      .mockResolvedValueOnce({ success: true, data: 'orders_copy1' })
+      .mockResolvedValueOnce({ success: true, data: 'customers_copy1' });
+
+    confirmCopyTables({
+      config: { type: 'mysql' },
+      dbName: 'sales',
+      sourceTableNames: ['orders', 'customers'],
+      onSuccess,
+      skipConfirmation: true,
+    });
+
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(mocks.copyTable).toHaveBeenCalledTimes(2);
+      expect(onSuccess).toHaveBeenCalledWith(['orders_copy1', 'customers_copy1']);
+    });
+    expect(mocks.success).toHaveBeenCalledWith('已复制 2 张表');
   });
 
   it('reports partial batch failures without keeping the confirmation open', async () => {

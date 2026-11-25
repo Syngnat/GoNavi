@@ -70,7 +70,12 @@ export const applySidebarTableClipboardCommand = (
       return;
     case 'paste-copy-table':
     case 'paste-copy-view':
-      state.onCopyTables(command.entries.map((entry) => entry.node), command.target);
+      // 粘贴是显式动作，直接执行；右键「复制整表」等显式复制仍保留确认弹窗。
+      state.onCopyTables(
+        command.entries.map((entry) => entry.node),
+        command.target,
+        { skipConfirmation: true },
+      );
       return;
     case 'paste-views-cross-connection':
       message.warning(t('sidebar.view_clipboard.same_connection_required'));
