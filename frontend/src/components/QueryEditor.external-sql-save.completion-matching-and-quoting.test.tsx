@@ -670,7 +670,10 @@ describe('QueryEditor external SQL save', () => {
     for (const [prefix, filterText] of [
       ['企业', '企业商品基本信息'],
       ['企业商品基本', '企业商品基本信息'],
+      ['企业商品基本信', '企业商品基本信息'],
       ['商品基本信息', '商品基本信息'],
+      ['商品基本信', '商品基本信息'],
+      ['商品基本', '商品基本信息'],
     ] as const) {
       editorState.value = `SELECT * FROM ${prefix}`;
       editorState.latestOnChange?.(editorState.value);
@@ -726,7 +729,7 @@ describe('QueryEditor external SQL save', () => {
 
     const sqlProvider = findSqlCompletionProvider();
     expect(sqlProvider).toBeTruthy();
-    for (const prefix of ['商品基本', '商品基', '商品基本信息']) {
+    for (const prefix of ['商品基本', '商品基本信', '商品基', '商品基本信息']) {
       editorState.value = `SELECT * FROM ${prefix}`;
       editorState.latestOnChange?.(editorState.value);
       const result = await sqlProvider.provideCompletionItems(

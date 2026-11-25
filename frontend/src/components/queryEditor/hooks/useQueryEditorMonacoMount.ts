@@ -16,6 +16,7 @@ import { createQueryEditorAiInlineGhostActions } from '../monaco/queryEditorAiIn
 import { createQueryEditorNavigationHover } from '../monaco/queryEditorNavigationHover';
 import { createQueryEditorImeAndDropHandlers } from '../monaco/queryEditorImeAndDropHandlers';
 import { bindQueryEditorEditorEvents } from '../monaco/queryEditorEditorEventBindings';
+import { bindQueryEditorCjkSuggestionRetrigger } from '../monaco/queryEditorCjkSuggestionRetrigger';
 import { bindQueryEditorMouseAndDispose } from '../monaco/queryEditorMouseAndDisposeBindings';
 import { registerQueryEditorKeyBindings } from '../monaco/queryEditorKeyBindings';
 import { registerQueryEditorSqlLanguageProviders } from '../monaco/queryEditorSqlLanguageProviders';
@@ -345,6 +346,12 @@ export const useQueryEditorMonacoMount = ({
             linkDecorationIdsRef, handleWindowBlur, handleSqlFieldDragEnd, editorDomNode,
             handleImeBeforeInput, handleImeCompositionStart, handleImeCompositionEnd,
             handleEditorDragOver, handleEditorDragLeave, handleEditorDrop,
+        });
+        bindQueryEditorCjkSuggestionRetrigger({
+            editor,
+            editorRef,
+            connectionsRef,
+            currentConnectionIdRef,
         });
 
         bindQueryEditorMouseAndDispose({
