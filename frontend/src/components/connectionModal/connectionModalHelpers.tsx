@@ -1,4 +1,5 @@
 import { Typography } from "antd";
+import type { CSSProperties } from "react";
 import type { ClickHouseProtocolChoice, OceanBaseProtocolChoice } from "./connectionModalUri";
 import {
   normalizeOceanBaseProtocol,
@@ -23,6 +24,17 @@ export const CONNECTION_MODAL_WIDTH_STEP1 = 760;
 export const CONNECTION_MODAL_WIDTH_STEP2 = 760;
 // 头部高度约 60px，主体固定为 700px，使弹窗整体（760×760）接近正方形。
 export const CONNECTION_MODAL_BODY_HEIGHT = 700;
+
+export const buildConnectionModalBodyStyle = (isFormStep: boolean): CSSProperties => ({
+  padding: 0,
+  height: isFormStep ? 0 : CONNECTION_MODAL_BODY_HEIGHT,
+  maxHeight: isFormStep ? "none" : undefined,
+  minHeight: isFormStep ? 0 : CONNECTION_MODAL_BODY_HEIGHT,
+  flex: isFormStep ? "1 1 auto" : undefined,
+  overflowY: "hidden",
+  overflowX: "hidden",
+});
+
 const REDIS_DEFAULT_DATABASE_COUNT = 16;
 const CONNECTION_MODAL_FOCUSABLE_SELECTOR = [
   'a[href]',

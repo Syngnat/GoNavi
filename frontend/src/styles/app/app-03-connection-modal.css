@@ -443,6 +443,13 @@
     padding-right: 0 !important;
 }
 
+/* 未手动拖拽时也必须给 form 弹窗一个确定高度，否则 ant-modal-body 会随内容
+   撑高后再被 max-height 裁掉，内部 gn-conn-form-main 永远拿不到滚动高度。 */
+.connection-modal-wrap.connection-modal-form .ant-modal-content {
+    height: min(780px, calc(100vh - 72px));
+    max-height: min(780px, calc(100vh - 72px));
+}
+
 /* 垂直拖拽后，表单内容区消费新增高度，底栏保持固定。 */
 .connection-modal-wrap.connection-modal-form .gn-resizable-draggable-modal[data-has-resized-height='true'] .ant-modal-content {
     height: var(--gn-modal-resized-height);
@@ -484,6 +491,17 @@
     width: 100%;
     min-height: 0;
     max-height: none;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-connection-content-stage {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-form {
+    height: 100%;
+    min-height: 0;
 }
 
 /* demo .f-row */

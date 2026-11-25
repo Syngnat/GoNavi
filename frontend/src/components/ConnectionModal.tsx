@@ -11,9 +11,9 @@ import { SavedConnection } from "../types";
 import SSHConnectionProgressPanel from "./connectionModal/SSHConnectionProgressPanel";
 import { ConnectionModalContent } from "./connectionModal/ConnectionModalContent";
 import {
-  CONNECTION_MODAL_BODY_HEIGHT,
   CONNECTION_MODAL_WIDTH_STEP2,
   CONNECTION_MODAL_WIDTH_STEP1,
+  buildConnectionModalBodyStyle,
 } from "./connectionModal/connectionModalHelpers";
 import { useConnectionModalState } from "./connectionModal/useConnectionModalState";
 import { useConnectionModalLifecycle } from "./connectionModal/useConnectionModalLifecycle";
@@ -589,15 +589,7 @@ const ConnectionModal: React.FC<ConnectionModalProps> = ({ open, onClose, initia
   });
 
   const isFormStep = step !== 1;
-  // Step2 对齐 demo `.frame-form { height: fit-content }`，避免固定 620 撑出大片空白
-  const modalBodyStyle = {
-    padding: 0,
-    height: isFormStep ? "auto" : CONNECTION_MODAL_BODY_HEIGHT,
-    maxHeight: isFormStep ? "min(780px, calc(100vh - 132px))" : undefined,
-    minHeight: isFormStep ? 0 : CONNECTION_MODAL_BODY_HEIGHT,
-    overflowY: "hidden" as const,
-    overflowX: "hidden" as const,
-  };
+  const modalBodyStyle = buildConnectionModalBodyStyle(isFormStep);
 
   return (
     <>
