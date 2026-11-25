@@ -125,4 +125,33 @@ describe('useSidebarBatchExport', () => {
       tableExportInitialObjectNames: ['users'],
     }));
   });
+
+  it('ignores menu event payloads and uses the selected tree table as the workbench context', () => {
+    const addTab = vi.fn();
+    const { openBatchTableWorkbench } = useSidebarBatchExport({
+      connections,
+      selectedNodesRef: {
+        current: [{
+          type: 'table',
+          title: 'users',
+          dataRef: { id: 'sql-1', dbName: 'app', tableName: 'users' },
+        }],
+      },
+      addTab,
+    });
+
+    openBatchTableWorkbench({
+      key: 'batch-tables',
+      keyPath: ['data-workflow', 'batch-tables'],
+      domEvent: { type: 'click' },
+    });
+
+    expect(addTab).toHaveBeenCalledWith(expect.objectContaining({
+      exportWorkbenchMode: 'batch-tables',
+      connectionId: 'sql-1',
+      dbName: 'app',
+      tableExportInitialObjectNames: ['users'],
+      tableExportLaunchKey: expect.stringMatching(/^batch-tables-/),
+    }));
+  });
 });

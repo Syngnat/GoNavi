@@ -165,9 +165,13 @@ vi.mock('antd', async () => {
   };
 });
 
-vi.mock('./common/ResizableDraggableModal', () => ({
-  default: { confirm: vi.fn() },
-}));
+vi.mock('./common/ResizableDraggableModal', async () => {
+  const { createElement } = await import('react');
+  const Modal = ({ children, footer, open }: any) => (
+    open ? createElement('div', { 'data-mock-modal': 'true' }, children, footer) : null
+  );
+  return { default: Object.assign(Modal, { confirm: vi.fn() }) };
+});
 
 vi.mock('@ant-design/icons', async () => {
   const { createElement } = await import('react');
@@ -232,6 +236,7 @@ describe('TableExportWorkbench', () => {
     mockUseExportProgressRunner.mockReset();
     mockProgressLogs = [];
     vi.mocked(DBGetColumns).mockReset();
+    vi.mocked(DBGetColumns).mockResolvedValue({ success: true, data: [{ name: 'id' }] } as any);
     vi.mocked(DBGetDatabases).mockReset();
     vi.mocked(DBGetTables).mockReset();
     vi.mocked(ClearTables).mockReset();

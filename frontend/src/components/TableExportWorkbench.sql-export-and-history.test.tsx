@@ -140,9 +140,13 @@ vi.mock('antd', async () => {
   };
 });
 
-vi.mock('./common/ResizableDraggableModal', () => ({
-  default: { confirm: vi.fn() },
-}));
+vi.mock('./common/ResizableDraggableModal', async () => {
+  const { createElement } = await import('react');
+  const Modal = ({ children, footer, open }: any) => (
+    open ? createElement('div', { 'data-mock-modal': 'true' }, children, footer) : null
+  );
+  return { default: Object.assign(Modal, { confirm: vi.fn() }) };
+});
 
 vi.mock('@ant-design/icons', async () => {
   const { createElement } = await import('react');
@@ -232,6 +236,10 @@ describe('TableExportWorkbench', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    if (typeof window !== 'undefined') {
+      delete (window as any).go;
+    }
   });
 
   it('passes the MariaDB table as the INSERT target for current-page SQL export', async () => {
@@ -563,6 +571,9 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(mockRunExportWithProgress).toHaveBeenCalledTimes(1);
@@ -587,7 +598,10 @@ describe('TableExportWorkbench', () => {
     vi.mocked(DBGetTables).mockResolvedValue({ success: true, data: [{ name: 'users' }] } as any);
     vi.mocked(DBGetColumns).mockResolvedValue({
       success: true,
-      data: [{ name: 'id' }, { name: 'email' }],
+      data: [
+        { name: 'id', type: 'bigint', comment: '主键' },
+        { name: 'email', type: 'varchar(255)', comment: '邮箱' },
+      ],
     } as any);
     vi.mocked(ExportTableWithOptions).mockResolvedValue({ success: true } as any);
 
@@ -614,16 +628,22 @@ describe('TableExportWorkbench', () => {
     });
 
     expect(DBGetColumns).toHaveBeenCalledWith(expect.anything(), 'SYS', 'users');
-    const columnSelect = renderer.root.findAllByType(Select).find((node) => (
-      node.props.mode === 'multiple'
-      && Array.isArray(node.props.options)
-      && node.props.options.some((option: { value?: string }) => option.value === 'email')
-    ));
-    expect(columnSelect?.props.value).toEqual(['id', 'email']);
+    const openColumnsButton = renderer.root.findByProps({ 'data-batch-columns-open': 'true' });
     await act(async () => {
-      columnSelect?.props.onChange(['id']);
+      openColumnsButton.props.onClick();
       await Promise.resolve();
     });
+    const idBubble = renderer.root.findByProps({ 'data-batch-column-bubble': 'id' });
+    const emailBubble = renderer.root.findByProps({ 'data-batch-column-bubble': 'email' });
+    expect(idBubble.props['data-selected']).toBe('true');
+    expect(idBubble.props.title).toContain('bigint');
+    expect(idBubble.props.title).toContain('主键');
+    expect(emailBubble.props['data-selected']).toBe('true');
+    await act(async () => {
+      emailBubble.props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'data-batch-column-bubble': 'email' }).props['data-selected']).toBe('false');
 
     const startButton = renderer.root.findAllByType(Button).find((node) => (
       node.props.type === 'primary' && node.props.size === 'large'
@@ -674,6 +694,7 @@ describe('TableExportWorkbench', () => {
             dbName: 'SYS',
             tableExportInitialObjectNames: ['users', 'orders'],
             tableExportInitialFormat: 'xlsx',
+            tableExportContentMode: 'schema',
           }}
         />,
       );
@@ -692,6 +713,60 @@ describe('TableExportWorkbench', () => {
     renderer.unmount();
   });
 
+  it('defaults a generic batch table workbench to data export and exposes per-table fields', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
+    vi.mocked(DBGetTables).mockResolvedValue({
+      success: true,
+      data: [{ name: 'users' }, { name: 'orders' }],
+    } as any);
+    vi.mocked(DBGetColumns).mockImplementation(async (_config: any, _dbName: string, tableName: string) => ({
+      success: true,
+      data: tableName === 'users'
+        ? [{ name: 'id' }, { name: 'name' }]
+        : [{ name: 'order_id' }, { name: 'total' }],
+    } as any));
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-tables-conn-1-SYS',
+            title: '批量处理表',
+            type: 'table-export',
+            exportWorkbenchMode: 'batch-tables',
+            connectionId: 'conn-1',
+            dbName: 'SYS',
+            tableExportInitialObjectNames: ['users', 'orders'],
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(DBGetColumns).toHaveBeenCalledWith(expect.anything(), 'SYS', 'users');
+    expect(DBGetColumns).toHaveBeenCalledWith(expect.anything(), 'SYS', 'orders');
+
+    const openColumnsButton = renderer.root.findByProps({ 'data-batch-columns-open': 'true' });
+    await act(async () => {
+      openColumnsButton.props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(renderer.root.findByProps({ 'data-batch-column-bubble': 'name' }).props['data-selected']).toBe('true');
+    await act(async () => {
+      renderer.root.findByProps({ 'data-batch-columns-table': 'orders' }).props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'data-batch-column-bubble': 'total' }).props['data-selected']).toBe('true');
+
+    renderer.unmount();
+  });
+
   it('loads per-table columns for multi-table SQL data export and passes every selected field set', async () => {
     mockProgressRunnerState = createIdleProgressRunnerState();
     vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
@@ -705,6 +780,18 @@ describe('TableExportWorkbench', () => {
         ? [{ name: 'id' }, { name: 'name' }]
         : [{ name: 'order_id' }, { name: 'total' }],
     } as any));
+    vi.stubGlobal('window', {
+      go: {
+        app: {
+          App: {
+            DBGetTableInfo: vi.fn(async (_config: any, _dbName: string, _schemaName: string, tableName: string) => ({
+              success: true,
+              data: { comment: tableName === 'users' ? '用户表' : '订单表' },
+            })),
+          },
+        },
+      },
+    });
     vi.mocked(ExportTablesSQLWithOptions).mockResolvedValue({ success: true } as any);
 
     let renderer!: ReactTestRenderer;
@@ -727,18 +814,32 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
-    });
-
-    const usersColumnSelect = renderer.root.findByProps({ 'data-batch-table-columns': 'users' })
-      .findAllByType(Select)[0];
-    const ordersColumnSelect = renderer.root.findByProps({ 'data-batch-table-columns': 'orders' })
-      .findAllByType(Select)[0];
-    expect(usersColumnSelect?.props.value).toEqual(['id', 'name']);
-    expect(ordersColumnSelect?.props.value).toEqual(['order_id', 'total']);
-    await act(async () => {
-      usersColumnSelect?.props.onChange(['id']);
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
     });
+
+    const openColumnsButton = renderer.root.findByProps({ 'data-batch-columns-open': 'true' });
+    await act(async () => {
+      openColumnsButton.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const nameBubble = renderer.root.findByProps({ 'data-batch-column-bubble': 'name' });
+    expect(nameBubble.props['data-selected']).toBe('true');
+    await act(async () => {
+      nameBubble.props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'data-batch-column-bubble': 'name' }).props['data-selected']).toBe('false');
+
+    await act(async () => {
+      renderer.root.findByProps({ 'data-batch-columns-table': 'orders' }).props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'data-batch-column-bubble': 'total' }).props['data-selected']).toBe('true');
+    expect(renderer.root.findByProps({ 'data-batch-columns-table-comment': 'users' }).props.title).toBe('用户表');
 
     const startButton = renderer.root.findAllByType(Button).find((node) => (
       node.props.type === 'primary' && node.props.size === 'large'

@@ -21,6 +21,30 @@ const isBatchWorkbenchConnection = (connection: SavedConnection | undefined): co
   !!connection && getDataSourceCapabilities(connection.config).supportsSqlQueryExport
 );
 
+const BATCH_WORKBENCH_NODE_TYPES = new Set([
+  'connection',
+  'database',
+  'table',
+  'view',
+  'materialized-view',
+]);
+
+const isBatchWorkbenchTreeNode = (value: any): boolean => (
+  !!value
+  && typeof value === 'object'
+  && (
+    (!!value.dataRef && typeof value.dataRef === 'object')
+    || BATCH_WORKBENCH_NODE_TYPES.has(String(value.type || '').trim())
+  )
+);
+
+const resolveBatchWorkbenchSelection = (
+  selectedNodesRef: MutableRefObject<any[]>,
+  node?: any,
+): any[] => (
+  isBatchWorkbenchTreeNode(node) ? [node] : selectedNodesRef.current
+);
+
 export const resolveBatchWorkbenchContext = (
   selectedNodes: any[],
   connections: SavedConnection[],
@@ -119,7 +143,7 @@ export const useSidebarBatchExport = ({
   };
 
   const openBatchTableWorkbench = (node?: any) => {
-    const selectedNodes = node ? [node] : selectedNodesRef.current;
+    const selectedNodes = resolveBatchWorkbenchSelection(selectedNodesRef, node);
     const { connectionId, dbName } = resolveBatchWorkbenchContext(selectedNodes, connections);
     const initialObjectNames = selectedNodes
       .filter((item) => item?.type === 'table' || item?.type === 'view' || item?.type === 'materialized-view')
@@ -128,18 +152,14 @@ export const useSidebarBatchExport = ({
     addTab(buildBatchTableExportWorkbenchTab({
       connectionId,
       dbName: dbName || undefined,
-      ...(initialObjectNames.length > 0
-        ? {
-          initialObjectNames,
-          launchKey: createTableExportKey('batch-tables'),
-        }
-        : {}),
+      ...(initialObjectNames.length > 0 ? { initialObjectNames } : {}),
+      launchKey: createTableExportKey('batch-tables'),
       title: t('sidebar.action.batch_tables'),
     }));
   };
 
   const openBatchDatabaseWorkbench = (node?: any) => {
-    const selectedNodes = node ? [node] : selectedNodesRef.current;
+    const selectedNodes = resolveBatchWorkbenchSelection(selectedNodesRef, node);
     const { connectionId } = resolveBatchWorkbenchContext(selectedNodes, connections);
     addTab(buildBatchDatabaseExportWorkbenchTab({
       connectionId,
@@ -148,7 +168,7 @@ export const useSidebarBatchExport = ({
   };
 
   const openBatchConnectionWorkbench = (node?: any) => {
-    const selectedNodes = node ? [node] : selectedNodesRef.current;
+    const selectedNodes = resolveBatchWorkbenchSelection(selectedNodesRef, node);
     addTab(buildBatchConnectionWorkbenchTab({
       title: t('sidebar.action.batch_connections'),
       initialConnectionIds: resolveBatchConnectionIds(selectedNodes, connections),

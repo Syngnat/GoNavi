@@ -263,6 +263,7 @@ const TableExportWorkbenchBody: React.FC<TableExportWorkbenchBodyProps> = ({ tab
                 setBatchTableMode={setBatchTableMode} batchTableModeMeta={batchTableModeMeta}
                 format={format} setFormat={setFormat}
                 supportsSqlFormat={connectionCapabilities.supportsSqlQueryExport}
+                connectionConfig={connectionConfig}
                 batchTableColumnStates={batchTableColumnStates}
                 setBatchTableSelectedColumns={setBatchTableSelectedColumns}
                 xlsxMaxRowsPerSheet={xlsxMaxRowsPerSheet}

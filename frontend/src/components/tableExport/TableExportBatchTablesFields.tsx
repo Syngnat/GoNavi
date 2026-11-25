@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Tooltip, Select, Button, Checkbox, Alert, InputNumber } from 'antd';
 import { t } from '../../i18n';
 import { filterOptionByLabel } from './tableExportWorkbenchModel';
@@ -7,12 +8,11 @@ import {
   type BatchTableExportMode,
 } from './tableExportWorkbenchOptions';
 import {
-  DataExportColumnSelect,
   DEFAULT_XLSX_ROWS_PER_SHEET,
   MAX_XLSX_ROWS_PER_SHEET,
-  resolveDataExportColumns,
   type DataExportFormat,
 } from '../DataExportDialog';
+import { TableExportBatchColumnsModal } from './TableExportBatchColumnsModal';
 import type { TableExportStateApi } from './hooks/useTableExportState';
 import type { TableExportBatchTableActionsApi } from './hooks/useTableExportBatchTableActions';
 
@@ -41,6 +41,7 @@ export interface TableExportBatchTablesFieldsProps {
   format: TableExportStateApi['format'];
   setFormat: TableExportStateApi['setFormat'];
   supportsSqlFormat: boolean;
+  connectionConfig: TableExportStateApi['connectionConfig'];
   batchTableColumnStates: TableExportStateApi['batchTableColumnStates'];
   setBatchTableSelectedColumns: TableExportStateApi['setBatchTableSelectedColumns'];
   xlsxMaxRowsPerSheet: TableExportStateApi['xlsxMaxRowsPerSheet'];
@@ -55,10 +56,11 @@ export const TableExportBatchTablesFields = ({
   setObjectLoadError, syncBatchWorkbenchTabContext, selectedDbName, loadingDatabases,
   availableDatabases, availableObjects, selectedObjectNames, loadingObjects, isBatchExportIntent,
   batchTableMode, setBatchTableMode, batchTableModeMeta, format, setFormat, supportsSqlFormat,
-  batchTableColumnStates, setBatchTableSelectedColumns, xlsxMaxRowsPerSheet,
+  connectionConfig, batchTableColumnStates, setBatchTableSelectedColumns, xlsxMaxRowsPerSheet,
   setXlsxMaxRowsPerSheet, includeDropIfExists, setIncludeDropIfExists,
 }: TableExportBatchTablesFieldsProps) => {
   const dataFileFormat = format !== 'sql';
+  const [columnsModalOpen, setColumnsModalOpen] = useState(false);
   const formatOptions = createTableExportFormatOptions(supportsSqlFormat).map((option) => ({
     ...option,
     disabled: option.value !== 'sql' && selectedObjectNames.length !== 1,
@@ -221,36 +223,30 @@ export const TableExportBatchTablesFields = ({
         {dataFileFormat || batchTableMode !== 'schema' ? (
           <div>
             <div style={{ marginBottom: 6, fontSize: 12, color: secondaryTextColor }}>{t('data_export.dialog.field.columns')}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {selectedObjectNames.map((tableName) => {
-                const columnState = batchTableColumnStates[tableName];
-                return (
-                  <div key={tableName} data-batch-table-columns={tableName}>
-                    <div style={{ marginBottom: 4, fontSize: 12, color: secondaryTextColor }}>{tableName}</div>
-                    <DataExportColumnSelect
-                      availableColumns={columnState?.availableColumns || []}
-                      value={columnState?.selectedColumns || []}
-                      loading={columnState?.loading === true}
-                      disabled={isConfigurationLocked}
-                      onChange={(columns) => setBatchTableSelectedColumns(
-                        tableName,
-                        resolveDataExportColumns(columns, columnState?.availableColumns || []) || [],
-                      )}
-                    />
-                    {columnState?.error ? (
-                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ant-color-error, #ff4d4f)' }}>
-                        {columnState.error}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+            <Button
+              block
+              data-batch-columns-open="true"
+              disabled={selectedObjectNames.length === 0}
+              onClick={() => setColumnsModalOpen(true)}
+            >
+              {t('data_export.dialog.field.columns')}
+            </Button>
             <div style={{ marginTop: 6, fontSize: 12, color: secondaryTextColor }}>
               {t('data_export.dialog.field.columns_help')}
             </div>
           </div>
         ) : null}
+
+        <TableExportBatchColumnsModal
+          open={columnsModalOpen && selectedObjectNames.length > 0 && (dataFileFormat || batchTableMode !== 'schema')}
+          selectedObjectNames={selectedObjectNames}
+          columnStates={batchTableColumnStates}
+          connectionConfig={connectionConfig}
+          selectedDbName={selectedDbName}
+          disabled={isConfigurationLocked}
+          onChange={setBatchTableSelectedColumns}
+          onClose={() => setColumnsModalOpen(false)}
+        />
 
         {dataFileFormat && selectedObjectNames.length === 1 && format === 'xlsx' ? (
           <div>

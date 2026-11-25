@@ -24,7 +24,7 @@ import {
 import { getDataSourceCapabilities } from '../../../utils/dataSourceCapabilities';
 import { getDataSourceSpec } from '../../../utils/dataSourceRegistry';
 import { buildExportWorkbenchHistoryKey } from '../../../utils/tableExportTab';
-import type { TableExportScope } from '../../../types';
+import type { ColumnDefinition, TableExportScope } from '../../../types';
 import {
   type DataExportFormat,
   DEFAULT_DATA_EXPORT_FORMAT,
@@ -37,6 +37,7 @@ import { t } from '../../../i18n';
 import { isDatabaseVisible, filterVisibleDatabaseNames } from '../../../utils/databaseVisibility';
 import { loadViews } from '../../sidebar/sidebarMetadataLoaders';
 import { resolveConnectionHostSummary } from '../../../utils/tabDisplay';
+import { normalizeColumnDefinitions } from '../../../utils/columnDefinition';
 import type { TableExportWorkbenchBodyProps } from '../../TableExportWorkbench';
 
 export interface UseTableExportStateInput {
@@ -45,6 +46,7 @@ export interface UseTableExportStateInput {
 
 export type TableExportBatchColumnState = {
   availableColumns: string[];
+  columnDefinitions: ColumnDefinition[];
   selectedColumns: string[];
   loading: boolean;
   error: string;
@@ -75,7 +77,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
   const [batchTableColumnStates, setBatchTableColumnStates] = useState<Record<string, TableExportBatchColumnState>>({});
   const [selectedObjectNames, setSelectedObjectNames] = useState<string[]>(() => tab.tableExportInitialObjectNames || []);
   const [selectedDatabaseNames, setSelectedDatabaseNames] = useState<string[]>(() => tab.tableExportInitialDatabaseNames || []);
-  const [batchTableMode, setBatchTableMode] = useState<BatchTableExportMode>(() => tab.tableExportContentMode || 'schema');
+  const [batchTableMode, setBatchTableMode] = useState<BatchTableExportMode>(() => tab.tableExportContentMode || 'dataOnly');
   const [batchDatabaseMode, setBatchDatabaseMode] = useState<BatchDatabaseExportMode>(() => (
     tab.tableExportContentMode === 'backup' ? 'backup' : 'schema'
   ));
@@ -208,7 +210,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
     setSelectedDbName(String(tab.dbName || '').trim());
     setSelectedObjectNames(tab.tableExportInitialObjectNames || []);
     setSelectedDatabaseNames(tab.tableExportInitialDatabaseNames || []);
-    setBatchTableMode(tab.tableExportContentMode || 'schema');
+    setBatchTableMode(tab.tableExportContentMode || 'dataOnly');
     const initialFormat = String(tab.tableExportInitialFormat || '').trim();
     if (initialFormat) {
       setFormat(initialFormat as DataExportFormat);
@@ -368,6 +370,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
         const current = next[tableName];
         next[tableName] = {
           availableColumns: current?.availableColumns || [],
+          columnDefinitions: current?.columnDefinitions || [],
           selectedColumns: current?.selectedColumns || [],
           loading: true,
           error: '',
@@ -394,18 +397,27 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
             errors.push(`${tableName}: ${message}`);
             next[tableName] = {
               availableColumns: [],
+              columnDefinitions: [],
               selectedColumns: [],
               loading: false,
               error: message,
             };
             return;
           }
-          const availableColumns = resolveTableExportColumnNames(res.data);
+          const seenColumns = new Set<string>();
+          const columnDefinitions = normalizeColumnDefinitions(res.data).filter((definition) => {
+            const name = String(definition.name || '').trim();
+            if (!name || seenColumns.has(name)) return false;
+            seenColumns.add(name);
+            return true;
+          });
+          const availableColumns = columnDefinitions.map((definition) => definition.name);
           if (availableColumns.length === 0) {
             const message = t('data_export.message.load_columns_failed');
             errors.push(`${tableName}: ${message}`);
             next[tableName] = {
               availableColumns: [],
+              columnDefinitions: [],
               selectedColumns: [],
               loading: false,
               error: message,
@@ -419,6 +431,7 @@ export const useTableExportState = ({ tab }: UseTableExportStateInput) => {
           const availableSet = new Set(availableColumns);
           next[tableName] = {
             availableColumns,
+            columnDefinitions,
             selectedColumns: sameAvailableColumns
               ? current.selectedColumns.filter((column) => availableSet.has(column))
               : availableColumns,
