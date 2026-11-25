@@ -638,6 +638,56 @@ describe('QueryEditor external SQL save', () => {
     });
   });
 
+  it('keeps CJK table-comment matches when typing a middle fragment', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = false;
+    backendApp.DBGetTables.mockResolvedValueOnce({
+      success: true,
+      data: [{ Table: 'T_WARE' }],
+    });
+    backendApp.DBGetAllColumns.mockResolvedValueOnce({ success: true, data: [] });
+    backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
+      if (/table_comment|information_schema\.tables/i.test(sql)) {
+        return {
+          success: true,
+          data: [{ table_name: 'T_WARE', table_comment: '企业商品基本信息' }],
+        };
+      }
+      return { success: true, data: [] };
+    });
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: '', dbName: 'front_end_sys' })} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    expect(sqlProvider).toBeTruthy();
+    for (const [prefix, filterText] of [
+      ['企业', '企业商品基本信息'],
+      ['企业商品基本', '企业商品基本信息'],
+      ['商品基本信息', '商品基本信息'],
+    ] as const) {
+      editorState.value = `SELECT * FROM ${prefix}`;
+      editorState.latestOnChange?.(editorState.value);
+      const result = await sqlProvider.provideCompletionItems(
+        editorState.editor.getModel(),
+        { lineNumber: 1, column: editorState.value.length + 1 },
+      );
+      const suggestion = result.suggestions.find((item: any) => item.label === 'T_WARE');
+      expect(suggestion, `missing completion for ${prefix}`).toBeTruthy();
+      expect(suggestion?.filterText).toBe(filterText);
+    }
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
   it('retries lazy table metadata after a transient failure instead of caching an empty catalog', async () => {
     let renderer!: ReactTestRenderer;
     autoFetchState.visible = false;

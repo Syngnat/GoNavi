@@ -55,10 +55,12 @@ export const createSqlCompletionSuggestionBuilders = ({
         const normalizedComment = normalizeCommentText(comment);
         const normalizedFilterPrefix = String(filterPrefix || '').trim().toLowerCase();
         const tableFilterText = resolveQueryEditorCompletionFilterText(filterPrefix, filterCandidates);
-        const commentFilterText = normalizedComment
-            && normalizedFilterPrefix
-            && normalizedComment.toLowerCase().includes(normalizedFilterPrefix)
-            ? normalizedComment
+        // Monaco only keeps a candidate when its filterText starts with the typed
+        // fragment. A full comment such as `企业商品基本信息` is hidden when the
+        // user typed the middle fragment `商品基本信息`, so expose the matched
+        // suffix while keeping the table-name filter as the first alternative.
+        const commentFilterText = normalizedFilterPrefix
+            ? resolveQueryEditorCompletionFilterText(normalizedFilterPrefix, [normalizedComment]) || ''
             : '';
         return {
             label: buildQueryEditorTableSuggestionLabel(
