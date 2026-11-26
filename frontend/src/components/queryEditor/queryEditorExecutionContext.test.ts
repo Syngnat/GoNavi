@@ -7,6 +7,7 @@ describe('SQL execution context', () => {
         ['sqlserver', 'SELECT * FROM [ZODO_Hmi].[dbo].[Table]', { dbName: 'ZODO_Hmi' }],
         ['sqlserver', 'SELECT * FROM dbo.HmiModelChangePlan', {}],
         ['mysql', 'SELECT * FROM analytics.orders', { dbName: 'analytics' }],
+        ['mysql', 'SELECT STRAIGHT_JOIN a.id FROM archive_db.items a STRAIGHT_JOIN archive_db.other b ON a.id = b.id', { dbName: 'archive_db' }],
         ['oceanbase', 'SELECT * FROM analytics.orders', { dbName: 'analytics' }],
         ['clickhouse', 'SELECT * FROM analytics.events', { dbName: 'analytics' }],
         ['tdengine', 'SELECT * FROM metrics.meters', { dbName: 'metrics' }],

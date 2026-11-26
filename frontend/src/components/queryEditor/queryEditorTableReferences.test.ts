@@ -21,4 +21,22 @@ describe('collectQueryEditorTableReferences cache', () => {
         const second = collectQueryEditorTableReferences('SELECT * FROM users', 'postgres');
         expect(second).not.toBe(first);
     });
+
+    it('does not treat SELECT STRAIGHT_JOIN as a table-source JOIN before FROM', () => {
+        expect(collectQueryEditorTableReferences(
+            'SELECT STRAIGHT_JOIN a.id FROM archive_db.items a STRAIGHT_JOIN archive_db.other b ON a.id = b.id',
+            'mysql',
+        )).toEqual([
+            expect.objectContaining({
+                tableIdent: 'archive_db.items',
+                parts: ['archive_db', 'items'],
+                alias: 'a',
+            }),
+            expect.objectContaining({
+                tableIdent: 'archive_db.other',
+                parts: ['archive_db', 'other'],
+                alias: 'b',
+            }),
+        ]);
+    });
 });

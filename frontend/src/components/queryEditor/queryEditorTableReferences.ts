@@ -22,6 +22,8 @@ type QueryEditorSqlTableSourceKind = 'from' | 'join' | 'comma' | 'update' | 'int
 
 type QueryEditorSqlReferenceDepthState = {
     fromListActive: boolean;
+    /** FROM has appeared in the current SELECT body. */
+    fromSeen: boolean;
     queryStatementActive: boolean;
     sourceContextActive: boolean;
     statementKind?: QueryEditorSqlStatementKind;
@@ -123,6 +125,7 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
     const references: QueryEditorTableReference[] = [];
     const states: QueryEditorSqlReferenceDepthState[] = [{
         fromListActive: false,
+        fromSeen: false,
         queryStatementActive: false,
         sourceContextActive: false,
     }];
@@ -138,6 +141,7 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
         if (!states[depth]) {
             states[depth] = {
                 fromListActive: false,
+                fromSeen: false,
                 queryStatementActive: false,
                 sourceContextActive: false,
                 statementKind: undefined,
@@ -159,6 +163,7 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
             depth += 1;
             states[depth] = {
                 fromListActive: false,
+                fromSeen: false,
                 queryStatementActive: false,
                 sourceContextActive: false,
                 statementKind: undefined,
@@ -173,6 +178,7 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
         }
         if (token.raw === ';') {
             state.fromListActive = false;
+            state.fromSeen = false;
             state.queryStatementActive = false;
             state.sourceContextActive = false;
             state.statementKind = undefined;
@@ -284,6 +290,7 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
 
         if (keyword === 'select') {
             state.queryStatementActive = true;
+            state.fromSeen = false;
             // INSERT/REPLACE ... SELECT 会切换到内部查询；已识别的其它语句
             // 类型不能被表达式或函数名中的同名标识符覆盖。
             if (!state.statementKind || state.statementKind === 'insert' || state.statementKind === 'replace') {
@@ -314,9 +321,16 @@ export const analyzeQueryEditorTableReferences = (source: string, dbType = ''): 
         }
         if (keyword === 'from' && state.queryStatementActive) {
             state.fromListActive = true;
+            state.fromSeen = true;
             state.expectsSource = 'from';
             state.sourceContextActive = true;
             state.sourceContextKind = 'from';
+            continue;
+        }
+        // MySQL supports SELECT STRAIGHT_JOIN as a SELECT modifier before the
+        // first FROM. Treating it as a JOIN there makes the first select-list
+        // expression (for example `a.id`) look like a table source.
+        if (keyword === 'straight_join' && !state.fromSeen) {
             continue;
         }
         if (keyword === 'join' || keyword === 'straight_join' || keyword === 'apply') {
