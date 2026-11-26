@@ -37,6 +37,22 @@ func TestSQLFileArgsAcceptsFileURLsAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestOpenedFilePathsIncludesSingleFilename(t *testing.T) {
+	got := openedFilePaths("/tmp/orders.sql", nil)
+	want := []string{"/tmp/orders.sql"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("openedFilePaths = %#v, want %#v", got, want)
+	}
+}
+
+func TestOpenedFilePathsMergesFilenameWithOpenedFiles(t *testing.T) {
+	got := openedFilePaths(" /tmp/orders.sql ", []string{"/tmp/orders.sql", "/tmp/inventory.sql"})
+	want := []string{"/tmp/orders.sql", "/tmp/inventory.sql"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("openedFilePaths = %#v, want %#v", got, want)
+	}
+}
+
 func TestQueueOrOpenFilesDeduplicatesBeforeReady(t *testing.T) {
 	resetPendingState(t)
 

@@ -35,7 +35,7 @@
 ### 平台能力
 
 - `SingleInstance`：二次启动立即退出并聚焦主窗口，替代 MSI 命名互斥方案。
-- 文件关联：声明 `.sql`，`ApplicationOpenedWithFile` 与二次启动参数都会打开 SQL 文件；冷启动链接在前端就绪后补发。
+- 文件关联：声明 `.sql`，`ApplicationOpenedWithFile` 与二次启动参数都会打开 SQL 文件；单文件事件读取 `Filename()`，多文件才用 `OpenedFiles()`，冷启动链接在前端就绪后补发。
 - 原生深链：`ApplicationLaunchedWithUrl`、二次启动参数与冷启动参数统一转发现有的 `gonavi:deeplink` 事件。
 - 关窗与 Cmd+Q 走 v3 `WindowClosing` / `ShouldQuit`，复用既有的未保存确认（`app:before-close-request`），确认前不会退出。
 - 前端资源嵌入 `frontend` 包，v3 二进制自包含，可从任意目录启动。
@@ -59,7 +59,7 @@
 - 分离窗口协议与 v2 对齐：`ready` 不再转发给主窗口；原生关闭先否决并等待前端最终同步（10s 兜底）；`Bootstrap` 回填 `actionRevision`；`hide`/`open-ai-settings` 校验 `visibilityRevision`；`Open` 等待 ready（10s 超时回滚）；`Focus` 在 ready 前不再提前 Show。
 - 窗口归属与状态：`OpenRequest.ownerWindowId` 与事件回传让嵌套分离窗口只更新来源窗口；`SyncHostState` 增加 `HostState` 重取；分离窗口启用 `EnableFileDrop` 并按窗口定向投递拖放事件。
 - v3 入口补齐 v2 启动装配：AI Agent 工具目录（`internal/agenttools`）、MCP 客户端配置修复、更新重启父进程等待、更新维护闸门先于 headless、headless 失败返回非零退出码。
-- 深链与文件打开：macOS 冷启动、第二实例与重载期统一排队到 `frontend-ready`；重载时复位就绪标记；文件路径去重并支持 `%u` 的 `file://` URI。
+- 深链与文件打开：macOS 冷启动、第二实例与重载期统一排队到 `frontend-ready`；重载时复位就绪标记；单文件事件读取 `Filename()` 并兼容 `OpenedFiles()`；文件路径去重并支持 `%u` 的 `file://` URI；开发 `.app` 也声明 `.sql` 文档类型，但不注册 `gonavi://`。
 - 插件窗口：补齐 `UpdatePreferences`；插件页运行时阻止外部文件拖放导航，避免 WebView 被本地文件替换。
 - 发版：Wails v3.1.0 无 WebKitGTK 4.0 构建路径，release/dev 的 4.0 矩阵行保留 v2 构建，4.1 行使用 v3；Linux desktop 的 scheme handler 改用 `%u`。
 - UI 设置 origin：v3 窗口统一固定为 v2 的 origin（macOS/Linux `wails://wails/`，Windows `http://wails.localhost/`），不采用 v3 默认的 `wails://localhost`。因此当前 v2 latest、未来的 v3 latest 与 v3 dev 读取同一份 `lite-db-storage`，v2→v3 不需要搬 localStorage。`/__gonavi/legacy-local-storage` 与 Linux WebKitGTK 扫描保留给仍使用 v3 默认 origin 的构建，以及首次从 v2 升级的异常路径；当前固定 v2 origin 的构建不会依赖它：前端检测到 `wails://wails` / `http://wails.localhost` 会直接跳过迁移，避免把同一个库迁回自身。

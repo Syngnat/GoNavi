@@ -117,6 +117,16 @@ func dedupeStrings(values []string) []string {
 	return result
 }
 
+// openedFilePaths merges the two shapes Wails v3 uses for file-open events.
+// A normal "Open With" launch sets Filename for the single file; OpenedFiles
+// is reserved for the multi-file form. Reading only one silently drops Finder
+// hand-offs on macOS.
+func openedFilePaths(filename string, openedFiles []string) []string {
+	paths := append([]string(nil), openedFiles...)
+	paths = append(paths, filename)
+	return dedupeStrings(paths)
+}
+
 // emitOpenFilesLocked runs under pendingMu so a concurrent reload cannot clear
 // the queue between the readiness check and the emit.
 func emitOpenFilesLocked(app *application.App, files []string) {
@@ -525,7 +535,12 @@ func main() {
 		queueOrDispatchDeepLink(wailsApp, event.Context().URL())
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationOpenedWithFile, func(event *application.ApplicationEvent) {
-		queueOrOpenFiles(wailsApp, event.Context().OpenedFiles())
+		eventContext := event.Context()
+		if mainWindow != nil {
+			mainWindow.Show()
+			mainWindow.Focus()
+		}
+		queueOrOpenFiles(wailsApp, openedFilePaths(eventContext.Filename(), eventContext.OpenedFiles()))
 	})
 
 	hideUntilFrontendReady := runtime.GOOS == "windows" || runtime.GOOS == "darwin"

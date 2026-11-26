@@ -88,5 +88,26 @@ if (!plist.includes('<string>com.wails.GoNavi</string>')) {
   throw new Error('development Info.plist must use the production bundle identifier com.wails.GoNavi');
 }
 
+// Dev builds deliberately omit CFBundleURLTypes so they never take over the
+// gonavi:// handler, but Finder still needs the .sql document type to list
+// the development bundle for "Open With" and double-click launches.
+const documentTypes = `        <key>CFBundleDocumentTypes</key>
+        <array>
+          <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+              <string>sql</string>
+            </array>
+            <key>CFBundleTypeName</key>
+            <string>SQL File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+          </dict>
+        </array>
+`;
+if (!plist.includes('<key>CFBundleDocumentTypes</key>')) {
+  plist = plist.replace('    </dict>\n</plist>', `${documentTypes}    </dict>\n</plist>`);
+}
+
 writeFileSync(join(contentsDir, 'Info.plist'), plist);
 console.log(`built ${join(binDir, `${appName}.app`)}`);
