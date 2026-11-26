@@ -22,16 +22,16 @@ vi.mock('@ant-design/icons', () => ({
 }));
 
 describe('TitleBarQuickActions', () => {
-  it('keeps the unused titlebar span draggable while quick-action buttons remain clickable', () => {
+  it('keeps the quick-action slot non-draggable so every button receives its click', () => {
     const actionSlot = getCssRuleBody('\\.gonavi-titlebar-quick-actions-slot');
     const actionContainer = getCssRuleBody('\\.gn-v2-titlebar-quick-actions');
     const actionButtons = getCssRuleBody('\\.gn-v2-titlebar-quick-action,\\s*\\.gn-v2-titlebar-quick-more');
 
-    expect(actionSlot).toContain('-webkit-app-region: drag;');
-    expect(actionSlot).toContain('--wails-draggable: drag;');
+    expect(actionSlot).toContain('-webkit-app-region: no-drag;');
+    expect(actionSlot).toContain('--wails-draggable: no-drag;');
     expect(actionContainer).toContain('flex: 0 1 auto;');
-    expect(actionContainer).toContain('-webkit-app-region: drag;');
-    expect(actionContainer).toContain('--wails-draggable: drag;');
+    expect(actionContainer).toContain('-webkit-app-region: no-drag;');
+    expect(actionContainer).toContain('--wails-draggable: no-drag;');
     expect(actionButtons).toContain('-webkit-app-region: no-drag;');
     expect(actionButtons).toContain('--wails-draggable: no-drag;');
     expect(appCss).toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-label');

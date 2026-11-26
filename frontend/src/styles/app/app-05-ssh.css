@@ -255,8 +255,10 @@
     margin-left: 0;
     padding-left: 0;
     border-left: 0;
-    -webkit-app-region: drag;
-    --wails-draggable: drag;
+    /* 按钮必须始终先收到点击；空槽不再作为窗口拖拽热区，
+       避免 WebView 把普通快捷按钮的点击当成标题栏拖拽而偶发吞掉。 */
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
 }
 
 body[data-ui-version="v2"] .gn-v2-titlebar-right {
@@ -360,8 +362,8 @@ body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn.is-active {
     background: transparent;
     margin-left: 0;
     overflow: hidden;
-    -webkit-app-region: drag;
-    --wails-draggable: drag;
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
 }
 
 .gn-v2-titlebar-quick-primary {
