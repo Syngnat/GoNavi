@@ -42,6 +42,7 @@ import type { SidebarTreeViewStateApi } from './useSidebarTreeViewState';
 import type { SidebarTitlebarSyncApi } from './useSidebarTitlebarSync';
 import { isElasticsearchFamilyType } from '../../utils/elasticsearchFamily';
 import { prefetchTableOpenMetadata } from '../../utils/tableOpenPrefetch';
+import { readTableDdlOpenOnClick } from '../../utils/tableDdlOpenPreference';
 import { openObjectOverview } from '../objectOverview/objectOverviewActions';
 import { useStore } from '../../store';
 
@@ -217,6 +218,37 @@ export const useSidebarTreeEvents = ({
       buildOptionalSchemaContext,
   });
 
+  const openTableTab = (node: any): void => {
+      const { tableName, dbName, id, schemaName } = node.dataRef;
+      const openDdl = readTableDdlOpenOnClick();
+      recordTableAccess(id, dbName, tableName);
+      if (!openDdl) {
+          prefetchTableOpenMetadata({
+              connection: connections.find((item) => item.id === id),
+              connectionId: id, dbName, tableName,
+              view: tableDoubleClickAction === 'open-design' ? 'fields' : 'data',
+          });
+      }
+      addTab({
+          id: node.key,
+          title: tableName,
+          type: 'table',
+          connectionId: id,
+          dbName,
+          tableName,
+          ...buildOptionalSchemaContext(schemaName),
+          initialViewMode: openDdl
+              ? 'ddl'
+              : tableDoubleClickAction === 'open-design'
+                  ? 'fields'
+                  : undefined,
+          initialViewModeRequestId: openDdl || tableDoubleClickAction === 'open-design'
+              ? String(Date.now())
+              : undefined,
+          objectType: 'table',
+      });
+  };
+
   const openMessageObjectNode = (node: any): boolean => {
       if (node?.type !== 'message-object') return false;
       openMessageQueueWorkbench(node, 'open');
@@ -324,6 +356,16 @@ export const useSidebarTreeEvents = ({
           });
       } else if (type === 'xxljob-groups' || type === 'xxljob-jobs' || type === 'xxljob-logs') {
           setActiveContext({ connectionId: dataRef.id, dbName: '' });
+      }
+
+      if (type === 'table' && !hasModifier && readTableDdlOpenOnClick()) {
+          if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+          const tableNode = info.node;
+          clickTimerRef.current = setTimeout(() => {
+              clickTimerRef.current = null;
+              openTableTab(tableNode);
+          }, 250);
+          return;
       }
 
       if (type === 'folder-columns') openDesign(info.node, 'columns', false);
@@ -471,27 +513,7 @@ export const useSidebarTreeEvents = ({
       } else if (openSidebarObjectNode(node)) {
           return;
       } else if (node.type === 'table') {
-          const { tableName, dbName, id, schemaName } = node.dataRef;
-          // 记录表访问
-          recordTableAccess(id, dbName, tableName);
-          // 页签挂载前就把它最先要用的元数据请求发出去。
-          prefetchTableOpenMetadata({
-              connection: connections.find((item) => item.id === id),
-              connectionId: id, dbName, tableName,
-              view: tableDoubleClickAction === 'open-design' ? 'fields' : 'data',
-          });
-          addTab({
-              id: node.key,
-              title: tableName,
-              type: 'table',
-              connectionId: id,
-              dbName,
-              tableName,
-              ...buildOptionalSchemaContext(schemaName),
-              initialViewMode: tableDoubleClickAction === 'open-design' ? 'fields' : undefined,
-              initialViewModeRequestId: tableDoubleClickAction === 'open-design' ? String(Date.now()) : undefined,
-              objectType: 'table',
-          });
+          openTableTab(node);
           return;
       } else if (node.type === 'saved-query') {
           const q = node.dataRef;

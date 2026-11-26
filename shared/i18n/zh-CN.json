@@ -14378,5 +14378,7 @@
   "sidebar.view_clipboard.same_connection_required": "视图复制仅支持同一连接，可跨库或跨模式选择目标",
   "object_info.action.copy": "复制",
   "object_info.message.copied": "已复制到剪贴板",
-  "object_info.message.copy_failed": "复制失败：{{error}}"
+  "object_info.message.copy_failed": "复制失败：{{error}}",
+  "status_bar.action.table_ddl": "DDL",
+  "status_bar.action.table_ddl_hint": "开启后，点击侧栏表时自动打开 DDL"
 }

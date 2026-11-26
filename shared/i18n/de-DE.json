@@ -14378,5 +14378,7 @@
   "sidebar.view_clipboard.same_connection_required": "Das Kopieren von Ansichten erfordert dieselbe Verbindung; das Ziel darf in einer anderen Datenbank oder einem anderen Schema liegen.",
   "object_info.action.copy": "Kopieren",
   "object_info.message.copied": "In die Zwischenablage kopiert",
-  "object_info.message.copy_failed": "Kopieren fehlgeschlagen: {{error}}"
+  "object_info.message.copy_failed": "Kopieren fehlgeschlagen: {{error}}",
+  "status_bar.action.table_ddl": "DDL",
+  "status_bar.action.table_ddl_hint": "Wenn aktiviert, öffnet ein Klick auf eine Tabelle in der Seitenleiste ihr DDL"
 }

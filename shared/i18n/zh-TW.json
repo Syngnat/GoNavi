@@ -14378,5 +14378,7 @@
   "sidebar.view_clipboard.same_connection_required": "檢視複製僅支援同一連線，可跨資料庫或跨模式選擇目標",
   "object_info.action.copy": "複製",
   "object_info.message.copied": "已複製到剪貼簿",
-  "object_info.message.copy_failed": "複製失敗：{{error}}"
+  "object_info.message.copy_failed": "複製失敗：{{error}}",
+  "status_bar.action.table_ddl": "DDL",
+  "status_bar.action.table_ddl_hint": "開啟後，點擊側欄資料表時自動開啟 DDL"
 }

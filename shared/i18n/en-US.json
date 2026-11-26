@@ -14378,5 +14378,7 @@
   "sidebar.view_clipboard.same_connection_required": "View copy requires the same connection; the target may be in another database or schema.",
   "object_info.action.copy": "Copy",
   "object_info.message.copied": "Copied to clipboard",
-  "object_info.message.copy_failed": "Failed to copy: {{error}}"
+  "object_info.message.copy_failed": "Failed to copy: {{error}}",
+  "status_bar.action.table_ddl": "DDL",
+  "status_bar.action.table_ddl_hint": "When on, clicking a table in the sidebar opens its DDL"
 }

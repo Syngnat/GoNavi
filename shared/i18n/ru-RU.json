@@ -14378,5 +14378,7 @@
   "sidebar.view_clipboard.same_connection_required": "Копирование представлений требует одного и того же подключения; целевая база данных или схема может отличаться.",
   "object_info.action.copy": "Копировать",
   "object_info.message.copied": "Скопировано в буфер обмена",
-  "object_info.message.copy_failed": "Не удалось скопировать: {{error}}"
+  "object_info.message.copy_failed": "Не удалось скопировать: {{error}}",
+  "status_bar.action.table_ddl": "DDL",
+  "status_bar.action.table_ddl_hint": "Если включено, при щелчке по таблице в боковой панели открывается её DDL"
 }

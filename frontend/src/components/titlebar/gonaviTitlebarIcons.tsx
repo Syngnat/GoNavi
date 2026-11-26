@@ -314,6 +314,46 @@ export function TitlebarSqlToolIcon({ size, className }: GonaviTitlebarIconProps
   );
 }
 
+/** 表 DDL：主体色代码页 + 白色折角与代码括号，和 SQL 工具同属一个图标族。 */
+export function TitlebarTableDdlIcon({ size, className }: GonaviTitlebarIconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={resolveSize(size)}
+      height={resolveSize(size)}
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M5.2 2.8h8.9l5.2 5.2v13.2H5.2z"
+        style={{ fill: GONAVI_TITLEBAR_ICON_COLORS.primary }}
+      />
+      <path
+        d="M14.1 2.8v5.2h5.2"
+        stroke="#fff"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M8.8 12.1 6.9 14l1.9 1.9M15.2 12.1 17.1 14l-1.9 1.9"
+        stroke="#fff"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M11.8 17.3h.4"
+        stroke="#fff"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * 驱动包（驱动管理）：强调色立方体 + 白色棱线，对应「驱动包」的安装 / 导入导出。
  * 不用齿轮，避免与标题栏「设置」的齿轮图标混淆。

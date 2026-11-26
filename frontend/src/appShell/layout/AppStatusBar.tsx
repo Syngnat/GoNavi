@@ -1,8 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { FileTextOutlined, InfoCircleOutlined } from '@ant-design/icons';
 
 import { t } from '../../i18n';
 import { useStore } from '../../store';
+import { GnSqlDocIcon } from '../../components/icons/gnIcons';
+import {
+  readTableDdlOpenOnClick,
+  subscribeTableDdlOpenOnClick,
+  writeTableDdlOpenOnClick,
+} from '../../utils/tableDdlOpenPreference';
 import { useAppStatusBar } from '../hooks/useAppStatusBar';
 import { PluginStatusBarActions } from './PluginStatusBarActions';
 import './appStatusBar.css';
@@ -18,9 +24,12 @@ export const AppStatusBar = ({ isLogPanelOpen, onToggleLogPanel }: AppStatusBarP
   const { connectionName, dbName, schemaName, activeTabTitle, version } = useAppStatusBar();
   const infoPanelVisible = useStore(state => state.infoPanelVisible);
   const toggleInfoPanel = useStore(state => state.toggleInfoPanel);
+  const [openTableDdlOnClick, setOpenTableDdlOnClick] = useState(readTableDdlOpenOnClick);
   // 状态栏只属于 Navicat 布局主题；classic 保持原有无状态栏形态。
   const navicatLayout = useStore(state => state.appearance.uiLayoutMode === 'navicat');
   const contextParts = [connectionName, dbName, schemaName].filter(part => part !== '');
+
+  useEffect(() => subscribeTableDdlOpenOnClick(setOpenTableDdlOnClick), []);
 
   if (!navicatLayout) return null;
 
@@ -32,6 +41,16 @@ export const AppStatusBar = ({ isLogPanelOpen, onToggleLogPanel }: AppStatusBarP
       aria-label={t('status_bar.aria')}
     >
       <div className="gn-app-statusbar-context">
+        <button
+          type="button"
+          className={`gn-app-statusbar-action${openTableDdlOnClick ? ' is-active' : ''}`}
+          aria-pressed={openTableDdlOnClick}
+          title={t('status_bar.action.table_ddl_hint')}
+          onClick={() => writeTableDdlOpenOnClick(!openTableDdlOnClick)}
+        >
+          <GnSqlDocIcon />
+          <span>{t('status_bar.action.table_ddl')}</span>
+        </button>
         <button
           type="button"
           className={`gn-app-statusbar-action${infoPanelVisible ? ' is-active' : ''}`}

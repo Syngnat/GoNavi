@@ -1,10 +1,15 @@
 import { t } from '../../i18n';
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useSidebarWorkbenchLaunchers } from './useSidebarWorkbenchLaunchers';
 import { useSidebarMockDataLauncher } from './useSidebarMockDataLauncher';
 import { usePluginWindowTools } from './usePluginWindowTools';
 import type { TitleBarQuickAction } from '../TitleBarQuickActions';
-import { TitlebarConnectionToolsIcon, TitlebarGraphIcon, TitlebarSqlToolIcon } from '../titlebar/gonaviTitlebarIcons';
+import {
+  TitlebarConnectionToolsIcon,
+  TitlebarGraphIcon,
+  TitlebarSqlToolIcon,
+  TitlebarTableDdlIcon,
+} from '../titlebar/gonaviTitlebarIcons';
 import {
   CloudOutlined,
   TableOutlined,
@@ -41,6 +46,11 @@ import type { SidebarContextMenusApi } from './useSidebarContextMenus';
 import type { SidebarSearchStateApi } from './useSidebarSearchState';
 import type { SidebarTreeDataApi } from './useSidebarTreeData';
 import type { SidebarProps } from '../Sidebar';
+import {
+  readTableDdlOpenOnClick,
+  subscribeTableDdlOpenOnClick,
+  writeTableDdlOpenOnClick,
+} from '../../utils/tableDdlOpenPreference';
 
 export interface UseSidebarToolbarModelInput {
   treeRef: SidebarTreeViewStateApi['treeRef'];
@@ -138,6 +148,9 @@ export const useSidebarToolbarModel = ({
   const v2ScrollToTopLabel = t('sidebar.action.scroll_to_top');
   const v2CommandSearchLabel = t('sidebar.command_search.label');
   const v2CommandSearchPlaceholder = t('sidebar.command_search.placeholder');
+  const [openTableDdlOnClick, setOpenTableDdlOnClick] = useState(readTableDdlOpenOnClick);
+
+  useEffect(() => subscribeTableDdlOpenOnClick(setOpenTableDdlOnClick), []);
 
   const scrollV2ExplorerToTop = () => {
     treeRef.current?.scrollTo?.({ index: 0, align: 'top' });
@@ -352,6 +365,14 @@ export const useSidebarToolbarModel = ({
         },
       ],
     },
+    ...(appearance.uiLayoutMode === 'navicat' ? [] : [{
+      key: 'table-ddl',
+      label: t('status_bar.action.table_ddl'),
+      shortLabel: 'DDL',
+      icon: <TitlebarTableDdlIcon />,
+      active: openTableDdlOnClick,
+      onClick: () => writeTableDdlOpenOnClick(!openTableDdlOnClick),
+    }]),
     ...pluginWindowTools,
     sessionWorkbenchAction,
     userManagementAction,
