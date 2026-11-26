@@ -23,6 +23,7 @@ import {
 } from "../utils/queryTabInitialQuery";
 import type { AppState } from "./storeStateTypes";
 import type { StoreGet, StoreSet } from "./storeSliceTypes";
+import { resolveDroppedTableTabIds } from "./droppedTableTabMatching";
 
 const withQueryBaseline = (
   tab: TabData,
@@ -61,6 +62,7 @@ export type TabSliceState = Pick<AppState,
   | 'closeTabsToRight'
   | 'closeTabsByConnection'
   | 'closeTabsByDatabase'
+  | 'closeTabsByDroppedTables'
   | 'closeStaleAgentAssetsTabs'
   | 'moveTab'
   | 'closeAllTabs'
@@ -520,6 +522,43 @@ export const createTabSlice = (set: StoreSet, _get: StoreGet): TabSliceState => 
           newTabs,
           nextActiveTabId,
           nextFallbackContext,
+        ),
+        detachedWorkbenchWindows: state.detachedWorkbenchWindows.filter(
+          (windowState) => keptIds.has(windowState.tabId),
+        ),
+        detachedQueryResultWindows: state.detachedQueryResultWindows.filter(
+          (windowState) => keptIds.has(windowState.sourceQueryTabId),
+        ),
+      };
+    }),
+
+  closeTabsByDroppedTables: (connectionId, dbName, tableNames, schemaName) =>
+    set((state) => {
+      const closedTabIds = new Set(resolveDroppedTableTabIds(state.tabs, {
+        connectionId,
+        dbName,
+        tableNames,
+        schemaName,
+      }));
+      if (closedTabIds.size === 0) return state;
+
+      const newTabs = state.tabs.filter((tab) => !closedTabIds.has(tab.id));
+      const activeStillExists = state.activeTabId
+        ? newTabs.some((tab) => tab.id === state.activeTabId)
+        : false;
+      const nextActiveTabId = activeStillExists
+        ? state.activeTabId
+        : newTabs.length > 0
+          ? newTabs[newTabs.length - 1].id
+          : null;
+      const keptIds = new Set(newTabs.map((tab) => tab.id));
+      return {
+        tabs: newTabs,
+        activeTabId: nextActiveTabId,
+        activeContext: resolveActiveContextForTabId(
+          newTabs,
+          nextActiveTabId,
+          state.activeContext,
         ),
         detachedWorkbenchWindows: state.detachedWorkbenchWindows.filter(
           (windowState) => keptIds.has(windowState.tabId),

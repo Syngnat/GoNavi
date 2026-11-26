@@ -3,6 +3,7 @@ import { isMysqlFamilyDialect, isOracleLikeDialect, quoteSqlIdentifierPart, reso
 
 export const SIDEBAR_DATABASE_REFRESH_EVENT = 'gonavi:sidebar-database-refresh';
 export const SIDEBAR_DATABASE_LIST_REFRESH_EVENT = 'gonavi:sidebar-database-list-refresh';
+export const TABLE_TABS_DROPPED_EVENT = 'gonavi:table-tabs-dropped';
 
 export type SidebarDatabaseRefreshRequest = {
   connectionId: string;
@@ -21,6 +22,13 @@ export type SidebarDatabaseRefreshRequest = {
 export type SidebarDatabaseListRefreshRequest = {
   connectionId: string;
   reason?: 'elasticsearch-write' | 'external';
+};
+
+export type TableTabsDroppedRequest = {
+  connectionId: string;
+  dbName?: string;
+  schemaName?: string;
+  tableNames: string[];
 };
 
 export const normalizeSidebarDatabaseRefreshRequest = (
@@ -51,6 +59,36 @@ export const dispatchSidebarDatabaseRefresh = (
   if (!detail || typeof window === 'undefined') return false;
   window.dispatchEvent(new CustomEvent<SidebarDatabaseRefreshRequest>(
     SIDEBAR_DATABASE_REFRESH_EVENT,
+    { detail },
+  ));
+  return true;
+};
+
+export const normalizeTableTabsDroppedRequest = (
+  value: Partial<TableTabsDroppedRequest> | null | undefined,
+): TableTabsDroppedRequest | null => {
+  const connectionId = String(value?.connectionId || '').trim();
+  if (!connectionId) return null;
+  const dbName = String(value?.dbName || '').trim();
+  const schemaName = String(value?.schemaName || '').trim();
+  const tableNames = Array.from(new Set((Array.isArray(value?.tableNames) ? value.tableNames : [])
+    .map((table) => String(table || '').trim()).filter(Boolean)));
+  if (tableNames.length === 0) return null;
+  return {
+    connectionId,
+    tableNames,
+    ...(dbName ? { dbName } : {}),
+    ...(schemaName ? { schemaName } : {}),
+  };
+};
+
+export const dispatchTableTabsDropped = (
+  request: Partial<TableTabsDroppedRequest>,
+): boolean => {
+  const detail = normalizeTableTabsDroppedRequest(request);
+  if (!detail || typeof window === 'undefined') return false;
+  window.dispatchEvent(new CustomEvent<TableTabsDroppedRequest>(
+    TABLE_TABS_DROPPED_EVENT,
     { detail },
   ));
   return true;

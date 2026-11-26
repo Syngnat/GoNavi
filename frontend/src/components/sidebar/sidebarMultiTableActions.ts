@@ -6,6 +6,7 @@ import { confirmProductionMutation } from '../../utils/productionRiskConfirm';
 import { ClearTables, DropTable, TruncateTables } from '../../../wailsjs/go/app/App';
 import { showCountdownDangerConfirm } from '../common/countdownDangerConfirm';
 import { resolveNodeSchemaName } from './sidebarObjectActionHelpers';
+import { dispatchTableTabsDropped } from '../../utils/sidebarDatabaseRefresh';
 
 // 多表右键菜单里的批量动作。truncate 走后端批量接口；drop 后端只有单表
 // 接口，前端按表循环并在结束后统一刷新涉及的库。生产确认（productionRiskConfirm）
@@ -20,7 +21,10 @@ export type SidebarMultiTableNode = {
 
 type RunSidebarMultiTableDangerActionDeps = {
   buildRuntimeConfig: (conn: any, overrideDatabase?: string, clearDatabase?: boolean) => any;
-  loadTables: (node: any, options?: { ensureFresh?: boolean; schemaName?: string }) => Promise<void>;
+  loadTables: (
+    node: any,
+    options?: { ensureFresh?: boolean; schemaName?: string; droppedTables?: string[] },
+  ) => Promise<void>;
   getDatabaseNodeRef: (connRef: any, dbName: string) => any;
 };
 
@@ -63,10 +67,17 @@ const groupTablesByDatabase = (nodes: SidebarMultiTableNode[]): TableGroup[] => 
 const refreshGroups = async (
   groups: TableGroup[],
   deps: RunSidebarMultiTableDangerActionDeps,
+  droppedTablesByGroup?: Map<TableGroup, string[]>,
 ) => {
   await Promise.all(groups.map((group) => deps.loadTables(
     deps.getDatabaseNodeRef(group.dataRef, group.dbName),
-    { ensureFresh: true, schemaName: group.schemaName },
+    {
+      ensureFresh: true,
+      schemaName: group.schemaName,
+      ...(droppedTablesByGroup?.get(group)?.length
+        ? { droppedTables: droppedTablesByGroup.get(group) }
+        : {}),
+    },
   )));
 };
 
@@ -152,19 +163,33 @@ export const runSidebarMultiTableDrop = async (
       if (!await confirmEachProductionConnection(groups)) return;
       const hide = message.loading(t('sidebar.multi_table_menu.action_loading', { count: total }), 0);
       let succeeded = 0;
+      const droppedTablesByGroup = new Map<TableGroup, string[]>();
       try {
         for (const group of groups) {
           const config = deps.buildRuntimeConfig(group.dataRef, group.dbName);
           for (const tableName of group.tableNames) {
             const res = await DropTable(buildRpcConnectionConfig(config) as any, group.dbName, tableName);
-            if (res.success) succeeded += 1;
+            if (res.success) {
+              succeeded += 1;
+              const droppedTables = droppedTablesByGroup.get(group) || [];
+              droppedTables.push(tableName);
+              droppedTablesByGroup.set(group, droppedTables);
+            }
             else message.error(res.message);
           }
         }
       } finally {
         hide();
       }
-      await refreshGroups(groups, deps);
+      for (const [group, tableNames] of droppedTablesByGroup) {
+        dispatchTableTabsDropped({
+          connectionId: group.connectionId,
+          dbName: group.dbName,
+          schemaName: group.schemaName,
+          tableNames,
+        });
+      }
+      await refreshGroups(groups, deps, droppedTablesByGroup);
       message.success(t('sidebar.multi_table_menu.action_done', { success: succeeded, total }));
     },
   });

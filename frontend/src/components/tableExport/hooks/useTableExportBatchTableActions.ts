@@ -1,4 +1,7 @@
-import { dispatchSidebarTableMutationRefresh } from '../../../utils/sidebarDatabaseRefresh';
+import {
+  dispatchSidebarTableMutationRefresh,
+  dispatchTableTabsDropped,
+} from '../../../utils/sidebarDatabaseRefresh';
 import { resolveSqlDialect } from '../../../utils/sqlDialect';
 import { useMemo, useEffect } from 'react';
 import { message } from 'antd';
@@ -578,6 +581,12 @@ export const useTableExportBatchTableActions = ({
     if (succeededNames.length > 0) {
       dispatchSidebarTableMutationRefresh({ connectionId: effectiveConnectionId, dbName: selectedDbName, schemaName: tab.schemaName },
         succeededNames, resolveSqlDialect(connectionConfig.type, connectionConfig.driver, connectionConfig), 'drop');
+      dispatchTableTabsDropped({
+        connectionId: effectiveConnectionId,
+        dbName: selectedDbName,
+        schemaName: tab.schemaName,
+        tableNames: succeededNames,
+      });
       const succeededNameSet = new Set(succeededNames);
       setAvailableObjects((prev) => prev.filter((item) => !succeededNameSet.has(item.value)));
       setSelectedObjectNames((prev) => prev.filter((name) => !succeededNameSet.has(name)));

@@ -1,4 +1,8 @@
-import { dispatchSidebarDatabaseRefresh, type SidebarDatabaseRefreshRequest } from '../../utils/sidebarDatabaseRefresh';
+import {
+    dispatchSidebarDatabaseRefresh,
+    dispatchTableTabsDropped,
+    type SidebarDatabaseRefreshRequest,
+} from '../../utils/sidebarDatabaseRefresh';
 import { findPotentiallyMutatingConnectionStatements } from '../../utils/connectionReadOnly';
 import { isMysqlFamilyDialect, isOracleLikeDialect, isPgLikeDialect, quoteSqlIdentifierPart, resolveSqlDialect } from '../../utils/sqlDialect';
 import { collectQueryEditorTableReferences } from './queryEditorTableReferences';
@@ -62,5 +66,13 @@ export const dispatchSidebarSqlDataRefresh = (
             ...(clearedTables.length ? { clearedTables } : {}), ...(droppedTables.length ? { droppedTables } : {}),
             ...(schemaChanged ? { schemaChanged: true } : {}),
         });
+        if (droppedTables.length) {
+            dispatchTableTabsDropped({
+                connectionId: request.connectionId,
+                dbName,
+                schemaName: request.schemaName,
+                tableNames: droppedTables,
+            });
+        }
     }
 };

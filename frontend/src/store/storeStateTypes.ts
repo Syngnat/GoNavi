@@ -367,6 +367,13 @@ export interface AppState {
   closeTabsToRight: (id: string) => void;
   closeTabsByConnection: (connectionId: string) => void;
   closeTabsByDatabase: (connectionId: string, dbName: string) => void;
+  /** 关闭已删除表的数据页签；查询页和设计页不会被连带关闭。 */
+  closeTabsByDroppedTables: (
+    connectionId: string,
+    dbName: string,
+    tableNames: string[],
+    schemaName?: string,
+  ) => void;
   /** 关闭智能体已不存在的会话工作台页签（传入当前仍存在的智能体列表）。 */
   closeStaleAgentAssetsTabs: (liveIntegrationIds: string[]) => void;
   moveTab: (sourceId: string, targetId: string) => void;

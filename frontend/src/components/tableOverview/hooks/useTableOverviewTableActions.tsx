@@ -1,4 +1,7 @@
-import { dispatchSidebarTableMutationRefresh } from '../../../utils/sidebarDatabaseRefresh';
+import {
+  dispatchSidebarTableMutationRefresh,
+  dispatchTableTabsDropped,
+} from '../../../utils/sidebarDatabaseRefresh';
 import { resolveSqlDialect } from '../../../utils/sqlDialect';
 import React, { useCallback, useMemo } from 'react';
 import { message, Input } from 'antd';
@@ -129,6 +132,12 @@ export const useTableOverviewTableActions = ({
               if (res.success) {
                   dispatchSidebarTableMutationRefresh({ connectionId: connection!.id, dbName: tab.dbName, schemaName },
                     [tableName], resolveSqlDialect(config.type, config.driver, config), 'drop');
+                  dispatchTableTabsDropped({
+                      connectionId: connection!.id,
+                      dbName: tab.dbName,
+                      schemaName,
+                      tableNames: [tableName],
+                  });
                   await loadData();
                   message.success(t('table_overview.message.delete_table_success'));
               } else {
@@ -524,21 +533,29 @@ export const useTableOverviewTableActions = ({
                   database: overrideDatabase || connRef.dbName,
               },
           ),
-          loadTables: async () => {
-              dispatchSidebarTableMutationRefresh(
-                  {
-                      connectionId: connection.id,
-                      dbName: tab.dbName || '',
-                      schemaName,
-                  },
-                  names,
-                  resolveSqlDialect(
-                      connection.config.type,
-                      connection.config.driver,
-                      connection.config,
-                  ),
-                  action === 'drop-table' ? 'drop' : 'clear',
-              );
+          loadTables: async (
+              _node: any,
+              options?: { droppedTables?: string[] },
+          ) => {
+              const refreshNames = action === 'drop-table'
+                  ? (Array.isArray(options?.droppedTables) ? options.droppedTables : [])
+                  : names;
+              if (refreshNames.length > 0) {
+                  dispatchSidebarTableMutationRefresh(
+                      {
+                          connectionId: connection.id,
+                          dbName: tab.dbName || '',
+                          schemaName,
+                      },
+                      refreshNames,
+                      resolveSqlDialect(
+                          connection.config.type,
+                          connection.config.driver,
+                          connection.config,
+                      ),
+                      action === 'drop-table' ? 'drop' : 'clear',
+                  );
+              }
               await loadData();
           },
           getDatabaseNodeRef: () => null,

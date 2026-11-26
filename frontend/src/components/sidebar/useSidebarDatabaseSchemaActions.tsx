@@ -1,4 +1,3 @@
-import { sidebarMutationTableTarget } from './sidebarMutationTableTarget';
 import {
   CreateDatabase,
   ListDatabaseCharsets,
@@ -15,9 +14,13 @@ import { t } from '../../i18n';
 import { useEffect } from 'react';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { getMetadataDialect } from './sidebarMetadataLoaders';
+import {
+  dispatchSidebarTableMutationRefresh,
+  dispatchTableTabsDropped,
+} from '../../utils/sidebarDatabaseRefresh';
+import { resolveSqlDialect } from '../../utils/sqlDialect';
 import type { SavedConnection } from '../../types';
 import {
-  resolveNodeSchemaName,
   getSidebarSchemaTreeKeyPrefixes,
   isSidebarSchemaTreeKey,
 } from './sidebarObjectActionHelpers';
@@ -401,7 +404,22 @@ export const useSidebarDatabaseSchemaActions = ({
         const config = buildRuntimeConfig(conn, conn.dbName);
         const res = await DropTable(buildRpcConnectionConfig(config) as any, conn.dbName, tableName);
         if (res.success) {
-          void loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true, droppedTables: [sidebarMutationTableTarget(conn, tableName)], schemaName: resolveNodeSchemaName(node) });
+          dispatchSidebarTableMutationRefresh(
+            {
+              connectionId: conn.id,
+              dbName: conn.dbName,
+              schemaName: node?.dataRef?.schemaName,
+            },
+            [tableName],
+            resolveSqlDialect(config.type, config.driver, config),
+            'drop',
+          );
+          dispatchTableTabsDropped({
+            connectionId: conn.id,
+            dbName: conn.dbName,
+            schemaName: node?.dataRef?.schemaName,
+            tableNames: [tableName],
+          });
           message.success(t('sidebar.message.table_deleted'));
         } else {
           message.error(t('sidebar.message.delete_failed', { error: res.message }));

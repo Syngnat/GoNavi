@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setCurrentLanguage } from '../../i18n';
 import {
@@ -73,6 +73,10 @@ describe('sidebar multi-table danger actions', () => {
     mocks.dropTable.mockResolvedValue({ success: true });
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('passes every selected table to the batch truncate API', async () => {
     const deps = buildDeps();
     const operation = runSidebarMultiTableTruncate(deps, nodes);
@@ -120,5 +124,34 @@ describe('sidebar multi-table danger actions', () => {
       'events',
     ]);
     expect(deps.loadTables).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies table tab cleanup only for tables that were actually dropped', async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { dispatchEvent });
+    mocks.dropTable.mockImplementation(async (_config: any, _dbName: string, tableName: string) => (
+      tableName === 'customers'
+        ? { success: false, message: 'permission denied' }
+        : { success: true }
+    ));
+    const deps = buildDeps();
+    runSidebarMultiTableDrop(deps, nodes);
+
+    await mocks.countdownConfirm.mock.calls[0][0].onOk();
+
+    const tabCleanupEvent = dispatchEvent.mock.calls
+      .map(([event]) => event as CustomEvent)
+      .find((event) => event.type === 'gonavi:table-tabs-dropped');
+    expect(tabCleanupEvent?.detail).toEqual({
+      connectionId: 'conn-1',
+      dbName: 'shop',
+      tableNames: ['orders', 'events'],
+    });
+    expect(deps.loadTables).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({
+        droppedTables: ['orders', 'events'],
+      }),
+    );
   });
 });

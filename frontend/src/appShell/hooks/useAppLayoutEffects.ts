@@ -36,6 +36,8 @@ import {
   resolveDockedActiveTabId,
   dispatchCloseActiveResultTab,
 } from '../../utils/closeTabShortcut';
+import { TABLE_TABS_DROPPED_EVENT } from '../../utils/sidebarDatabaseRefresh';
+import { closeTabsForDroppedTableEvent } from '../tableTabsDropped';
 import type { AppCoreStateApi } from './useAppCoreState';
 import type { AppShellStateApi } from './useAppShellState';
 import type { AppSettingsNavigationApi } from './useAppSettingsNavigation';
@@ -180,6 +182,16 @@ export const useAppLayoutEffects = ({
           window.removeEventListener('gonavi:open-shortcut-settings', handleOpenShortcutSettingsEvent as EventListener);
       };
   }, [handleOpenSettingsCenterPane]);
+
+  useEffect(() => {
+      const handleTableTabsDropped = (event: Event) => {
+          closeTabsForDroppedTableEvent((event as CustomEvent).detail);
+      };
+      window.addEventListener(TABLE_TABS_DROPPED_EVENT, handleTableTabsDropped);
+      return () => {
+          window.removeEventListener(TABLE_TABS_DROPPED_EVENT, handleTableTabsDropped);
+      };
+  }, []);
 
   useEffect(() => {
       const handleOpenSnippetSettingsEvent = () => {
