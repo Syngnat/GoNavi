@@ -13018,7 +13018,7 @@
   "tab_manager.sql_file_close.save_failed": "保存 {{title}} 失败：{{detail}}",
   "tab_manager.sql_file_close.saved": "SQL 文件已保存",
   "tab_manager.sql_file_close.unknown_error": "未知错误",
-  "table_copy.action.label": "复制整表",
+  "table_copy.action.label": "复制表结构和数据",
   "table_copy.message.backend_unavailable": "当前版本不支持复制整表，请更新后重试。",
   "table_copy.message.failed": "整表复制失败：{{error}}",
   "table_copy.message.loading": "正在复制整表“{{source}}”...",

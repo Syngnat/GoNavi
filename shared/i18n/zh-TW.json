@@ -13018,7 +13018,7 @@
   "tab_manager.sql_file_close.save_failed": "儲存 {{title}} 失敗：{{detail}}",
   "tab_manager.sql_file_close.saved": "SQL 檔案已儲存",
   "tab_manager.sql_file_close.unknown_error": "未知錯誤",
-  "table_copy.action.label": "複製整個資料表",
+  "table_copy.action.label": "複製資料表結構和資料",
   "table_copy.message.backend_unavailable": "目前版本不支援複製整個資料表，請更新後再試。",
   "table_copy.message.failed": "複製整個資料表失敗：{{error}}",
   "table_copy.message.loading": "正在複製整個資料表「{{source}}」...",

@@ -13018,7 +13018,7 @@
   "tab_manager.sql_file_close.save_failed": "Не удалось сохранить {{title}}: {{detail}}",
   "tab_manager.sql_file_close.saved": "SQL-файл сохранен",
   "tab_manager.sql_file_close.unknown_error": "Неизвестная ошибка",
-  "table_copy.action.label": "Копировать всю таблицу",
+  "table_copy.action.label": "Копировать структуру и данные таблицы",
   "table_copy.message.backend_unavailable": "Эта версия не поддерживает копирование всей таблицы. Обновите приложение и повторите попытку.",
   "table_copy.message.failed": "Не удалось скопировать всю таблицу: {{error}}",
   "table_copy.message.loading": "Копирование всей таблицы «{{source}}»...",

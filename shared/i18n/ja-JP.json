@@ -13018,7 +13018,7 @@
   "tab_manager.sql_file_close.save_failed": "{{title}} の保存に失敗しました: {{detail}}",
   "tab_manager.sql_file_close.saved": "SQL ファイルを保存しました",
   "tab_manager.sql_file_close.unknown_error": "不明なエラー",
-  "table_copy.action.label": "テーブル全体をコピー",
+  "table_copy.action.label": "テーブル構造とデータをコピー",
   "table_copy.message.backend_unavailable": "このバージョンはテーブル全体のコピーに対応していません。更新して再試行してください。",
   "table_copy.message.failed": "テーブル全体のコピーに失敗しました: {{error}}",
   "table_copy.message.loading": "テーブル「{{source}}」全体をコピーしています...",

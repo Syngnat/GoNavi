@@ -57,7 +57,7 @@ describe('whole-table copy i18n and action wiring', () => {
       <V2TableContextMenuView tableName="orders" supportsCopyTable={false} />,
     );
 
-    expect(supported).toContain('复制整表');
-    expect(unsupported).not.toContain('复制整表');
+    expect(supported).toContain('复制表结构和数据');
+    expect(unsupported).not.toContain('复制表结构和数据');
   });
 });

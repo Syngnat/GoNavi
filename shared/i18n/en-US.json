@@ -13018,7 +13018,7 @@
   "tab_manager.sql_file_close.save_failed": "Failed to save {{title}}: {{detail}}",
   "tab_manager.sql_file_close.saved": "SQL file saved",
   "tab_manager.sql_file_close.unknown_error": "Unknown error",
-  "table_copy.action.label": "Copy entire table",
+  "table_copy.action.label": "Copy table structure and data",
   "table_copy.message.backend_unavailable": "This version does not support copying entire tables. Update and try again.",
   "table_copy.message.failed": "Failed to copy entire table: {{error}}",
   "table_copy.message.loading": "Copying entire table \"{{source}}\"...",

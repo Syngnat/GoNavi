@@ -13018,7 +13018,7 @@
   "tab_manager.sql_file_close.save_failed": "{{title}} konnte nicht gespeichert werden: {{detail}}",
   "tab_manager.sql_file_close.saved": "SQL-Datei gespeichert",
   "tab_manager.sql_file_close.unknown_error": "Unbekannter Fehler",
-  "table_copy.action.label": "Gesamte Tabelle kopieren",
+  "table_copy.action.label": "Tabellenstruktur und -daten kopieren",
   "table_copy.message.backend_unavailable": "Diese Version unterstützt das Kopieren gesamter Tabellen nicht. Bitte aktualisieren und erneut versuchen.",
   "table_copy.message.failed": "Die gesamte Tabelle konnte nicht kopiert werden: {{error}}",
   "table_copy.message.loading": "Die gesamte Tabelle \"{{source}}\" wird kopiert...",
