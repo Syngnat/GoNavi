@@ -5688,7 +5688,7 @@
   "data_grid.data_panel.title": "Предпросмотр данных",
   "data_grid.datetime_picker.now": "Сейчас",
   "data_grid.ddl.copy": "Копировать DDL",
-  "data_grid.ddl.layout_bottom": "Снизу",
+  "data_grid.ddl.layout_fullscreen": "Полный экран",
   "data_grid.ddl.layout_side": "Боковая панель",
   "data_grid.ddl.loading": "Загрузка DDL...",
   "data_grid.ddl.reload": "Перезагрузить",

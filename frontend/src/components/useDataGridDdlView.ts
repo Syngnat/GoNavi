@@ -4,6 +4,8 @@ import { t as catalogTranslate } from '../i18n/catalog';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { formatDdlForDisplay } from '../utils/ddlFormat';
 import type { GridViewMode } from './dataGrid/core/dataGridTypes';
+// `bottom` is the legacy persisted value for the full-screen DDL workspace;
+// keep it stable so existing saved layout preferences continue to resolve.
 type DdlViewLayoutMode = 'bottom' | 'side';
 type TranslateParams = Record<string, string | number | boolean | null | undefined>;
 const GRID_VIEW_MODES: GridViewMode[] = ['table', 'json', 'text', 'chart', 'fields', 'ddl', 'er', 'sqlLog'];

@@ -5688,7 +5688,7 @@
   "data_grid.data_panel.title": "Datenvorschau",
   "data_grid.datetime_picker.now": "Jetzt",
   "data_grid.ddl.copy": "DDL kopieren",
-  "data_grid.ddl.layout_bottom": "Unten",
+  "data_grid.ddl.layout_fullscreen": "Vollbild",
   "data_grid.ddl.layout_side": "Seitenleiste",
   "data_grid.ddl.loading": "DDL wird geladen...",
   "data_grid.ddl.reload": "Neu laden",

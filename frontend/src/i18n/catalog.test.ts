@@ -264,7 +264,7 @@ describe("i18n catalog", () => {
       "data_grid.json_editor.compact",
       "data_grid.json_editor.apply_changes",
       "data_grid.json_editor.invalid_format",
-      "data_grid.ddl.layout_bottom",
+      "data_grid.ddl.layout_fullscreen",
       "data_grid.ddl.layout_side",
       "data_grid.ddl.reload",
       "data_grid.ddl.copy",
@@ -325,14 +325,14 @@ describe("i18n catalog", () => {
     expect(t("en-US", "data_grid.batch_fill.title", { count: "<raw-count>" })).toContain("<raw-count>");
     expect(t("zh-CN", "data_grid.batch_fill.title", { count: "<raw-count>" })).toContain("<raw-count>");
     expect(getPlaceholders(catalogs["en-US"]["data_grid.batch_fill.title"])).toEqual(["count"]);
-    expect(t("en-US", "data_grid.ddl.layout_bottom")).toBe("Bottom");
+    expect(t("en-US", "data_grid.ddl.layout_fullscreen")).toBe("Full screen");
     expect(t("zh-CN", "data_grid.ddl.layout_side")).toBe("侧栏");
     expect(t("en-US", "data_grid.ddl.reload")).toBe("Reload");
     expect(t("en-US", "data_grid.ddl.copy")).toContain("DDL");
     expect(t("zh-CN", "data_grid.ddl.loading")).toContain("DDL");
     expect(t("en-US", "data_grid.ddl.sidebar_aria")).toContain("DDL");
     ([
-      "data_grid.ddl.layout_bottom",
+      "data_grid.ddl.layout_fullscreen",
       "data_grid.ddl.layout_side",
       "data_grid.ddl.reload",
       "data_grid.ddl.copy",

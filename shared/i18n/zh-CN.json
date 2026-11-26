@@ -5688,7 +5688,7 @@
   "data_grid.data_panel.title": "数据预览",
   "data_grid.datetime_picker.now": "此刻",
   "data_grid.ddl.copy": "复制 DDL",
-  "data_grid.ddl.layout_bottom": "底部",
+  "data_grid.ddl.layout_fullscreen": "全屏",
   "data_grid.ddl.layout_side": "侧栏",
   "data_grid.ddl.loading": "正在加载 DDL...",
   "data_grid.ddl.reload": "重新加载",

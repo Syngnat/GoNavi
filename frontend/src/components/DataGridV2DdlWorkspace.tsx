@@ -116,7 +116,7 @@ export const DataGridV2DdlView: React.FC<DataGridV2DdlViewProps> = ({
           size="small"
           value={ddlViewLayout}
           options={[
-            { label: translate('data_grid.ddl.layout_bottom'), value: 'bottom' },
+            { label: translate('data_grid.ddl.layout_fullscreen'), value: 'bottom' },
             { label: translate('data_grid.ddl.layout_side'), value: 'side' },
           ]}
           onChange={(value) => onDdlViewLayoutChange(String(value) as DdlViewLayoutMode)}

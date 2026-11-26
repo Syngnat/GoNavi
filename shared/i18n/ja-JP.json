@@ -5688,7 +5688,7 @@
   "data_grid.data_panel.title": "データプレビュー",
   "data_grid.datetime_picker.now": "今",
   "data_grid.ddl.copy": "DDL をコピー",
-  "data_grid.ddl.layout_bottom": "下部",
+  "data_grid.ddl.layout_fullscreen": "全画面",
   "data_grid.ddl.layout_side": "サイドバー",
   "data_grid.ddl.loading": "DDL を読み込み中...",
   "data_grid.ddl.reload": "再読み込み",
