@@ -1,4 +1,6 @@
 import React from 'react';
+import { message } from 'antd';
+import { CopyOutlined } from '@ant-design/icons';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
@@ -23,10 +25,37 @@ export const ObjectInfoDdlBlock: React.FC<ObjectInfoDdlBlockProps> = ({ ddl, dat
         ? t('object_info.section.ddl')
         : translatedDatabaseTitle)
     : t('object_info.section.ddl');
+  const copyLabel = t('object_info.action.copy');
+
+  const handleCopy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API unavailable');
+      }
+      await navigator.clipboard.writeText(ddl);
+      message.success(t('object_info.message.copied'));
+    } catch (error) {
+      message.error(t('object_info.message.copy_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  };
 
   return (
     <div className="gn-object-info-ddl">
-      <div className="gn-object-info-ddl-title">{title}</div>
+      <div className="gn-object-info-ddl-title">
+        <span className="gn-object-info-ddl-title-text">{title}</span>
+        <button
+          type="button"
+          className="gn-object-info-ddl-copy"
+          onClick={() => void handleCopy()}
+          aria-label={copyLabel}
+          title={copyLabel}
+        >
+          <CopyOutlined />
+          <span>{copyLabel}</span>
+        </button>
+      </div>
       <div
         className="gn-object-info-ddl-body"
         role="region"

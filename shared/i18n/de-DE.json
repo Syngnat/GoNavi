@@ -14375,5 +14375,8 @@
   "sidebar.view_clipboard.unsupported": "Diese Verbindung unterstützt das Kopieren von Ansichten nicht.",
   "sidebar.view_clipboard.copy_names_done": "{{count}} Ansichtsnamen kopiert",
   "db.backend.error.view_copy_cross_database_unsupported": "Diese Datenquelle unterstützt das Kopieren einer Ansicht über Datenbanken hinweg nicht: {{source}} → {{target}}",
-  "sidebar.view_clipboard.same_connection_required": "Das Kopieren von Ansichten erfordert dieselbe Verbindung; das Ziel darf in einer anderen Datenbank oder einem anderen Schema liegen."
+  "sidebar.view_clipboard.same_connection_required": "Das Kopieren von Ansichten erfordert dieselbe Verbindung; das Ziel darf in einer anderen Datenbank oder einem anderen Schema liegen.",
+  "object_info.action.copy": "Kopieren",
+  "object_info.message.copied": "In die Zwischenablage kopiert",
+  "object_info.message.copy_failed": "Kopieren fehlgeschlagen: {{error}}"
 }

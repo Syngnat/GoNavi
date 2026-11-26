@@ -14375,5 +14375,8 @@
   "sidebar.view_clipboard.unsupported": "当前连接不支持复制视图",
   "sidebar.view_clipboard.copy_names_done": "已复制 {{count}} 个视图名",
   "db.backend.error.view_copy_cross_database_unsupported": "当前数据源不支持跨库复制视图：{{source}} → {{target}}",
-  "sidebar.view_clipboard.same_connection_required": "视图复制仅支持同一连接，可跨库或跨模式选择目标"
+  "sidebar.view_clipboard.same_connection_required": "视图复制仅支持同一连接，可跨库或跨模式选择目标",
+  "object_info.action.copy": "复制",
+  "object_info.message.copied": "已复制到剪贴板",
+  "object_info.message.copy_failed": "复制失败：{{error}}"
 }

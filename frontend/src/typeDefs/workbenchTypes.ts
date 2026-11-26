@@ -124,6 +124,9 @@ export interface TabData {
   triggerRollbackSql?: string; // Original trigger definition used after a failed replacement
   viewName?: string; // View name for view definition tabs
   viewKind?: "view" | "materialized";
+  // 编辑视图页签只展示查询主体，保存时用这两个字段补回完整 DDL。
+  viewEditPrefix?: string;
+  viewEditSuffix?: string;
   eventName?: string; // Event name for MySQL event definition tabs
   jobName?: string;
   jobLabel?: string;

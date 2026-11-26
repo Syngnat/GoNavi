@@ -14375,5 +14375,8 @@
   "sidebar.view_clipboard.unsupported": "This connection does not support copying a view.",
   "sidebar.view_clipboard.copy_names_done": "Copied {{count}} view names",
   "db.backend.error.view_copy_cross_database_unsupported": "This data source does not support copying a view across databases: {{source}} → {{target}}",
-  "sidebar.view_clipboard.same_connection_required": "View copy requires the same connection; the target may be in another database or schema."
+  "sidebar.view_clipboard.same_connection_required": "View copy requires the same connection; the target may be in another database or schema.",
+  "object_info.action.copy": "Copy",
+  "object_info.message.copied": "Copied to clipboard",
+  "object_info.message.copy_failed": "Failed to copy: {{error}}"
 }

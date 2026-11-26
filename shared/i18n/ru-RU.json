@@ -14375,5 +14375,8 @@
   "sidebar.view_clipboard.unsupported": "Это подключение не поддерживает копирование представлений.",
   "sidebar.view_clipboard.copy_names_done": "Скопировано имён представлений: {{count}}",
   "db.backend.error.view_copy_cross_database_unsupported": "Этот источник данных не поддерживает копирование представления между базами данных: {{source}} → {{target}}",
-  "sidebar.view_clipboard.same_connection_required": "Копирование представлений требует одного и того же подключения; целевая база данных или схема может отличаться."
+  "sidebar.view_clipboard.same_connection_required": "Копирование представлений требует одного и того же подключения; целевая база данных или схема может отличаться.",
+  "object_info.action.copy": "Копировать",
+  "object_info.message.copied": "Скопировано в буфер обмена",
+  "object_info.message.copy_failed": "Не удалось скопировать: {{error}}"
 }

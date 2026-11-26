@@ -446,7 +446,8 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
       tab, getCurrentQuery, lastLocalQueryRef, savedQueries, currentConnectionId, currentDb,
       runQueuedSaveOperation, saveQuery, queryEditorMountedRef, currentConnectionIdRef,
       currentDbRef, addTab, setQuery, currentSavedQuery, setSaveModalMode, saveForm,
-      setIsSaveModalOpen, executeObjectDefinition: () => handleRun('all'),
+      setIsSaveModalOpen,
+      executeObjectDefinition: () => handleRun('all', { objectDefinition: true }),
   });
 
   const { elasticsearchTemplateMenuItems, saveMoreMenuItems, analysisMenuItems } = useQueryEditorToolbarMenus({

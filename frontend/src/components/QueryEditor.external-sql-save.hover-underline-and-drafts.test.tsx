@@ -1117,4 +1117,38 @@ END;`;
       'CREATE OR REPLACE VIEW reporting.active_users',
     );
   });
+
+  it('restores the CREATE VIEW wrapper when saving a body-only view edit tab', async () => {
+    const bodyOnlySql = [
+      '-- Edit View: reporting.active_users',
+      'SELECT id, name, updated_at FROM users;',
+    ].join('\n');
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        title: 'Edit View: reporting.active_users',
+        query: bodyOnlySql,
+        queryMode: 'object-edit',
+        viewName: 'reporting.active_users',
+        objectType: 'view',
+        viewEditPrefix: 'CREATE OR REPLACE VIEW reporting.active_users AS',
+      })} />);
+    });
+
+    editorState.value = bodyOnlySql;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({ success: true, data: [] });
+
+    await act(async () => {
+      await findButton(renderer!, '保存').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const executedSql = String(backendApp.DBQueryMulti.mock.calls[0][2]);
+    expect(executedSql).toContain('CREATE OR REPLACE VIEW reporting.active_users AS');
+    expect(executedSql).toContain('SELECT id, name, updated_at FROM users');
+  });
 });

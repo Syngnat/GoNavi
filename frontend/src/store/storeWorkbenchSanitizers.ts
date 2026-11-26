@@ -463,6 +463,10 @@ export const sanitizeQueryTabs = (value: unknown): TabData[] => {
           viewName: toTrimmedString(raw.viewName).slice(0, 256) || undefined,
           viewKind: asViewKind(raw.viewKind),
           objectType: asObjectType(raw.objectType),
+          viewEditPrefix:
+            toTrimmedString(raw.viewEditPrefix).slice(0, 8192) || undefined,
+          viewEditSuffix:
+            toTrimmedString(raw.viewEditSuffix).slice(0, 512) || undefined,
           sequenceName: toTrimmedString(raw.sequenceName).slice(0, 256) || undefined,
           packageName: toTrimmedString(raw.packageName).slice(0, 256) || undefined,
           triggerName: toTrimmedString(raw.triggerName).slice(0, 256) || undefined,

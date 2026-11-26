@@ -17,6 +17,7 @@ import {
 import { confirmProductionRisk } from '../../../utils/productionRiskConfirm';
 import type { ConnectionConfig } from '../../../types';
 import { buildRpcConnectionConfig } from '../../../utils/connectionRpcConfig';
+import { buildViewEditExecutionSql } from '../../../utils/viewEditSql';
 import { runQueryEditorMongoStatements } from '../run/queryEditorMongoRun';
 import { runQueryEditorSqlStatements } from '../run/queryEditorSqlRun';
 import {
@@ -139,7 +140,7 @@ export const useQueryEditorRun = ({
     executionLifecycleRef, unlockQueryContextForRun, handleRunRef, deferredContextRunSeqRef,
     queryEditorActiveRef, schemaLoadingRef, pendingRunAfterSchemaLoadRef, loading,
 }: UseQueryEditorRunInput) => {
-    const handleRun = async (runScope: QueryEditorRunScope = 'default', runOptions?: { skipParamsGate?: boolean }) => {
+    const handleRun = async (runScope: QueryEditorRunScope = 'default', runOptions?: { skipParamsGate?: boolean; objectDefinition?: boolean }) => {
       if (isElasticsearchMode) {
           await handleElasticsearchRun(runScope === 'all');
           return;
@@ -150,12 +151,12 @@ export const useQueryEditorRun = ({
       }
       const currentQuery = getCurrentQuery();
       if (!currentQuery.trim()) return;
-      const executableSQL = runScope === 'all'
+      const requestedSQL = runScope === 'all'
           ? currentQuery
           : runScope === 'selection'
               ? getSelectedSQL()
               : getExecutableSQL();
-      if (!executableSQL.trim()) {
+      if (!requestedSQL.trim()) {
           message.info(translate('query_editor.message.no_executable_sql'));
           return;
       }
@@ -164,6 +165,20 @@ export const useQueryEditorRun = ({
           String(currentConnection?.config?.driver || ''),
           { oceanBaseProtocol: currentConnection?.config?.oceanBaseProtocol },
       );
+      const executableSQL = runOptions?.objectDefinition && tab.type === 'query'
+          && tab.queryMode === 'object-edit'
+          && String(tab.viewName || '').trim()
+          ? buildViewEditExecutionSql(requestedSQL, {
+              viewName: tab.viewName,
+              dialect: executionDialect,
+              prefix: tab.viewEditPrefix,
+              suffix: tab.viewEditSuffix,
+          })
+          : requestedSQL;
+      if (!executableSQL.trim()) {
+          message.info(translate('query_editor.message.no_executable_sql'));
+          return;
+      }
       const sqlContext = resolveQueryEditorExecutionContext(
           executableSQL,
           executionDialect,

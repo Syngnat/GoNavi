@@ -121,10 +121,34 @@ body[data-ui-version='v2'] .gn-object-info-ddl {
 }
 
 body[data-ui-version='v2'] .gn-object-info-ddl-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: var(--gn-font-size-xs, 11px);
   font-weight: 600;
   color: var(--gn-fg-2, inherit);
   margin-bottom: 4px;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-fg-3, rgba(100, 116, 139, 0.9));
+  font-size: var(--gn-font-size-xs, 11px);
+  line-height: 1;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+body[data-ui-version='v2'] .gn-object-info-ddl-copy:hover {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+  color: var(--gn-fg-1, inherit);
 }
 
 body[data-ui-version='v2'] .gn-object-info-ddl-body {

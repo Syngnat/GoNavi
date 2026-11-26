@@ -81,10 +81,12 @@ describe('useSidebarTableAndViewActions view edit', () => {
     );
     expect(backend.DBQuery).not.toHaveBeenCalled();
     const tab = addTab.mock.calls[0][0];
-    expect(tab.query).toContain(rawDdl);
+    expect(tab.query).toContain('SELECT id, name FROM PAIFILE.FILES;');
+    expect(tab.query).not.toContain('CREATE OR REPLACE FORCE VIEW');
     expect(tab.query).not.toContain('your_table');
     expect(tab.queryMode).toBe('object-edit');
     expect(tab.viewName).toBe('PAIFILE.V_FILES');
+    expect(tab.viewEditPrefix).toBe('CREATE OR REPLACE FORCE VIEW PAIFILE.V_FILES AS');
   });
 
   it('warns when no supported definition path can load the view DDL', async () => {

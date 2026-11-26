@@ -1069,6 +1069,8 @@ describe('store appearance persistence', () => {
             viewName: 'analytics.mv_daily',
             viewKind: 'materialized',
             objectType: 'materialized-view',
+            viewEditPrefix: 'CREATE MATERIALIZED VIEW analytics.mv_daily AS',
+            viewEditSuffix: 'WITH DATA',
           },
           {
             id: 'query-create-routine-1',
@@ -1114,6 +1116,8 @@ describe('store appearance persistence', () => {
       viewName: 'analytics.mv_daily',
       viewKind: 'materialized',
       objectType: 'materialized-view',
+      viewEditPrefix: 'CREATE MATERIALIZED VIEW analytics.mv_daily AS',
+      viewEditSuffix: 'WITH DATA',
     }));
 
     // 建对象页签的保存语义依赖 queryMode，重启后必须保持 object-create。

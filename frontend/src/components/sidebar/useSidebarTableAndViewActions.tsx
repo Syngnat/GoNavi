@@ -18,6 +18,7 @@ import { buildStarRocksMaterializedViewPreviewSql } from '../tableDesignerSchema
 import type { SidebarCopyExportActionsApi } from './useSidebarCopyExportActions';
 import type { UseSidebarObjectActionsArgs } from './useSidebarObjectActions';
 import { loadSidebarViewDefinitionForEditing } from './sidebarViewEditDefinition';
+import { splitViewDefinitionForEditing } from '../../utils/viewEditSql';
 
 export interface UseSidebarTableAndViewActionsInput {
   buildRuntimeConfig: UseSidebarObjectActionsArgs['buildRuntimeConfig'];
@@ -150,6 +151,8 @@ export const useSidebarTableAndViewActions = ({
     const dialect = getMetadataDialect(conn as SavedConnection);
     const sqlTemplateHeader = `-- ${t('sidebar.sql_template.edit_view', { name: viewName })}`;
     let template = `${sqlTemplateHeader}\n-- ${t('sidebar.sql_template.modify_then_execute')}\nCREATE OR REPLACE VIEW ${viewName} AS\nSELECT * FROM your_table;`;
+    let viewEditPrefix: string | undefined;
+    let viewEditSuffix: string | undefined;
 
     try {
       const config = buildRuntimeConfig(conn, dbName);
@@ -162,7 +165,12 @@ export const useSidebarTableAndViewActions = ({
         viewKind: 'view',
       });
       if (loaded.definition) {
-        template = `${sqlTemplateHeader}\n${loaded.definition}`;
+        // 编辑页只展示视图查询主体；完整 CREATE 前缀与 CHECK OPTION 等后缀
+        // 留在页签元数据里，保存时由执行链路补回。
+        const parts = splitViewDefinitionForEditing(loaded.definition, viewName, dialect);
+        template = `${sqlTemplateHeader}\n${parts.body}`;
+        viewEditPrefix = parts.prefix || undefined;
+        viewEditSuffix = parts.suffix || undefined;
       } else {
         message.warning(t('sidebar.message.view_definition_load_failed', { name: viewName }));
       }
@@ -179,6 +187,8 @@ export const useSidebarTableAndViewActions = ({
       query: template,
       queryMode: 'object-edit',
       viewName,
+      viewEditPrefix,
+      viewEditSuffix,
       schemaName,
       objectType: 'view',
       sidebarLocateKey: String(node.key || ''),

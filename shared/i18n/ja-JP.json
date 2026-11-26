@@ -14375,5 +14375,8 @@
   "sidebar.view_clipboard.unsupported": "この接続ではビューをコピーできません。",
   "sidebar.view_clipboard.copy_names_done": "{{count}} 個のビュー名をコピーしました",
   "db.backend.error.view_copy_cross_database_unsupported": "このデータソースはデータベースをまたぐビューのコピーに対応していません: {{source}} → {{target}}",
-  "sidebar.view_clipboard.same_connection_required": "ビューのコピーは同じ接続内のみ対応しており、対象は別のデータベースやスキーマでもかまいません。"
+  "sidebar.view_clipboard.same_connection_required": "ビューのコピーは同じ接続内のみ対応しており、対象は別のデータベースやスキーマでもかまいません。",
+  "object_info.action.copy": "コピー",
+  "object_info.message.copied": "クリップボードにコピーしました",
+  "object_info.message.copy_failed": "コピーに失敗しました：{{error}}"
 }

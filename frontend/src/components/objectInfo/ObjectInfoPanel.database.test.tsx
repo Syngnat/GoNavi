@@ -3,6 +3,17 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('antd', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('antd')>();
+  return {
+    ...actual,
+    message: {
+      success: vi.fn(),
+      error: vi.fn(),
+    },
+  };
+});
+
 const objectInfoState = vi.hoisted(() => ({
   current: {} as Record<string, unknown>,
 }));
@@ -26,6 +37,43 @@ const collectText = (node: any): string => {
 };
 
 describe('ObjectInfoContent database definition', () => {
+  it('copies the displayed DDL independently from text selection', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const ddl = 'CREATE DATABASE `front_end_sys_dev`;';
+    objectInfoState.current = {
+      target: {
+        kind: 'database',
+        connectionId: 'conn-1',
+        dbName: 'front_end_sys_dev',
+      },
+      details: null,
+      unsupported: false,
+      ddl,
+      loadState: 'ready',
+      reload: vi.fn(),
+      databaseDdlUnsupported: false,
+      loadError: '',
+      connectionName: '开发 240',
+    };
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<ObjectInfoContent />);
+    });
+
+    const copyButton = renderer.root.findByProps({ className: 'gn-object-info-ddl-copy' });
+    await act(async () => {
+      await copyButton.props.onClick();
+    });
+
+    expect(writeText).toHaveBeenCalledWith(ddl);
+    act(() => renderer.unmount());
+  });
+
   it('shows database name, connection context, and CREATE DATABASE SQL', () => {
     objectInfoState.current = {
       target: {
@@ -57,7 +105,7 @@ describe('ObjectInfoContent database definition', () => {
     const meta = renderer.root.findByProps({ className: 'gn-object-info-meta' });
     expect(collectText(meta.props.children)).toBe('开发 240');
     expect(collectText(renderer.toJSON())).toContain('CREATE DATABASE');
-    expect(collectText(renderer.root.findByProps({ className: 'gn-object-info-ddl-title' }).props.children))
+    expect(collectText(renderer.root.findByProps({ className: 'gn-object-info-ddl-title-text' }).props.children))
       .toBe('建库 SQL');
 
     act(() => renderer.unmount());

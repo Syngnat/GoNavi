@@ -14375,5 +14375,8 @@
   "sidebar.view_clipboard.unsupported": "目前連線不支援複製檢視",
   "sidebar.view_clipboard.copy_names_done": "已複製 {{count}} 個檢視名稱",
   "db.backend.error.view_copy_cross_database_unsupported": "目前資料來源不支援跨資料庫複製檢視：{{source}} → {{target}}",
-  "sidebar.view_clipboard.same_connection_required": "檢視複製僅支援同一連線，可跨資料庫或跨模式選擇目標"
+  "sidebar.view_clipboard.same_connection_required": "檢視複製僅支援同一連線，可跨資料庫或跨模式選擇目標",
+  "object_info.action.copy": "複製",
+  "object_info.message.copied": "已複製到剪貼簿",
+  "object_info.message.copy_failed": "複製失敗：{{error}}"
 }
