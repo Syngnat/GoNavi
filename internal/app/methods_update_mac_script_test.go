@@ -1,9 +1,53 @@
 package app
 
 import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestLaunchMacUpdateRunsInstallerSynchronously(t *testing.T) {
+	original := runMacUpdateInstaller
+	t.Cleanup(func() { runMacUpdateInstaller = original })
+
+	root := t.TempDir()
+	staged := &stagedUpdate{
+		WorkspaceDir:   filepath.Join(root, "updates"),
+		StagedDir:      filepath.Join(root, "updates", "stage"),
+		FilePath:       filepath.Join(root, "updates", "GoNavi-test.dmg"),
+		InstallLogPath: filepath.Join(root, "updates", "stage", "update.log"),
+	}
+	targetExe := filepath.Join(root, "GoNavi.app", "Contents", "MacOS", "GoNavi")
+	installErr := errors.New("installer failed")
+	called := false
+	runMacUpdateInstaller = func(scriptPath string, workDir string) error {
+		called = true
+		if workDir != staged.StagedDir {
+			t.Fatalf("workDir = %q, want %q", workDir, staged.StagedDir)
+		}
+		payload, err := os.ReadFile(scriptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(payload), "mode=before-exit") {
+			t.Fatalf("script is not in synchronous mode:\n%s", payload)
+		}
+		return installErr
+	}
+
+	err := launchMacUpdate(staged, targetExe, 4242)
+	if !called {
+		t.Fatal("launchMacUpdate returned without running the installer")
+	}
+	if !errors.Is(err, installErr) {
+		t.Fatalf("err = %v, want installer error", err)
+	}
+}
 
 func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 	script := buildMacScript(
@@ -17,22 +61,23 @@ func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 	)
 
 	mustContain := []string{
-		"MAX_WAIT_PID_SECONDS=120",
 		"hdiutil attach",
 		"prepare_app_source_from_package",
 		"resolve_app_binary_rel",
 		"replace_app_direct",
 		"run_admin_replace",
 		"relaunch_app",
-		`open -n "$TARGET_APP"`,
-		`nohup "$TARGET_APP/$APP_BIN_REL" >/dev/null 2>&1 &`,
+		`RESTART_PARENT_ARG="--gonavi-restart-parent-pid=${PID}"`,
+		`open -n "$TARGET_APP" --args "$RESTART_PARENT_ARG"`,
+		`nohup "$TARGET_APP/$APP_BIN_REL" "$RESTART_PARENT_ARG" >/dev/null 2>&1 &`,
+		"mode=before-exit",
 		// 安装包扩展名分支
 		"dmg)",
 		"zip)",
-		// 所有失败路径都必须显式通知用户（脱离主进程静默运行，否则表现为「点击无反应」）
-		"notify_failure",
+		// 所有失败路径都必须留下可检索的日志；主进程会把错误返回给前端。
+		"fail_update",
 		// relaunch 成功后删除整个 updates 目录，失败则保留
-		`exec /bin/rm -rf "$UPDATES_DIR"`,
+		`/bin/rm -rf "$UPDATES_DIR"`,
 	}
 	for _, token := range mustContain {
 		if !strings.Contains(script, token) {
@@ -46,13 +91,16 @@ func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 		t.Fatal("mac updater must preserve Gatekeeper quarantine metadata; notarized releases must not depend on clearing it")
 	}
 	// 确保不会在 relaunch 之前删除 updates 目录。
-	rmIdx := strings.Index(script, `exec /bin/rm -rf "$UPDATES_DIR"`)
+	rmIdx := strings.Index(script, `/bin/rm -rf "$UPDATES_DIR"`)
 	relaunchIdx := strings.Index(script, "if ! relaunch_app; then")
 	if rmIdx < 0 || relaunchIdx < 0 || rmIdx < relaunchIdx {
 		t.Fatalf("updates cleanup must happen only after relaunch attempt (rmIdx=%d relaunchIdx=%d)", rmIdx, relaunchIdx)
 	}
-	if strings.Contains(script[rmIdx+len(`exec /bin/rm -rf "$UPDATES_DIR"`):], `log "`) {
+	if strings.Contains(script[rmIdx+len(`/bin/rm -rf "$UPDATES_DIR"`):], `log "`) {
 		t.Fatal("mac update script must not write installation logs after deleting the updates directory")
+	}
+	if strings.Contains(script, `while /bin/kill -0 "$PID"`) || strings.Contains(script, "host process exited") {
+		t.Fatal("mac update script must install before the host exits instead of waiting for process death")
 	}
 	if !strings.Contains(script, "/tmp/GoNavi/updates/1.2.3/GoNavi-1.2.3-MacOS-Arm64.dmg") {
 		t.Fatal("expected package path embedded in script")
@@ -62,6 +110,15 @@ func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 	}
 	if !strings.Contains(script, "PID=4242") {
 		t.Fatal("expected host pid embedded in script")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available")
+	}
+	cmd := exec.Command(bash, "-n")
+	cmd.Stdin = strings.NewReader(script)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated mac update script failed bash -n: %v\n%s", err, output)
 	}
 }
 
@@ -137,25 +194,125 @@ func TestBuildMacScriptAbortsWhenExistingAppCannotBeMovedAside(t *testing.T) {
 	if !strings.Contains(script, `if ! /bin/mv "$TARGET_APP" "$BACKUP_APP"`) {
 		t.Fatal("expected a guarded mv-aside with failure handling")
 	}
-	// 每个失败分支都必须先通知再退出，不能只写日志。
-	failures := strings.Count(script, "notify_failure \"")
+	// 每个失败分支都必须留日志再退出，主进程据此保留窗口并显示失败。
+	failures := strings.Count(script, "fail_update \"")
 	if failures < 5 {
-		t.Fatalf("expected every terminal failure path to notify the user, found %d notify_failure calls", failures)
+		t.Fatalf("expected every terminal failure path to record a failure, found %d fail_update calls", failures)
 	}
 	for _, exitPath := range []string{
-		"notify_failure \"无法从安装包中解出应用",
-		"notify_failure \"无权限替换应用",
-		"notify_failure \"替换后目标应用",
-		"notify_failure \"应用已替换但自动重启失败",
+		"fail_update \"无法从安装包中解出应用",
+		"fail_update \"无权限替换应用",
+		"fail_update \"替换后目标应用",
+		"fail_update \"应用已替换但自动重启失败",
 	} {
 		if !strings.Contains(script, exitPath) {
-			t.Fatalf("missing user-visible failure notification %q", exitPath)
+			t.Fatalf("missing failure log %q", exitPath)
 		}
 	}
-	// 通知必须在删除 updates 目录之前完成，否则日志路径失效。
-	rmIdx := strings.Index(script, `exec /bin/rm -rf "$UPDATES_DIR"`)
-	lastNotify := strings.LastIndex(script, "notify_failure \"")
+	// 失败日志必须在删除 updates 目录之前写入，否则用户拿不到原因。
+	rmIdx := strings.Index(script, `/bin/rm -rf "$UPDATES_DIR"`)
+	lastNotify := strings.LastIndex(script, "fail_update \"")
 	if rmIdx < 0 || lastNotify < 0 || lastNotify > rmIdx {
-		t.Fatal("failure notifications must be emitted before the updates directory is removed")
+		t.Fatal("failure logs must be written before the updates directory is removed")
 	}
+}
+
+func TestBuildMacScriptInstallsBeforeHostExitAndBarriersRelaunch(t *testing.T) {
+	script := buildMacScript(
+		"/tmp/GoNavi/updates/dev-abc/GoNavi-dev-abc-MacOS-Arm64.dmg",
+		"/Applications/GoNavi.app",
+		"/tmp/GoNavi/updates",
+		"/tmp/GoNavi/updates/dev-abc/stage",
+		"/tmp/GoNavi/updates/dev-abc/stage/mnt",
+		"/tmp/GoNavi/updates/dev-abc/install.log",
+		4242,
+	)
+
+	for _, token := range []string{
+		`RESTART_PARENT_ARG="--gonavi-restart-parent-pid=${PID}"`,
+		`open -n "$TARGET_APP" --args "$RESTART_PARENT_ARG"`,
+	} {
+		if !strings.Contains(script, token) {
+			t.Fatalf("relaunch must wait for the old process to exit, missing %q", token)
+		}
+	}
+	prepareIdx := strings.Index(script, "if ! prepare_app_source_from_package; then")
+	replaceIdx := strings.Index(script, "if ! replace_app_direct; then")
+	relaunchIdx := strings.Index(script, "if ! relaunch_app; then")
+	if prepareIdx < 0 || replaceIdx < 0 || relaunchIdx < 0 || !(prepareIdx < replaceIdx && replaceIdx < relaunchIdx) {
+		t.Fatalf("install must mount, replace, then relaunch before the host exits (prepare=%d replace=%d relaunch=%d)", prepareIdx, replaceIdx, relaunchIdx)
+	}
+}
+
+func TestBuildMacScriptInstallsAndRelaunchesBeforeHostExit(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS update script integration only runs on darwin")
+	}
+	if _, err := exec.LookPath("/usr/bin/open"); err != nil {
+		t.Skip("open is unavailable")
+	}
+
+	root := t.TempDir()
+	updatesDir := filepath.Join(root, "updates")
+	stagedDir := filepath.Join(updatesDir, "stage")
+	mountDir := filepath.Join(stagedDir, "mnt")
+	if err := os.MkdirAll(mountDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	argFile := filepath.Join(root, "launch-args.txt")
+	packagePath := filepath.Join(root, "GoNavi-test.zip")
+	sourceApp := filepath.Join(root, "source", "GoNavi.app")
+	if err := os.MkdirAll(filepath.Join(sourceApp, "Contents", "MacOS"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceApp, "Contents", "Info.plist"), []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.gonavi.updateprobe</string>
+<key>CFBundleName</key><string>GoNavi</string>
+<key>CFBundleExecutable</key><string>GoNavi</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(sourceApp, "Contents", "MacOS", "GoNavi")
+	if err := os.WriteFile(binary, []byte("#!/bin/bash\nprintf '%s\\n' \"$@\" > "+argFile+"\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("/usr/bin/ditto", "-c", "-k", "--norsrc", filepath.Dir(sourceApp), packagePath).CombinedOutput(); err != nil {
+		t.Fatalf("create test zip: %v\n%s", err, output)
+	}
+
+	targetApp := filepath.Join(root, "GoNavi.app")
+	script := buildMacScript(packagePath, targetApp, updatesDir, stagedDir, mountDir, filepath.Join(stagedDir, "update.log"), os.Getpid())
+	scriptPath := filepath.Join(stagedDir, "update.sh")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/bash", scriptPath)
+	cmd.Dir = stagedDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		logPayload, _ := os.ReadFile(filepath.Join(stagedDir, "update.log"))
+		t.Fatalf("run generated update script: %v\nstdout:\n%s\nlog:\n%s", err, output, logPayload)
+	}
+
+	installedBinary := filepath.Join(targetApp, "Contents", "MacOS", "GoNavi")
+	payload, err := os.ReadFile(installedBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), "#!/bin/bash") {
+		t.Fatalf("target app was not replaced with the staged payload: %q", payload)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		payload, err = os.ReadFile(argFile)
+		if err == nil && strings.Contains(string(payload), "--gonavi-restart-parent-pid=") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("relaunched app did not receive the parent barrier argument: %v", err)
 }

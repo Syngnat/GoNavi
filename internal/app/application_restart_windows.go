@@ -11,8 +11,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const windowsRestartParentPIDArgument = "--gonavi-restart-parent-pid="
-
 // restartApplicationProcess launches the same executable in a detached
 // process. The child receives the current PID so main can wait for the old
 // process to release the MSI single-instance event before creating its own.

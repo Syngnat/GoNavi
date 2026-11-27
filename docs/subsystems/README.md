@@ -21,6 +21,7 @@
 | Wails v3 迁移 | `cmd/wails3app/`、`scripts/build-wails3.mjs` | 部分：`WAILS3_MIGRATION.md` |
 | Hive 支持 | `internal/db/` 的 Hive 实现、`internal/hivesql/` | 部分：`HIVE_SUPPORT.md` |
 | 数据同步 | `internal/sync/`、`frontend/src/components/data-sync/` | 部分：`DATA_SYNC_TASKS.md` |
+| 应用更新与安装 | `internal/app/methods_update*.go`、`update_cleanup.go`、`frontend/src/hooks/appUpdate/` | `docs/subsystems/application-update.md` |
 
 “待补”不是可以跳过：第一次改某个子系统时，先把该页补到能回答下面六个问题，再改代码。
 
