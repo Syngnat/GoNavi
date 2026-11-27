@@ -17,6 +17,7 @@ import { ExporterSelectionNotice } from '../plugins/exporter/SelectionNotice';
 import { isPluginExporterNamespace } from '../plugins/exporter/identity';
 import { beginPluginExportOperation } from '../plugins/exporter/operation';
 import { PluginAPIError } from '../plugins/apiResult';
+import { resolveDataExportPopupContainer } from './dataExportPopupContainer';
 
 export type DataExportColumnSelectProps = {
   availableColumns: string[];
@@ -102,6 +103,7 @@ export const DataExportColumnSelect: React.FC<DataExportColumnSelectProps> = ({
       </div>
       <Select
         aria-label={t('data_export.dialog.field.columns')}
+        getPopupContainer={resolveDataExportPopupContainer}
         style={{ width: '100%' }}
         mode="multiple"
         value={selectedColumns}
@@ -160,6 +162,7 @@ const DataExportDialogContent: React.FC<{
       <Form layout="vertical" colon={false}>
         <Form.Item label={t('data_export.dialog.field.format')} style={{ marginBottom: 16 }}>
           <Select
+            getPopupContainer={resolveDataExportPopupContainer}
             value={values.format}
             options={formatOptions}
             onChange={(format) => { if (!isPluginExporterNamespace(format)) choice.select(format); }}
@@ -169,6 +172,7 @@ const DataExportDialogContent: React.FC<{
 
         <Form.Item label={t('data_export.dialog.field.scope')} style={{ marginBottom: 8 }}>
           <Select
+            getPopupContainer={resolveDataExportPopupContainer}
             value={values.scope}
             disabled={scopeOptions.length <= 1}
             options={scopeOptions.map((item) => ({

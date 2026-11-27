@@ -6,6 +6,7 @@ import {
   type DataExportCSVEncoding,
   type DataExportDialogValues,
 } from './dataExportOptions';
+import { resolveDataExportPopupContainer } from './dataExportPopupContainer';
 
 const csvEncodingOptions = (): Array<{ value: DataExportCSVEncoding; label: string }> => [
   { value: 'utf-8', label: t('data_export.dialog.csv_encoding.utf8') },
@@ -40,6 +41,7 @@ export default function DataExportFormatFields({
         <Form.Item label={t('data_export.dialog.field.csv_encoding')} style={{ marginBottom: 0 }}>
           <Select<DataExportCSVEncoding>
             aria-label={t('data_export.dialog.field.csv_encoding')}
+            getPopupContainer={resolveDataExportPopupContainer}
             value={values.csvEncoding || DEFAULT_DATA_EXPORT_CSV_ENCODING}
             options={csvEncodingOptions()}
             onChange={(csvEncoding) => onChange({ csvEncoding })}
