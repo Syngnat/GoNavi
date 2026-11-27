@@ -2,9 +2,16 @@ import { useCallback, useRef } from 'react';
 import {
     type QueryEditorExecutionLifecycleState,
     buildQueryEditorLifecycleAffectedRowsResult,
-    isQueryEditorAwaitingDriver,
+    createIdleQueryEditorExecutionLifecycle,
     queryEditorExecutionTimerStatusI18nKey,
 } from '../queryEditorExecutionLifecycle';
+import {
+    formatQueryExecutionElapsed,
+    resolveQueryExecutionLifecycleTimerHint,
+    resolveQueryExecutionSpeedIcon,
+    shouldShowQueryExecutionElapsed,
+    useQueryExecutionElapsed,
+} from '../queryEditorExecutionTimer';
 import {
     type QueryEditorResultSet,
     QUERY_EDITOR_SQL_LOG_TAB_KEY,
@@ -20,6 +27,8 @@ import type { QueryEditorCoreStateApi } from './useQueryEditorCoreState';
 import type { QueryEditorProps } from '../../QueryEditor';
 import type { SqlEditorCommitMode } from '../../QueryEditorTransactionSettings';
 
+const IDLE_QUERY_EDITOR_EXECUTION_LIFECYCLE = createIdleQueryEditorExecutionLifecycle();
+
 export interface UseQueryEditorExecutionStatusInput {
     tab: QueryEditorProps['tab'];
     isResultPanelVisibleRef: QueryEditorConnectionContextApi['isResultPanelVisibleRef'];
@@ -31,10 +40,13 @@ export interface UseQueryEditorExecutionStatusInput {
     setExecutionError: QueryEditorCoreStateApi['setExecutionError'];
     setResultSets: QueryEditorCoreStateApi['setResultSets'];
     currentQueryId: QueryEditorCoreStateApi['currentQueryId'];
+    currentQueryIdRef: QueryEditorCoreStateApi['currentQueryIdRef'];
     loading: QueryEditorCoreStateApi['loading'];
     isActive: Exclude<QueryEditorProps['isActive'], undefined>;
-    executionAwaitingDriverRef: QueryEditorCoreStateApi['executionAwaitingDriverRef'];
+    isElasticsearchMode: QueryEditorConnectionContextApi['isElasticsearchMode'];
+    executionRunToken: QueryEditorCoreStateApi['executionRunToken'];
     executionTimingActive: QueryEditorCoreStateApi['executionTimingActive'];
+    completedExecutionElapsedMs: QueryEditorCoreStateApi['completedExecutionElapsedMs'];
     editorRef: QueryEditorCoreStateApi['editorRef'];
     isResultPanelVisible: QueryEditorConnectionContextApi['isResultPanelVisible'];
     activeResultKey: QueryEditorCoreStateApi['activeResultKey'];
@@ -47,7 +59,8 @@ export interface UseQueryEditorExecutionStatusInput {
 export const useQueryEditorExecutionStatus = ({
     tab, isResultPanelVisibleRef, setIsResultPanelVisible, updateQueryTabDraft,
     rpcLostWithoutResultRef, setLoading, setExecutionTimingActive, setExecutionError, setResultSets,
-    currentQueryId, loading, isActive, executionAwaitingDriverRef, executionTimingActive, editorRef,
+    currentQueryId, currentQueryIdRef, loading, isActive, isElasticsearchMode,
+    executionRunToken, executionTimingActive, completedExecutionElapsedMs, editorRef,
     isResultPanelVisible, activeResultKey, setActiveResultKey, sqlEditorTransactionOptions,
     showSqlExecutionLog, setShowSqlExecutionLog,
 }: UseQueryEditorExecutionStatusInput) => {
@@ -81,14 +94,45 @@ export const useQueryEditorExecutionStatus = ({
     }, [updateResultPanelVisibility]);
     const executionLifecycle = useQueryEditorExecutionLifecycle({
         queryId: currentQueryId,
+        queryIdRef: currentQueryIdRef,
         loading,
         onTerminal: handleExecutionLifecycleTerminal,
     });
     useQueryEditorTabExecutionBroadcast(tab.id, loading, executionLifecycle.status, isActive);
     const executionLifecycleRef = useRef(executionLifecycle);
     executionLifecycleRef.current = executionLifecycle;
-    executionAwaitingDriverRef.current = isQueryEditorAwaitingDriver(executionLifecycle);
-    const executionStatusKey = queryEditorExecutionTimerStatusI18nKey(executionTimingActive && loading, executionLifecycle);
+    // 新一轮执行尚未分配 queryId 或还残留上一轮终态时，先收口为空闲态，避免旧耗时或旧状态闪现。
+    const effectiveExecutionLifecycle = loading && (
+        !currentQueryId
+        || (executionLifecycle.queryId !== '' && executionLifecycle.queryId !== currentQueryId)
+    )
+        ? IDLE_QUERY_EDITOR_EXECUTION_LIFECYCLE
+        : executionLifecycle;
+    const executionLifecycleTimerHint = resolveQueryExecutionLifecycleTimerHint(effectiveExecutionLifecycle);
+    const executionElapsedMs = useQueryExecutionElapsed(
+        executionTimingActive && loading,
+        executionRunToken,
+        completedExecutionElapsedMs,
+        executionLifecycleTimerHint,
+    );
+    const executionElapsedText = formatQueryExecutionElapsed(executionElapsedMs);
+    const showExecutionElapsed = shouldShowQueryExecutionElapsed({
+        loading,
+        timingActive: executionTimingActive,
+        completedElapsedMs: completedExecutionElapsedMs,
+        elapsedMs: executionElapsedMs,
+        lifecycleHint: executionLifecycleTimerHint,
+        awaitBackendEvents: !isElasticsearchMode,
+    });
+    const executionElapsedLabel = translate('query_editor.execution.elapsed', {
+        duration: executionElapsedText,
+    });
+    const executionSpeedIcon = resolveQueryExecutionSpeedIcon(executionElapsedMs);
+    const executionStatusKey = queryEditorExecutionTimerStatusI18nKey(
+        executionTimingActive && loading,
+        effectiveExecutionLifecycle,
+        loading,
+    );
     const executionStatusText = executionStatusKey ? translate(executionStatusKey) : '';
     const toggleResultPanelVisibility = useCallback(() => {
         const nextVisible = !isResultPanelVisibleRef.current;
@@ -152,6 +196,7 @@ export const useQueryEditorExecutionStatus = ({
     const autoFetchVisible = useAutoFetchVisibility();
     return {
         updateResultPanelVisibility, executionLifecycle, executionLifecycleRef, executionStatusText,
+        executionElapsedText, showExecutionElapsed, executionElapsedLabel, executionSpeedIcon,
         toggleResultPanelVisibility, handleOpenEditorFind, handleShowSqlExecutionLog,
         sqlEditorCommitMode, sqlEditorAutoCommitDelayMs, activatePendingSqlTransaction,
         appendPendingSqlTransactionExecution, sqlEditorAutoCommitRemainingSeconds,

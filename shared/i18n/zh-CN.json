@@ -10293,6 +10293,7 @@
   "query_editor.execution.status.done": "执行完成",
   "query_editor.execution.status.error": "执行失败",
   "query_editor.execution.status.read": "已查看",
+  "query_editor.execution.status.receiving_results": "正在接收结果",
   "query_editor.execution.status.running": "正在执行 SQL",
   "query_editor.execution.status.stalled": "暂时收不到进度，语句可能仍在数据库执行",
   "query_editor.execution.tab_done": "已完成",

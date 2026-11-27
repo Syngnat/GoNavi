@@ -10293,6 +10293,7 @@
   "query_editor.execution.status.done": "Завершено",
   "query_editor.execution.status.error": "Ошибка",
   "query_editor.execution.status.read": "Просмотрено",
+  "query_editor.execution.status.receiving_results": "Получение результатов",
   "query_editor.execution.status.running": "Выполняется SQL",
   "query_editor.execution.status.stalled": "Нет прогресса; оператор, возможно, всё ещё выполняется в базе",
   "query_editor.execution.tab_done": "Готово",

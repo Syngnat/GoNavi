@@ -136,7 +136,7 @@ func (a *App) dbQueryWithCancel(
 	)
 	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(auditOptions.executionContext, queryID)
 	defer func() {
-		lifecycle.complete(result)
+		lifecycle.completeWithDuration(result, queryExecutionDuration)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -227,6 +227,7 @@ func (a *App) dbQueryWithCancel(
 			if a.invalidateCachedDatabase(runConfig, err) {
 				requestTrace.MarkRetry("cached connection refresh")
 				setRunningQueryCancellable(true)
+				lifecycle.markConnecting()
 				// 重建连接的开销同样归入取连接等待：它是这次查询真实付出的链路成本，
 				// 漏掉就会让「其余」一段凭空变大。
 				retryInst, retryWaitMs, retryErr := a.acquireQueryConnection(ctx, queryConnectionRequest{
@@ -239,6 +240,7 @@ func (a *App) dbQueryWithCancel(
 					logger.Error(retryErr, "DBQuery 重建连接失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 					return buildQueryConnectionFailure(retryErr, queryID, auditOptions.classifyConnectionErrors)
 				}
+				lifecycle.markExecuting()
 				data, columns, messages, err = runReadQueryWithMessages(retryInst)
 				if legacyCancellationUnsupported {
 					return a.buildCancellationUnsupportedExecutionResult(connection.QueryResult{

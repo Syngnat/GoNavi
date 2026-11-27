@@ -14,12 +14,14 @@ import {
 
 type UseQueryEditorExecutionLifecycleOptions = {
     queryId: string;
+    queryIdRef?: { current: string };
     loading: boolean;
     onTerminal?: (state: QueryEditorExecutionLifecycleState) => void;
 };
 
 export const useQueryEditorExecutionLifecycle = ({
     queryId,
+    queryIdRef: externalQueryIdRef,
     loading,
     onTerminal,
 }: UseQueryEditorExecutionLifecycleOptions): QueryEditorExecutionLifecycleState => {
@@ -30,6 +32,8 @@ export const useQueryEditorExecutionLifecycle = ({
     stateRef.current = state;
     const queryIdRef = useRef(queryId);
     queryIdRef.current = queryId;
+    const externalQueryIdRefHolder = useRef(externalQueryIdRef);
+    externalQueryIdRefHolder.current = externalQueryIdRef;
     const onTerminalRef = useRef(onTerminal);
     onTerminalRef.current = onTerminal;
 
@@ -37,9 +41,12 @@ export const useQueryEditorExecutionLifecycle = ({
 
     useEffect(() => {
         if (loading && !wasLoadingRef.current) {
-            const idle = createIdleQueryEditorExecutionLifecycle();
-            stateRef.current = idle;
-            setState(idle);
+            const activeQueryId = String(externalQueryIdRefHolder.current?.current || queryIdRef.current || '').trim();
+            if (stateRef.current.queryId === '' || stateRef.current.queryId !== activeQueryId) {
+                const idle = createIdleQueryEditorExecutionLifecycle();
+                stateRef.current = idle;
+                setState(idle);
+            }
         }
         wasLoadingRef.current = loading;
     }, [loading]);
@@ -50,7 +57,8 @@ export const useQueryEditorExecutionLifecycle = ({
             unsubscribe = EventsOn(QUERY_PROGRESS_EVENT_NAME, (payload: unknown) => {
                 const now = Date.now();
                 const event = payload as QueryExecutionProgressEvent;
-                if (!shouldApplyQueryExecutionProgressEvent(queryIdRef.current, event?.queryId)) {
+                const ownedQueryId = externalQueryIdRefHolder.current?.current || queryIdRef.current;
+                if (!shouldApplyQueryExecutionProgressEvent(ownedQueryId, event?.queryId)) {
                     return;
                 }
                 const next = reduceQueryEditorExecutionLifecycle(stateRef.current, payload, now);

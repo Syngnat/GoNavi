@@ -10,8 +10,9 @@
 | Wails 绑定与 `QueryResult` | `internal/app/`、`internal/connection/` | 待补 |
 | 数据源契约与驱动 | `internal/db/`、`docs/driver-manifest.json` | 待补 |
 | 连接、凭据与生产保护 | `internal/app/`、`internal/secretstore/`、`internal/sqlaudit/` | 待补 |
-| Query Editor | `frontend/src/components/queryEditor/`、`QueryEditor.tsx` | 待补 |
+| Query Editor | `frontend/src/components/queryEditor/`、`QueryEditor.tsx` | `docs/subsystems/query-editor.md` |
 | DataGrid | `frontend/src/components/DataGrid*.tsx`、`frontend/src/components/dataGrid/` | `docs/subsystems/data-grid.md` |
+| 表概览 | `frontend/src/components/TableOverview.tsx`、`frontend/src/components/tableOverview/` | `docs/subsystems/table-overview.md` |
 | 数据导入 | `internal/app/import_*`、`frontend/src/components/dataImport/` | `docs/subsystems/data-import.md` |
 | 数据导出 | `internal/app/methods_file_export_*`、`frontend/src/components/tableExport/` | `docs/subsystems/data-export.md` |
 | Zustand 状态与持久化 | `frontend/src/store.ts`、`store/` | 待补 |

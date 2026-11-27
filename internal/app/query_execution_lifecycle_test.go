@@ -8,6 +8,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/secretstore"
 	"GoNavi-Wails/internal/uievents"
 )
 
@@ -229,5 +230,145 @@ func TestDBQueryWithCancelEmitsWriteLifecycle(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Status != queryExecutionStatusDone || last.AffectedRows != 100000 {
 		t.Fatalf("expected terminal done event with 100000 rows, got %#v", last)
+	}
+}
+
+func TestQueryExecutionLifecycleExcludesConnectAndPausedReconnectTime(t *testing.T) {
+	originalInterval := queryExecutionHeartbeatInterval
+	queryExecutionHeartbeatInterval = 15 * time.Millisecond
+	t.Cleanup(func() { queryExecutionHeartbeatInterval = originalInterval })
+
+	recorder := &queryProgressEventRecorder{}
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.ctx = uievents.WithEmitter(context.Background(), recorder)
+
+	lifecycle := application.beginQueryExecutionLifecycleWithConnection("query-sql-only-1")
+	time.Sleep(60 * time.Millisecond)
+
+	for _, event := range recorder.snapshot() {
+		if event.Stage == queryExecutionStageStarting && event.ElapsedMs != 0 {
+			t.Fatalf("connecting stage must report ElapsedMs=0 before SQL starts, got %#v", event)
+		}
+	}
+
+	lifecycle.markExecuting()
+	time.Sleep(45 * time.Millisecond)
+	lifecycle.markConnecting()
+	time.Sleep(60 * time.Millisecond)
+	lifecycle.markExecuting()
+	time.Sleep(35 * time.Millisecond)
+	lifecycle.completeWithDuration(connection.QueryResult{
+		Success: true,
+		QueryID: "query-sql-only-1",
+	}, 80*time.Millisecond)
+
+	events := recorder.snapshot()
+	foundFirstExecuting := false
+	foundReconnectStarting := false
+	for _, event := range events {
+		if event.Status == queryExecutionStatusRunning && event.Stage == queryExecutionStageExecuting {
+			if !foundFirstExecuting {
+				foundFirstExecuting = true
+				if event.ElapsedMs >= 45 {
+					t.Fatalf("first executing event must exclude 60ms connect wait, got %#v", event)
+				}
+			}
+		}
+		if foundFirstExecuting && event.Status == queryExecutionStatusRunning && event.Stage == queryExecutionStageStarting {
+			foundReconnectStarting = true
+			if event.ElapsedMs <= 0 || event.ElapsedMs >= 90 {
+				t.Fatalf("reconnect starting event should pause near accumulated SQL elapsed, got %#v", event)
+			}
+		}
+	}
+	if !foundFirstExecuting || !foundReconnectStarting {
+		t.Fatalf("expected executing and reconnect starting events, got %#v", events)
+	}
+
+	last := events[len(events)-1]
+	if last.Status != queryExecutionStatusDone || !last.HasDurationMs || last.DurationMs != 80 || last.ElapsedMs != 80 {
+		t.Fatalf("expected terminal done event with exact DurationMs=80, got %#v", last)
+	}
+}
+
+func TestQueryExecutionLifecycleFailureBeforeExecutingHasNoDuration(t *testing.T) {
+	recorder := &queryProgressEventRecorder{}
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.ctx = uievents.WithEmitter(context.Background(), recorder)
+
+	lifecycle := application.beginQueryExecutionLifecycleWithConnection("query-connect-fail")
+	lifecycle.completeWithDuration(connection.QueryResult{
+		Success: false,
+		Message: "dial tcp timeout",
+		QueryID: "query-connect-fail",
+	}, 0)
+
+	events := recorder.snapshot()
+	last := events[len(events)-1]
+	if last.Status != queryExecutionStatusError || last.HasDurationMs || last.DurationMs != 0 || last.ElapsedMs != 0 {
+		t.Fatalf("expected error event without duration when connect failed before SQL, got %#v", last)
+	}
+}
+
+func TestDBQueryMultiWithOptionsCompactEmitsTerminalDurationExcludingConnect(t *testing.T) {
+	originalInterval := queryExecutionHeartbeatInterval
+	queryExecutionHeartbeatInterval = 15 * time.Millisecond
+	t.Cleanup(func() { queryExecutionHeartbeatInterval = originalInterval })
+
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+
+	query := "SELECT 1"
+	fakeDB := &fakeBatchWriteDB{
+		queryDelay: map[string]time.Duration{
+			query: 35 * time.Millisecond,
+		},
+		queryMap: map[string][]map[string]interface{}{
+			query: {{"value": 1}},
+		},
+		fieldMap: map[string][]string{
+			query: {"value"},
+		},
+		queryErr: map[string]error{},
+	}
+	newDatabaseFunc = func(string) (db.Database, error) {
+		time.Sleep(45 * time.Millisecond)
+		return fakeDB, nil
+	}
+
+	recorder := &queryProgressEventRecorder{}
+	application := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	application.ctx = uievents.WithEmitter(context.Background(), recorder)
+
+	compact := application.DBQueryMultiWithOptionsCompact(connection.ConnectionConfig{
+		Type: "mysql", Host: "lifecycle-compact.test", Port: 3306,
+	}, "testdb", query, "query-compact-timing", QueryResultBudgetOptions{})
+	if !compact.Success {
+		t.Fatalf("expected compact query success, got failure: %s", compact.Message)
+	}
+	if compact.DurationMs < 20 || compact.DurationMs >= 75 {
+		t.Fatalf("compact.DurationMs=%d, want pure SQL duration ~35ms excluding 45ms connect", compact.DurationMs)
+	}
+
+	events := recorder.snapshot()
+	if len(events) < 3 {
+		t.Fatalf("expected starting, executing, and done events, got %#v", events)
+	}
+	if events[0].Stage != queryExecutionStageStarting || events[0].ElapsedMs != 0 {
+		t.Fatalf("unexpected first event: %#v", events[0])
+	}
+	foundExecutingStart := false
+	for _, event := range events {
+		if event.QueryID == "query-compact-timing" && event.Stage == queryExecutionStageExecuting && event.ElapsedMs < 25 {
+			foundExecutingStart = true
+			break
+		}
+	}
+	if !foundExecutingStart {
+		t.Fatalf("expected executing event starting near 0ms after connect wait, events=%#v", events)
+	}
+	last := events[len(events)-1]
+	if last.Status != queryExecutionStatusDone || !last.HasDurationMs || last.DurationMs != compact.DurationMs {
+		t.Fatalf("expected terminal done event DurationMs=%d to match compact.DurationMs=%d, got %#v", last.DurationMs, compact.DurationMs, last)
 	}
 }

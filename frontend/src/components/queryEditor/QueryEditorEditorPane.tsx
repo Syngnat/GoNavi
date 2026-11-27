@@ -92,11 +92,10 @@ export interface QueryEditorEditorPaneProps {
   handleEditorBeforeMount: QueryEditorMonacoMountApi['handleEditorBeforeMount'];
   handleEditorDidMount: QueryEditorMonacoMountApi['handleEditorDidMount'];
   queryEditorMonacoOptions: QueryEditorCoreStateApi['queryEditorMonacoOptions'];
-  executionElapsedLabel: QueryEditorCoreStateApi['executionElapsedLabel'];
-  executionSpeedIcon: QueryEditorCoreStateApi['executionSpeedIcon'];
-  executionElapsedText: QueryEditorCoreStateApi['executionElapsedText'];
-  /** 是否显示状态栏的执行耗时：运行中隐藏，出结果后才显示。 */
-  showExecutionElapsed: boolean;
+  executionElapsedLabel: QueryEditorExecutionStatusApi['executionElapsedLabel'];
+  executionSpeedIcon: QueryEditorExecutionStatusApi['executionSpeedIcon'];
+  executionElapsedText: QueryEditorExecutionStatusApi['executionElapsedText'];
+  showExecutionElapsed: QueryEditorExecutionStatusApi['showExecutionElapsed'];
   executionStatusText: QueryEditorExecutionStatusApi['executionStatusText'];
   handleMouseDown: QueryEditorEditorSplitApi['handleMouseDown'];
 }
@@ -258,8 +257,7 @@ export const QueryEditorEditorPane = ({
       />
     </div>
     <div className="gn-query-execution-statusbar">
-      {/* 运行中不显示跳动的时间：默认隐藏，执行结束出结果后才显示一次最终耗时，
-          且该数字与执行日志里的 durationMs 同源。 */}
+      {/* Show live pure-SQL execution elapsed while running, frozen before result transfer/decoding. */}
       {showExecutionElapsed ? (
         <span
           aria-label={executionElapsedLabel}

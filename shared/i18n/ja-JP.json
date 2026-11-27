@@ -10293,6 +10293,7 @@
   "query_editor.execution.status.done": "完了",
   "query_editor.execution.status.error": "失敗",
   "query_editor.execution.status.read": "確認済み",
+  "query_editor.execution.status.receiving_results": "結果を受信中",
   "query_editor.execution.status.running": "SQL を実行中",
   "query_editor.execution.status.stalled": "進捗を受信できません。ステートメントはデータベース側で実行中の可能性があります",
   "query_editor.execution.tab_done": "完了",

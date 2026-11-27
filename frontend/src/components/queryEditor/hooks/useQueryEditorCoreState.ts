@@ -27,12 +27,7 @@ import {
 import { applyQueryEditorResultHistoryBudget } from '../queryEditorResultHistory';
 import { t as translate } from '../../../i18n';
 import { useQueryEditorResultHistoryBudget } from '../useQueryEditorResultHistoryBudget';
-import {
-    useQueryExecutionElapsed,
-    formatQueryExecutionElapsed,
-    resolveQueryExecutionSpeedIcon,
-    resolveReportedQueryDurationMs,
-} from '../queryEditorExecutionTimer';
+import { resolveReportedQueryDurationMs } from '../queryEditorExecutionTimer';
 import { invokeAppWithSignal } from '../../../utils/webRpc';
 import { CancelQuery } from '../../../../wailsjs/go/app/App';
 import type {
@@ -155,22 +150,6 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
     const [executionRunToken, setExecutionRunToken] = useState(0);
     const [executionTimingActive, setExecutionTimingActive] = useState(false);
     const [completedExecutionElapsedMs, setCompletedExecutionElapsedMs] = useState<number | null>(null);
-    const executionAwaitingDriverRef = useRef(false);
-    const executionElapsedMs = useQueryExecutionElapsed(
-        executionTimingActive && loading,
-        executionRunToken,
-        completedExecutionElapsedMs,
-        executionAwaitingDriverRef,
-    );
-    const executionElapsedText = formatQueryExecutionElapsed(executionElapsedMs);
-    // 运行中不显示耗时：以 loading 为准，而不是 executionTimingActive。
-    // 后者在 RPC 返回时就变 false，但结果集加工、元数据回填仍在进行，运行按钮
-    // 还在转圈；那时显示耗时会出现「按钮还在转、下面已经报完时间」的矛盾。
-    const showExecutionElapsed = !loading && completedExecutionElapsedMs !== null;
-    const executionElapsedLabel = translate('query_editor.execution.elapsed', {
-        duration: executionElapsedText,
-    });
-    const executionSpeedIcon = resolveQueryExecutionSpeedIcon(executionElapsedMs);
     const beginQueryEditorRunClock = useCallback((runSeq: number) => {
         setExecutionRunToken(runSeq);
         setExecutionTimingActive(false);
@@ -384,9 +363,8 @@ export const useQueryEditorCoreState = ({ isActive, tab }: UseQueryEditorCoreSta
         paramsPanelAvailableRef, nativeRestoredResultRefs, loading, setLoading,
         queryEditorMetadataReloadTick, setQueryEditorMetadataReloadTick,
         queryEditorMetadataForceReloadRef, queryContextLockRunSeq, queryContextLockRunSeqRef,
-        lockQueryContextForRun, unlockQueryContextForRun, executionTimingActive,
-        setExecutionTimingActive, executionAwaitingDriverRef, executionElapsedText, showExecutionElapsed,
-        executionElapsedLabel, executionSpeedIcon, beginQueryEditorRunClock,
+        lockQueryContextForRun, unlockQueryContextForRun, executionRunToken, executionTimingActive,
+        setExecutionTimingActive, completedExecutionElapsedMs, beginQueryEditorRunClock,
         finishQueryEditorSqlClock, executionError, setExecutionError, executionErrorRef,
         currentQueryId, setCurrentQueryId, isSqlSnippetPickerOpen, setIsSqlSnippetPickerOpen,
         isDuckDBAttachPickerOpen, setIsDuckDBAttachPickerOpen, sqlSnippetPickerKeyword,

@@ -39,6 +39,8 @@ type queryExecutionProgressEvent struct {
 	Status            string `json:"status"`
 	Stage             string `json:"stage"`
 	ElapsedMs         int64  `json:"elapsedMs"`
+	DurationMs        int64  `json:"durationMs,omitempty"`
+	HasDurationMs     bool   `json:"hasDurationMs,omitempty"`
 	Cancellable       bool   `json:"cancellable"`
 	AffectedRows      int64  `json:"affectedRows,omitempty"`
 	HasAffectedRows   bool   `json:"hasAffectedRows,omitempty"`
@@ -57,9 +59,12 @@ type queryExecutionLifecycle struct {
 	stopCh    chan struct{}
 	stopOnce  sync.Once
 	completed atomic.Bool
-	// connecting 为 true 期间心跳仍上报 starting 阶段：前端据此暂停计时，
-	// 避免把建连/隧道等待算进 SQL 执行耗时（driver 侧 DurationMs 不含建连）。
-	connecting atomic.Bool
+	// mu 仅保护以下纯 SQL 计时状态，调用 emit 或锁外方法前必须先释放。
+	mu              sync.Mutex
+	connecting      bool
+	hasExecuted     bool
+	execStartedAt   time.Time
+	accumulatedExec time.Duration
 }
 
 func (a *App) beginQueryExecutionLifecycle(queryID string) *queryExecutionLifecycle {
@@ -79,31 +84,112 @@ func (a *App) beginQueryExecutionLifecycleWithConnectionAndContext(ctx context.C
 
 func (a *App) newQueryExecutionLifecycle(ctx context.Context, queryID string, connecting bool) *queryExecutionLifecycle {
 	queryID = strings.TrimSpace(queryID)
+	now := time.Now()
 	lifecycle := &queryExecutionLifecycle{
-		app:     a,
-		ctx:     ctx,
-		queryID: queryID,
-		started: time.Now(),
-		stopCh:  make(chan struct{}),
+		app:        a,
+		ctx:        ctx,
+		queryID:    queryID,
+		started:    now,
+		stopCh:     make(chan struct{}),
+		connecting: connecting,
 	}
-	lifecycle.connecting.Store(connecting)
+	if !connecting {
+		lifecycle.hasExecuted = true
+		lifecycle.execStartedAt = now
+	}
 	if queryID == "" || a == nil {
 		return lifecycle
 	}
-	lifecycle.emit(queryExecutionStatusRunning, queryExecutionStageStarting, connection.QueryResult{})
-	go lifecycle.heartbeatLoop()
+	lifecycle.emit(queryExecutionStatusRunning, queryExecutionStageStarting, connection.QueryResult{}, 0, false)
+	go lifecycle.heartbeatLoop(queryExecutionHeartbeatInterval)
 	return lifecycle
 }
 
-// markExecuting 标记连接已就绪、SQL 即将交给驱动执行，并立即通知前端开始计时。
+// markExecuting 标记连接已就绪、SQL 即将交给驱动执行，并立即通知前端开始/恢复 SQL 计时。
 func (l *queryExecutionLifecycle) markExecuting() {
-	if l == nil || !l.connecting.CompareAndSwap(true, false) {
+	if l == nil || l.completed.Load() {
 		return
 	}
-	l.emit(queryExecutionStatusRunning, queryExecutionStageExecuting, connection.QueryResult{})
+	l.mu.Lock()
+	if !l.connecting {
+		l.mu.Unlock()
+		return
+	}
+	l.connecting = false
+	l.hasExecuted = true
+	l.execStartedAt = time.Now()
+	elapsed := l.accumulatedExec
+	l.mu.Unlock()
+	l.emit(queryExecutionStatusRunning, queryExecutionStageExecuting, connection.QueryResult{}, elapsed, false)
+}
+
+// markConnecting 标记重建连接等重连等待期间暂停 SQL 计时，保留此前已累加的 SQL 耗时。
+func (l *queryExecutionLifecycle) markConnecting() {
+	if l == nil || l.completed.Load() {
+		return
+	}
+	l.mu.Lock()
+	if l.connecting {
+		l.mu.Unlock()
+		return
+	}
+	if !l.execStartedAt.IsZero() {
+		l.accumulatedExec += time.Since(l.execStartedAt)
+		l.execStartedAt = time.Time{}
+	}
+	l.connecting = true
+	elapsed := l.accumulatedExec
+	l.mu.Unlock()
+	l.emit(queryExecutionStatusRunning, queryExecutionStageStarting, connection.QueryResult{}, elapsed, false)
+}
+
+func (l *queryExecutionLifecycle) currentExecutionState() (string, time.Duration) {
+	if l == nil {
+		return queryExecutionStageExecuting, 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	elapsed := l.accumulatedExec
+	if l.connecting {
+		return queryExecutionStageStarting, elapsed
+	}
+	if !l.execStartedAt.IsZero() {
+		elapsed += time.Since(l.execStartedAt)
+	}
+	return queryExecutionStageExecuting, elapsed
 }
 
 func (l *queryExecutionLifecycle) complete(result connection.QueryResult) {
+	if l == nil {
+		return
+	}
+	if result.DurationMs > 0 {
+		l.finish(result, time.Duration(result.DurationMs)*time.Millisecond, true)
+		return
+	}
+	l.mu.Lock()
+	elapsed := l.accumulatedExec
+	if !l.connecting && !l.execStartedAt.IsZero() {
+		elapsed += time.Since(l.execStartedAt)
+	}
+	hasExecuted := l.hasExecuted
+	l.mu.Unlock()
+	l.finish(result, elapsed, elapsed > 0 || hasExecuted)
+}
+
+// completeWithDuration 在结果编码与 IPC 回传前立即上报纯 SQL 执行耗时，供前端定格计时。
+func (l *queryExecutionLifecycle) completeWithDuration(result connection.QueryResult, sqlDuration time.Duration) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	hasExecuted := l.hasExecuted
+	l.mu.Unlock()
+	hasDuration := sqlDuration > 0 || hasExecuted
+	l.finish(result, sqlDuration, hasDuration)
+}
+
+func (l *queryExecutionLifecycle) finish(result connection.QueryResult, sqlDuration time.Duration, hasDuration bool) {
 	if l == nil {
 		return
 	}
@@ -111,15 +197,14 @@ func (l *queryExecutionLifecycle) complete(result connection.QueryResult) {
 		l.completed.Store(true)
 		close(l.stopCh)
 		status, stage := queryExecutionTerminalStatus(result)
-		l.emit(status, stage, result)
+		l.emit(status, stage, result, sqlDuration, hasDuration)
 	})
 }
 
-func (l *queryExecutionLifecycle) heartbeatLoop() {
+func (l *queryExecutionLifecycle) heartbeatLoop(interval time.Duration) {
 	if l == nil || l.queryID == "" {
 		return
 	}
-	interval := queryExecutionHeartbeatInterval
 	if interval <= 0 {
 		interval = time.Second
 	}
@@ -133,31 +218,39 @@ func (l *queryExecutionLifecycle) heartbeatLoop() {
 			if l.completed.Load() {
 				return
 			}
-			stage := queryExecutionStageExecuting
-			if l.connecting.Load() {
-				stage = queryExecutionStageStarting
-			}
-			l.emit(queryExecutionStatusRunning, stage, connection.QueryResult{})
+			stage, elapsed := l.currentExecutionState()
+			l.emit(queryExecutionStatusRunning, stage, connection.QueryResult{}, elapsed, false)
 		}
 	}
 }
 
-func (l *queryExecutionLifecycle) emit(status string, stage string, result connection.QueryResult) {
+func (l *queryExecutionLifecycle) emit(status string, stage string, result connection.QueryResult, sqlDuration time.Duration, hasDuration bool) {
 	if l == nil || l.app == nil || l.queryID == "" {
 		return
 	}
 	if status == queryExecutionStatusRunning && l.completed.Load() {
 		return
 	}
+	if sqlDuration < 0 {
+		sqlDuration = 0
+	}
+	elapsedMs := sqlDuration.Milliseconds()
+	if hasDuration {
+		elapsedMs = durationMilliseconds(sqlDuration)
+	}
 	event := queryExecutionProgressEvent{
 		QueryID:           l.queryID,
 		Status:            status,
 		Stage:             stage,
-		ElapsedMs:         time.Since(l.started).Milliseconds(),
+		ElapsedMs:         elapsedMs,
 		Cancellable:       l.app.queryExecutionCancellable(l.queryID),
 		Message:           strings.TrimSpace(result.Message),
 		OutcomeUnknown:    queryExecutionOutcomeUnknown(result),
 		CancellationState: strings.TrimSpace(result.CancellationState),
+	}
+	if hasDuration {
+		event.DurationMs = elapsedMs
+		event.HasDurationMs = true
 	}
 	if affected, ok := queryExecutionAffectedRows(result); ok {
 		event.AffectedRows = affected

@@ -10293,6 +10293,7 @@
   "query_editor.execution.status.done": "Abgeschlossen",
   "query_editor.execution.status.error": "Fehlgeschlagen",
   "query_editor.execution.status.read": "Gesehen",
+  "query_editor.execution.status.receiving_results": "Ergebnisse werden empfangen",
   "query_editor.execution.status.running": "SQL wird ausgeführt",
   "query_editor.execution.status.stalled": "Kein Fortschritt empfangen; das Statement läuft möglicherweise noch in der Datenbank",
   "query_editor.execution.tab_done": "Fertig",

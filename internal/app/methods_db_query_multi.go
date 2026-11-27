@@ -100,7 +100,7 @@ func (a *App) dbQueryMulti(
 	)
 	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(auditOptions.executionContext, queryID)
 	defer func() {
-		lifecycle.complete(result)
+		lifecycle.completeWithDuration(result, queryExecutionDuration)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -285,6 +285,7 @@ func (a *App) dbQueryMulti(
 		if a.invalidateCachedDatabase(runConfig, err) {
 			requestTrace.MarkRetry("cached connection refresh")
 			setRunningQueryCancellable(true)
+			lifecycle.markConnecting()
 			// 重建连接的开销同样计入取连接等待，否则会漏进「其余」一段。
 			retryInst, retryWaitMs, retryErr := a.acquireQueryConnection(ctx, queryConnectionRequest{
 				config:      runConfig,
@@ -296,6 +297,7 @@ func (a *App) dbQueryMulti(
 				logger.Error(retryErr, "DBQueryMulti 重建连接失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 				return buildQueryConnectionFailure(retryErr, queryID, auditOptions.classifyConnectionErrors)
 			}
+			lifecycle.markExecuting()
 			dbInst = retryInst
 			results, resultMessages, err = runMultiQuery(retryInst)
 			if legacyCancellationUnsupported {

@@ -55,9 +55,8 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
       nativeRestoredResultRefs, loading, setLoading, queryEditorMetadataReloadTick,
       setQueryEditorMetadataReloadTick, queryEditorMetadataForceReloadRef, queryContextLockRunSeq,
       queryContextLockRunSeqRef, lockQueryContextForRun, unlockQueryContextForRun,
-      executionTimingActive, setExecutionTimingActive, executionAwaitingDriverRef,
-      executionElapsedText, showExecutionElapsed, executionElapsedLabel, executionSpeedIcon, beginQueryEditorRunClock,
-      finishQueryEditorSqlClock, executionError, setExecutionError, executionErrorRef,
+      executionRunToken, executionTimingActive, setExecutionTimingActive, completedExecutionElapsedMs,
+      beginQueryEditorRunClock, finishQueryEditorSqlClock, executionError, setExecutionError, executionErrorRef,
       currentQueryId, setCurrentQueryId, isSqlSnippetPickerOpen, setIsSqlSnippetPickerOpen,
       isDuckDBAttachPickerOpen, setIsDuckDBAttachPickerOpen, sqlSnippetPickerKeyword,
       setSqlSnippetPickerKeyword, runSeqRef, currentQueryIdRef, rpcLostWithoutResultRef,
@@ -158,6 +157,7 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
   );
   const {
       updateResultPanelVisibility, executionLifecycle, executionLifecycleRef, executionStatusText,
+      executionElapsedText, showExecutionElapsed, executionElapsedLabel, executionSpeedIcon,
       toggleResultPanelVisibility, handleOpenEditorFind, handleShowSqlExecutionLog,
       sqlEditorCommitMode, sqlEditorAutoCommitDelayMs, activatePendingSqlTransaction,
       appendPendingSqlTransactionExecution, sqlEditorAutoCommitRemainingSeconds,
@@ -166,11 +166,10 @@ const QueryEditor: React.FC<QueryEditorProps> = ({ tab, isActive = true }) => {
   } = useQueryEditorExecutionStatus({
       tab, isResultPanelVisibleRef, setIsResultPanelVisible, updateQueryTabDraft,
       rpcLostWithoutResultRef, setLoading, setExecutionTimingActive, setExecutionError,
-      setResultSets, currentQueryId, loading, isActive, executionAwaitingDriverRef,
-      executionTimingActive, editorRef, isResultPanelVisible, activeResultKey, setActiveResultKey,
-      sqlEditorTransactionOptions,
-      showSqlExecutionLog: queryOptions?.showSqlExecutionLog !== false,
-      setShowSqlExecutionLog,
+      setResultSets, currentQueryId, currentQueryIdRef, loading, isActive, isElasticsearchMode,
+      executionRunToken, executionTimingActive, completedExecutionElapsedMs, editorRef,
+      isResultPanelVisible, activeResultKey, setActiveResultKey, sqlEditorTransactionOptions,
+      showSqlExecutionLog: queryOptions?.showSqlExecutionLog !== false, setShowSqlExecutionLog,
   });
 
   const {

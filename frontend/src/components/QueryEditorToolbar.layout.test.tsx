@@ -373,8 +373,8 @@ describe('QueryEditorToolbar layout', () => {
   it('keeps live and completed execution time at the editor bottom-left', () => {
     const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
     const timerSource = readFileSync(new URL('./queryEditor/queryEditorExecutionTimer.ts', import.meta.url), 'utf8');
-    // 计时状态在 useQueryEditorCoreState，状态栏在 QueryEditorEditorPane，结果区在 QueryEditorResultsArea
-    const editorSource = ['QueryEditor.tsx', 'queryEditor/hooks/useQueryEditorCoreState.ts', 'queryEditor/QueryEditorEditorPane.tsx', 'queryEditor/QueryEditorResultsArea.tsx']
+    // 计时状态在 useQueryEditorCoreState 与 useQueryEditorExecutionStatus，状态栏在 QueryEditorEditorPane，结果区在 QueryEditorResultsArea
+    const editorSource = ['QueryEditor.tsx', 'queryEditor/hooks/useQueryEditorCoreState.ts', 'queryEditor/hooks/useQueryEditorExecutionStatus.ts', 'queryEditor/QueryEditorEditorPane.tsx', 'queryEditor/QueryEditorResultsArea.tsx']
       .map((file) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8'))
       .join('\n');
     const css = readV2ThemeCss();

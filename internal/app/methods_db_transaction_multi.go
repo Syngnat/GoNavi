@@ -152,9 +152,9 @@ func (a *App) dbQueryMultiTransactionalWithBindingsSource(
 		ctx = db.ContextWithRowBudget(ctx, budget)
 	}
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
-	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(executionContext, queryID)
 	defer func() {
-		lifecycle.complete(result)
+		lifecycle.completeWithDuration(result, queryExecutionDuration)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -164,7 +164,6 @@ func (a *App) dbQueryMultiTransactionalWithBindingsSource(
 		logger.Error(err, "DBQueryMultiTransactional 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 	}
-	lifecycle.markExecuting()
 
 	var (
 		sessionExecer        db.StatementExecer
@@ -265,6 +264,7 @@ func (a *App) dbQueryMultiTransactionalWithBindingsSource(
 	if bindErr != nil {
 		return connection.QueryResult{Success: false, Message: a.translateParameterBindingError(bindErr), QueryID: queryID}
 	}
+	lifecycle.markExecuting()
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
 	statementObservations := make([]managedSQLStatementObservation, 0, len(statements))
@@ -434,9 +434,10 @@ func (a *App) dbQueryMultiInTransactionContext(
 		ctx = db.ContextWithRowBudget(ctx, budget)
 	}
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
-	lifecycle := a.beginQueryExecutionLifecycle(queryID)
+	var queryExecutionDuration time.Duration
+	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(executionContext, queryID)
 	defer func() {
-		lifecycle.complete(result)
+		lifecycle.completeWithDuration(result, queryExecutionDuration)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -447,7 +448,6 @@ func (a *App) dbQueryMultiInTransactionContext(
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil), QueryID: queryID}
 	}
 
-	var queryExecutionDuration time.Duration
 	defer func() {
 		result.DurationMs = durationMilliseconds(queryExecutionDuration)
 	}()
@@ -461,6 +461,7 @@ func (a *App) dbQueryMultiInTransactionContext(
 	query = sanitizeSQLForPgLike(tx.dbType, query)
 	statements := splitSQLStatementsForDialect(tx.dbType, query)
 
+	lifecycle.markExecuting()
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
 	statementObservations := make([]managedSQLStatementObservation, 0, len(statements))

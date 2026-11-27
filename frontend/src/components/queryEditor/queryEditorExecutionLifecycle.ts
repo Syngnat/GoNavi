@@ -16,6 +16,8 @@ export type QueryExecutionProgressEvent = {
   status?: QueryExecutionProgressStatus | string;
   stage?: string;
   elapsedMs?: number;
+  durationMs?: number;
+  hasDurationMs?: boolean;
   cancellable?: boolean;
   affectedRows?: number;
   hasAffectedRows?: boolean;
@@ -39,6 +41,8 @@ export type QueryEditorExecutionLifecycleState = {
   status: QueryEditorExecutionLifecycleStatus;
   stage: string;
   elapsedMs: number;
+  durationMs: number | null;
+  hasDurationMs: boolean;
   lastEventAt: number;
   cancellable: boolean;
   affectedRows: number | null;
@@ -53,6 +57,8 @@ export const createIdleQueryEditorExecutionLifecycle = (): QueryEditorExecutionL
   status: 'idle',
   stage: '',
   elapsedMs: 0,
+  durationMs: null,
+  hasDurationMs: false,
   lastEventAt: 0,
   cancellable: false,
   affectedRows: null,
@@ -73,12 +79,26 @@ export const normalizeQueryExecutionProgressEvent = (
   if (!queryId) {
     return null;
   }
+  const rawElapsedMs = event.elapsedMs as unknown;
+  const hasElapsedMs = rawElapsedMs !== undefined && rawElapsedMs !== null && rawElapsedMs !== ''
+    && Number.isFinite(Number(rawElapsedMs));
+  const elapsedMs = hasElapsedMs ? Math.max(0, Math.round(Number(rawElapsedMs))) : undefined;
+  const rawDurationMs = event.durationMs as unknown;
+  const hasDurationMs = event.hasDurationMs === true
+    && rawDurationMs !== undefined
+    && rawDurationMs !== null
+    && rawDurationMs !== ''
+    && Number.isFinite(Number(rawDurationMs))
+    && Number(rawDurationMs) >= 0;
+  const durationMs = hasDurationMs ? Math.round(Number(rawDurationMs)) : undefined;
   return {
     ...event,
     queryId,
     status: String(event.status || '').trim().toLowerCase(),
     stage: String(event.stage || '').trim(),
-    elapsedMs: Number(event.elapsedMs) || 0,
+    elapsedMs,
+    durationMs,
+    hasDurationMs,
     cancellable: event.cancellable === true,
     affectedRows: Number.isFinite(Number(event.affectedRows)) ? Number(event.affectedRows) : undefined,
     hasAffectedRows: event.hasAffectedRows === true,
@@ -97,29 +117,49 @@ export const reduceQueryEditorExecutionLifecycle = (
   if (!event || !event.queryId) {
     return current;
   }
-  if (current.queryId && current.queryId !== event.queryId && isActiveQueryEditorExecutionStatus(current.status)) {
+  const isNewQuery = current.queryId !== event.queryId;
+  if (current.queryId && isNewQuery && isActiveQueryEditorExecutionStatus(current.status)) {
     return current;
   }
   if (
-    current.queryId === event.queryId
+    !isNewQuery
     && !isActiveQueryEditorExecutionStatus(current.status)
     && current.status !== 'idle'
     && String(event.status || '') === 'running'
   ) {
     return current;
   }
-  const status = mapQueryExecutionProgressStatus(event.status, current.status);
+  const status = mapQueryExecutionProgressStatus(event.status, isNewQuery ? 'idle' : current.status);
+  const nextElapsedMs = event.status === 'cancelling'
+    ? (isNewQuery ? 0 : current.elapsedMs)
+    : event.hasDurationMs
+      ? (event.durationMs ?? 0)
+      : typeof event.elapsedMs === 'number'
+        ? event.elapsedMs
+        : (isNewQuery ? 0 : current.elapsedMs);
+  const nextDurationMs = event.hasDurationMs
+    ? (event.durationMs ?? 0)
+    : status === 'running'
+      ? null
+      : (isNewQuery ? null : current.durationMs);
+  const nextHasDurationMs = event.hasDurationMs
+    ? true
+    : status === 'running'
+      ? false
+      : (isNewQuery ? false : current.hasDurationMs);
   return {
     queryId: event.queryId,
     status,
-    stage: event.stage || current.stage,
-    elapsedMs: event.elapsedMs || current.elapsedMs,
+    stage: event.stage || (isNewQuery ? '' : current.stage),
+    elapsedMs: nextElapsedMs,
+    durationMs: nextDurationMs,
+    hasDurationMs: nextHasDurationMs,
     lastEventAt: now,
     cancellable: event.cancellable === true,
-    affectedRows: event.hasAffectedRows ? Number(event.affectedRows || 0) : current.affectedRows,
-    hasAffectedRows: event.hasAffectedRows === true || current.hasAffectedRows,
-    message: event.message || current.message,
-    outcomeUnknown: event.outcomeUnknown === true || current.outcomeUnknown,
+    affectedRows: event.hasAffectedRows ? Number(event.affectedRows || 0) : (isNewQuery ? null : current.affectedRows),
+    hasAffectedRows: event.hasAffectedRows === true || (!isNewQuery && current.hasAffectedRows),
+    message: event.message || (isNewQuery ? '' : current.message),
+    outcomeUnknown: event.outcomeUnknown === true || (!isNewQuery && current.outcomeUnknown),
     backendAlive: status === 'running' || status === 'cancelling' || status === 'stalled',
   };
 };
@@ -284,14 +324,17 @@ export const isQueryEditorAwaitingDriver = (
 export const queryEditorExecutionTimerStatusI18nKey = (
   timingActive: boolean,
   lifecycle: QueryEditorExecutionLifecycleState | null | undefined,
+  loading = timingActive,
 ): string => {
   if (!lifecycle) {
     return '';
   }
-  // 执行还没真正结束（前端仍在 loading）时不要显示终态文案：后端 lifecycle 可能
-  // 先一步报 done，而结果集加工、元数据回填仍在进行，运行按钮还在转圈。此时显示
-  // 「执行完成」会和转圈自相矛盾，所以继续显示「执行中」。
-  if (isTerminalQueryEditorExecutionStatus(lifecycle.status) && timingActive) {
+  // 后端 SQL 执行已结束但前端仍在接收或解码结果时，状态提示切为「正在接收结果」，与已定格的纯 SQL 耗时配合。
+  if (loading && lifecycle.status === 'done') {
+    return 'query_editor.execution.status.receiving_results';
+  }
+  // 其余终态在前端仍处于加载中时继续显示「正在执行 SQL」，避免与转圈状态矛盾。
+  if (loading && isTerminalQueryEditorExecutionStatus(lifecycle.status)) {
     return 'query_editor.execution.status.running';
   }
   if (isActiveQueryEditorExecutionStatus(lifecycle.status) && !timingActive) {

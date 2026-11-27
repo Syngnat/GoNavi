@@ -214,10 +214,10 @@ func (a *App) dbQueryMultiWithParams(
 		true,
 		optionalDriverTypeForConnectionConfig(runConfig),
 	)
-	lifecycle := a.beginQueryExecutionLifecycleWithConnection(queryID)
+	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(auditOptions.executionContext, queryID)
 	var queryExecutionDuration time.Duration
 	defer func() {
-		lifecycle.complete(result)
+		lifecycle.completeWithDuration(result, queryExecutionDuration)
 		cancel()
 		cleanupRunningQuery()
 		result.DurationMs = durationMilliseconds(queryExecutionDuration)
@@ -392,9 +392,10 @@ func (a *App) dbQueryMultiWithParamsInTransactionSource(
 		ctx = db.ContextWithRowBudget(ctx, budget)
 	}
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
-	lifecycle := a.beginQueryExecutionLifecycle(queryID)
+	var queryExecutionDuration time.Duration
+	lifecycle := a.beginQueryExecutionLifecycleWithConnectionAndContext(executionContext, queryID)
 	defer func() {
-		lifecycle.complete(result)
+		lifecycle.completeWithDuration(result, queryExecutionDuration)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -405,7 +406,6 @@ func (a *App) dbQueryMultiWithParamsInTransactionSource(
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil), QueryID: queryID}
 	}
 
-	var queryExecutionDuration time.Duration
 	defer func() {
 		result.DurationMs = durationMilliseconds(queryExecutionDuration)
 	}()
@@ -433,6 +433,7 @@ func (a *App) dbQueryMultiWithParamsInTransactionSource(
 		return connection.QueryResult{Success: false, Message: a.translateParameterBindingError(err), QueryID: queryID, TransactionID: transactionID, TransactionPending: true}
 	}
 
+	lifecycle.markExecuting()
 	queryStartedAt := time.Now()
 	resultSets, _, _, statementResults, statementAuditEvents, execErr := a.executeParameterizedStatements(
 		ctx, nil, tx.execer, runConfig, resolvedDBType, stmts,

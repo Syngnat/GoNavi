@@ -207,6 +207,54 @@ describe('query editor execution lifecycle', () => {
         expect(isQueryEditorAwaitingDriver(null)).toBe(false);
     });
 
+    it('tracks pure SQL durationMs and shows receiving_results while loading after backend done', () => {
+        const connecting = reduceQueryEditorExecutionLifecycle(
+            createIdleQueryEditorExecutionLifecycle(),
+            { queryId: 'query-1', status: 'running', stage: 'starting', elapsedMs: 0 },
+            1_000,
+        );
+        expect(connecting.hasDurationMs).toBe(false);
+        expect(connecting.durationMs).toBeNull();
+
+        const executing = reduceQueryEditorExecutionLifecycle(
+            connecting,
+            { queryId: 'query-1', status: 'running', stage: 'executing', elapsedMs: 0 },
+            1_050,
+        );
+        expect(executing.elapsedMs).toBe(0);
+        expect(executing.hasDurationMs).toBe(false);
+
+        const done = reduceQueryEditorExecutionLifecycle(
+            executing,
+            {
+                queryId: 'query-1',
+                status: 'done',
+                stage: 'completed',
+                elapsedMs: 0,
+                durationMs: 0,
+                hasDurationMs: true,
+            },
+            1_060,
+        );
+        expect(done.hasDurationMs).toBe(true);
+        expect(done.durationMs).toBe(0);
+        expect(queryEditorExecutionTimerStatusI18nKey(true, done, true)).toBe('query_editor.execution.status.receiving_results');
+        expect(queryEditorExecutionTimerStatusI18nKey(false, done, true)).toBe('query_editor.execution.status.receiving_results');
+        expect(queryEditorExecutionTimerStatusI18nKey(false, done, false)).toBe('query_editor.execution.status.done');
+
+        // 新一轮 queryId 不应继承上一轮的 durationMs 与 affectedRows。
+        const nextQuery = reduceQueryEditorExecutionLifecycle(
+            { ...done, hasAffectedRows: true, affectedRows: 5 },
+            { queryId: 'query-2', status: 'running', stage: 'starting', elapsedMs: 0 },
+            2_000,
+        );
+        expect(nextQuery.queryId).toBe('query-2');
+        expect(nextQuery.hasDurationMs).toBe(false);
+        expect(nextQuery.durationMs).toBeNull();
+        expect(nextQuery.hasAffectedRows).toBe(false);
+        expect(nextQuery.affectedRows).toBeNull();
+    });
+
     // 原第 12 个用例读 QueryEditor.tsx 源码断言 shouldRetainQueryEditorRunAfterRpc /
     // shouldFinishQueryEditorRunAfterCancelMiss 出现在文本里。该断言不执行任何被测代码，
     // 且其行为语义已由上面的 'does not keep loading after a successful RPC just because

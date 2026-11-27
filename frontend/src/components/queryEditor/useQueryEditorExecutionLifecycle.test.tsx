@@ -117,4 +117,48 @@ describe('useQueryEditorExecutionLifecycle', () => {
             status: 'idle',
         });
     });
+
+    it('captures early progress via queryIdRef before React commits the queryId prop', () => {
+        const externalQueryIdRef = { current: 'query-early-1' };
+        let currentLoading = false;
+        const RefHarness = ({ queryId, loading }: { queryId: string; loading: boolean }) => {
+            latest = useQueryEditorExecutionLifecycle({
+                queryId,
+                queryIdRef: externalQueryIdRef,
+                loading,
+                onTerminal,
+            });
+            return null;
+        };
+
+        act(() => {
+            renderer = create(<RefHarness queryId="" loading={currentLoading} />);
+        });
+        act(() => {
+            runtimeApi.emitProgress({
+                queryId: 'query-early-1',
+                status: 'running',
+                stage: 'executing',
+                elapsedMs: 25,
+            });
+        });
+        expect(latest).toMatchObject({
+            queryId: 'query-early-1',
+            status: 'running',
+            stage: 'executing',
+            elapsedMs: 25,
+        });
+
+        // loading 刚翻为 true 时，已属于当前 queryIdRef 的早期事件不能被重置清掉。
+        currentLoading = true;
+        act(() => {
+            renderer?.update(<RefHarness queryId="" loading={currentLoading} />);
+        });
+        expect(latest).toMatchObject({
+            queryId: 'query-early-1',
+            status: 'running',
+            stage: 'executing',
+            elapsedMs: 25,
+        });
+    });
 });

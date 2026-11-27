@@ -10293,6 +10293,7 @@
   "query_editor.execution.status.done": "Completed",
   "query_editor.execution.status.error": "Failed",
   "query_editor.execution.status.read": "Viewed",
+  "query_editor.execution.status.receiving_results": "Receiving results",
   "query_editor.execution.status.running": "Executing SQL",
   "query_editor.execution.status.stalled": "No progress received; the statement may still be running in the database",
   "query_editor.execution.tab_done": "Completed",
