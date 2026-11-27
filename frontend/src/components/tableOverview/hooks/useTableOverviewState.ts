@@ -88,9 +88,10 @@ export const useTableOverviewState = ({ tab }: UseTableOverviewStateInput) => {
       setQueryOptions({ tableOverviewViewMode: nextViewMode });
   }, [setQueryOptions]);
   const [v2ContextMenu, setV2ContextMenu] = useState<OverviewContextMenuState | null>(null);
+  const compactColumnsSignature = (queryOptions.tableOverviewCompactColumns ?? []).join('\u0000');
   const compactColumns = useMemo(
       () => sanitizeTableOverviewCompactColumns(queryOptions.tableOverviewCompactColumns),
-      [queryOptions.tableOverviewCompactColumns],
+      [compactColumnsSignature],
   );
   const setCompactColumns = useCallback((columns: TableOverviewCompactColumn[]) => {
       setQueryOptions({

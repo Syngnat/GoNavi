@@ -28,9 +28,10 @@ type DragState = {
   startX: number;
   startWidth: number;
   latestWidth: number;
+  startGuideX: number;
+  guide: HTMLDivElement;
+  header: HTMLElement;
   scroller: HTMLDivElement;
-  previousColumns: string;
-  previousMinWidth: string;
 };
 
 type PointerListeners = {
@@ -66,6 +67,15 @@ const resolveHeaderCell = (target: EventTarget | null): HTMLElement | null => (
     : null
 );
 
+const removeResizeGuide = (guide: HTMLDivElement | null | undefined) => {
+  guide?.remove();
+};
+
+const positionResizeGuide = (drag: DragState, width: number) => {
+  const guideX = drag.startGuideX + width - drag.startWidth;
+  drag.guide.style.transform = `translate3d(${guideX}px, 0, 0)`;
+};
+
 const applyGridVariables = (
   scroller: HTMLDivElement,
   columns: TableOverviewCompactColumn[],
@@ -82,19 +92,6 @@ const applyGridVariables = (
   );
 };
 
-const restoreGridVariables = (drag: DragState) => {
-  if (drag.previousColumns) {
-    drag.scroller.style.setProperty(COMPACT_GRID_COLUMNS_PROPERTY, drag.previousColumns);
-  } else {
-    drag.scroller.style.removeProperty(COMPACT_GRID_COLUMNS_PROPERTY);
-  }
-  if (drag.previousMinWidth) {
-    drag.scroller.style.setProperty(COMPACT_GRID_MIN_WIDTH_PROPERTY, drag.previousMinWidth);
-  } else {
-    drag.scroller.style.removeProperty(COMPACT_GRID_MIN_WIDTH_PROPERTY);
-  }
-};
-
 export const useTableOverviewCompactColumnResize = ({
   scrollRef,
   columns,
@@ -107,6 +104,8 @@ export const useTableOverviewCompactColumnResize = ({
   const dragRef = useRef<DragState | null>(null);
   const listenersRef = useRef<PointerListeners | null>(null);
   const bodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null);
+  const pendingWidthsRef = useRef<TableOverviewCompactColumnWidths | null>(null);
+  const commitPendingRef = useRef(false);
 
   columnsRef.current = columns;
   widthsRef.current = widths;
@@ -138,26 +137,45 @@ export const useTableOverviewCompactColumnResize = ({
     document.body.style.userSelect = previous.userSelect;
   }, []);
 
-  const finishResize = useCallback((commitWidth?: number, restore = false) => {
+  const finishResize = useCallback((clientX?: number, restore = false) => {
     const drag = dragRef.current;
     dragRef.current = null;
     detachListeners();
     restoreBodyStyle();
     if (!drag) return;
+    drag.header.removeAttribute('data-resizing');
+    removeResizeGuide(drag.guide);
     if (restore) {
-      restoreGridVariables(drag);
       return;
     }
     const definition = resolveTableOverviewCompactColumnDefinitions(columnsRef.current)
       .find((column) => column.key === drag.key);
     if (!definition) return;
-    const nextWidth = clampColumnWidth(definition, commitWidth ?? drag.latestWidth);
+    const nextWidth = clampColumnWidth(
+      definition,
+      Number.isFinite(clientX)
+        ? drag.startWidth + (clientX as number) - drag.startX
+        : drag.latestWidth,
+    );
     if (nextWidth === drag.startWidth) {
       return;
     }
-    onWidthsChangeRef.current?.({
+    const nextWidths = {
       ...widthsRef.current,
       [drag.key]: nextWidth,
+    };
+    widthsRef.current = nextWidths;
+    applyGridVariables(drag.scroller, columnsRef.current, nextWidths);
+    pendingWidthsRef.current = nextWidths;
+    if (commitPendingRef.current) return;
+    commitPendingRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        commitPendingRef.current = false;
+        const pendingWidths = pendingWidthsRef.current;
+        pendingWidthsRef.current = null;
+        if (pendingWidths) onWidthsChangeRef.current?.(pendingWidths);
+      });
     });
   }, [detachListeners, restoreBodyStyle]);
 
@@ -190,17 +208,40 @@ export const useTableOverviewCompactColumnResize = ({
           ? requestedWidth as number
           : definitions[keyIndex].minWidth,
     );
+    const headerRect = headerCell.getBoundingClientRect?.();
+    const headerRight = headerRect?.right;
+    const startGuideX = typeof headerRight === 'number' && Number.isFinite(headerRight)
+      ? headerRight
+      : event.clientX;
+    const scrollerRect = scroller.getBoundingClientRect?.();
+    const guide = document.createElement('div');
+    guide.setAttribute('data-table-overview-column-resize-guide', key);
+    Object.assign(guide.style, {
+      position: 'fixed',
+      left: '0',
+      top: `${scrollerRect?.top ?? 0}px`,
+      width: '2px',
+      height: `${scrollerRect?.height ?? 0}px`,
+      background: 'var(--gn-accent, #16a34a)',
+      pointerEvents: 'none',
+      willChange: 'transform',
+      zIndex: '40',
+      transform: `translate3d(${startGuideX}px, 0, 0)`,
+    });
+    document.body.appendChild(guide);
     const drag: DragState = {
       key,
       pointerId: event.pointerId,
       startX: event.clientX,
       startWidth,
       latestWidth: startWidth,
+      startGuideX,
+      guide,
+      header: headerCell,
       scroller,
-      previousColumns: scroller.style.getPropertyValue(COMPACT_GRID_COLUMNS_PROPERTY),
-      previousMinWidth: scroller.style.getPropertyValue(COMPACT_GRID_MIN_WIDTH_PROPERTY),
     };
     dragRef.current = drag;
+    headerCell.setAttribute('data-resizing', 'true');
 
     const move = (pointerEvent: PointerEvent) => {
       const activeDrag = dragRef.current;
@@ -218,10 +259,7 @@ export const useTableOverviewCompactColumnResize = ({
         activeDrag.startWidth + pointerEvent.clientX - activeDrag.startX,
       );
       activeDrag.latestWidth = nextWidth;
-      applyGridVariables(activeDrag.scroller, columnsRef.current, {
-        ...widthsRef.current,
-        [activeDrag.key]: nextWidth,
-      });
+      positionResizeGuide(activeDrag, nextWidth);
     };
     const up = (pointerEvent: PointerEvent) => {
       const activeDrag = dragRef.current;

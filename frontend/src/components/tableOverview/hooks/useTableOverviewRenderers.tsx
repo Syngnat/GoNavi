@@ -1,12 +1,11 @@
 import React, { useCallback } from 'react';
-import { TableOutlined, CaretUpFilled, CaretDownFilled } from '@ant-design/icons';
+import { TableOutlined } from '@ant-design/icons';
 import {
   type OverviewTableSection,
   type TableStatRow,
   getTableOverviewDisplayName,
   formatRows,
   formatSize,
-  type SortField,
 } from '../tableOverviewModel';
 import { t } from '../../../i18n';
 import { formatSidebarTableTimestamp } from '../../sidebar/sidebarHelpers';
@@ -16,15 +15,15 @@ import { TableOverviewCard } from '../TableOverviewCard';
 import { MetadataHoverCard, MetadataHoverTooltip } from '../../common/MetadataHoverCard';
 import {
   resolveTableOverviewCompactColumnDefinitions,
-  type TableOverviewCompactColumnDefinition,
 } from '../tableOverviewCompactColumns';
 import {
   DEFAULT_TABLE_OVERVIEW_COMPACT_COLUMNS,
-  TABLE_OVERVIEW_COMPACT_COLUMN_WIDTH_MAX,
   type TableOverviewCompactColumn,
   type TableOverviewCompactColumnWidths,
 } from '../../../utils/tableOverviewCompactColumns';
 import { buildTableOverviewHoverModel } from '../tableOverviewMetadata';
+import TableOverviewCompactHeader from '../TableOverviewCompactHeader';
+import TableOverviewCompactRow from '../TableOverviewCompactRow';
 
 const renderTableOverviewName = (
   _table: TableStatRow,
@@ -86,7 +85,7 @@ export const useTableOverviewRenderers = ({
   });
   const selectedClass = (name: string) => (isOverviewTableSelected(name) ? ' is-selected' : '');
 
-  const renderOverviewSectionTitle = (section: OverviewTableSection) => {
+  const renderOverviewSectionTitle = useCallback((section: OverviewTableSection) => {
       const sectionTitle = section.kind === 'pinned'
           ? t('table_overview.section.pinned')
           : t('table_overview.section.all');
@@ -109,7 +108,7 @@ export const useTableOverviewRenderers = ({
               <span>{section.rows.length}</span>
           </div>
       );
-  };
+  }, [textMuted]);
 
   const formatOverviewTimestamp = useCallback((value?: string): string => {
       if (!value) return '';
@@ -350,180 +349,43 @@ export const useTableOverviewRenderers = ({
       );
   };
 
-  const renderCompactSortHeader = (
-      field: SortField,
-      labelKey: string,
-      align: 'left' | 'right' = 'left',
-  ) => {
-      const active = sortField === field;
-      return (
-          <button
-              type="button"
-              className="gn-table-overview-compact-sort-button"
-              data-table-overview-sort={field}
-              aria-pressed={active}
-              onClick={() => toggleSort(field)}
-              style={{
-                  width: '100%',
-                  minWidth: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
-                  gap: 5,
-                  padding: '0 10px',
-                  border: 0,
-                  background: 'transparent',
-                  color: active ? accentColor : textSecondary,
-                  cursor: 'pointer',
-                  font: 'inherit',
-                  fontWeight: active ? 700 : 600,
-                  textAlign: align,
-              }}
-          >
-              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t(labelKey)}
-              </span>
-              {active && (sortOrder === 'asc'
-                  ? <CaretUpFilled aria-hidden="true" />
-                  : <CaretDownFilled aria-hidden="true" />)}
-          </button>
-      );
-  };
-
-  const renderCompactColumnHeader = (column: TableOverviewCompactColumnDefinition) => {
-      const sortState = sortField === column.sortField
-          ? (sortOrder === 'asc' ? 'ascending' : 'descending')
-          : 'none';
-      const requestedWidth = compactColumnWidths?.[column.key];
-      return (
-          <div
-              key={column.key}
-              className="gn-table-overview-compact-column-header"
-              role="columnheader"
-              aria-sort={column.sortField ? sortState : undefined}
-          >
-              {column.sortField
-                  ? renderCompactSortHeader(column.sortField, column.labelKey, column.align)
-                  : <span className="gn-table-overview-compact-plain-header">{t(column.labelKey)}</span>}
-              {onCompactColumnResizeStart && (
-                  <span
-                      className="gn-table-overview-compact-column-resizer"
-                      data-table-overview-column-resizer={column.key}
-                      role="separator"
-                      aria-label={t('data_grid.column.resize_tooltip')}
-                      aria-orientation="vertical"
-                      aria-valuemin={column.minWidth}
-                      aria-valuemax={TABLE_OVERVIEW_COMPACT_COLUMN_WIDTH_MAX}
-                      aria-valuenow={Math.round(
-                          Math.max(
-                              column.minWidth,
-                              Number.isFinite(requestedWidth) ? requestedWidth as number : column.minWidth,
-                          ),
-                      )}
-                      tabIndex={0}
-                      title={t('data_grid.column.resize_tooltip')}
-                      onPointerDown={(event) => onCompactColumnResizeStart(column.key, event)}
-                      onDoubleClick={(event) => onCompactColumnAutoFit?.(column.key, event)}
-                      onKeyDown={(event) => onCompactColumnResizeKeyDown?.(column.key, event)}
-                      onClick={(event) => event.stopPropagation()}
-                  />
-              )}
-          </div>
-      );
-  };
-
   const renderCompactTableHeader = () => (
-      <div className="gn-table-overview-compact-header" role="row">
-          {compactColumnDefinitions.map(renderCompactColumnHeader)}
-      </div>
+      <TableOverviewCompactHeader
+          columns={compactColumnDefinitions}
+          columnWidths={compactColumnWidths}
+          sortField={sortField}
+          sortOrder={sortOrder}
+          toggleSort={toggleSort}
+          onResizeStart={onCompactColumnResizeStart}
+          onResizeKeyDown={onCompactColumnResizeKeyDown}
+          onAutoFit={onCompactColumnAutoFit}
+      />
   );
 
-  const renderCompactCell = (
-      table: TableStatRow,
-      displayName: string,
-      column: TableOverviewCompactColumnDefinition,
-  ) => {
-      if (column.key === 'name') {
-          return (
-              <div key={column.key} className="gn-table-overview-compact-name" role="cell">
-                  <TableOutlined aria-hidden="true" />
-                  {renderTableOverviewName(table, displayName)}
-              </div>
-          );
-      }
-      let text = '—';
-      switch (column.key) {
-          case 'comment':
-              text = table.comment || '—';
-              break;
-          case 'rows':
-              text = formatRows(table.rows);
-              break;
-          case 'dataSize':
-              text = formatSize(table.dataSize);
-              break;
-          case 'indexSize':
-              text = formatSize(table.indexSize);
-              break;
-          case 'engine':
-              text = table.engine || '—';
-              break;
-          case 'charset':
-              text = table.charset || '—';
-              break;
-          case 'collation':
-              text = table.collation || '—';
-              break;
-          case 'updateTime':
-              text = table.updateTime ? formatOverviewTimestamp(table.updateTime) : '—';
-              break;
-          case 'createTime':
-              text = table.createTime ? formatOverviewTimestamp(table.createTime) : '—';
-              break;
-          default:
-              break;
-      }
-      return (
-          <div
-              key={column.key}
-              className={`gn-table-overview-compact-cell${column.align === 'right' ? ' gn-table-overview-compact-number' : ''}`}
-              role="cell"
-          >
-              {text}
-          </div>
-      );
-  };
-
-  const renderCompactTableRow = (table: TableStatRow) => {
+  const renderCompactTableRow = useCallback((table: TableStatRow) => {
       const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
-      const content = (
-          <div
-              className={`gn-table-overview-compact-row${selectedClass(table.name)}`}
-              role="row"
-              data-table-overview-row={table.name}
-              {...overviewRowProps(table.name)}
-              onDoubleClick={() => openTableByDefaultAction(table.name)}
-              onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
-              style={{
-                  display: 'grid',
-                  alignItems: 'center',
-                  minHeight: 32,
-                  ...({
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                  }),
-              }}
-          >
-              {compactColumnDefinitions.map((column) => renderCompactCell(table, displayName, column))}
-          </div>
-      );
-
       return (
-          <React.Fragment key={table.name}>
-              {renderMetadataHover(table, displayName, content)}
-          </React.Fragment>
+          <TableOverviewCompactRow
+              key={table.name}
+              table={table}
+              displayName={displayName}
+              columns={compactColumnDefinitions}
+              isSelected={isOverviewTableSelected(table.name)}
+              openTableByDefaultAction={openTableByDefaultAction}
+              openV2OverviewContextMenu={openV2OverviewContextMenu}
+              renderMetadataHover={renderMetadataHover}
+              formatTimestamp={formatOverviewTimestamp}
+          />
       );
-  };
+  }, [
+      compactColumnDefinitions,
+      formatOverviewTimestamp,
+      isOverviewTableSelected,
+      metadataDialect,
+      openTableByDefaultAction,
+      openV2OverviewContextMenu,
+      renderMetadataHover,
+  ]);
   return {
     renderOverviewSectionTitle, renderCardTable, renderListTable, renderCompactTableHeader,
     renderCompactTableRow,
