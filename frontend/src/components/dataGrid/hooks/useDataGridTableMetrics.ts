@@ -6,8 +6,8 @@ import { useDataGridMetadata } from '../../useDataGridMetadata';
 import { type GridColumnAlign, resolveGridColumnAlign } from '../../dataGridColumnAlign';
 import { type DataExportFileOptions, resolveDataExportColumns } from '../../DataExportDialog';
 import { buildDataGridBackendExportOptions } from '../../dataGridExportOptions';
+import { exportDataRowsWithOptions } from '../../dataGridExportPayload';
 import { pickDataGridOutputRows } from '../../dataGridOutput';
-import { ExportDataWithOptions } from '../../../../wailsjs/go/app/App';
 import { parseMongoEditedValue } from '../../../utils/mongodb';
 import {
     type ForeignKeyTarget,
@@ -240,7 +240,7 @@ export const useDataGridTableMetrics = ({
             targetName: tableName || 'export',
             format: options.format,
             totalRows: cleanRows.length,
-            run: (jobId) => ExportDataWithOptions(
+            run: (jobId) => exportDataRowsWithOptions(
                 cleanRows,
                 exportColumns,
                 tableName || 'export',

@@ -11,6 +11,11 @@ describe('isWebRequestTooLargeError', () => {
     expect(isWebRequestTooLargeError({ status: 413 }, 'request failed')).toBe(true);
   });
 
+  it('matches the Wails runtime request-body ceiling', () => {
+    expect(isWebRequestTooLargeError(new Error('Invalid runtime call: assembled body too large'), 'Invalid runtime call: assembled body too large')).toBe(true);
+    expect(isWebRequestTooLargeError(undefined, 'runtime request body exceeds 64 MiB')).toBe(true);
+  });
+
   it('leaves unrelated export failures alone', () => {
     expect(isWebRequestTooLargeError(new Error('disk full'), 'disk full')).toBe(false);
     expect(isWebRequestTooLargeError({ status: 500 }, 'invoke failed with status 500')).toBe(false);

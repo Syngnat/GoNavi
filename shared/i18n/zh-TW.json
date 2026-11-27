@@ -14078,7 +14078,7 @@
   "plugin.permission.host_appearance_read.description": "讀取背景圖片、透明度、位置與內建圖庫狀態",
   "plugin.permission.host_appearance_write": "修改宿主外觀設定",
   "plugin.permission.host_appearance_write.description": "更換背景圖片、調整透明度與位置、啟用開關及管理內建圖庫",
-  "data_export.message.request_too_large": "匯出的資料超過瀏覽器版單次請求上限。請改用「全部結果（重新查詢）」匯出，或減少傳回列數後重試。",
+  "data_export.message.request_too_large": "匯出的資料超過單次請求上限。請改用「全部結果（重新查詢）」匯出，或減少匯出範圍後重試。",
   "plugin.market.install_confirm_title": "確認安裝",
   "plugin.market.install_package_checked": "安裝包已檢查",
   "plugin.market.install_warning": "市場只校驗安裝包內容，不代表作者可信。",

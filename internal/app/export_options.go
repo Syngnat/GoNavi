@@ -15,6 +15,7 @@ const (
 type ExportFileOptions struct {
 	LosslessHive                   bool                              `json:"losslessHive,omitempty"`
 	PluginExporter                 *dataexport.PluginExportSelection `json:"pluginExporter,omitempty"`
+	DataGzipBase64                 string                            `json:"dataGzipBase64,omitempty"` // Frontend-compressed query rows; decoded only by ExportDataWithOptions.
 	Format                         string                            `json:"format"`
 	CSVEncoding                    string                            `json:"csvEncoding,omitempty"`
 	Columns                        []string                          `json:"columns,omitempty"`
@@ -43,6 +44,7 @@ func normalizeExportFileOptions(format string, options ExportFileOptions) Export
 	return ExportFileOptions{
 		LosslessHive:                   options.LosslessHive,
 		PluginExporter:                 options.PluginExporter,
+		DataGzipBase64:                 strings.TrimSpace(options.DataGzipBase64),
 		Format:                         resolvedFormat,
 		CSVEncoding:                    options.CSVEncoding,
 		Columns:                        normalizeExportColumns(options.Columns),

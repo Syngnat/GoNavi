@@ -14078,7 +14078,7 @@
   "plugin.permission.host_appearance_read.description": "Hintergrundbild, Deckkraft, Position und Status der integrierten Galerie lesen",
   "plugin.permission.host_appearance_write": "Darstellungseinstellungen des Hosts ändern",
   "plugin.permission.host_appearance_write.description": "Hintergrundbild wechseln, Deckkraft und Position anpassen, aktivieren und die integrierte Galerie verwalten",
-  "data_export.message.request_too_large": "Die Exportdaten überschreiten das Einzelanfrage-Limit der Browser-Version. Exportieren Sie über „Alle Ergebnisse (neu abfragen)“ oder reduzieren Sie die zurückgegebenen Zeilen.",
+  "data_export.message.request_too_large": "Die Exportdaten überschreiten das Limit für eine einzelne Anfrage. Exportieren Sie über „Alle Ergebnisse (neu abfragen)“ oder verringern Sie den Exportumfang.",
   "plugin.market.install_confirm_title": "Installation bestätigen",
   "plugin.market.install_package_checked": "Paket geprüft",
   "plugin.market.install_warning": "Der Marktplatz prüft nur den Paketinhalt, nicht die Vertrauenswürdigkeit des Autors.",

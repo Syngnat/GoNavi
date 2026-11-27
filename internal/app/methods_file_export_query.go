@@ -20,6 +20,9 @@ func (a *App) ExportData(data []map[string]interface{}, columns []string, defaul
 
 func (a *App) ExportDataWithOptions(data []map[string]interface{}, columns []string, defaultName string, options ExportFileOptions) (result connection.QueryResult) {
 	if isPluginExportRequest(options) {
+		if strings.TrimSpace(options.DataGzipBase64) != "" {
+			return a.pluginExportFailure("unsupported_scope")
+		}
 		return a.exportPluginSnapshot(a.pluginRuntimeContext(), data, columns, defaultName, options)
 	}
 	if defaultName == "" {
@@ -32,12 +35,19 @@ func (a *App) ExportDataWithOptions(data []map[string]interface{}, columns []str
 	if err := validateExportColumnsSelection(options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	if !options.TotalRowsKnown {
+	if !options.TotalRowsKnown && strings.TrimSpace(options.DataGzipBase64) == "" {
 		options.TotalRowsKnown = true
 		options.TotalRowsHint = int64(len(data))
 	}
 	format := options.Format
-	logger.Infof("ExportData 开始：rows=%d cols=%d format=%s defaultName=%s", len(data), len(columns), strings.ToLower(strings.TrimSpace(format)), strings.TrimSpace(defaultName))
+	logger.Infof(
+		"ExportData 开始：rows=%d compressedBytes=%d cols=%d format=%s defaultName=%s",
+		len(data),
+		len(options.DataGzipBase64),
+		len(columns),
+		strings.ToLower(strings.TrimSpace(format)),
+		strings.TrimSpace(defaultName),
+	)
 	defaultFilename := fmt.Sprintf("%s.%s", sanitizeExportFileStem(defaultName), strings.ToLower(format))
 	filename := ""
 	var err error
@@ -87,7 +97,12 @@ func (a *App) ExportDataWithOptions(data []map[string]interface{}, columns []str
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	defer cleanupExportFileTarget(f, atomicTarget)
-	writtenRows, err := writeRowsToFileWithReporter(exportCtx, f, data, columns, options, reporter)
+	var writtenRows int64
+	if strings.TrimSpace(options.DataGzipBase64) != "" {
+		writtenRows, err = writeGzipBase64RowsToFileWithReporter(exportCtx, f, options.DataGzipBase64, columns, options, reporter)
+	} else {
+		writtenRows, err = writeRowsToFileWithReporter(exportCtx, f, data, columns, options, reporter)
+	}
 	if err != nil {
 		logger.Warnf("ExportData 写入失败：file=%s err=%v", filename, err)
 		errMsg := a.exportFormatErrorMessage(err, options)
