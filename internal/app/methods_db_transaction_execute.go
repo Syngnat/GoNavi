@@ -34,10 +34,7 @@ func executeManagedSQLTransactionStatementsWithObserver(
 	resolvedDBType := resolveDDLDBType(runConfig)
 	rowBudget := db.RowBudgetFromContext(ctx)
 	buildStatementExecutionFailedError := func(index int, err error) error {
-		return fmt.Errorf("%s", text("db.backend.error.multi_statement_execution_failed", map[string]any{
-			"index":  index,
-			"detail": err.Error(),
-		}))
+		return formatMultiStatementExecutionError(text, runConfig.Type, index, err)
 	}
 	buildTransactionQueryUnsupportedError := func() error {
 		return fmt.Errorf("%s", text("db.backend.error.transaction_query_unsupported", nil))
@@ -145,6 +142,21 @@ func executeManagedSQLTransactionStatementsWithObserver(
 					data, columns, err = sessionQueryTarget.QueryContext(ctx, stmt)
 				} else {
 					err = buildTransactionQueryUnsupportedError()
+				}
+			}
+			if err != nil && isReadStmt && len(stmtArgs) == 0 {
+				streamRows, streamColumns, recovered, streamErr := fallbackReadQueryToStreamOnOversize(
+					ctx, runConfig, stmt, rowBudget, err, session,
+				)
+				if recovered {
+					usedMultiResult = false
+					statementResults = nil
+					messages = nil
+					data = streamRows
+					columns = streamColumns
+					err = nil
+				} else if streamErr != nil {
+					err = streamErr
 				}
 			}
 			if err == nil {

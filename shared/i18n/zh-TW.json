@@ -7084,6 +7084,7 @@
   "db.backend.error.database_rename_direct_unsupported": "MySQL/MariaDB/OceanBase/StarRocks/Sphinx 不支援直接重新命名資料庫，請新建資料庫後遷移資料",
   "db.backend.error.database_rename_unsupported": "目前資料來源（{{dbType}}）暫不支援重新命名資料庫",
   "db.backend.error.database_same_name": "新舊資料庫名稱不能相同",
+  "db.backend.error.driver_agent_json_line_too_large": "舊版驅動代理回傳的單幀結果超過 32 MiB 上限，請在驅動管理中更新或重裝 {{driver}} 驅動代理後重試（原始錯誤：{{detail}}）",
   "db.backend.error.duckdb_attach.agent_outdated": "DuckDB 驅動代理版本過舊，不支援附加外部資料源。請在驅動管理中重新安裝 DuckDB 驅動後重試。原始錯誤：{{detail}}",
   "db.backend.error.duckdb_attach.alias_invalid": "別名 {{alias}} 不是合法識別符（需以字母或底線開頭）。",
   "db.backend.error.duckdb_attach.alias_occupied": "別名 {{alias}} 已被其他資料源佔用。請先執行 DETACH SAVED CONNECTION {{alias}}，或改用其他別名。",

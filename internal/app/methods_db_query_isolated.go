@@ -76,14 +76,29 @@ func (a *App) dbQueryIsolatedContext(parent context.Context, config connection.C
 				}, err)
 			}
 		}
+		if err != nil && isReadQuery {
+			streamRows, streamColumns, recovered, streamErr := fallbackReadQueryToStreamOnOversize(
+				ctx, runConfig, query, nil, err, dbInst,
+			)
+			if recovered {
+				data = streamRows
+				columns = streamColumns
+				messages = nil
+				err = nil
+			} else if streamErr != nil {
+				err = streamErr
+			}
+		}
 		if err == nil {
 			return connection.QueryResult{Success: true, Data: data, Fields: columns, Messages: messages}
 		}
 		if isReadQuery {
+			err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 			logger.Error(err, "DBQueryIsolated 查询失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
 		err = classifyDispatchedWriteError(err)
+		err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 		logger.Error(err, "DBQueryIsolated 写入查询失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 		return buildWriteExecutionFailure(ctx, err, "")
 	}

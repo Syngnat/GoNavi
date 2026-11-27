@@ -308,6 +308,15 @@ func (a *App) dbQueryMulti(
 		}
 	}
 	if err != nil {
+		var handled bool
+		results, handled, err = recoverNativeMultiReadOversize(nativeMultiOversizeRecoveryInput{
+			ctx: ctx, runConfig: runConfig, dbInst: dbInst, statements: statements, allReadOnly: allReadOnly,
+			rowBudget: rowBudget, results: results, resultMessages: resultMessages, err: err, measureQueryExecution: measureQueryExecution,
+		})
+		_ = handled
+	}
+	if err != nil {
+		err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 		logger.Error(err, "DBQueryMulti 执行失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 		normalizeNativeResultStatementIndexes(runConfig.Type, statements, results)
 		executedCount, exactPrefix := nativeResultExecutedStatementCount(statements, results)
@@ -531,39 +540,45 @@ func (a *App) dbQueryMulti(
 				statementResultSets []connection.ResultSetData
 				usedMultiResult     bool
 			)
-			runStatementQuery := func() error {
+			runStatementQuery := func() ([]map[string]interface{}, []string, []string, error) {
+				var (
+					qData     []map[string]interface{}
+					qColumns  []string
+					qMessages []string
+					qErr      error
+				)
 				measureQueryExecution(func() {
 					if sessionQueryMessageTarget != nil {
 						setRunningQueryCancellable(true)
-						data, columns, messages, err = sessionQueryMessageTarget.QueryContextWithMessages(ctx, stmt)
+						qData, qColumns, qMessages, qErr = sessionQueryMessageTarget.QueryContextWithMessages(ctx, stmt)
 					} else if sessionQueryTarget != nil {
 						setRunningQueryCancellable(true)
-						data, columns, err = sessionQueryTarget.QueryContext(ctx, stmt)
+						qData, qColumns, qErr = sessionQueryTarget.QueryContext(ctx, stmt)
 					} else if q, ok := dbInst.(db.QueryMessageExecer); ok {
 						setRunningQueryCancellable(true)
-						data, columns, messages, err = q.QueryContextWithMessages(ctx, stmt)
+						qData, qColumns, qMessages, qErr = q.QueryContextWithMessages(ctx, stmt)
 					} else if q, ok := dbInst.(db.QueryContexter); ok {
 						setRunningQueryCancellable(true)
-						data, columns, err = q.QueryContext(ctx, stmt)
+						qData, qColumns, qErr = q.QueryContext(ctx, stmt)
 					} else {
 						if ctxErr := ctx.Err(); ctxErr != nil {
-							err = ctxErr
+							qErr = ctxErr
 							return
 						}
 						setRunningQueryCancellable(false)
 						if ctxErr := ctx.Err(); ctxErr != nil {
 							setRunningQueryCancellable(true)
-							err = ctxErr
+							qErr = ctxErr
 							return
 						}
-						data, columns, err = dbInst.Query(stmt)
+						qData, qColumns, qErr = dbInst.Query(stmt)
 						legacyCancellationUnsupported = ctx.Err() != nil
 					}
 				})
-				return err
+				return qData, qColumns, qMessages, qErr
 			}
 			if preferPlainReadQuery {
-				err = runStatementQuery()
+				data, columns, messages, err = runStatementQuery()
 			} else if sessionMultiQueryMessageTarget != nil {
 				setRunningQueryCancellable(true)
 				measureQueryExecution(func() {
@@ -605,7 +620,7 @@ func (a *App) dbQueryMulti(
 				}
 				usedMultiResult = true
 			} else {
-				err = runStatementQuery()
+				data, columns, messages, err = runStatementQuery()
 			}
 			if legacyCancellationUnsupported {
 				cancellationResults := append([]connection.ResultSetData(nil), resultSets...)
@@ -625,69 +640,25 @@ func (a *App) dbQueryMulti(
 					Data: cancellationResults, QueryID: queryID,
 				}, err)
 			}
-			if err == nil && usedMultiResult && shouldFallbackToPlainQueryAfterMultiResult(isReadStmt, statementResultSets, messages) {
-				logger.Warnf("DBQueryMulti 逐条多结果集返回空结果，将回退普通查询（第 %d/%d 条）：%s SQL片段=%q", idx+1, len(statements), formatConnSummary(runConfig), sqlSnippet(stmt))
-				usedMultiResult = false
-				statementResultSets = nil
-				data = nil
-				columns = nil
-				messages = nil
-				err = runStatementQuery()
-			}
+			finalized := finalizePerStatementReadQuery(perStatementReadFinalizeInput{
+				ctx: ctx, runConfig: runConfig, stmt: stmt, stmtIndex: idx, totalStatements: len(statements),
+				isReadStmt: isReadStmt, rowBudget: rowBudget, sessionExecTarget: sessionExecTarget, dbInst: dbInst,
+				usedMultiResult: usedMultiResult, statementResultSets: statementResultSets,
+				data: data, columns: columns, messages: messages, err: err,
+				runStatementQuery: runStatementQuery, measureQueryExecution: measureQueryExecution,
+			})
+			err = finalized.err
 			if err == nil {
-				if usedMultiResult {
-					var rowsAffected, rowsReturned int64
-					if len(statementResultSets) == 0 && len(messages) > 0 {
-						statementResultSets = []connection.ResultSetData{{
-							Rows:     []map[string]interface{}{},
-							Columns:  []string{},
-							Messages: append([]string(nil), messages...),
-						}}
-					}
-					for _, statementResult := range statementResultSets {
-						if statementResult.Rows == nil {
-							statementResult.Rows = []map[string]interface{}{}
-						}
-						if statementResult.Columns == nil {
-							statementResult.Columns = []string{}
-						}
-						statementResult.StatementIndex = idx + 1
-						affected, returned := summarizeManagedSQLResultSet(statementResult)
-						rowsAffected += affected
-						rowsReturned += returned
-						resultSets = append(resultSets, statementResult)
-					}
-					applyRowBudgetTruncation(resultSets, rowBudget)
-					appendStatementAudit(auditStatements[idx], idx+1, statementStartedAt, rowsAffected, rowsReturned, statementBoundaryMode, statementCommitMode, nil)
-					var affectedRowsPtr *int64
-					if rowsAffected > 0 {
-						affectedRowsPtr = statementAffectedRows(rowsAffected)
-					}
-					updateStatementExecutionResult(statementResults, idx+1, connection.StatementResultSuccess, affectedRowsPtr, rowsReturned, time.Since(statementStartedAt), nil)
-					executedCount++
-					textTransactionOpen = advancesSQLAuditTextTransaction(stmt, textTransactionOpen)
-					continue
-				}
-				if data == nil {
-					data = make([]map[string]interface{}, 0)
-				}
-				if columns == nil {
-					columns = []string{}
-				}
-				resultSets = append(resultSets, connection.ResultSetData{
-					Rows:           data,
-					Columns:        columns,
-					Messages:       messages,
-					StatementIndex: idx + 1,
-				})
+				resultSets = append(resultSets, finalized.resultSets...)
 				applyRowBudgetTruncation(resultSets, rowBudget)
-				appendStatementAudit(auditStatements[idx], idx+1, statementStartedAt, 0, int64(len(data)), statementBoundaryMode, statementCommitMode, nil)
-				updateStatementExecutionResult(statementResults, idx+1, connection.StatementResultSuccess, nil, int64(len(data)), time.Since(statementStartedAt), nil)
+				appendStatementAudit(auditStatements[idx], idx+1, statementStartedAt, finalized.rowsAffected, finalized.rowsReturned, statementBoundaryMode, statementCommitMode, nil)
+				updateStatementExecutionResult(statementResults, idx+1, connection.StatementResultSuccess, finalized.affectedRowsPtr, finalized.rowsReturned, time.Since(statementStartedAt), nil)
 				executedCount++
 				textTransactionOpen = advancesSQLAuditTextTransaction(stmt, textTransactionOpen)
 				continue
 			}
 			if isReadStmt {
+				err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 				logger.Error(err, "DBQueryMulti 逐条查询失败（第 %d/%d 条）：%s SQL片段=%q", idx+1, len(statements), formatConnSummary(runConfig), sqlSnippet(stmt))
 				errMsg := a.buildDBQueryMultiStatementFailureMessage(idx+1, err, len(resultSets))
 				appendStatementAudit(auditStatements[idx], idx+1, statementStartedAt, 0, 0, statementBoundaryMode, statementCommitMode, err)
@@ -700,6 +671,7 @@ func (a *App) dbQueryMulti(
 				a.invalidateCachedDatabase(runConfig, err)
 			}
 			err = classifyDispatchedWriteError(err)
+			err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 			logger.Error(err, "DBQueryMulti 写入查询失败（第 %d/%d 条）：%s SQL片段=%q", idx+1, len(statements), formatConnSummary(runConfig), sqlSnippet(stmt))
 			errMsg := a.buildDBQueryMultiStatementFailureMessage(idx+1, err, len(resultSets))
 			appendStatementAudit(auditStatements[idx], idx+1, statementStartedAt, 0, 0, statementBoundaryMode, statementCommitMode, err)
@@ -754,6 +726,7 @@ func (a *App) dbQueryMulti(
 				a.invalidateCachedDatabase(runConfig, err)
 			}
 			err = classifyDispatchedWriteError(err)
+			err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 			logger.Error(err, "DBQueryMulti 逐条执行失败（第 %d/%d 条）：%s SQL片段=%q", idx+1, len(statements), formatConnSummary(runConfig), sqlSnippet(stmt))
 			errMsg := a.buildDBQueryMultiStatementFailureMessage(idx+1, err, len(resultSets))
 			appendStatementAudit(auditStatements[idx], idx+1, statementStartedAt, 0, 0, statementBoundaryMode, statementCommitMode, err)

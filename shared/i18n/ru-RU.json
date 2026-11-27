@@ -7084,6 +7084,7 @@
   "db.backend.error.database_rename_direct_unsupported": "MySQL/MariaDB/OceanBase/StarRocks/Sphinx не поддерживает прямое переименование баз данных. Создайте новую базу данных и перенесите данные",
   "db.backend.error.database_rename_unsupported": "Текущий источник данных ({{dbType}}) не поддерживает переименование баз данных",
   "db.backend.error.database_same_name": "Старое и новое имена базы данных должны отличаться",
+  "db.backend.error.driver_agent_json_line_too_large": "Установленный устаревший драйвер-агент {{driver}} превысил лимит 32 MiB на один кадр JSON Lines. Обновите или переустановите драйвер-агент {{driver}} в менеджере драйверов и повторите попытку (исходная ошибка: {{detail}})",
   "db.backend.error.duckdb_attach.agent_outdated": "Версия агента драйвера DuckDB устарела и не поддерживает присоединение внешних источников данных. Переустановите драйвер DuckDB в разделе управления драйверами и повторите попытку. Исходная ошибка: {{detail}}",
   "db.backend.error.duckdb_attach.alias_invalid": "Псевдоним {{alias}} не является допустимым идентификатором (должен начинаться с буквы или подчёркивания).",
   "db.backend.error.duckdb_attach.alias_occupied": "Псевдоним {{alias}} уже занят другим источником данных. Сначала выполните DETACH SAVED CONNECTION {{alias}} или выберите другой псевдоним.",

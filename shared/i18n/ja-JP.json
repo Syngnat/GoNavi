@@ -7084,6 +7084,7 @@
   "db.backend.error.database_rename_direct_unsupported": "MySQL/MariaDB/OceanBase/StarRocks/Sphinx はデータベースの直接リネームをサポートしていません。新しいデータベースを作成してデータを移行してください",
   "db.backend.error.database_rename_unsupported": "現在のデータソース（{{dbType}}）はデータベース名変更をサポートしていません",
   "db.backend.error.database_same_name": "変更前と変更後のデータベース名は異なる必要があります",
+  "db.backend.error.driver_agent_json_line_too_large": "旧バージョンの {{driver}} ドライバーエージェントが 32 MiB 単一フレーム JSON Lines 上限に達しました。ドライバー管理で {{driver}} ドライバーエージェントを更新または再インストールしてから再試行してください（元のエラー：{{detail}}）",
   "db.backend.error.duckdb_attach.agent_outdated": "DuckDB ドライバーエージェントのバージョンが古く、外部データソースのアタッチに対応していません。ドライバー管理で DuckDB ドライバーを再インストールしてから再試行してください。元のエラー: {{detail}}",
   "db.backend.error.duckdb_attach.alias_invalid": "エイリアス {{alias}} は有効な識別子ではありません（英字またはアンダースコアで開始する必要があります）。",
   "db.backend.error.duckdb_attach.alias_occupied": "エイリアス {{alias}} は既に別のデータソースが使用しています。先に DETACH SAVED CONNECTION {{alias}} を実行するか、別のエイリアスを指定してください。",

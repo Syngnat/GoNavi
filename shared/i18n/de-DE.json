@@ -7084,6 +7084,7 @@
   "db.backend.error.database_rename_direct_unsupported": "MySQL/MariaDB/OceanBase/StarRocks/Sphinx unterstützt kein direktes Umbenennen von Datenbanken. Erstellen Sie stattdessen eine neue Datenbank und migrieren Sie die Daten",
   "db.backend.error.database_rename_unsupported": "Die aktuelle Datenquelle ({{dbType}}) unterstützt das Umbenennen von Datenbanken nicht",
   "db.backend.error.database_same_name": "Alter und neuer Datenbankname müssen unterschiedlich sein",
+  "db.backend.error.driver_agent_json_line_too_large": "Der installierte ältere {{driver}}-Treiber-Agent hat das 32-MiB-Einzelrahmen-Limit für JSON Lines überschritten. Aktualisieren oder installieren Sie den {{driver}}-Treiber-Agent im Treiber-Manager neu und versuchen Sie es erneut (Ursprünglicher Fehler: {{detail}})",
   "db.backend.error.duckdb_attach.agent_outdated": "Der DuckDB-Treiberagent ist veraltet und unterstützt das Anhängen externer Datenquellen nicht. Bitte installieren Sie den DuckDB-Treiber über die Treiberverwaltung neu und versuchen Sie es erneut. Ursprünglicher Fehler: {{detail}}",
   "db.backend.error.duckdb_attach.alias_invalid": "Der Alias {{alias}} ist kein gültiger Bezeichner (muss mit Buchstabe oder Unterstrich beginnen).",
   "db.backend.error.duckdb_attach.alias_occupied": "Der Alias {{alias}} wird bereits von einer anderen Datenquelle verwendet. Führen Sie zuerst DETACH SAVED CONNECTION {{alias}} aus oder wählen Sie einen anderen Alias.",

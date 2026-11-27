@@ -696,6 +696,7 @@ func (a *App) executeParameterizedStatements(
 				}
 			}
 			statementErr = classifyDispatchedWriteError(statementErr)
+			statementErr = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, statementErr)
 			outcomeUnknown := writeExecutionOutcomeUnknown(ctx, statementErr)
 			status := connection.StatementResultFailed
 			if outcomeUnknown {

@@ -156,6 +156,7 @@ func (a *App) dbQueryWithCancel(
 	isReadQuery := pluginQueryRequiresReadOnlyTransaction(auditOptions.source) || (auditOptions.source != "database_jobs" && isReadOnlySQLQuery(runConfig.Type, query))
 	tryQueryFirst := shouldTryQueryResultFirst(runConfig.Type, query)
 	legacyCancellationUnsupported := false
+	activeInst := dbInst
 
 	runReadQuery := func(inst db.Database) ([]map[string]interface{}, []string, error) {
 		startedAt := time.Now()
@@ -241,6 +242,7 @@ func (a *App) dbQueryWithCancel(
 					return buildQueryConnectionFailure(retryErr, queryID, auditOptions.classifyConnectionErrors)
 				}
 				lifecycle.markExecuting()
+				activeInst = retryInst
 				data, columns, messages, err = runReadQueryWithMessages(retryInst)
 				if legacyCancellationUnsupported {
 					return a.buildCancellationUnsupportedExecutionResult(connection.QueryResult{
@@ -249,10 +251,26 @@ func (a *App) dbQueryWithCancel(
 				}
 			}
 		}
+		if err != nil && isReadQuery && !pluginQueryRequiresReadOnlyTransaction(auditOptions.source) {
+			startedAt := time.Now()
+			streamRows, streamColumns, recovered, streamErr := fallbackReadQueryToStreamOnOversize(
+				ctx, runConfig, query, nil, err, activeInst,
+			)
+			queryExecutionDuration += time.Since(startedAt)
+			if recovered {
+				data = streamRows
+				columns = streamColumns
+				messages = nil
+				err = nil
+			} else if streamErr != nil {
+				err = streamErr
+			}
+		}
 		if err == nil {
 			return connection.QueryResult{Success: true, Data: data, Fields: columns, Messages: messages, QueryID: queryID}
 		}
 		if isReadQuery {
+			err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 			logger.Error(err, "DBQuery 查询失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 			return buildQueryExecutionFailure(ctx, err, err.Error(), queryID)
 		}
@@ -260,6 +278,7 @@ func (a *App) dbQueryWithCancel(
 			a.invalidateCachedDatabase(runConfig, err)
 		}
 		err = classifyDispatchedWriteError(err)
+		err = a.localizeOptionalDriverAgentOversizeError(runConfig.Type, err)
 		logger.Error(err, "DBQuery 写入查询失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 		return buildWriteExecutionFailure(ctx, err, queryID)
 	}

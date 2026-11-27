@@ -7084,6 +7084,7 @@
   "db.backend.error.database_rename_direct_unsupported": "MySQL/MariaDB/OceanBase/StarRocks/Sphinx does not support direct database renaming. Create a new database and migrate the data instead",
   "db.backend.error.database_rename_unsupported": "The current data source ({{dbType}}) does not support renaming databases",
   "db.backend.error.database_same_name": "The old and new database names must be different",
+  "db.backend.error.driver_agent_json_line_too_large": "The installed legacy {{driver}} driver-agent hit its 32 MiB single-frame JSON Lines limit. Update or reinstall the {{driver}} driver-agent in Driver Manager and retry (original error: {{detail}})",
   "db.backend.error.duckdb_attach.agent_outdated": "The DuckDB driver agent is outdated and does not support attaching external datasources. Reinstall the DuckDB driver from driver management and retry. Original error: {{detail}}",
   "db.backend.error.duckdb_attach.alias_invalid": "Alias {{alias}} is not a valid identifier (must start with a letter or underscore).",
   "db.backend.error.duckdb_attach.alias_occupied": "Alias {{alias}} is already used by another datasource. Run DETACH SAVED CONNECTION {{alias}} first, or choose another alias.",

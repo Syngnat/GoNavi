@@ -17,7 +17,7 @@
 | 数据导出 | `internal/app/methods_file_export_*`、`frontend/src/components/tableExport/` | `docs/subsystems/data-export.md` |
 | Zustand 状态与持久化 | `frontend/src/store.ts`、`store/` | 待补 |
 | i18n 与 catalog | `shared/i18n/`、`tools/i18n-scan/` | 待补 |
-| 插件运行时 / Driver Agent | `internal/plugin/`、`internal/pluginmarket/`、`cmd/optional-driver-agent/` | 部分：`docs/plugins/README.md` |
+| 插件运行时 / Driver Agent | `internal/plugin/`、`internal/pluginmarket/`、`cmd/optional-driver-agent/` | 部分：`docs/plugins/README.md`、`docs/subsystems/driver-agent.md` |
 | 脚本工作台 | `frontend/src/components/scriptWorkbench/`、Go 执行引擎 | 部分：`docs/features/script-workbench.md` |
 | Wails v3 迁移 | `cmd/wails3app/`、`scripts/build-wails3.mjs` | 部分：`WAILS3_MIGRATION.md` |
 | Hive 支持 | `internal/db/` 的 Hive 实现、`internal/hivesql/` | 部分：`HIVE_SUPPORT.md` |
