@@ -312,6 +312,7 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
     persistence.loadMessageSubscriptions.mockReturnValue([{
       id: 'saved-mqtt-subscription',
       draft: { destination: 'persisted/devices/#', qos: 2, limit: 50 },
+      active: true,
     }]);
     backend.DBQuery.mockImplementationOnce(() => pendingSubscription.promise);
 
@@ -328,7 +329,7 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
     act(() => { renderer.unmount(); });
   });
 
-  it('persists confirmed subscriptions but not their runtime state', () => {
+  it('persists user activation but not runtime state', () => {
     const pendingSubscription = deferred<any>();
     backend.DBQuery.mockImplementationOnce(() => pendingSubscription.promise);
 
@@ -341,6 +342,7 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
       [{
         id: expect.stringMatching(/^message-sub-/),
         draft: { destination: 'devices/#', qos: 1, limit: 100 },
+        active: true,
       }],
     );
     const lastSaveCall = persistence.saveMessageSubscriptions.mock.calls[
@@ -377,6 +379,7 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
       savedSubscriptions = value.map((item: any) => ({
         id: item.id,
         draft: { ...item.draft },
+        active: item.active,
       }));
       return true;
     });
@@ -393,6 +396,40 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
     expect(backend.DBQuery.mock.calls.some((call) => (
       call[2] === 'CONSUME FROM "devices/#" QOS 1 LIMIT 100;'
     ))).toBe(true);
+    act(() => { reopenedRenderer.unmount(); });
+  });
+
+  it('remembers a paused MQTT subscription after the workbench is closed and reopened', () => {
+    const pendingSubscription = deferred<any>();
+    let savedSubscriptions: any[] = [];
+    persistence.loadMessageSubscriptions.mockImplementation(() => savedSubscriptions);
+    persistence.saveMessageSubscriptions.mockImplementation((_connectionId, _dbName, value) => {
+      savedSubscriptions = value.map((item: any) => ({
+        id: item.id,
+        draft: { ...item.draft },
+        active: item.active,
+      }));
+      return true;
+    });
+    backend.DBQuery.mockImplementation(() => pendingSubscription.promise);
+
+    const firstRenderer = renderWorkbench();
+    addMQTTSubscription(firstRenderer);
+    expect(backend.DBQuery).toHaveBeenCalledTimes(1);
+    clickIconButton(firstRenderer, 'pause');
+
+    expect(savedSubscriptions).toEqual([{
+      id: expect.stringMatching(/^message-sub-/),
+      draft: { destination: 'devices/#', qos: 1, limit: 100 },
+      active: false,
+    }]);
+    act(() => { firstRenderer.unmount(); });
+
+    backend.DBQuery.mockReset();
+    const reopenedRenderer = renderWorkbench();
+
+    expect(backend.DBQuery).not.toHaveBeenCalled();
+    expect(reopenedRenderer.root.findAllByProps({ 'data-icon': 'play' }).length).toBeGreaterThan(0);
     act(() => { reopenedRenderer.unmount(); });
   });
 

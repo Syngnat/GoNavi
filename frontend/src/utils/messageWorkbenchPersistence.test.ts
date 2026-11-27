@@ -88,6 +88,7 @@ describe('messageWorkbenchPersistence', () => {
     saveMessageSubscriptions('connection-b', 'workspace-a', [{
       id: 'subscription-b',
       draft: { destination: 'queue-b', limit: 20 },
+      active: true,
     }], storage);
 
     expect(loadMessagePublishDraft('connection-a', 'workspace-a', storage)?.destination).toBe('topic-a');
@@ -97,10 +98,11 @@ describe('messageWorkbenchPersistence', () => {
     expect(loadMessageSubscriptions('connection-b', 'workspace-a', storage)).toEqual([{
       id: 'subscription-b',
       draft: { destination: 'queue-b', limit: 20 },
+      active: true,
     }]);
   });
 
-  it('persists generic MQTT, Kafka, RabbitMQ, and RocketMQ subscription drafts only', () => {
+  it('persists subscription configuration and activation state without runtime data', () => {
     const storage = new MemoryStorage();
     const subscriptions = [
       {
@@ -111,14 +113,16 @@ describe('messageWorkbenchPersistence', () => {
         error: 'broker-secret',
         messageCount: 99,
         messages: [{ payload: 'must-not-survive' }],
+        active: false,
       },
       {
         id: 'kafka-subscription',
         draft: { destination: 'orders', limit: 50, consumerGroup: 'gonavi-preview' },
         command: { commandText: 'CONSUME ...' },
+        active: true,
       },
-      { id: 'rabbitmq-subscription', draft: { destination: 'jobs.ready', limit: 10 } },
-      { id: 'rocketmq-subscription', draft: { destination: 'payment-events', limit: 25 } },
+      { id: 'rabbitmq-subscription', draft: { destination: 'jobs.ready', limit: 10 }, active: true },
+      { id: 'rocketmq-subscription', draft: { destination: 'payment-events', limit: 25 }, active: true },
     ];
 
     expect(saveMessageSubscriptions('connection-a', '', subscriptions, storage)).toBe(true);
@@ -126,13 +130,15 @@ describe('messageWorkbenchPersistence', () => {
       {
         id: 'mqtt-subscription',
         draft: { destination: 'sensors/+/temperature', limit: 100, qos: 2 },
+        active: false,
       },
       {
         id: 'kafka-subscription',
         draft: { destination: 'orders', limit: 50, consumerGroup: 'gonavi-preview' },
+        active: true,
       },
-      { id: 'rabbitmq-subscription', draft: { destination: 'jobs.ready', limit: 10 } },
-      { id: 'rocketmq-subscription', draft: { destination: 'payment-events', limit: 25 } },
+      { id: 'rabbitmq-subscription', draft: { destination: 'jobs.ready', limit: 10 }, active: true },
+      { id: 'rocketmq-subscription', draft: { destination: 'payment-events', limit: 25 }, active: true },
     ]);
 
     const raw = storage.getItem(MESSAGE_WORKBENCH_STORAGE_KEY) || '';
@@ -142,6 +148,28 @@ describe('messageWorkbenchPersistence', () => {
     expect(raw).not.toContain('messageCount');
     expect(raw).not.toContain('must-not-survive');
     expect(raw).not.toContain('commandText');
+  });
+
+  it('treats legacy subscriptions without activation state as enabled', () => {
+    const storage = new MemoryStorage();
+    storage.setItem(MESSAGE_WORKBENCH_STORAGE_KEY, JSON.stringify({
+      schemaVersion: MESSAGE_WORKBENCH_SCHEMA_VERSION,
+      scopes: [{
+        connectionId: 'connection-a',
+        executionDbName: '',
+        subscriptions: [{
+          id: 'legacy-subscription',
+          draft: { destination: 'legacy/devices/#', limit: 25, qos: 1 },
+        }],
+        updatedAt: 1,
+      }],
+    }));
+
+    expect(loadMessageSubscriptions('connection-a', '', storage)).toEqual([{
+      id: 'legacy-subscription',
+      draft: { destination: 'legacy/devices/#', limit: 25, qos: 1 },
+      active: true,
+    }]);
   });
 
   it('sanitizes malformed fields, duplicate ids, and unknown sensitive data', () => {
@@ -183,6 +211,7 @@ describe('messageWorkbenchPersistence', () => {
         limit: 100,
         consumerGroup: 'group-a',
       },
+      active: true,
     }]);
     expect(storage.getItem(MESSAGE_WORKBENCH_STORAGE_KEY)).not.toContain('not-a-');
   });
@@ -192,6 +221,7 @@ describe('messageWorkbenchPersistence', () => {
     saveMessageSubscriptions('connection-a', 'workspace-a', [{
       id: 'subscription-a',
       draft: { destination: 'topic-a/#', limit: 100, qos: 1 },
+      active: true,
     }], storage);
     saveMessagePublishDraft('connection-a', 'workspace-a', {
       destination: 'topic-a/test',
@@ -202,12 +232,14 @@ describe('messageWorkbenchPersistence', () => {
     saveMessageSubscriptions('connection-a', 'workspace-a', [{
       id: 'subscription-b',
       draft: { destination: 'topic-b/#', limit: 50, qos: 0 },
+      active: true,
     }], storage);
 
     expect(loadMessagePublishDraft('connection-a', 'workspace-a', storage)?.body).toBe('hello');
     expect(loadMessageSubscriptions('connection-a', 'workspace-a', storage)).toEqual([{
       id: 'subscription-b',
       draft: { destination: 'topic-b/#', limit: 50, qos: 0 },
+      active: true,
     }]);
   });
 

@@ -283,6 +283,7 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
           command,
           mode: command.mode,
           color: TOPIC_COLORS[index % TOPIC_COLORS.length],
+          active: savedSubscription.active !== false,
           running: false,
           loading: false,
           error: '',
@@ -306,7 +307,7 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
       // MQTT subscriptions are live streams and should reconnect like MQTTX.
       // Pull-preview transports only restore their configuration; the user
       // explicitly refreshes them to avoid consuming messages on app startup.
-      if (subscription.mode === 'stream') {
+      if (subscription.mode === 'stream' && subscription.active) {
         void executeSubscriptionRef.current(subscription, true);
       }
     });
@@ -324,6 +325,7 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
   const persistedSubscriptions = subscriptions.map((subscription) => ({
     id: subscription.id,
     draft: subscription.draft,
+    active: subscription.active,
   }));
   const persistedSubscriptionsSignature = stableSerialize(persistedSubscriptions);
   useEffect(() => {
@@ -404,7 +406,9 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
     if (!connection) return;
     rebuiltSubscriptions.forEach((subscription) => {
       streamOffsetsRef.current.set(subscription.id, 0);
-      void executeSubscriptionRef.current(subscription, subscription.mode === 'stream');
+      if (subscription.mode === 'stream' && subscription.active) {
+        void executeSubscriptionRef.current(subscription, true);
+      }
     });
   }, [connection, connectionRuntimeKey, t, unsubscribeMQTT]);
 
@@ -423,8 +427,10 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
       setSelectedSubscriptionId(existing.id);
       setConsumeModalOpen(false);
       if (existing.mode === 'stream' && !existing.running) {
+        updateSubscription(existing.id, { active: true });
         void executeSubscription(existing, true);
       } else if (existing.mode === 'pull-preview') {
+        updateSubscription(existing.id, { active: true });
         void executeSubscription(existing, false);
       }
       return;
@@ -437,6 +443,7 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
       command: value.command,
       mode: value.command.mode,
       color: TOPIC_COLORS[subscriptions.length % TOPIC_COLORS.length],
+      active: true,
       running: false,
       loading: false,
       error: '',
@@ -447,16 +454,17 @@ export const useMessageQueueWorkbenchState = ({ tab }: UseMessageQueueWorkbenchS
     setSelectedSubscriptionId(subscription.id);
     setConsumeModalOpen(false);
     void executeSubscription(subscription, subscription.mode === 'stream');
-  }, [executeSubscription, subscriptions]);
+  }, [executeSubscription, subscriptions, updateSubscription]);
 
   const pauseSubscription = useCallback((subscription: WorkbenchSubscription) => {
     runTokensRef.current.delete(subscription.id);
-    updateSubscription(subscription.id, { running: false, loading: false });
+    updateSubscription(subscription.id, { active: false, running: false, loading: false });
   }, [updateSubscription]);
 
   const resumeSubscription = useCallback((subscription: WorkbenchSubscription) => {
+    updateSubscription(subscription.id, { active: true });
     void executeSubscription(subscription, subscription.mode === 'stream');
-  }, [executeSubscription]);
+  }, [executeSubscription, updateSubscription]);
   return {
     t, connection, subscriptions, setSubscriptions, messages, setMessages, selectedSubscriptionId,
     setSelectedSubscriptionId, directionFilter, setDirectionFilter, searchText, setSearchText,

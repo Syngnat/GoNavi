@@ -20,6 +20,8 @@ export type MessageWorkbenchStorage = Pick<Storage, 'getItem' | 'setItem' | 'rem
 export type PersistedMessageSubscription = {
   id: string;
   draft: MessageConsumeDraft;
+  /** 用户是否启用该订阅。旧数据缺少该字段时按启用处理。 */
+  active: boolean;
 };
 
 type PersistedMessageWorkbenchScope = {
@@ -155,7 +157,7 @@ const sanitizeSubscriptions = (value: unknown): PersistedMessageSubscription[] =
     const draft = sanitizeConsumeDraft(candidate.draft);
     if (!id || !draft || seenIds.has(id)) continue;
     seenIds.add(id);
-    subscriptions.push({ id, draft });
+    subscriptions.push({ id, draft, active: candidate.active !== false });
     if (subscriptions.length >= MAX_SUBSCRIPTIONS_PER_SCOPE) break;
   }
   return subscriptions;

@@ -25,6 +25,8 @@ export type WorkbenchSubscription = {
   command: MessageConsumeCommand;
   mode: MessageConsumeMode;
   color: string;
+  /** 用户是否希望该订阅保持启用；与瞬时 running/loading 状态分开持久化。 */
+  active: boolean;
   running: boolean;
   loading: boolean;
   error: string;
