@@ -122,6 +122,7 @@ export const createCellSelectionHandlers = ({
 
     if (e.shiftKey && cellSelectionAnchorSourceRef.current === 'user' && selectionStartRef.current && applySelectionUpdate(cellInfo)) {
       e.preventDefault();
+      document.getSelection?.()?.removeAllRanges();
       pendingCellSelectionStartRef.current = null;
       suppressCellSelectionClickRef.current = true;
       if (canModifyData && !cellEditModeRef.current) {

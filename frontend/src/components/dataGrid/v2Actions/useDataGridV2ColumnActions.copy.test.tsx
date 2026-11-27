@@ -33,7 +33,11 @@ describe('legacy copy hook compatibility', () => {
     api = useDataGridV2ColumnActions(input);
     return null;
   }
-  afterEach(() => { act(() => renderer?.unmount()); vi.clearAllMocks(); });
+  afterEach(() => {
+    act(() => { renderer?.unmount(); });
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
 
   it('retains data-only cell copy event behavior without implicit headers', () => {
     act(() => { renderer = create(<Harness input={createInput()} />); });
@@ -47,6 +51,75 @@ describe('legacy copy hook compatibility', () => {
     expect(html).toContain('<td>Alice</td>');
     expect(html).not.toContain('<thead>');
     expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it('copies from the current selection ref before React state catches up', () => {
+    const twoRows = [
+      { [GONAVI_ROW_KEY]: 'a', name: 'Alice', id: 1 },
+      { [GONAVI_ROW_KEY]: 'b', name: 'Bob', id: 2 },
+    ];
+    const twoCells = new Set([makeCellKey('a', 'name'), makeCellKey('b', 'name')]);
+    const input = createInput();
+    input.mergedDisplayData = twoRows;
+    input.displayDataRef = { current: twoRows };
+    input.currentSelectionRef = { current: twoCells };
+    input.selectedCells = new Set();
+    input.cellEditMode = false;
+    act(() => { renderer = create(<Harness input={input} />); });
+
+    const setData = vi.fn();
+    const event = new Event('copy', { cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { setData, clearData: vi.fn() } });
+    act(() => { window.dispatchEvent(event); });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(setData).toHaveBeenCalledWith('text/plain', 'Alice\nBob');
+  });
+
+  it('keeps cell copying when stale page text selection still exists', () => {
+    const getSelection = vi.spyOn(document, 'getSelection').mockReturnValue({
+      toString: () => '4',
+      anchorNode: document.body,
+    } as unknown as Selection);
+    act(() => { renderer = create(<Harness input={createInput()} />); });
+
+    const setData = vi.fn();
+    const event = new Event('copy', { cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { setData, clearData: vi.fn() } });
+    act(() => { window.dispatchEvent(event); });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(setData).toHaveBeenCalledWith('text/plain', 'Alice');
+  });
+
+  it('leaves copy untouched when the grid has no selection', () => {
+    const input = createInput();
+    input.selectedCells = new Set();
+    input.currentSelectionRef = { current: new Set() };
+    act(() => { renderer = create(<Harness input={input} />); });
+
+    const event = new Event('copy', { cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { setData: vi.fn(), clearData: vi.fn() } });
+    act(() => { window.dispatchEvent(event); });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it('does not hijack text copied outside the grid while cells remain selected', () => {
+    vi.spyOn(document, 'getSelection').mockReturnValue({
+      toString: () => 'outside text',
+      anchorNode: document.body,
+    } as unknown as Selection);
+    const input = createInput();
+    input.rootRef = { current: document.createElement('div') };
+    act(() => { renderer = create(<Harness input={input} />); });
+
+    const event = new Event('copy', { cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { setData: vi.fn(), clearData: vi.fn() } });
+    act(() => { window.dispatchEvent(event); });
+
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it('does not intercept text-field native copy shortcuts', () => {

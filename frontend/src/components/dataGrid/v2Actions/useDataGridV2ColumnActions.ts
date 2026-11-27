@@ -327,7 +327,7 @@ export const useDataGridV2ColumnActions = ({
     }, [cellEditMode, selectedCells, resetCellSelection, closeCellEditMode, isActive, isTableSurfaceActive]);
   
     useEffect(() => {
-        if (!isActive || !isTableSurfaceActive || (selectedCells.size === 0 && selectedRowKeys.length === 0)) return;
+        if (!isActive || !isTableSurfaceActive) return;
   
         const onCopy = (event: ClipboardEvent) => {
             if (event.defaultPrevented) return;
@@ -335,13 +335,27 @@ export const useDataGridV2ColumnActions = ({
             const eventTarget = event.target instanceof HTMLElement ? event.target : null;
             const nativeShortcutGuard = 'input, textarea, select, [contenteditable="true"], .ant-modal, .ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .ant-popover, [data-gonavi-close-shortcut-guard]';
             if (activeElement?.closest(nativeShortcutGuard) || eventTarget?.closest(nativeShortcutGuard)) return;
-            if (document.getSelection?.()?.toString()) return;
-  
             // 单元格选区优先（拖选/点选单元格）；仅行选中时整行复制（列间 TAB、行间换行）。
             let payload: DataGridClipboardPayload | null = null;
-            if (selectedCells.size > 0) {
+            const cellSelection = currentSelectionRef.current.size > 0
+                ? currentSelectionRef.current
+                : selectedCells;
+            const rowSelection = selectedRowKeysRef.current.length > 0
+                ? selectedRowKeysRef.current
+                : selectedRowKeys;
+            if (cellSelection.size === 0 && rowSelection.length === 0) return;
+            // 单元格框选已经明确表达复制意图时，页面残留的文本选区不能
+            // 把复制退回浏览器原生内容，否则会拿到上一份旧剪贴板数据。
+            const domSelection = document.getSelection?.();
+            if (domSelection?.toString()) {
+                const root = rootRef.current;
+                const selectionTouchesGrid = Boolean(root) && [domSelection.anchorNode, domSelection.focusNode]
+                    .some((node) => Boolean(node && root?.contains(node)));
+                if (!selectionTouchesGrid) return;
+            }
+            if (cellSelection.size > 0) {
                 payload = buildSelectedCellsClipboardPayload();
-            } else if (selectedRowKeys.length > 0) {
+            } else if (rowSelection.length > 0) {
                 payload = buildSelectedRowsClipboardPayload();
             }
             if (!payload) return;
@@ -354,7 +368,7 @@ export const useDataGridV2ColumnActions = ({
   
         window.addEventListener('copy', onCopy);
         return () => window.removeEventListener('copy', onCopy);
-    }, [buildSelectedCellsClipboardPayload, buildSelectedRowsClipboardPayload, copyToClipboard, isActive, isTableSurfaceActive, selectedCells.size, selectedRowKeys.length, translateDataGrid]);
+    }, [buildSelectedCellsClipboardPayload, buildSelectedRowsClipboardPayload, copyToClipboard, isActive, isTableSurfaceActive, rootRef, selectedCells, selectedRowKeys, selectedRowKeysRef, translateDataGrid]);
   
     useEffect(() => {
         if (!isActive || !isTableSurfaceActive || (!cellEditMode && selectedCells.size === 0)) return;

@@ -265,6 +265,7 @@ export const createCellSelectionInteraction = ({ container, ctx }: CreateCellSel
     if (rowIndex === -1 || colIndex === -1) return;
 
     const nextSelection = new Set([makeCellKey(cellInfo.rowKey, cellInfo.colName)]);
+    document.getSelection?.()?.removeAllRanges();
     selectionStartRef.current = {
       rowKey: cellInfo.rowKey,
       colName: cellInfo.colName,
