@@ -14,6 +14,7 @@ import {
   setSidebarTableMetadataFieldSelected,
   applySidebarTableMetadataFieldOrder,
 } from '../../utils/sidebarTableMetadata';
+import { resolveAntdMotionTokens } from '../antdMotionTokens';
 import type { AppCoreStateApi } from './useAppCoreState';
 import type { AppShellStateApi } from './useAppShellState';
 import type { AppProxySettingsApi } from './useAppProxySettings';
@@ -80,11 +81,11 @@ export const useAppAntdTheme = ({
   const v2AntBorder = customThemeAntTokens.border;
   const v2AntRowHoverBg = customThemeAntTokens.rowHoverBg;
   const v2AntInfoColor = customThemeAntTokens.info ?? v2AntPrimaryColor;
-  // 低配档位 / 减少动画：antd 组件动画（Modal / Drawer / Dropdown / Select 等）的总开关。
-  // 与 useAppLayoutEffects 的 body 类同源同判定，避免 antd 动与自定义 CSS 动画出现两套口径。
+  // 低配档位 / 减少动画：motion 本身必须保持开启，否则 WebKitGTK 的浮层
+  // 会因 rc-trigger 收不到完成事件而停在屏幕外；这里只把时长压到近零。
   const lowSpecModePreference = useStore((state) => state.appearance.lowSpecMode);
   const reduceMotionPreference = useStore((state) => state.appearance.reduceMotion);
-  const antdMotionEnabled = !shouldReduceMotion(
+  const antdMotionReduced = shouldReduceMotion(
       reduceMotionPreference,
       resolveLowSpecModeActive(lowSpecModePreference, detectRuntimeCapabilityCached().lowSpec),
   );
@@ -124,9 +125,7 @@ export const useAppAntdTheme = ({
           colorLink: v2AntPrimaryColor,
           colorLinkHover: v2AntPrimaryHoverColor,
           colorLinkActive: v2AntPrimaryActiveColor,
-          // antd v5 SeedToken：motion=false 关闭全部过渡/动画。低配档位与减少动画都置 false，
-          // 与 CSS 的 0.001ms 中和互补（antd 内部依赖 motionDeadline 兜底，不会卡在中间态）。
-          motion: antdMotionEnabled,
+          ...resolveAntdMotionTokens(antdMotionReduced),
           colorPrimaryBg: v2AntPrimaryBgColor,
           colorPrimaryBgHover: v2AntPrimaryBgHoverColor,
           colorPrimaryBorder: v2AntPrimaryBorderColor,
@@ -158,7 +157,7 @@ export const useAppAntdTheme = ({
   }), [
       darkMode,
       effectiveOpacity,
-      antdMotionEnabled,
+      antdMotionReduced,
       v2AntBgContainer,
       v2AntBgElevated,
       v2AntBorder,

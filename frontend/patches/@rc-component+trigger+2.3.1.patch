@@ -1,0 +1,170 @@
+diff --git a/node_modules/@rc-component/trigger/es/hooks/useAlign.js b/node_modules/@rc-component/trigger/es/hooks/useAlign.js
+index 3532e7c..4fae58b 100644
+--- a/node_modules/@rc-component/trigger/es/hooks/useAlign.js
++++ b/node_modules/@rc-component/trigger/es/hooks/useAlign.js
+@@ -116,7 +116,9 @@ export default function useAlign(open, popupEle, target, placement, builtinPlace
+       var originTop = popupElement.style.top;
+       var originRight = popupElement.style.right;
+       var originBottom = popupElement.style.bottom;
++      var originInset = popupElement.style.inset;
+       var originOverflow = popupElement.style.overflow;
++      var supportsInset = popupElement.style.inset !== undefined;
+ 
+       // Placement
+       var placementInfo = _objectSpread(_objectSpread({}, builtinPlacements[placement]), popupAlign);
+@@ -131,11 +133,26 @@ export default function useAlign(open, popupEle, target, placement, builtinPlace
+       placeholderElement.style.width = "".concat(popupElement.offsetWidth, "px");
+ 
+       // Reset first
+-      popupElement.style.left = '0';
+-      popupElement.style.top = '0';
+-      popupElement.style.right = 'auto';
+-      popupElement.style.bottom = 'auto';
++      // WebKitGTK serializes React's four longhands as `inset`; writing the
++      // longhands afterwards does not relayout there and the popup is measured
++      // at its initial -1000vw position. Prefer the shorthand when supported.
++      if (supportsInset) {
++        popupElement.style.inset = '0 auto auto 0';
++      } else {
++        popupElement.style.left = '0';
++        popupElement.style.top = '0';
++        popupElement.style.right = 'auto';
++        popupElement.style.bottom = 'auto';
++      }
+       popupElement.style.overflow = 'hidden';
++      var needsLayoutFlush = false;
++      if (supportsInset && win.getComputedStyle(popupElement).left !== '0px') {
++        needsLayoutFlush = true;
++        var originDisplay = popupElement.style.display;
++        popupElement.style.display = 'none';
++        void popupElement.offsetHeight;
++        popupElement.style.display = originDisplay;
++      }
+ 
+       // Calculate align style, we should consider `transform` case
+       var targetRect;
+@@ -205,17 +222,31 @@ export default function useAlign(open, popupEle, target, placement, builtinPlace
+       var adjustCheckVisibleArea = isVisibleFirst ? visibleRegionArea : visibleArea;
+ 
+       // Record right & bottom align data
+-      popupElement.style.left = 'auto';
+-      popupElement.style.top = 'auto';
+-      popupElement.style.right = '0';
+-      popupElement.style.bottom = '0';
++      if (supportsInset) {
++        popupElement.style.inset = 'auto 0 0 auto';
++      } else {
++        popupElement.style.left = 'auto';
++        popupElement.style.top = 'auto';
++        popupElement.style.right = '0';
++        popupElement.style.bottom = '0';
++      }
++      if (needsLayoutFlush) {
++        var mirrorDisplay = popupElement.style.display;
++        popupElement.style.display = 'none';
++        void popupElement.offsetHeight;
++        popupElement.style.display = mirrorDisplay;
++      }
+       var popupMirrorRect = popupElement.getBoundingClientRect();
+ 
+       // Reset back
+-      popupElement.style.left = originLeft;
+-      popupElement.style.top = originTop;
+-      popupElement.style.right = originRight;
+-      popupElement.style.bottom = originBottom;
++      if (supportsInset) {
++        popupElement.style.inset = originInset;
++      } else {
++        popupElement.style.left = originLeft;
++        popupElement.style.top = originTop;
++        popupElement.style.right = originRight;
++        popupElement.style.bottom = originBottom;
++      }
+       popupElement.style.overflow = originOverflow;
+       (_popupElement$parentE2 = popupElement.parentElement) === null || _popupElement$parentE2 === void 0 || _popupElement$parentE2.removeChild(placeholderElement);
+ 
+diff --git a/node_modules/@rc-component/trigger/lib/hooks/useAlign.js b/node_modules/@rc-component/trigger/lib/hooks/useAlign.js
+index 3b1a5c7..8725c72 100644
+--- a/node_modules/@rc-component/trigger/lib/hooks/useAlign.js
++++ b/node_modules/@rc-component/trigger/lib/hooks/useAlign.js
+@@ -124,7 +124,9 @@ function useAlign(open, popupEle, target, placement, builtinPlacements, popupAli
+       var originTop = popupElement.style.top;
+       var originRight = popupElement.style.right;
+       var originBottom = popupElement.style.bottom;
++      var originInset = popupElement.style.inset;
+       var originOverflow = popupElement.style.overflow;
++      var supportsInset = popupElement.style.inset !== undefined;
+ 
+       // Placement
+       var placementInfo = (0, _objectSpread2.default)((0, _objectSpread2.default)({}, builtinPlacements[placement]), popupAlign);
+@@ -139,11 +141,26 @@ function useAlign(open, popupEle, target, placement, builtinPlacements, popupAli
+       placeholderElement.style.width = "".concat(popupElement.offsetWidth, "px");
+ 
+       // Reset first
+-      popupElement.style.left = '0';
+-      popupElement.style.top = '0';
+-      popupElement.style.right = 'auto';
+-      popupElement.style.bottom = 'auto';
++      // WebKitGTK serializes React's four longhands as `inset`; writing the
++      // longhands afterwards does not relayout there and the popup is measured
++      // at its initial -1000vw position. Prefer the shorthand when supported.
++      if (supportsInset) {
++        popupElement.style.inset = '0 auto auto 0';
++      } else {
++        popupElement.style.left = '0';
++        popupElement.style.top = '0';
++        popupElement.style.right = 'auto';
++        popupElement.style.bottom = 'auto';
++      }
+       popupElement.style.overflow = 'hidden';
++      var needsLayoutFlush = false;
++      if (supportsInset && win.getComputedStyle(popupElement).left !== '0px') {
++        needsLayoutFlush = true;
++        var originDisplay = popupElement.style.display;
++        popupElement.style.display = 'none';
++        void popupElement.offsetHeight;
++        popupElement.style.display = originDisplay;
++      }
+ 
+       // Calculate align style, we should consider `transform` case
+       var targetRect;
+@@ -213,17 +230,31 @@ function useAlign(open, popupEle, target, placement, builtinPlacements, popupAli
+       var adjustCheckVisibleArea = isVisibleFirst ? visibleRegionArea : visibleArea;
+ 
+       // Record right & bottom align data
+-      popupElement.style.left = 'auto';
+-      popupElement.style.top = 'auto';
+-      popupElement.style.right = '0';
+-      popupElement.style.bottom = '0';
++      if (supportsInset) {
++        popupElement.style.inset = 'auto 0 0 auto';
++      } else {
++        popupElement.style.left = 'auto';
++        popupElement.style.top = 'auto';
++        popupElement.style.right = '0';
++        popupElement.style.bottom = '0';
++      }
++      if (needsLayoutFlush) {
++        var mirrorDisplay = popupElement.style.display;
++        popupElement.style.display = 'none';
++        void popupElement.offsetHeight;
++        popupElement.style.display = mirrorDisplay;
++      }
+       var popupMirrorRect = popupElement.getBoundingClientRect();
+ 
+       // Reset back
+-      popupElement.style.left = originLeft;
+-      popupElement.style.top = originTop;
+-      popupElement.style.right = originRight;
+-      popupElement.style.bottom = originBottom;
++      if (supportsInset) {
++        popupElement.style.inset = originInset;
++      } else {
++        popupElement.style.left = originLeft;
++        popupElement.style.top = originTop;
++        popupElement.style.right = originRight;
++        popupElement.style.bottom = originBottom;
++      }
+       popupElement.style.overflow = originOverflow;
+       (_popupElement$parentE2 = popupElement.parentElement) === null || _popupElement$parentE2 === void 0 || _popupElement$parentE2.removeChild(placeholderElement);
+ 
