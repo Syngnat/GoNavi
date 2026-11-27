@@ -30,10 +30,9 @@ export interface SessionWorkbenchState {
   selectedConnectionId: string;
   setSelectedConnectionId: (connectionId: string) => void;
   /**
-   * The connection's own database, kept in sync with the selected connection.
-   * It is only the initial scope for engines that need a database to connect;
-   * the listed sessions are instance-wide and are narrowed with
-   * the running-only shortcut instead.
+   * The selected database scope. Engines that need a database to connect use
+   * it for the server request, and the session rows are also narrowed to it
+   * when the value is present in the picker catalog.
    */
   databaseName: string;
   /**

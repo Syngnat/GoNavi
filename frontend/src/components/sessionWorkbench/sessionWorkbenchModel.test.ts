@@ -4,6 +4,7 @@ import {
   buildSessionActionRequest,
   filterSessions,
   formatSessionDuration,
+  isSessionExecuting,
   isRedisConnection,
   isServerInternalSession,
   normalizeSessionBatchActionResult,
@@ -198,6 +199,22 @@ describe('sessionWorkbenchModel', () => {
     expect(sessionStateTone('Killed')).toBe('danger');
     expect(sessionStateTone('Daemon')).toBe('neutral');
     expect(sessionStateTone(undefined)).toBe('neutral');
+  });
+
+  it('includes in-flight engine states in the running-only view', () => {
+    for (const state of [
+      'Query', 'active', 'running', 'runnable', 'suspended',
+      'pending', 'rollback', 'queued', 'planning', 'WAITING',
+      'waiting_for_resources',
+    ]) {
+      expect(isSessionExecuting(state), state).toBe(true);
+    }
+    for (const state of [
+      'Sleep', 'idle', 'idle in transaction', 'idle in transaction (aborted)',
+      'Killed', 'Daemon',
+    ]) {
+      expect(isSessionExecuting(state), state).toBe(false);
+    }
   });
 
   it('filters Redis out of the shared session connection selector', () => {

@@ -31,8 +31,10 @@ func normalizeSessionRows(
 				"serialnumber", "serial", "serialno"),
 			Statement: sessionString(values,
 				"statement", "sqltext", "currentquery", "query", "info", "sql"),
+			// SHOW FULL PROCESSLIST exposes Command for the session lifecycle
+			// and State for the current phase, e.g. Query + "User sleep".
 			State: sessionString(values,
-				"state", "status", "command", "substatus"),
+				"command", "state", "status", "substatus"),
 			User: sessionString(values,
 				"username", "loginname", "usename", "user"),
 		}

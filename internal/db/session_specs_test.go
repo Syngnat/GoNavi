@@ -202,6 +202,18 @@ func TestPostgresSessionDurationAnchorsIdleRowsAtStateChange(t *testing.T) {
 	}
 }
 
+func TestOracleSessionListUsesSchemaAsDatabase(t *testing.T) {
+	t.Parallel()
+
+	query := strings.ToLower(oracleSessionSpec().listQuery)
+	if !strings.Contains(query, "s.username as database_or_tenant") {
+		t.Fatalf("Oracle session database must match the schema picker:\n%s", query)
+	}
+	if strings.Contains(query, "service_name as database_or_tenant") {
+		t.Fatalf("Oracle service name must not be exposed as the session database:\n%s", query)
+	}
+}
+
 func TestPostgresSessionListHidesServerProcessesOnlyForPostgresLineage(t *testing.T) {
 	t.Parallel()
 

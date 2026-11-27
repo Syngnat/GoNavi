@@ -13,10 +13,10 @@ import SessionHeader from './SessionHeader';
 import SessionListBody from './SessionListBody';
 import SessionToolbar from './SessionToolbar';
 import { displaySessionState } from './sessionStateLabel';
-import { sessionDatabaseOptions } from './sessionDatabaseFilter';
+import { filterSessionsByDatabase, sessionDatabaseOptions } from './sessionDatabaseFilter';
 import {
   filterSessions,
-  sessionStateTone,
+  isSessionExecuting,
   terminableSessions,
   type SessionActionRequest,
   type SessionQueryResult,
@@ -57,14 +57,31 @@ export default function SessionWorkbench({ tab, isActive }: SessionWorkbenchProp
   );
   const filteredSessions = useMemo(
     () => {
+      const databaseFilter = databaseOptions.includes(workbench.databaseName)
+        ? workbench.databaseName
+        : '';
       const scoped = workbench.runningOnly
         ? (workbench.payload?.sessions || []).filter(
-          (session) => sessionStateTone(session.state) === 'active',
+          (session) => isSessionExecuting(session.state),
         )
         : (workbench.payload?.sessions || []);
-      return filterSessions(scoped, workbench.filter, (state) => displaySessionState(state, t));
+      const databaseScoped = databaseFilter
+        ? filterSessionsByDatabase(scoped, databaseFilter)
+        : scoped;
+      return filterSessions(
+        databaseScoped,
+        workbench.filter,
+        (state) => displaySessionState(state, t),
+      );
     },
-    [t, workbench.filter, workbench.payload?.sessions, workbench.runningOnly],
+    [
+      databaseOptions,
+      t,
+      workbench.databaseName,
+      workbench.filter,
+      workbench.payload?.sessions,
+      workbench.runningOnly,
+    ],
   );
   const capability = workbench.payload?.capability || {
     supported: false,

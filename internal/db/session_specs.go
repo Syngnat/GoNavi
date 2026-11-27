@@ -175,7 +175,7 @@ func oracleSessionSpec() sessionSpec {
 		engine:     "oracle",
 		capability: capability,
 		listQuery: `SELECT s.inst_id AS instance_id, s.sid AS session_id,
-s.serial# AS serial_number, s.service_name AS database_or_tenant,
+s.serial# AS serial_number, s.username AS database_or_tenant,
 s.username AS user_name, s.status AS state, s.sql_id AS query_id,
 s.last_call_et * 1000 AS duration_ms, NVL(q.sql_text, '') AS statement
 FROM gv$session s

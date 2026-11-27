@@ -103,8 +103,20 @@ vi.mock('./SessionConfirmModal', () => ({ default: () => null }));
 import SessionWorkbench from './SessionWorkbench';
 
 const sessions = [
-  { key: 'running', sessionId: '1', state: 'Query', statement: 'SELECT SLEEP(30)' },
-  { key: 'idle', sessionId: '2', state: 'Sleep', statement: '' },
+  {
+    key: 'running',
+    sessionId: '1',
+    state: 'Query',
+    statement: 'SELECT SLEEP(30)',
+    databaseOrTenant: 'shop',
+  },
+  {
+    key: 'idle',
+    sessionId: '2',
+    state: 'Sleep',
+    statement: '',
+    databaseOrTenant: 'shop',
+  },
 ];
 
 const buildWorkbench = (runningOnly: boolean, overrides: Record<string, unknown> = {}) => ({
@@ -186,6 +198,106 @@ describe('SessionWorkbench running-only shortcut', () => {
 
     expect(harness.toolbarProps.runningOnly).toBe(true);
     expect(harness.tableProps.sessions.map((session: { key: string }) => session.key)).toEqual(['running']);
+  });
+
+  it('keeps suspended requests while hiding idle sessions', () => {
+    harness.workbench = buildWorkbench(true, {
+      payload: {
+        engine: 'sqlserver',
+        capability: {
+          supported: true,
+          canCancelQuery: false,
+          canTerminateSession: true,
+          terminateTarget: 'sessionId',
+        },
+        sessions: [
+          {
+            key: 'suspended',
+            sessionId: '1',
+            state: 'suspended',
+            statement: 'SELECT 1',
+            databaseOrTenant: 'shop',
+          },
+          {
+            key: 'idle',
+            sessionId: '2',
+            state: 'sleeping',
+            statement: '',
+            databaseOrTenant: 'shop',
+          },
+        ],
+      },
+    });
+    render();
+
+    expect(harness.tableProps.sessions.map((session: { key: string }) => session.key)).toEqual(['suspended']);
+  });
+
+  it('narrows rows to the selected database before applying text and run filters', () => {
+    harness.workbench = buildWorkbench(true, {
+      databaseName: 'shop',
+      filter: 'SELECT',
+      payload: {
+        engine: 'mysql',
+        capability: {
+          supported: true,
+          canCancelQuery: true,
+          canTerminateSession: true,
+          terminateTarget: 'sessionId',
+        },
+        sessions: [
+          {
+            key: 'shop-query',
+            sessionId: '1',
+            state: 'Query',
+            statement: 'SELECT 1',
+            databaseOrTenant: 'shop',
+          },
+          {
+            key: 'shop-idle',
+            sessionId: '2',
+            state: 'Sleep',
+            statement: 'SELECT 2',
+            databaseOrTenant: 'shop',
+          },
+          {
+            key: 'archive-query',
+            sessionId: '3',
+            state: 'Query',
+            statement: 'SELECT 3',
+            databaseOrTenant: 'archive',
+          },
+        ],
+      },
+    });
+    render();
+
+    expect(harness.tableProps.sessions.map((session: { key: string }) => session.key))
+      .toEqual(['shop-query']);
+  });
+
+  it('does not apply a stale scope value that is absent from the database picker', () => {
+    harness.workbench = buildWorkbench(false, {
+      databaseName: 'service-name',
+      databases: ['archive', 'shop'],
+      payload: {
+        engine: 'mysql',
+        capability: {
+          supported: true,
+          canCancelQuery: true,
+          canTerminateSession: true,
+          terminateTarget: 'sessionId',
+        },
+        sessions: [
+          { key: 'shop', sessionId: '1', state: 'Query', databaseOrTenant: 'shop' },
+          { key: 'archive', sessionId: '2', state: 'Sleep', databaseOrTenant: 'archive' },
+        ],
+      },
+    });
+    render();
+
+    expect(harness.tableProps.sessions.map((session: { key: string }) => session.key))
+      .toEqual(['shop', 'archive']);
   });
 
   it('enables bulk termination only for an active filter and snapshots eligible rows', () => {

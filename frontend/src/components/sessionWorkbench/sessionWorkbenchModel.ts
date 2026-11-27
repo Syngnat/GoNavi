@@ -105,6 +105,28 @@ export const sessionStateTone = (state: string | undefined): SessionStateTone =>
   return 'neutral';
 };
 
+const IN_FLIGHT_SESSION_STATES = [
+  'runnable', 'pending', 'rollback', 'queued', 'planning',
+  'starting', 'finishing', 'wait', 'fastpath function call',
+] as const;
+
+/**
+ * Whether the session currently owns unfinished query work. This is separate
+ * from `sessionStateTone`: the tone also colors blocked and suspended states,
+ * while the running-only view must include those requests without including
+ * idle transactions or terminated sessions.
+ */
+export const isSessionExecuting = (state: string | undefined): boolean => {
+  const value = text(state).toLowerCase();
+  if (!value) return false;
+  if (value.includes('idle in transaction')) return false;
+  const tone = sessionStateTone(value);
+  if (tone === 'idle' || tone === 'danger') return false;
+  return tone === 'active'
+    || tone === 'busy'
+    || stateIncludes(value, IN_FLIGHT_SESSION_STATES);
+};
+
 const record = (value: unknown): Record<string, unknown> => (
   value && typeof value === 'object' ? value as Record<string, unknown> : {}
 );

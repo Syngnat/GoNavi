@@ -45,6 +45,50 @@ func TestNormalizeSessionRowsMapsAliasesAndDuration(t *testing.T) {
 	}
 }
 
+func TestNormalizeSessionRowsPrefersProcesslistCommandOverPhase(t *testing.T) {
+	t.Parallel()
+
+	// SHOW FULL PROCESSLIST reports both Command (Query/Sleep) and State
+	// (Sending data, User sleep, ...). The command is the session lifecycle
+	// used by the run state filter; State is only the current execution phase.
+	rows := []map[string]interface{}{
+		{
+			"Id":      573,
+			"db":      "shop",
+			"User":    "root",
+			"Command": "Query",
+			"Time":    3,
+			"State":   "User sleep",
+			"Info":    "SELECT SLEEP(12)",
+		},
+	}
+
+	sessions := normalizeSessionRows(
+		sessionSpec{engine: "doris", durationUnit: sessionDurationSeconds},
+		rows,
+		"",
+	)
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(sessions))
+	}
+	if sessions[0].State != "Query" {
+		t.Fatalf("state = %q, want processlist command %q", sessions[0].State, "Query")
+	}
+	if sessions[0].DurationMs != 3000 {
+		t.Fatalf("duration = %d, want 3000", sessions[0].DurationMs)
+	}
+
+	// Engines that only report a state keep using it as the fallback.
+	fallback := normalizeSessionRows(
+		sessionSpec{engine: "test"},
+		[]map[string]interface{}{{"state": "Sending data"}},
+		"",
+	)
+	if fallback[0].State != "Sending data" {
+		t.Fatalf("fallback state = %q", fallback[0].State)
+	}
+}
+
 func TestNormalizeSessionRowsUsesFallbackAndDurationUnits(t *testing.T) {
 	t.Parallel()
 
