@@ -29,9 +29,9 @@
 
 1. **职责与边界**：侧栏负责智能体会话入口、对象筛选、表/视图复制粘贴；不负责连接管理、会话内容解析和同步任务调度。
 2. **真源**：智能体节点在 `frontend/src/components/sidebar/sidebarAgentTreeNodes.tsx`；剪贴板在 `useSidebarTableClipboard.ts`；视图复制后端在 `internal/app/methods_view_copy.go`；定义页签在 `frontend/src/components/definitionViewer/`。
-3. **运行时路径**：侧栏点击/快捷键 -> `addTab` 或对象动作 -> Wails `App` 方法 -> 驱动执行 DDL/读取定义 -> `gonavi:sidebar-database-refresh` 刷新侧栏与定义页签；删表成功另发 `gonavi:table-tabs-dropped` 关闭对应表数据页签。
-4. **状态与不变量**：`agent-integration` 不受表/视图筛选影响；视图复制要求同一连接，目标可跨数据库或模式，目标名从 `_copy1` 递增且不覆盖；`schemaChanged=true` 时定义页签必须重读；对象编辑页签的“保存”执行整段 DDL；`DROP TABLE` 成功后关闭对应的表数据页签（批删只关实际成功的表，查询页与设计页保留）。
-5. **失败语义**：定义读取失败不保留旧对象；视图定义不可读或跨库复制时返回明确错误；DDL 失败不触发定义刷新。
+3. **运行时路径**：侧栏点击/快捷键 -> `addTab` 或对象动作 -> Wails `App` 方法 -> 驱动执行 DDL/读取定义 -> `gonavi:sidebar-database-refresh` 刷新侧栏与定义页签；带 `schemaName` 且模式节点存在时只刷新对应模式，否则刷新整库；删表成功另发 `gonavi:table-tabs-dropped` 关闭对应表数据页签。
+4. **状态与不变量**：`agent-integration` 不受表/视图筛选影响；视图复制要求同一连接，目标可跨数据库或模式，目标名从 `_copy1` 递增且不覆盖；`schemaChanged=true` 时定义页签必须重读；对象编辑页签的“保存”执行整段 DDL；`DROP TABLE` 成功后关闭对应的表数据页签（批删只关实际成功的表，查询页与设计页保留）；强制刷新时必须等新元数据返回后再替换旧子树。
+5. **失败语义**：定义读取失败不保留旧对象；视图定义不可读或跨库复制时返回明确错误；DDL 失败不触发定义刷新；侧栏刷新失败或卡住时保留已加载的库/模式子树，不退化为空树。
 6. **验证**：`npx vitest run src/components/sidebar src/components/DefinitionViewer.object-edit.test.tsx`、`npx tsc --noEmit`、`go test ./internal/app ./shared/i18n`。
 
 已知边界：视图复制依赖宿主已有的视图 DDL 获取能力；智能体会话入口已在浏览器 mock、macOS 1.2.3 和当前源码验证，无条件“点击无反应”未复现。

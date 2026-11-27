@@ -148,6 +148,52 @@ describe('sidebar schema lazy loading', () => {
     expect(find(salesNode.key).children?.length).toBeGreaterThan(0);
   });
 
+  // 回归：执行 ALTER TABLE 后侧栏会做整库 ensureFresh。过去同样先清空库节点，
+  // schema 查询一失败或卡住，左侧树就一直空着，只能重连恢复。
+  it('keeps loaded database children when an ensureFresh database refresh fails', async () => {
+    mount();
+    await act(async () => { await loaders.loadTables(tree[0]); });
+    const salesNode = tree[0].children.find((node: any) => node.title === 'sales');
+    await act(async () => { await loaders.loadTables(salesNode); });
+    const previousChildren = tree[0].children;
+    expect(previousChildren?.length).toBeGreaterThan(1);
+
+    mocks.query.mockImplementation(async (_config, _database, sql: string) => {
+      if (sql.includes('FROM pg_namespace WHERE')) {
+        return { success: false, message: 'connection lost', data: [] };
+      }
+      return { success: true, data: [] };
+    });
+    await act(async () => { await loaders.loadTables(tree[0], { ensureFresh: true }); });
+
+    expect(tree[0].children).toBe(previousChildren);
+    expect(find(salesNode.key)?.children?.length).toBeGreaterThan(0);
+  });
+
+  it('keeps loaded database children while an ensureFresh database refresh is in flight', async () => {
+    mount();
+    await act(async () => { await loaders.loadTables(tree[0]); });
+    const previousChildren = tree[0].children;
+    let releaseSchemas!: (value: unknown) => void;
+    const pendingSchemas = new Promise((resolve) => { releaseSchemas = resolve; });
+    mocks.query.mockImplementation(async (_config, _database, sql: string) => {
+      if (sql.includes('FROM pg_namespace WHERE')) return pendingSchemas;
+      return { success: true, data: [] };
+    });
+
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = loaders.loadTables(tree[0], { ensureFresh: true });
+      await Promise.resolve();
+    });
+    try {
+      expect(tree[0].children).toBe(previousChildren);
+    } finally {
+      releaseSchemas({ success: true, data: [{ schema_name: 'public' }, { schema_name: 'sales' }] });
+      await act(async () => { await refresh; });
+    }
+  });
+
   it('database refresh only discovers schema names even when schema expansion was remembered', async () => {
     mount(); await act(async () => { await loaders.loadTables(tree[0]); });
     const publicNode = tree[0].children.find((node: any) => node.title === 'public');

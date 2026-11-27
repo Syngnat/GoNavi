@@ -111,9 +111,13 @@ export const useTableDesignerIndexEdits = ({
             ? (String(sqlText || '').trim() && splitSchemaExecutionStatements(sqlText, dbType).length > 0 ? [sqlText] : [])
             : splitSchemaExecutionStatements(sqlText, dbType);
         const refreshSchemaConsumers = () => {
+            const schemaName = supportsTableDesignerSchemaSelection
+                ? String(designerSchemaTitle || '').trim()
+                : '';
             dispatchSidebarDatabaseRefresh({
                 connectionId: tab.connectionId,
                 dbName: tab.dbName || '',
+                ...(schemaName ? { schemaName } : {}),
             });
         };
         if (

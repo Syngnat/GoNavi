@@ -186,13 +186,18 @@ export const useSidebarSchemaLoader = (input: Input) => {
     const schemaKeys = new Set((previous?.children || []).filter((child) => child.dataRef?.groupKey === 'schema').flatMap((child) => [String(child.key), ...collectSidebarSubtreeKeys(child)]));
     if (options.ensureFresh) {
       invalidateQueryEditorSessionMetadata(connection.id, connection.dbName);
-      setLoadedKeys((keys) => keys.filter((key) => key !== node.key && !String(key).startsWith(`${databaseKey}-`)));
-      replaceTreeNodeChildren(node.key, [queriesNode(connection)], connection);
     }
+    // 整库刷新也必须等 schema 和数据源作业都取到后再替换旧子树。
+    // 旧子树保留到替换那一刻，请求失败或卡住时不会只剩一个空库节点。
+    const resetStaleLoadedKeys = () => {
+      if (!options.ensureFresh) return;
+      setLoadedKeys((keys) => keys.filter((key) => key !== node.key && !String(key).startsWith(`${databaseKey}-`)));
+    };
     try {
       const [schemas, jobs] = await Promise.all([loadSchemas(connection, connection.dbName, DBQuery, true), loadDatabaseJobs(connection, connection.dbName)]);
       if (!lifecycle.current()) return;
       if (!schemas.supported) throw new Error(schemas.failureMessage || t('sidebar.message.load_table_list_failed', { error: '' }));
+      resetStaleLoadedKeys();
       const nodes: SidebarTreeNode[] = schemas.schemas.filter((schema) => visible(connection, schema)).map((schema) => ({
         key: sidebarSchemaNodeKey(databaseKey, schema), title: schema, icon: <GnFolderOpenIcon />, type: 'object-group', isLeaf: false,
         dataRef: { ...connection, schemaName: schema, groupKey: 'schema', schemaLazy: true, schemaLoaded: false },
